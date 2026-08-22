@@ -1775,19 +1775,22 @@ void main() {
   // instead — an S-curve on display values — pivots at 0.5, and almost nothing
   // in a dusk frame is anywhere near 0.5, so it only ever crushed the shadows.
   //
-  // PER CHANNEL, AND THAT IS NOW A DECISION WITH A LEDGER, NOT AN ACCIDENT.
-  // The per-channel form crushes whichever channel a saturated colour has the
-  // least of, which is why the Danelaw's #7c1420 shield board draws #9b0439 —
-  // hot magenta — and that defect stays OPEN. A luminance-preserving form was
-  // built and measured: it repairs the board (green 4 -> 11, frame luma +0.02)
-  // and it also lifts the Danelaw's dyed madder wraps back above the rose
-  // band's floor that this crush has been hiding them under — wrap@180 went to
-  // 46% rose share, +39 points over the unsworn floor, against a settlement of
-  // at-or-below everywhere. Three rounds of vat work were tuned UNDER this
-  // grade; changing it re-litigates all of them. The repair therefore ships as
-  // ONE UNIT with the wrap retune, gated by the lit probe on all bearings —
-  // docs/OPEN-DEFECTS.md carries the mechanism, the numbers and the plan.
-  hdr = uPivot * pow( max( hdr, vec3( 1e-5 ) ) / uPivot, vec3( uContrast ) );
+  // LUMINANCE-PRESERVING, AND THE UNIT THE LEDGER DEMANDED IS FINALLY PAID.
+  // The per-channel form that stood here crushed whichever channel a
+  // saturated colour had least of -- the Danelaw's #7c1420 shield board drew
+  // #9b0439, hot magenta -- and its ledger said the repair ships only as ONE
+  // UNIT with the vat retunes it re-exposes, because three rounds of vat work
+  // were tuned UNDER the crush. That unit is this merge: the clocked
+  // instruments (factionread's first finished walk + the clocked vatprobe,
+  // agreeing to the second decimal) showed the "settlement" the crush was
+  // protecting never existed -- the shipped tree already read 170 surface
+  // rows over floor -- so the grade is repaired and the vats are retuned
+  // against real readings beside it. Contrast turns about the pivot on LUMA
+  // and the channels scale together: a power on Y is the same clean
+  // exposure-slope change, and a colour's hue and chroma ratios survive it.
+  float Yg = dot( hdr, vec3( 0.2126, 0.7152, 0.0722 ) );
+  float Yc = uPivot * pow( max( Yg, 1e-5 ) / uPivot, uContrast );
+  hdr *= Yc / max( Yg, 1e-5 );
 
   // Highlight crosstalk: past the knee, colour is walked toward its own
   // strongest channel, so a flame core goes white-hot and the sky's ember band
