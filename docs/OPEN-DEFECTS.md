@@ -8,6 +8,45 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE SUTTON HOO TRIO — hair routes out under the closed curtain, and hoodfall PASSES whole — 22 Aug 2026
+
+The last three collapsed pairs (`hoodfall` §1): warden, runekeeper and
+berserker in the Sutton Hoo, where `hairFall` still said `return 0` — "a
+mask with no mail behind it has no hem to come out from under" — in a
+comment WRITTEN BEFORE the ventail curtain was closed on uncoifed heads.
+That closing (vHalf = pi, run to `vBot` to meet the collar) created exactly
+the free edge the comment denied. Third instance of the same wrong
+conclusion in one file; all three are now the same route: gathered inside
+the bag, out under its hem.
+
+- `maskHemY` hoisted (the curtain's own `vBot` expression, single source);
+- `hairFall` under an uncoifed mask: the coifed window, not zero;
+- `hairCeil`: descent pressed to the skin behind the head, released 30 mm
+  under the swept hem — the curtain's wall hangs below its table, and the
+  release boundary was WALKED DOWN in measured steps (0/18/30 mm: 37/26/26 mm
+  proud, 5.7/4.0/3.2%) rather than guessed;
+- the emergence swing is the route's own: 85 mm starting at the hem's depth
+  fraction, not the aventail's 190 mm at 0.16 — which had swung the gather
+  115 mm through the curtain wall;
+- plait rods take the nape route on every bag (`masked = style.mask ||
+  hooded`).
+
+**hoodfall: PASS — all 120 pairs are two objects**, the first clean sheet
+the gate has produced. hairmail 6/6, wearsweep 54/54.
+
+**The ruler's position, stated rather than smoothed:** helmclash §5 reads
+77 of 288 against main's 75. The two new rows are warden and runekeeper
+`suttonhoo hair=long` at 3.2%/[similar] — rows that were green ONLY because
+no hair existed there (a green because the case is absent), and that now
+read HALF the red of the huscarl's settled aventail route on the same helm
+(5.78%, pre-existing on main). The capture shows why it ships: the warden's
+mane emerging under the curtain onto his mail is the picture every
+reconstruction draws. The runekeeper's plaits are distinct in geometry but
+discreet behind his tall robe collar — nothing ugly, noted as taste.
+Captures: art/look/wearsweep/sutton-*.png.
+
+---
+
 ## THE SHADOW HOOD ROUTES HAIR OUT UNDER THE DRAPE — and the helm ruler holds byte-parity — 22 Aug 2026
 
 The standing backlog item ("Shadow Hood mantle geometry — route hair out")

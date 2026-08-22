@@ -14940,6 +14940,16 @@ export function buildCharacter(
    * ABOVE the hem they were supposed to emerge from.
    */
   const hoodHemY = skullY - R.y * 2.95;
+  /**
+   * The masked helm's ventail-curtain hem — the same expression the curtain's
+   * own `vBot` reads (hoisted here so the two cannot drift). On an uncoifed
+   * head the curtain closes fully and runs to this line to meet the collar;
+   * below it there is nothing but shoulder, which makes it the free edge the
+   * uncoifed-mask hair routes out under — the edge the old `return 0` in
+   * `hairFall` said did not exist, in a comment written before the curtain
+   * was closed.
+   */
+  const maskHemY = S.neckRoot - 0.014 - S.neckTop - 0.022;
   const hoodLift = (u: number, s: number) => 0.016 + 0.016 * s
     + 0.048 * (1 - s) * clamp01(-Math.cos(u))
     + 0.022 * Math.pow(1 - s, 1.5) * clamp01(Math.cos(u));
@@ -15082,6 +15092,25 @@ export function buildCharacter(
     // ring the ray happens to cross on its way out, and clamping to that ring
     // is what crushed 400 mm of hair back onto a neck. `coifSquash` holds the
     // fall inside the rings at its OWN height, which is the honest reader.
+    // THE CLOSED CURTAIN, uncoifed masks only: the descent is pressed to the
+    // skin behind the head — 10 mm, inside a curtain cut at 0.86-1.24 R — and
+    // released below the curtain's own hem, the same atY convention as every
+    // other free lower edge in this function. Restricted to the rear sector;
+    // the bagged window keeps the mass there anyway.
+    // 30 mm below the swept line, not at it: the curtain's wall hangs below
+    // `vBot`, so its PHYSICAL bottom edge is lower than the table's — hair
+    // released at the swept line read as 36 mm "through the helm" beside the
+    // metal on helmclash §5's inward ray. Walked down in measured steps
+    // (0 -> 18 -> 30 mm: 37 -> 26 -> 26 mm proud, 5.7 -> 4.0 -> 3.2% of the
+    // mane); past here the returns diminish because the residual is the
+    // emerging gather's own body beside the curtain's lowest rows — the same
+    // reading the huscarl's SETTLED aventail route gets on the same helm at
+    // 5.78%. The release happens under the metal, and the ledger carries the
+    // position.
+    if (style.mask && !coifed && awayFromFace(u) > 1.8
+      && (atY === undefined || atY > maskHemY - 0.030)) {
+      c = Math.min(c, 0.010);
+    }
     if (coifed && awayFromFace(u) > coifRim(0) - 0.16
       && (atY === undefined || atY > coifHemY)) {
       dirOf(u, v, _hcA);
@@ -15373,10 +15402,15 @@ export function buildCharacter(
     // hanging out of the face opening of a mail coif is the right picture. A
     // curtain doing the same thing is two bars framing a face.
     if (coifed) return smooth(2.26, 2.70, awayFromFace(u));
-    // A mask with no mail behind it closes the head on every bearing and has no
-    // hem to come out from under. See the four constructions in the file's own
-    // history, every one of which bought silhouette with hair through metal.
-    if (style.mask) return 0;
+    // A MASK WITH NO MAIL BEHIND IT STILL ENDS. The line that stood here —
+    // `return 0`, "no hem to come out from under" — was written before the
+    // ventail curtain was CLOSED on uncoifed heads (vHalf = pi, run to
+    // `maskHemY` to meet the collar). That closing created exactly the free
+    // edge this comment denied, and hoodfall §1 read the price of not using
+    // it: both paid hairstyles collapsed into one identical object on every
+    // uncoifed masked class. Same window as the coifed route — gathered
+    // inside the curtain where no bearing can see it, out under its hem.
+    if (style.mask) return smooth(2.26, 2.70, awayFromFace(u));
     // THE NAPE FALL'S RULE LIVES IN `hairCeil` AND IT USED TO LIVE HERE TWICE.
     //
     // What stood here was
@@ -16173,10 +16207,11 @@ export function buildCharacter(
         // see the long note there. One flag, one route, and the pair below is
         // opened wide enough that `hairFall` is the binding constraint rather
         // than the two of them tapering the same mass twice.
-        // A hood is a bag the head goes into, same as an aventail: the fall is
-        // held inside the cloth the whole way down and emerges at the HEM,
-        // swinging out onto the back below it. One route for both bags.
-        const baggedFall = coifed || hooded;
+        // A hood is a bag the head goes into, same as an aventail — and so is
+        // a closed ventail curtain on an uncoifed head. The fall is held
+        // inside the bag the whole way down and emerges at ITS hem, swinging
+        // out onto the back below. One route for all three bags.
+        const baggedFall = coifed || hooded || style.mask;
         const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
         const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
@@ -16223,6 +16258,34 @@ export function buildCharacter(
          * owns the shape anyway.
          */
         const MASK_SWING = 0.190;
+        /**
+         * WHERE THE SWING STARTS AND HOW FAR IT GOES ARE THE ROUTE'S OWN.
+         * The aventail pair — 0.16 depth, 190 mm — was measured on the
+         * huscarl's mail and stays byte-identical. The uncoifed mask's
+         * curtain hugs the neck and its hem sits at a different fraction of
+         * the fall, so the same pair swung the warden's mane 115 mm proud of
+         * the curtain at the nape ABOVE its hem (helmclash §5). There the
+         * swing starts at the hem's own depth fraction — computed from the
+         * nape root against `maskHemY`, the same arithmetic `maneReach`
+         * uses — and carries 85 mm, which is emergence, not a cape.
+         */
+        const _mrProf = new THREE.Vector3();
+        const uncoifedMask = style.mask && !coifed && !hooded;
+        let swingFrom = 0.16;
+        let swingAmt = MASK_SWING;
+        if (uncoifedMask) {
+          dirOf(Math.PI, maneRoot(Math.PI), _mrProf);
+          faceSurface(K, _mrProf, _mrProf);
+          const fallLen = Math.max(0.05, _mrProf.y + skullY - (maskHemY - 0.030) + MASK_SHOW);
+          const hemFrac = MANE_DEEP * Math.max(0, 1 - MASK_SHOW / fallLen);
+          // Strictly BELOW the hem: a lead-in above it swings the gather into
+          // the curtain wall — measured at 37 mm proud at the nape with a
+          // 0.05 lead — and the curtain is metal, not a coif whose rings the
+          // gather may press. The ramp still spreads over every station
+          // beneath the hem.
+          swingFrom = Math.min(MANE_DEEP - 0.02, hemFrac + 0.01);
+          swingAmt = 0.085;
+        }
         const maneProf = ([
           { o: 0.000, d: 0.000 },
           { o: 0.014, d: 0.046 },
@@ -16235,14 +16298,16 @@ export function buildCharacter(
           { o: -0.011, d: 0.068 },
           { o: 0.000, d: 0.000 },
         ] as const).map((b) => (baggedFall
-          ? { o: b.o + MASK_SWING * smooth(0.16, MANE_DEEP, b.d), d: b.d }
+          ? { o: b.o + swingAmt * smooth(swingFrom, MANE_DEEP, b.d), d: b.d }
           : { o: b.o, d: b.d }));
         const _mrA = new THREE.Vector3();
         const maneReach = (u: number) => {
           dirOf(u, maneRoot(u), _mrA);
           faceSurface(K, _mrA, _mrA);
           return Math.max(0.6, Math.min(2.4,
-            (_mrA.y + skullY - (hooded ? hoodHemY : coifHemY) + MASK_SHOW) / MANE_DEEP));
+            (_mrA.y + skullY
+              - (hooded ? hoodHemY : style.mask && !coifed ? maskHemY : coifHemY)
+              + MASK_SHOW) / MANE_DEEP));
         };
         let live = 0;
         for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - maneArc, Math.PI + maneArc, i / 48)));
@@ -16375,7 +16440,7 @@ export function buildCharacter(
           // was here before — under the hood both paid hairstyles collapsed
           // to one identical object (hoodfall §1, 7 pairs) because the rods
           // were deleted and the mane was clamped to the skull.
-          const masked = (style.mask && coifed) || hooded;
+          const masked = style.mask || hooded;
           const rootU = s2 * (masked ? 2.60
             : style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
@@ -18991,7 +19056,7 @@ export function buildCharacter(
           const chinPt = new THREE.Vector3();
           shell(0, chinV, maskLift(chinV), chinPt);
           const vTop = skullY + chinPt.y + 0.016;
-          const vBot = S.neckRoot - 0.014 - S.neckTop - 0.022;
+          const vBot = maskHemY;
           // Hung off the mask's own lower edge in z and falling back onto the
           // neck as it drops, so the curtain lies against the throat rather than
           // standing off it as a bib. Wider at the bottom because it lands on the
