@@ -13390,7 +13390,22 @@ export function buildCharacter(
     // ~13809) and his mane terminated dead at its top edge, 79.4% of hanging
     // vertices INSIDE (tools/wearsweep.mjs, art/look/wearsweep/). Reading the
     // registry means a garment cannot be worn and unseen at the same time.
-    for (const { sts, power } of worn) {
+    //
+    // EXCEPT UNDER A HARD HELM, where the OLD pair is read on purpose. Every
+    // helm stack in the shop was settled against the two-stack ride, and the
+    // registry's extra garments nudged plaits millimetres outboard under the
+    // Wyrm-Crest — enough to cross helmclash §5's 2% bar on rows that were
+    // green (75 -> 79 red). The registry serves the lenses it was built for:
+    // the bare head (the armoury, where the berserker's ruff was unseen) and
+    // the hood (whose whole route rides it). A hard helm's rows stay
+    // byte-for-byte the stack they were tuned on.
+    let readable = worn;
+    if (helmed && !hooded) {
+      readable = [];
+      if (shoulderStack) readable.push({ sts: shoulderStack, power: 2.2 });
+      if (trunkStack) readable.push({ sts: trunkStack, power: 2.3 });
+    }
+    for (const { sts, power } of readable) {
       // A layer only competes where it actually reaches — the same rule
       // `outer()` applies to a seated fitting, and for the same reason.
       if (y > sts[0]!.y + 1e-6 || y < sts[sts.length - 1]!.y - 1e-6) continue;
@@ -14914,6 +14929,17 @@ export function buildCharacter(
   // — and it was not one to the hair, which is the whole of the third fault.
   const hoodRim = (u: number) => -0.9 + 1.40 * Math.pow(clamp01((Math.cos(u) + 1) * 0.5), 2.2);
   const hoodCrown = Math.PI / 2 - 0.02;
+  /**
+   * The hood's LOWEST cloth — the shoulder drape's bottom station, the same
+   * `skullY - R.y * 2.95` the drape itself is swept to. Below this there is
+   * no cloth at all, so it is the height the hair's ceiling releases at:
+   * before it existed the hooded branch of `hairCeil` clamped a fall at
+   * EVERY height — the exact "a fall gets a garment's ceiling long after it
+   * has passed below that garment" the `atY` machinery was built to end —
+   * and `tools/hoodfall.mjs` §2 read the whole roster's manes ending ~300 mm
+   * ABOVE the hem they were supposed to emerge from.
+   */
+  const hoodHemY = skullY - R.y * 2.95;
   const hoodLift = (u: number, s: number) => 0.016 + 0.016 * s
     + 0.048 * (1 - s) * clamp01(-Math.cos(u))
     + 0.022 * Math.pow(1 - s, 1.5) * clamp01(Math.cos(u));
@@ -14971,7 +14997,7 @@ export function buildCharacter(
    */
   const hairCeil = (u: number, v: number, atY?: number): number => {
     let c = Infinity;
-    if (hooded) {
+    if (hooded && (atY === undefined || atY > hoodHemY)) {
       const a = hoodRim(u);
       // Capped at 22 mm however much room the cowl's point leaves. The hood is
       // three pieces — the cloth, the point behind the nape and the shoulder
@@ -15218,7 +15244,15 @@ export function buildCharacter(
     const eBare = Math.pow(Math.pow(Math.abs(out.x) / under.hw, p)
       + Math.pow(Math.abs(out.z) / under.hd, p), 1 / p);
     const t = smooth(rideTopY, rideTopY - 0.035, out.y);
-    const kBare = eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
+    // Unconditional containment ONLY where no helm stack claims the same
+    // vertex. The helm gates were settled against the old faded blend, and
+    // pushing hair fully out of the trunk garment under an open helm nudged
+    // the runekeeper's plaits through the Wyrm-Crest's envelope (helmclash
+    // §5: braids 1.24% -> 2.45%, over the bar). Bare-headed — the armoury
+    // lens, where the berserker's ruff crest carried 15-18 mm of buried
+    // mane — and under the hood, whose route was built on this containment,
+    // it stays unconditional.
+    const kBare = (!helmed || hooded) && eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
     const k = Math.max(1, kBare + t * (1 / e - kBare));
     out.x *= k; out.z *= k;
   };
@@ -15267,7 +15301,16 @@ export function buildCharacter(
    * cutoff is made of.
    */
   const hairFall = (u: number): number => {
-    if (hooded) return 0;
+    // A HOOD DOES NOT SWALLOW HAIR EITHER. `return 0` stood here on the same
+    // wrong conclusion the mask note below records un-learning: "the helm
+    // swallows hair like the hood does". The hood's drape ENDS — `hoodHemY` —
+    // and below it there is nothing but back. The route is the mask's route:
+    // full mass in the nape sector (the bagged window is the binding
+    // constraint), held inside the cloth by `hairCeil`'s hood clamp the whole
+    // way down, and out into open air under the drape's hem where the paid
+    // rung is. tools/hoodfall.mjs §2 read every hooded mane ending ~300 mm
+    // above the hem before this line changed.
+    if (hooded) return 1;
     // A MASK IS NOT A HOOD, AND THE DIFFERENCE IS A HEM.
     //
     // The Sutton Hoo closes the head on every bearing above the collar — a
@@ -16130,7 +16173,10 @@ export function buildCharacter(
         // see the long note there. One flag, one route, and the pair below is
         // opened wide enough that `hairFall` is the binding constraint rather
         // than the two of them tapering the same mass twice.
-        const baggedFall = coifed;
+        // A hood is a bag the head goes into, same as an aventail: the fall is
+        // held inside the cloth the whole way down and emerges at the HEM,
+        // swinging out onto the back below it. One route for both bags.
+        const baggedFall = coifed || hooded;
         const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
         const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
@@ -16196,7 +16242,7 @@ export function buildCharacter(
           dirOf(u, maneRoot(u), _mrA);
           faceSurface(K, _mrA, _mrA);
           return Math.max(0.6, Math.min(2.4,
-            (_mrA.y + skullY - coifHemY + MASK_SHOW) / MANE_DEEP));
+            (_mrA.y + skullY - (hooded ? hoodHemY : coifHemY) + MASK_SHOW) / MANE_DEEP));
         };
         let live = 0;
         for (let i = 0; i <= 48; i++) live = Math.max(live, maneMass(mix(Math.PI - maneArc, Math.PI + maneArc, i / 48)));
@@ -16323,7 +16369,13 @@ export function buildCharacter(
           // `coifSquash` holds it there the whole way down. At 2.10 the rope
           // passed between the two curtains and the probe read 32 mm of plait
           // outside the ventail; at 2.52 it reads nothing.
-          const masked = style.mask && coifed;
+          // A hood takes the SAME nape route a masked coif does: the rope is
+          // inside cloth until it is level with the shoulder and comes out
+          // under the drape's hem, outboard and a little rearward. `continue`
+          // was here before — under the hood both paid hairstyles collapsed
+          // to one identical object (hoodfall §1, 7 pairs) because the rods
+          // were deleted and the mane was clamped to the skull.
+          const masked = (style.mask && coifed) || hooded;
           const rootU = s2 * (masked ? 2.60
             : style.cheek === "deep" && !style.mask ? cheekIn + 0.06 : 1.34);
           // A HOOD AND AN AVENTAIL ARE BAGS THE HEAD GOES INTO, AND A PLAIT
@@ -16347,7 +16399,7 @@ export function buildCharacter(
           // rope to come out. The huscarl's aventail is what creates the hem
           // this rung's hair uses, and he is the class the shop's portrait and
           // this gate are both shot on.
-          if (hooded || (style.mask && !coifed)) continue;
+          if (style.mask && !coifed) continue;
           if (coifed && !masked && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
           // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
           // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
@@ -16557,8 +16609,22 @@ export function buildCharacter(
       // classes keep the exact seat wearmeasure §5 settled; a class whose
       // registered garments stand wider gets the seat those garments demand.
       const bodySeat = seatY + S.neckTop;
-      const seatWorn = shoulderOut(bodySeat - 0.004);
-      const seatWorn60 = shoulderOut(bodySeat - 0.064);
+      // NOT UNDER A MASK. A masked helm closes the throat with its own
+      // ventail curtain, and the beard is INSIDE that curtain — the registry
+      // seat describes the garments UNDER the man's chin, and growing the
+      // seat to them pushed the runekeeper's beard through the Sutton Hoo's
+      // closed curtain (helmclash §5: the pre-existing 21-27 mm spill at the
+      // curtain's hem tripled to 75-76, and the short-beard rungs went red
+      // at 30.8 mm). Under a mask the curtain is the outermost thing at the
+      // throat and the settled constant is the seat the curtain was cut for.
+      // …and the hood counts as a helm HERE even though the mane's ride
+      // treats it separately: the drape closes over the throat exactly as a
+      // ventail does, and the registry seat pushed even the short beard
+      // 62 mm through its front (helmclash §5, hood hair=shaved rows). The
+      // registry seat serves the BARE head — the armoury lens the berserker
+      // fix was made at — and nothing else.
+      const seatWorn = style.mask || helmed || hooded ? null : shoulderOut(bodySeat - 0.004);
+      const seatWorn60 = style.mask || helmed || hooded ? null : shoulderOut(bodySeat - 0.064);
       const seatR = Math.max(
         Math.max(S.neckHW * 0.86, S.neckHD * 0.80) + 0.048,
         (seatWorn?.hd ?? 0) + 0.006,
