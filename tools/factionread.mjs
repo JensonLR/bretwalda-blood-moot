@@ -2114,7 +2114,11 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
         const key = floorKey(fr.cls, fr.finish.id, fr.turn);
         const fpx = floorPx.get(key);
         if (!fpx) die(`§7.1b has no unsworn frame for ${key}`);
-        const { masks, counts } = masksFor(fr.cls, fr.turn, fr.finish);
+        // The SIXTH unmigrated call of the capture-first refactor — the five
+        // in §6 were moved to pass the frame's own staged subject; this one in
+        // §7.1b kept the old arity and died at hour two-and-a-half, after
+        // §7.1's verdict and before the per-surface table it exists for.
+        const { masks, counts } = masksFor(fr.cls, fr.turn, fr.finish, fr.subject);
         for (const surf of MASK_SURFACES) {
           const m = masks[surf];
           const n = counts[surf].eroded;
