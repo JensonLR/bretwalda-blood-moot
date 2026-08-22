@@ -8,6 +8,52 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE ARMOURY-WIDE HANG SWEEP — every falling cosmetic against what the class actually wears — 21 Aug 2026
+
+The owner, with the huscarl fix fresh: *"I hope a check through the full
+armoury items & any ugly overlaps or sticking out elements is on the list."*
+It is now a gate: `tools/wearsweep.mjs`, 54/54 — hair (long and plaits) x
+four classes x every cloak dye, and every hanging beard x four classes, with
+two collapse assertions (armour finish moves no station; cloak dyes share one
+topology but are DIFFERENT GARMENTS, 0.43 m apart at the worst coordinate,
+so every dye is swept).
+
+**What it caught on first run — the owner's defect class, on other bodies:**
+
+- The berserker's mane terminated DEAD at his fur mantle's top edge — 79.4%
+  of hanging vertices inside his trunk. The fitting exempted him as `bare`,
+  and the exemption's own comment claimed he "genuinely wears nothing on his
+  trunk that hair could lie on". Refuted by his own build: the fur ruff
+  registers 55 mm off the spine at line ~13809.
+- His braided beard dived through the jerkin at the sternum (28.6%), and the
+  runekeeper's plaits were swallowed by the Gilded cloak's rolled band.
+
+**The fix is structural, not another table:** `shoulderOut` now reads the
+torso's own WORN REGISTRY — the list every garment already registers itself
+in — so a garment cannot be worn and unseen at once. The beard's seat
+derives from the same registry (the old constants were huscarl mail carried
+everywhere, floored so the armoured classes keep the seat wearmeasure §5
+settled). The cloak's collar roll joins the registry early, computed from
+cut and skeleton, so plaits ride it. And the ride's 60 mm blend now fades
+only the STANDOFF — containment is unconditional, because a partial blend
+was preserving 15–18 mm of violation on the ruff's fast-growing crest; at a
+coif's hem the new form reduces byte-for-byte to the old one, and `hairmail`
+held 6/6 across the change.
+
+**Instrument honesty, three designs deep** (the header of wearsweep.mjs
+carries the full account): ray parity is undefined against the pelt's open
+sheet (two rays fix it); binary membership convicts fur nesting into fur
+(depth fixes it — 8 mm hard armour, 20 mm on the all-fur berserker trunk,
+measured against the 24 mm lock cones and the shipped defect's 40+); and the
+analytic registry test was tried and thrown out because a garment's swept
+cross-section includes the neck opening, which convicts every beard hanging
+correctly down an open collar.
+
+Captures: `art/look/wearsweep/` before/after pairs. `wearmeasure` PASS with
+its standing ungated-window note; helm-stack gates re-run with the merge.
+
+---
+
 ## THE PAIRED PROXY PROBE RAN — and convicted the INSTRUMENT, not the proxy — 21 Aug 2026
 
 The residual entry's prescribed step — "the same paired probe with the shadow
