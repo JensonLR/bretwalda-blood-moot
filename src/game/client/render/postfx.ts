@@ -1809,6 +1809,20 @@ void main() {
   float crossK2 = uCrossKnee * uCrossKnee;
   hdr = mix( hdr, vec3( peak ), ( peak2 / ( peak2 + crossK2 ) ) * uCrosstalk );
 
+  // THE FILMIC STAYS PER CHANNEL, and that is a measured decision, twice.
+  // A luma filmic (curve on Y, channels in ratio) was built for the shield
+  // board and SAMPLED: the stripes read #900030/#a00040 at hue 336-340
+  // before it and after it, to the bucket — the magenta is not made here.
+  // Nor is it made by the contrast pow above (also neutralised, also
+  // sampled). What bends garnet magenta is the SCENE: the arena's key is a
+  // cool moon (KEY_BASE 0xd6e2f2) and a cool key on a blue-over-green red
+  // returns more blue than green — the same add-on-warm/cancel-on-cool
+  // asymmetry factionread's own §7.1 note describes. The board's pigment is
+  // FACTION_FIELD.norse, the Danelaw's identity colour across the map, the
+  // banners and the UI, and authoring a lit-variant of a people's field is
+  // an owner-level call the vat comments already reserve. The ledger carries
+  // the clocked evidence; a frame-wide curve change that provably does not
+  // move the defect does not ship on its account.
   vec3 col = clamp( filmicCurve( hdr ) * uWhiteScale, 0.0, 1.0 );
 
   // ---- the metered response ------------------------------------------------
