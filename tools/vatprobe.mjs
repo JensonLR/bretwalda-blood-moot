@@ -65,6 +65,7 @@ import { fileURLToPath } from "url";
 import { makeBand, roseShare, labOf, chromaOf, hueOfLab, arcTo, ARC } from "./lib/roseband.mjs";
 import { surfaceMasks, patchLab, MIN_PIXELS } from "./lib/surfacemask.mjs";
 import { loadClient } from "./lib/clientmodule.mjs";
+import { installVirtualClock, FRAME_MS } from "./lib/vclock.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // `--noproxy` — the paired arm the shadow-proxy residual entry prescribes:
@@ -126,6 +127,15 @@ const browser = await chromium.launch({
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
 });
 const ctx = await browser.newContext({ viewport: { width: LENS.w, height: LENS.h }, deviceScaleFactor: 1 });
+// THE CLOCK, AT LAST. This probe's header spends a paragraph measuring its
+// own noise — 0.202% vs 0.193% on the whole man, "treat a point of a
+// per-surface reading as noise" — and the clocked gate's first finished walk
+// showed that per-surface noise was actually ±10-30 POINTS on small surfaces
+// (buff@0 read +34.6, +28.5, +2.0, +32.2 across four unclocked runs of two
+// configurations). All of it was the fire's phase. With the same fixed world
+// the full gate stages, two captures of one subject are one picture, and a
+// ten-minute row is finally a reading rather than a sample.
+await ctx.addInitScript(installVirtualClock, FRAME_MS);
 const page = await ctx.newPage();
 const band = makeBand(FACTION_FIELD.norse);
 
