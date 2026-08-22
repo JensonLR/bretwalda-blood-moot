@@ -854,8 +854,17 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     paint: 0x14100e, pattern: "staves", device: "norse",
     dye: {
       cloth:   { sat: 0.74, bias: 0.66, lo: 0.08, hi: 0.28 },
-      wrap:    { sat: 0.48, bias: 0.70, lo: 0.10, hi: 0.12 },
-      leather: { sat: 0.56, bias: 0.68, lo: 0.06, hi: 0.26 },
+      // THE WRAP AND THE LEATHER ARE RETUNED AGAINST CLOCKED READINGS, as the
+      // grade ledger demanded: the per-channel crush had been holding both
+      // under the rose band's floor, and the luma-preserving grade re-exposed
+      // what the vat actually does — wrap@180 read +42.5 points of rose over
+      // its own unsworn floor, wrap@90 +11.4, buff@0 +16.6 (clocked vatprobe,
+      // agreeing with factionread to the second decimal). Darker and less
+      // dyed is not a compromise here, it is the brief: "more metal, darker
+      // wools" — the wrap drops toward the darkest wool on the roster and the
+      // leather back toward undyed buff, and the Danelaw contrast SHARPENS.
+      wrap:    { sat: 0.30, bias: 0.58, lo: 0.10, hi: 0.12 },
+      leather: { sat: 0.28, bias: 0.66, lo: 0.06, hi: 0.26 },
       // "More metal" is a statement about how MUCH iron he has and how bright
       // it is, not about what colour it is. 0.07 and a lift: near-white steel
       // over the darkest wools on the roster, which is the contrast the
