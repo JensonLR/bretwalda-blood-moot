@@ -1662,11 +1662,28 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
 
     let shots = 0;
     const litFrames = [];
+    /**
+     * §6.0c's accumulator, REBUILT after the per-dress-mask refactor deleted
+     * it and left the check reading a ghost (`dressDrift is not defined`,
+     * two hours into the first full run since). Its meaning survives the
+     * refactor in a weaker, still-true form: masks are now cut per frame
+     * from each frame's own dress, so drift can no longer corrupt a
+     * denominator — but a page that stages different dresses across one run
+     * is still a failed STAGE, and it is still worth failing out loud.
+     * `armor` and `people` are excluded (`dressKey` already excludes armor;
+     * people varies by design in the sweep) — everything else must hold.
+     */
+    const dressDrift = [];
     const capture = async (q) => {
       await page.goto(`${server.origin}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
       await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
       const got = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
       if (got.refused) die(`the page refused the stage: ${got.refused} (${q})`);
+      if (STAGED_SUBJECT && got.subject) {
+        const want = dressKey(STAGED_SUBJECT).replace(/people=[^ ]+ ?/, "");
+        const wore = dressKey(got.subject).replace(/people=[^ ]+ ?/, "");
+        if (want !== wore) dressDrift.push(`${q} — wore ${wore}`);
+      }
       const buf = await page.screenshot({ timeout: 300000 });
       shots++;
       return { subject: got.subject, px: await page.evaluate(async (b64) => {
