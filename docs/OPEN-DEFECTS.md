@@ -8,6 +8,36 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE TEN-MINUTE PROBE AGREES WITH THE TWO-HOUR GATE, TO THE SECOND DECIMAL — 22 Aug 2026
+
+`vatprobe` now stages the same fixed world as `factionread` §6
+(`tools/lib/vclock.mjs`, extracted verbatim; the two elder copies stay in
+place with their lineage). Verified the way the baseline entry prescribed:
+
+- **Repeatable**: two back-to-back runs of `armor_steel norse huscarl` —
+  every SWORN cell byte-identical, and only three unsworn cells at 180°
+  wobble, worst 0.76 points on the 395 px buff. Against the ±10-30 points
+  the unclocked probe carried, the fire's phase was the whole of the noise.
+  (The 180° unsworn residue is one surviving unfixed source — small enough
+  to iterate under, noted for whoever wants the last decimal.)
+- **Agrees with the gate**: the probe's buff@0 row reads **31.19% vs
+  1.36% = +29.83** — exactly §7.1b's worst row from the full walk.
+
+The iteration loop for the rose settlement is therefore OPEN: ten-minute
+rows that are readings. The target table on the shipped tree, clocked:
+
+```
+  buff @ 0°    +29.83     wrap @ 180°  +25.25
+  mail @ 180°  +10.36     mail @ 0°     +6.44
+  buff @ 90°    +2.94     (wrap @ 0°/90° read NEGATIVE — the unsworn
+                           madder wraps are rosier than the sworn)
+```
+
+Colour moves next — the luma grade and the buff/wrap retunes as one unit,
+tuned in this loop, verdict by the full gate.
+
+---
+
 ## THE CLOCKED ROSE BASELINE — the first full §7 walk that ever finished, and what it actually found — 22 Aug 2026
 
 Four attempts and three latent tool crashes deep (the §6 refactor's ghosts:
