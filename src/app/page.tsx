@@ -41,6 +41,9 @@ import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
   syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
+import { readCreds } from "./profileLink";
+import Dispatch, { takeWatermark } from "../game/client/factionMap/Dispatch";
+import type { WarViewData } from "../game/client/factionMap/WarMap";
 // Statically imported, unlike the canvas: this module builds no AudioContext
 // until a gesture and pulls in nothing else, so the landing screen pays a
 // couple of kilobytes for it and the FIRST tap on the page is already a sound.
@@ -199,6 +202,37 @@ export default function Page() {
    * hang and would trade one bad experience for another.
    */
   const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
+  /**
+   * THE DISPATCH, ON THE TITLE SCREEN — backlog 5.13 in its own words: "a man
+   * who has not opened the map still learns the map moved". The component,
+   * the server-minted watermark and the quiet-war-draws-nothing behaviour all
+   * live in `factionMap/Dispatch.tsx` and are reused as-is; this screen only
+   * fetches the same `/api/war` the map does, in a promise callback, after
+   * the landing has painted. The watermark cache is module-level, so a visit
+   * that reads the news here and then opens the map sees ONE consistent
+   * "since you were away" on both — and the news retires on the next visit,
+   * not mid-session.
+   */
+  const [warDispatch, setWarDispatch] = useState<{
+    war: WarViewData; mine: string | null; seen: number | null;
+  } | null>(null);
+  useEffect(() => {
+    fetch("/api/war", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(readCreds() ?? {}),
+    })
+      .then((res) => res.json() as Promise<{ mode?: string; war?: WarViewData; self?: { allegiance?: string | null } | null }>)
+      .then((body) => {
+        if (body.mode === "local" || !body.war) return;
+        const seen = takeWatermark(
+          body.war.season.index,
+          body.war.recent.reduce((m, f) => Math.max(m, f.at), 0),
+        );
+        setWarDispatch({ war: body.war, mine: body.self?.allegiance ?? null, seen });
+      })
+      .catch(() => { /* a quiet landing beats a blocked one */ });
+  }, []);
   const [playerName, setPlayerName] = useState("");
   /**
    * What the forged name MEANS, shown under the field. A generator that hands
@@ -1977,6 +2011,14 @@ export default function Page() {
               <Users size={20} /> JOIN BATTLE
             </button>
           </div>
+
+          {/* What moved while you were away — draws nothing when the war is
+              quiet or unread, so the landing pays no height for a slow wire. */}
+          {warDispatch && (
+            <div className="mx-auto w-full max-w-[26rem]">
+              <Dispatch war={warDispatch.war} mine={warDispatch.mine} seen={warDispatch.seen} />
+            </div>
+          )}
 
           <div className="mx-auto flex w-full max-w-[26rem] flex-col gap-3">
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
