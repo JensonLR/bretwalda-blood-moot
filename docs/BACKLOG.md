@@ -39,7 +39,7 @@ minute. They are cheap and they are all visible.
 |---|---|---|
 | 1.1 | **Hands/wrists on all four classes rotated ~180°** — look broken and twisted | **DONE** — `282eaeb` "Land the rig: hands, the axe's bit, the shield's finish" |
 | 1.2 | **Axe needs 90° anticlockwise** | **DONE** — same commit |
-| 1.3 | **Corpses float mid-air** when a round is still running | **LIKELY DONE** — the collapse-with-weight pass (`6f01941`, 19 Aug, in main) settles bodies; UNVERIFIED on sloped grounds (the moor merged after it) — wants one kill capture there |
+| 1.3 | **Corpses float mid-air** when a round is still running | **DONE, VERIFIED ON SLOPE 24 Aug 2026** — the collapse-with-weight pass (`6f01941`) settles bodies, and the capture the LIKELY asked for exists: `gorehead --ground pict_moor` (`art/look/moorkill/`) shows the beheaded man grounded on the moor's uneven floor — knees, boots and torso in contact, the severed head resting IN a peat hollow, nothing hovering |
 | 1.4 | **Long Mane + huscarl + helm** → two front strands only; other classes bald at the sides and nothing at the back | **DONE 22 Aug** — the bagged routes: coif, hood and closed curtain are one mechanism; see 0.4 |
 | 1.5 | **Results table snubs equal players by alphabetical order** — same kills, more rounds won, still placed 2nd for coins and rank | **DONE** — `rankEntrants`: "Rounds, then kills, and NOTHING ELSE — no name, no id, no arrival"; ties share a place |
 | 1.6 | **Rounds won must be recorded in the end-of-game table** and must feed ranking and payout | **DONE** — `roundsWon` on every ledger row, `data-rounds` in the table, place feeds the purse |

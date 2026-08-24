@@ -8,6 +8,42 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE BRITON'S MINT IS DEAD — and the mechanism was the CONE, not the vat, which is why three chroma cuts could not touch it — 24 Aug 2026
+
+The set-aside observation ("neon-mint Briton on the fightcard") is closed, and
+the diagnosis cost more than the fix because the first three cuts were aimed at
+the wrong lever:
+
+**The mechanism.** `factionDye` sums a surface's own chroma with the vat's and
+`HUE_CONE` (8°) snaps the SUM onto the field's hue. The issued kit's warm
+literals (wrap 0x8b7c5c oat, C*~0.20) therefore come out of a cool people's vat
+with their own chroma REBRANDED green — whatever the row's `sat` says. The
+Saxon never sees this (weld sits beside oat, the vectors add along the same
+arc); the Danelaw's escape on these surfaces is that his bands are DARK. The
+Briton shipped with the palest bands of the four, and pale + rebranded green +
+the arena's turf bounce = mint at the ankle. Value is the one lever the row
+owns, so his wrap and leather take the Norse's shape (dark), his metal drops
+under the Saxon's warm cast (sat 0.09), and the "lighter kit" two-value check
+moves to the LINEN — a near-white base with no chroma to rebrand, the only
+surface that can stay pale and quiet.
+
+**Measured, both instruments:** rear-shin lit read #7aab79 → #65845b (moss
+wool, not glow); vatprobe per-surface means all muted (wrap #56563c at 0°);
+factionread §1.1 SWORN unchanged at 2.42 (worst row is a Saxon warden, not
+Briton); §1.2/§1.3 standing reds byte-identical (norse–pict 6.16, norse
+Bretwalda Gold −34.72° — untouched, owner-level per their own ledgers); and
+the §5.1b/5.2b briton collapse count IMPROVES 8 → 6 pairs with the free-refund
+on hide cleared (attributed by running the counter on both trees).
+
+**The instrument lesson, twice in one hunt:** a probe that fed `finishKit` the
+string "issued" measured a default kit that exists nowhere (the real base is
+FINISH_KIT[0x5f6b7a]), and a green-pixel counter drawn over the card counted
+the arena's own turf. Both produced confident wrong answers before
+`surfacemask`'s per-mesh attribution named the wrap. Captures:
+`art/look/fightbriton/`.
+
+---
+
 ## THE ROMAN FORT SHIPS — and the floor took five cuts because a grid below vertex Nyquist does not blur, it ALIASES — 24 Aug 2026
 
 The third ground (`roman_fort`, Britons' muster, backlog 5.7b) is merged:

@@ -900,9 +900,34 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
     paint: 0xc4c0aa, pattern: "check", device: "briton",
     dye: {
       cloth:   { sat: 0.42, bias: 1.00, lo: 0.12, hi: 0.22 },
-      wrap:    { sat: 0.26, bias: 0.96, lo: 0.18, hi: 0.34 },
-      leather: { sat: 0.34, bias: 1.00, lo: 0.20, hi: 0.40 },
-      metal:   { sat: 0.16, bias: 1.12, lo: 0.22, hi: 0.64 },
+      // THE MINT WAS VALUE, NOT CHROMA, and it took three blind chroma cuts
+      // to learn why they could not work: `factionDye` sums the base's own
+      // chroma with the vat's and `HUE_CONE` (8°) then snaps the SUM onto
+      // the field's hue — so the issued wrap's oat-tan (0x8b7c5c, C~0.20)
+      // is rebranded as GREEN chroma whatever this row's sat says. A people
+      // whose field opposes the warm kit literals cannot desaturate its way
+      // out; the Saxon never sees this (weld sits beside oat) and the
+      // Danelaw only escapes rose on these surfaces because his bands are
+      // DARK. Value is the one lever the row still owns, so both rows take
+      // the Norse's shape: dark moss wraps and dark green leather, and the
+      // "lighter kit" two-value check is carried by the LINEN — a near-white
+      // base with no chroma to rebrand, which is why it alone can stay pale
+      // and quiet. The fightcard mint at the ankle is the whole ledger:
+      // `art/look/fightbriton/`, 24 Aug 2026.
+      wrap:    { sat: 0.10, bias: 0.60, lo: 0.10, hi: 0.15 },
+      leather: { sat: 0.22, bias: 0.62, lo: 0.10, hi: 0.20 },
+      // A byrnie stays IRON, west of the dyke too. This row shipped at
+      // sat 0.16 / bias 1.12 / hi 0.64 — the most chromatic and the most
+      // lifted metal of the four — and the fightcard photographed what that
+      // buys: a JADE hauberk over greaves ramping to pale MINT at the ankle,
+      // the whole man one green (`art/look/fightbriton/`, 24 Aug 2026). §2's
+      // "slate and grey-green" splits by surface — slate is the METAL, the
+      // grey-green is his WOOL — and green chroma reads as paint on steel at
+      // a level where the Saxon's warm 0.12 still reads as iron, because
+      // there is no green iron to lend it plausibility. So: chroma under the
+      // Saxon's, the "lighter kit" lift kept but the ceiling pulled down to
+      // where the greave ramp tops out as bright steel rather than mint.
+      metal:   { sat: 0.09, bias: 1.08, lo: 0.22, hi: 0.56 },
       linen:   { sat: 0.18, bias: 0.94, lo: 0.20, hi: 0.36 },
     },
   },

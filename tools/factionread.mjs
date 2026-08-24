@@ -174,10 +174,18 @@ const SHEET = has("sheet");
 
 const results = [];
 let failed = 0;
-function check(name, pass, detail) {
-  results.push({ name, pass, detail });
+function check(name, pass, detail, rows) {
+  results.push(rows?.length ? { name, pass, detail, rows } : { name, pass, detail });
   if (!pass) failed++;
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  // The fourth argument sat at §6.0c's call site through a full clocked run
+  // before anything printed it — three drifted captures reported as a COUNT,
+  // unattributable five and a half hours later. A failing check's evidence
+  // rows print with the verdict or they are not evidence.
+  if (!pass && rows?.length) {
+    for (const r of rows.slice(0, 20)) note(String(r));
+    if (rows.length > 20) note(`… and ${rows.length - 20} more rows`);
+  }
 }
 const note = (s) => console.log(`        ${s}`);
 const die = (m) => { console.error(`[faction] ${m}`); process.exit(2); };
