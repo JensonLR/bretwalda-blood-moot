@@ -329,13 +329,20 @@ function buildCamp(ctx: GroundBuildContext): void {
   // ---- the fire: a cauldron over it, because an army eats ----
   {
     const fire = new THREE.Group();
+    // Fire-ring stones in the fort's lesson, pre-applied: the catalog rock is
+    // a pale boulder under the dusk key, and at kerb scale cut 4 photographed
+    // WHITE CUBES around the fire. Dark, sunk to their shoulders, sooted by a
+    // winter of use.
+    const kerbMat = (materials.get("rock") as THREE.MeshStandardMaterial).clone();
+    kerbMat.color.setHex(0x33373c);
+    ctx.ownedMats.push(kerbMat);
     const stones: THREE.Matrix4[] = [];
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2 + rng() * 0.2;
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + rng() * 0.25;
       const d = 1.25 + rng() * 0.15;
-      stones.push(place(Math.cos(a) * d, 0.02, Math.sin(a) * d, rng() * Math.PI, 0.16 + rng() * 0.1));
+      stones.push(place(Math.cos(a) * d, -0.06, Math.sin(a) * d, rng() * Math.PI, 0.15 + rng() * 0.12));
     }
-    field(own(new THREE.BoxGeometry(1.0, 0.6, 0.8)), materials.get("rock"), stones);
+    field(own(new THREE.BoxGeometry(1.0, 0.6, 0.8)), kerbMat, stones);
     const logs: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 5; i++) {
       const l = new THREE.CylinderGeometry(0.08, 0.1, 1.25, 7);
