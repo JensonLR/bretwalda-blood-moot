@@ -1049,6 +1049,24 @@ export default function Page() {
     });
   }, [playerName, selectedMode, bestOf, friendlyMoot, friendlyGround, warTerritory, ensureTransport, sendMsg, showError]);
 
+  /**
+   * FIND A FIGHT — backlog 4.7. One press: the engine seats you in the
+   * fullest open public room or founds one, you arrive ready, and the muster
+   * starts itself when a second stranger lands. No code, no lobby ritual.
+   */
+  const handleQuick = useCallback(async () => {
+    if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
+    setBusy(true);
+    localStorage.setItem("bretwalda_name", playerName);
+    void syncName(playerName);
+    const ok = await ensureTransport();
+    if (!ok) { setBusy(false); return; }
+    sendMsg("quickplay", {
+      name: playerName,
+      appearance: profileRef.current.appearance, awaitLoad: true,
+    });
+  }, [playerName, ensureTransport, sendMsg, showError]);
+
   const handleJoin = useCallback(async () => {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
     if (!joinCode.trim()) { showError("Enter a room code!"); return; }
@@ -2008,8 +2026,12 @@ export default function Page() {
                 {nameGloss}
               </p>
             )}
-            <button onClick={() => setScreen("create")} disabled={busy}
+            <button data-snd="confirm" onClick={handleQuick} disabled={busy}
               className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
+              <Swords size={20} /> FIND A FIGHT
+            </button>
+            <button onClick={() => setScreen("create")} disabled={busy}
+              className="btn-ghost w-full !min-h-[3.75rem] !text-lg">
               <Swords size={20} /> CREATE BATTLE
             </button>
             <button onClick={() => setScreen("join")} disabled={busy}

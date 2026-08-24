@@ -462,6 +462,40 @@ engine.stop?.();
     engine.stop?.();
   }
 
+// ---- FIND A FIGHT: strangers meet, the muster runs itself — backlog 4.7 ----
+{
+  const engine = mk({ autoTick: false });
+  // A private room first, so the matcher has something it must NOT touch.
+  const host = seat(engine);
+  host.send("create", { name: "Private", mode: "blood_moot", bestOf: 1, awaitLoad: false });
+  const privateCode = host.last("join")?.data.code;
+
+  const q1 = seat(engine);
+  q1.send("quickplay", { name: "Stray", awaitLoad: false });
+  const j1 = q1.last("join");
+  check("a quickplayer with nobody waiting founds a public room — never somebody's private lobby",
+    !!j1?.data.code && j1.data.code !== privateCode && j1.data.public === true,
+    `landed in ${j1?.data.code} (private was ${privateCode}), public=${j1?.data.public}`);
+
+  const q2 = seat(engine);
+  q2.send("quickplay", { name: "Wanderer", awaitLoad: false });
+  const j2 = q2.last("join");
+  check("the second stranger is seated at the same fire",
+    j2?.data.code === j1?.data.code, `${j2?.data.code} vs ${j1?.data.code}`);
+
+  const started = stepUntil(engine, () => q1.last("game_state")?.data.state === "fighting", 30);
+  check("and the muster starts the fight itself — no host, no start message, no ready pressed by hand",
+    started, started ? "fighting" : `still ${q1.last("game_state")?.data.state ?? q1.last("lobby_update")?.data.state ?? "lobby"}`);
+
+  const q3 = seat(engine);
+  q3.send("quickplay", { name: "Latecomer", awaitLoad: false });
+  const j3 = q3.last("join");
+  check("a latecomer to a running fight founds the next fire rather than being refused",
+    !!j3?.data.code && j3.data.code !== j1?.data.code && j3.data.public === true,
+    `landed in ${j3?.data.code}`);
+  engine.stop?.();
+}
+
 // ---- THE ROOM SEES THE COUNTRY, NOT ONE FIELD OF IT ----
 //
 // The owner, 24 Aug 2026: "work into when each map should be played… so

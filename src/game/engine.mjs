@@ -189,6 +189,14 @@ const SUMMARY_HOLD = 10;        // seconds the tableau holds before the room is 
                                 // lobby again — render/summary.ts stages the
                                 // victor over a corpse for exactly this window
 const SOLO_DEAL_DELAY = 0.8;    // a beat between joining a trial and the ring
+/**
+ * How long a PUBLIC room's lobby holds once a second free man is seated —
+ * backlog 4.7's quickplay muster. Long enough for a third and fourth stranger
+ * to land in the same fight, short enough that two men who came to fight are
+ * fighting inside a breath. Rides the lobby's own `phaseAt`, the same
+ * machinery a solo trial deals itself with.
+ */
+const QUICK_MUSTER = 12;
                                 // being dealt, so a client has a frame of lobby
                                 // to draw instead of being thrown into a fight
 
@@ -1967,6 +1975,8 @@ export function makeEngine(options = {}) {
       // The stake, on every snapshot: a joiner, the lobby and the summary all
       // have to know whether the war is watching this room.
       friendly: !!room.friendly,
+      /** Raised by quickplay: strangers may be seated here. See handleQuickplay. */
+      public: !!room.public,
       players, hostId: room.hostId, countdown: room.countdown, matchTimer: room.matchTimer,
       maxPlayers: room.maxPlayers, killFeed: room.killFeed.slice(-10), lastStandTriggered: room.lastStandTriggered,
       // Room setup, so a lobby screen can render what it is about to start.
@@ -2160,6 +2170,7 @@ export function makeEngine(options = {}) {
     switch (type) {
       case "create": return handleCreate(sid, data);
       case "join": return handleJoin(sid, data);
+      case "quickplay": return handleQuickplay(sid, data);
       case "solo": return handleSolo(sid, data);
       // Both of these were reachable AT ANY TIME, and both were exploits.
       //
@@ -2288,6 +2299,8 @@ export function makeEngine(options = {}) {
           room.phaseAt = 0;
           startRound(room);
         } else {
+          // A public muster needs its second man: if he just left, stand down.
+          armQuickMuster(room);
           sendLobbyUpdate(room);
         }
       }
@@ -2295,10 +2308,72 @@ export function makeEngine(options = {}) {
     s.roomCode = null; s.playerId = null;
   }
 
+  /**
+   * FIND A FIGHT — backlog 4.7's matchmaking, in the engine's own grain.
+   *
+   * A quickplayer is seated in the fullest OPEN public room of his mode, or
+   * founds one if none stands — so pools coalesce instead of fragmenting —
+   * and he arrives READY, because he came to fight, not to press a button.
+   * Only rooms quickplay itself raised are ever matched into: a room made
+   * with a code is a room among friends, and strangers do not walk into it
+   * (`room.public` is set on exactly one path). The muster then runs itself:
+   * see QUICK_MUSTER and `armQuickMuster` — no host press is waited for,
+   * though the host keeps every power he normally has.
+   *
+   * Public rooms are WAR rooms, never friendly: two strangers' fight is
+   * exactly the fight the map exists to count, and the two-human anti-farm
+   * gate is satisfied by construction, because the muster will not start on
+   * fewer.
+   */
+  function handleQuickplay(sid, data) {
+    const s = sessions.get(sid);
+    if (!s) return;
+    const mode = data.mode === "war_band" || data.mode === "honour_duel" ? data.mode : "blood_moot";
+    const open = [...rooms.values()]
+      .filter((r) => r.public && r.state === "lobby" && r.mode === mode && humanCount(r) < r.maxPlayers)
+      .sort((a2, b2) => humanCount(b2) - humanCount(a2))[0];
+    if (open) handleJoin(sid, { ...data, code: open.code });
+    // A race can fill the room between the filter and the join; the failed
+    // join leaves the session roomless, and the answer is the same as no
+    // room at all: raise a fresh one.
+    if (!sessions.get(sid)?.roomCode) {
+      // Marked through a closure, not the wire: `public` must be true before
+      // the join snapshot leaves (a client draws "open to strangers" off it),
+      // and it must be a thing no crafted create message can claim.
+      nextCreatePublic = true;
+      handleCreate(sid, { ...data, mode, friendly: false, territoryId: undefined, arena: undefined });
+    }
+    const room = rooms.get(sessions.get(sid)?.roomCode ?? "");
+    if (room) {
+      const p = room.players.get(sessions.get(sid)?.playerId ?? "");
+      if (p) p.ready = true;
+      armQuickMuster(room);
+      sendLobbyUpdate(room);
+    }
+  }
+
+  /**
+   * Arms or stands down a public lobby's self-start. Called wherever the
+   * human count moves: a quickplay seat taken, a man leaving. Idempotent.
+   */
+  function armQuickMuster(room) {
+    if (!room || !room.public || room.state !== "lobby") return;
+    if (humanCount(room) >= 2) {
+      if (!room.phaseAt) room.phaseAt = simMs + QUICK_MUSTER * 1000;
+    } else {
+      room.phaseAt = 0;
+    }
+  }
+
+  /** Set by handleQuickplay for exactly one create; read and cleared here. */
+  let nextCreatePublic = false;
+
   function handleCreate(sid, data) {
     const s = sessions.get(sid);
     if (!s) return;
     leaveRoomForSession(s);
+    const isPublic = nextCreatePublic;
+    nextCreatePublic = false;
     const name = String(data.name || "Warrior").substring(0, 20);
     const mode = data.mode || "blood_moot";
     let code = generateCode();
@@ -2328,7 +2403,7 @@ export function makeEngine(options = {}) {
 
     const room = {
       code, mode, state: "lobby", arena: "saxon_village",
-      friendly, pinnedTerritory: pinned, chosenArena,
+      friendly, pinnedTerritory: pinned, chosenArena, public: isPublic,
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
@@ -4226,9 +4301,12 @@ export function makeEngine(options = {}) {
     if (!room.phaseAt || simMs < room.phaseAt) return;
     switch (room.state) {
       // A solo trial deals itself a beat after the join, so a client has a
-      // frame of lobby to draw before the ring is stood up.
+      // frame of lobby to draw before the ring is stood up — and a PUBLIC
+      // room's muster lands here too, so it re-checks the one condition the
+      // muster was armed on: the second man may have left mid-count.
       case "lobby":
         room.phaseAt = 0;
+        if (room.public && humanCount(room) < 2) return;
         startMatch(room);
         return;
       // THE MUSTER RAN OUT. Twelve seconds was the budget and it is spent, so
