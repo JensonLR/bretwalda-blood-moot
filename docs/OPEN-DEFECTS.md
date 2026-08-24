@@ -743,7 +743,17 @@ ladder wants a queue population first.
 ---
 
 
-## OPEN — `summaryflow`'s duel press fails about one run in three, and the assertion argues with the design — 21 Aug 2026
+## CLOSED 24 Aug 2026 — `summaryflow`'s duel press: the repair below was built exactly as prescribed, and three consecutive runs read 5/5
+
+The overlay now publishes a one-bit mount mark (`__summaryUp`, an effect flag
+— no layout cost on a thread that can barely draw), and the press waits on it
+with the park window's remainder as its budget; a box that cannot mount the
+overlay in time reports the pair NOT RUN, named, the same honesty the
+flourish rows have always had. Three consecutive duel-phase runs on this box:
+5/5, 5/5, 5/5, with only the pre-existing flourish skip. The entry below is
+kept for the diagnosis, which was exact.
+
+## The original entry — `summaryflow`'s duel press fails about one run in three, and the assertion argues with the design — 21 Aug 2026
 
 Six runs on the merged tip, same box, same window:
 
@@ -1209,7 +1219,34 @@ nobody, and it carries a clean ΔE spread across all seven finishes.
 ---
 
 
-## OPEN — the nape-guard flare, round two: the ruler now reads a RUN, and what is left is the skull-to-neck corner — 21 Aug 2026
+## OPEN — the nape-guard flare, round three: the prescribed corner blend was BUILT AND MEASURED NULL, and the peak is not where round two thought — 24 Aug 2026
+
+Round two's prescription ("`withNeck`'s ceiling needs to blend, not cliff")
+was implemented twice over and the flare column did not move a tenth:
+
+- The ceiling's hard cut now FADES over 30 mm (kept — it is anatomically
+  right and costs nothing) — wyrm 40.5° before and after, to the decimal.
+- Printing `flareU/flareV` located the real peak at the guard's FORWARD
+  BOTTOM edge (u=0.000, v=0.933) — the SUBMANDIBULAR corner at the side of
+  the neck, not the occiput the entry named.
+- A muscle-line slope fill (25° off vertical, the trapezius/SCM line) was
+  then built for the side-and-rear sector: the wyrm still did not move a
+  tenth, and the suttonhoo REGRESSED 23.0° → 52.2° (hard sector edge) → 40.8°
+  (tapered edge) — the fill's own boundary becomes the next cliff, and the
+  wyrm's peak samples never touch the filled bins at all. REVERTED.
+
+So the corner is not in the radial table. The wyrm's immovable 40.5 under
+two independent table changes says its flare pair reads something else —
+most likely the MARCH: `skinGap` walks inward along the ring's own wall
+normal, and at the guard's bottom rim that normal has a large vertical
+component, so the pair may difference two marches that leave the table's
+covered latitudes entirely (censoring excludes only the 75 mm cap, not a
+short-but-wrong hit). The next round instruments the march itself — print
+az/el and the fHere/fNext pair at the peak before touching any surface. The
+bar stays 22; the gap column (23.4 vs 26) and the photograph still say the
+PLATE is fine.
+
+## Round two, kept for its numbers — the ruler now reads a RUN, and what is left is the skull-to-neck corner — 21 Aug 2026
 
 **The ruler is repaired; the defect is narrowed, not closed.** The flare column
 differentiated the plate's standoff across a single 12 mm step, while its own

@@ -6152,11 +6152,30 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
    */
   const NST = neckStations(S);
   let neckR: Float64Array | null = null;
+  let neckW: Float64Array | null = null;
   const withNeck = (src: SkinRadii): SkinRadii => {
     const out: SkinRadii = { na: src.na, ne: src.ne, r: Float64Array.from(src.r) };
-    if (!neckR || neckR.length !== src.na * src.ne) {
+    if (!neckR || !neckW || neckR.length !== src.na * src.ne) {
       const nr = new Float64Array(src.na * src.ne);
+      const nw = new Float64Array(src.na * src.ne);
       const ceil = -K.R.y * 0.35;
+      /**
+       * THE CORNER, NO LONGER A CLIFF — the open half of the nape-guard
+       * ledger entry, closed where its own note said to close it. The
+       * ceiling used to DISCARD any neck bearing whose exit rose above the
+       * skull's lower third, so between one elevation bin and the next the
+       * form fell off the neck's full radius onto the receding skull — and
+       * the flare column, which reads the angle a plate holds over a RUN,
+       * read that cliff as the PLATE leaving. A real occiput is not a
+       * cliff: the trapezius and the deep neck muscles carry the neck's
+       * radius up into the skull base over a few centimetres. So the neck's
+       * contribution now FADES across that band instead of vanishing at it
+       * — full below the ceiling, gone thirty millimetres above — and the
+       * jaw stays protected by the fade's own top. The DRAWN plate solves
+       * on the exact ellipses and never read this table; this is the
+       * ruler's anatomy catching up with the object it judges.
+       */
+      const CORNER = 0.030;
       for (let ei = 0; ei < src.ne; ei++) {
         const el = -Math.PI / 2 + ((ei + 0.5) / src.ne) * Math.PI;
         const cy = Math.cos(el), sy = Math.sin(el);
@@ -6164,16 +6183,24 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
         for (let ai = 0; ai < src.na; ai++) {
           const az = -Math.PI + ((ai + 0.5) / src.na) * Math.PI * 2;
           const t = neckReach(S, NST, Math.sin(az) * cy, sy, Math.cos(az) * cy);
-          // The height the ray leaves the neck at, and the same ceiling the
-          // cylinder was held to: a bearing whose exit is up inside the mandible
-          // is describing the jaw, not the throat.
-          if (t <= 0 || t * sy > ceil) continue;
+          // The height the ray leaves the neck at: below the ceiling it is
+          // throat and carries full weight; inside the corner band it is the
+          // blend; above the band it is jaw, and the neck says nothing.
+          if (t <= 0) continue;
+          const exitY = t * sy;
+          if (exitY > ceil + CORNER) continue;
           nr[ei * src.na + ai] = t;
+          nw[ei * src.na + ai] = exitY <= ceil ? 1 : 1 - (exitY - ceil) / CORNER;
         }
       }
       neckR = nr;
+      neckW = nw;
     }
-    for (let k = 0; k < out.r.length; k++) if (neckR[k] > out.r[k]) out.r[k] = neckR[k];
+    for (let k = 0; k < out.r.length; k++) {
+      if (!(neckW[k] > 0)) continue;
+      const aug = out.r[k] + (neckR[k] - out.r[k]) * neckW[k];
+      if (aug > out.r[k]) out.r[k] = aug;
+    }
     return out;
   };
   const at = (o: WornShellSpec, t: number, s: number, drop: number, out: THREE.Vector3) => {

@@ -3393,6 +3393,17 @@ function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFight
 }) {
   const rows = data.results as LedgerRow[];
   const mine = rows.find((r) => r.id === playerId);
+  // A one-bit mount mark for the capture harness, the same shape as
+  // `__groundBuilt`: `summaryflow`'s FIGHT-AGAIN press has to land inside the
+  // server's ten-second park window, and on a software rasteriser the only
+  // honest way to time it is off the overlay actually existing — polling the
+  // DOM for header text costs layout on a main thread that can barely draw.
+  // Set in an effect (mount fact, not render side-effect); cleared on unmount
+  // so a second summary in one session reads true again for its own reasons.
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__summaryUp = true;
+    return () => { (window as unknown as Record<string, unknown>).__summaryUp = false; };
+  }, []);
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
       {/* A SCRIM, BECAUSE A TEXT SHADOW IS NOT CONTRAST.
