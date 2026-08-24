@@ -173,6 +173,42 @@ function buildMoor(ctx: GroundBuildContext): void {
     root.add(fire);
   }
 
+  // ---- the boundary dyke ----
+  //
+  // THE EDGE OF THE FIGHT, MADE VISIBLE — the owner's report, 24 Aug 2026:
+  // the village shows its palisade, but here "players would get stuck at an
+  // invisible wall on the edge". The sim clamps a body at 18 m; this stands a
+  // broken drystone dyke just OUTSIDE that at 18.5, so the clamp reads as
+  // being stopped at the wall rather than by nothing. Field granite laid dry
+  // and half fallen — the one structure a moor has ever had — in arcs with
+  // gaps, because a boundary that reads as a built ring would be a second
+  // palisade and this ground's identity is that nobody built it a fence.
+  // Decoration, not a solid: it lives outside the play bound where no body
+  // can reach it, so the router never hears of it.
+  {
+    const blocks: THREE.Matrix4[] = [];
+    const ARCS: ReadonlyArray<readonly [number, number]> = [
+      [0.15, 1.25], [1.75, 2.6], [3.05, 4.15], [4.6, 5.3], [5.65, 6.1],
+    ];
+    for (const [a0, a1] of ARCS) {
+      const along = Math.ceil(((a1 - a0) * 18.5) / 0.46);
+      for (let i = 0; i < along; i++) {
+        const a = a0 + ((i + 0.5) / along) * (a1 - a0);
+        // The dyke dies toward its gaps, as a robbed wall does.
+        const endT = Math.min(i, along - 1 - i) / Math.max(1, along - 1);
+        const courses = 1 + Math.round(Math.min(1, endT * 4) * (1 + rng()));
+        for (let c = 0; c < courses; c++) {
+          const d = 18.5 + (rng() - 0.5) * 0.22;
+          const x = Math.cos(a) * d + (rng() - 0.5) * 0.1;
+          const z = Math.sin(a) * d + (rng() - 0.5) * 0.1;
+          blocks.push(place(x, footing(x, z, 0.3) - 0.08 + c * 0.21, z,
+            a + Math.PI / 2 + (rng() - 0.5) * 0.3, 0.2 + rng() * 0.1));
+        }
+      }
+    }
+    field(own(new THREE.BoxGeometry(2.1, 1.05, 1.4)), materials.get("rock"), blocks, null, true);
+  }
+
   // ---- heather, and the rocks it grows between ----
   //
   // Scattered on the SAME stream the village draws its props from, in build

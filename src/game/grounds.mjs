@@ -961,11 +961,17 @@ const DANE_SHIP = raisedStone({
  */
 function campBank(x, z) {
   const r = Math.hypot(x, z);
-  if (r < 18.5 || r > 27.5) return 0;
+  if (r < 17.8 || r > 27.5) return 0;
   const inv = 1 / Math.max(r, 0.001);
   const toward = (x * CAMP_RIVER_UX + z * CAMP_RIVER_UZ) * inv;
   const open = smoothstep(0.45, 0.85, toward);
-  const band = smoothstep(19.0, 21.3, r) * (1 - smoothstep(21.8, 24.6, r));
+  // The toe of the bank starts AT the play bound, not a metre past it — the
+  // owner's report (24 Aug 2026): a body clamps at 18 m, and on the first cut
+  // nothing marked that line, so the edge of the fight was an invisible wall.
+  // Now the ground itself starts rising under a man's feet exactly where the
+  // sim stops him: he reads "the bank stopped me", which is what a camp's
+  // bank is FOR. The crest stays outside at 20.6.
+  const band = smoothstep(18.3, 20.6, r) * (1 - smoothstep(21.8, 24.6, r));
   return band * (1 - open);
 }
 

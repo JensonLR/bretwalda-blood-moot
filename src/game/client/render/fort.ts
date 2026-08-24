@@ -412,6 +412,38 @@ function buildFort(ctx: GroundBuildContext): void {
     root.add(g);
   }
 
+  // ---- the outer curtain's footing, robbed to the last course ----
+  //
+  // THE EDGE OF THE FIGHT, MADE VISIBLE — the owner's report, 24 Aug 2026:
+  // the sim clamps a body at 18 m and nothing marked it; the platform's fall
+  // only begins at 18.5, which a man reads as scenery, not as a wall. So the
+  // fort's OUTER wall line stands here as its own ruin: the footing course a
+  // stone-robber leaves because it is bedded too deep to be worth the crow
+  // bar, one to two courses, running the whole ring with breaches. A body
+  // pressed to the clamp is pressed against dressed stone. Outside the play
+  // bound, so it is decoration to the router — same law as the moor's dyke.
+  {
+    const blocks: THREE.Matrix4[] = [];
+    const ARCS: ReadonlyArray<readonly [number, number]> = [
+      [0.0, 0.9], [1.15, 2.35], [2.6, 3.6], [3.9, 4.9], [5.15, 6.05],
+    ];
+    for (const [a0, a1] of ARCS) {
+      const along = Math.ceil(((a1 - a0) * 18.35) / 0.5);
+      for (let i = 0; i < along; i++) {
+        const a = a0 + ((i + 0.5) / along) * (a1 - a0);
+        const endT = Math.min(i, along - 1 - i) / Math.max(1, along - 1);
+        const courses = 1 + (rng() < Math.min(1, endT * 3) * 0.6 ? 1 : 0);
+        for (let c = 0; c < courses; c++) {
+          const d = 18.35 + (rng() - 0.5) * 0.18;
+          const x = Math.cos(a) * d, z = Math.sin(a) * d;
+          blocks.push(place(x, footing(x, z, 0.3) - 0.1 + c * 0.26, z,
+            a + Math.PI / 2 + (rng() - 0.5) * 0.12, 0.26 + rng() * 0.06));
+        }
+      }
+    }
+    field(own(new THREE.BoxGeometry(1.9, 1.0, 1.5)), stoneMat, blocks, null, true);
+  }
+
   // ---- the campfire on the flags ----
   //
   // The hazard, made visible: a garrison fire in a kerb of reused building

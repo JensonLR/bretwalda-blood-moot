@@ -464,6 +464,29 @@ function buildCamp(ctx: GroundBuildContext): void {
     field(own(new THREE.BoxGeometry(0.16, 1.5, 0.13)), materials.get("palisade"), stakes, null, true);
   }
 
+  // ---- the stake line along the waterfront ----
+  //
+  // THE EDGE OF THE FIGHT ON THE OPEN ARC. The bank's toe now rises at the
+  // play bound on the land side (see `campBank`), but the D opens onto the
+  // river and there the clamp had nothing to be. A winter camp staked its
+  // waterline — against ice, boats and men — so a line of driven stakes runs
+  // the open arc just outside 18 m, leaning as driven stakes lean, with the
+  // odd one missing. A body stopped there is stopped at the camp's own
+  // perimeter. Decoration to the router, same law as the moor's dyke.
+  {
+    const stakes: THREE.Matrix4[] = [];
+    const A0 = FIELD.riverAngle - 1.15, A1 = FIELD.riverAngle + 1.15;
+    const n = Math.ceil(((A1 - A0) * 18.3) / 1.05);
+    for (let i = 0; i < n; i++) {
+      if (rng() < 0.12) continue;
+      const a = A0 + ((i + 0.5) / n) * (A1 - A0) + (rng() - 0.5) * 0.02;
+      const d = 18.3 + (rng() - 0.5) * 0.3;
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      stakes.push(place(x, footing(x, z, 0.2) + 0.42, z, rng() * Math.PI, 0.85 + rng() * 0.35));
+    }
+    field(own(new THREE.BoxGeometry(0.14, 1.15, 0.11)), materials.get("palisade"), stakes, null, true);
+  }
+
   // ---- reeds at the ice margin, driftwood on it, frost tufts on the dry ----
   {
     const reedGeo = (() => {

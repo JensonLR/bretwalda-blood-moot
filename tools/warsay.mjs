@@ -361,6 +361,84 @@ engine.stop?.();
       `dealt ${fj?.data.territory?.id}`);
     engine.stop?.();
   }
+
+// ---- THE ROOM SEES THE COUNTRY, NOT ONE FIELD OF IT ----
+//
+// The owner, 24 Aug 2026: "work into when each map should be played… so
+// people arent playing the same map over & over or never seeing other maps."
+// An unpinned room re-deals between matches, and the deal follows the war
+// front — which can concentrate on one people and hand a room the same arena
+// every night. `dealGroundFor` now redraws (twice, deterministically) when a
+// deal lands on the arena the room just fought. This drives one room through
+// six full match cycles and asserts no arena is fought twice running.
+{
+  const engine = mk({ autoTick: false });
+  const host = seat(engine);
+  host.send("create", { name: "Roamer", mode: "blood_moot", bestOf: 1, awaitLoad: false });
+  host.send("add_bot", { difficulty: "recruit" });
+  const arenas = [];
+  let cyclesRan = 0;
+  for (let cycle = 0; cycle < 6; cycle++) {
+    const lobby = stepUntil(engine, () => {
+      const s = host.last("lobby_update") ?? host.last("join");
+      return s?.data.state === "lobby" || s?.data.players !== undefined;
+    }, 30);
+    if (!lobby) break;
+    const room = [...engine._rooms.values()][0];
+    if (!room) break;
+    arenas.push(room.arena);
+    host.send("ready");
+    host.send("start");
+    const started = stepUntil(engine, () => host.last("game_state")?.data.state === "fighting", 30);
+    if (!started) break;
+    burn(engine, host);
+    const ended = stepUntil(engine, () => room.state === "lobby", 60);
+    if (!ended) break;
+    cyclesRan++;
+  }
+  const repeats = arenas.filter((a, i) => i > 0 && a === arenas[i - 1]).length;
+  check("an unpinned room never fights the same arena twice running while the front offers another",
+    cyclesRan === 6 && repeats === 0,
+    `${cyclesRan}/6 cycles, arenas dealt: ${arenas.join(" → ")}${repeats ? ` — ${repeats} immediate repeat(s)` : ""}`);
+  engine.stop?.();
+}
+
+// ---- A FRIENDLY MOOT CHOOSES ITS GROUND, AND ONLY A FRIENDLY MOOT ----
+//
+// The owner, 24 Aug 2026: "maybe choice to choose map location for certain
+// scenarios?" The friendly moot is the scenario — nothing at stake, so the
+// host picks where. A war room never gets the choice (the map or the deal
+// names its ground), and a forged ground id quietly gets the default, the
+// same shape as the forged-territory rule.
+{
+  const engine = mk({ autoTick: false });
+  const host = seat(engine);
+  host.send("create", { name: "Chooser", mode: "blood_moot", bestOf: 1, awaitLoad: false,
+    friendly: true, arena: "danelaw_camp" });
+  const j = host.last("join");
+  check("a friendly moot fights on the ground its host chose",
+    j?.data.arena === "danelaw_camp", `arena=${j?.data.arena}`);
+
+  const forged = seat(engine);
+  forged.send("create", { name: "Forger2", mode: "blood_moot", bestOf: 1, awaitLoad: false,
+    friendly: true, arena: "not_a_ground" });
+  const fj = forged.last("join");
+  check("a forged ground id gets the default, not a crash",
+    fj?.data.arena === "saxon_village", `arena=${fj?.data.arena}`);
+
+  const war = seat(engine);
+  war.send("create", { name: "Warrior3", mode: "blood_moot", bestOf: 1, awaitLoad: false,
+    arena: "danelaw_camp" });
+  const wj = war.last("join");
+  const dealt = wj?.data.territory?.id;
+  const expected = dealt ? undefined : null; // resolved below against the deal
+  check("a WAR room ignores a sent arena — the deal names its ground, not the host",
+    !!dealt && wj?.data.arena !== undefined
+      && wj.data.arena === (TERRITORIES.some((t) => t.id === dealt) ? wj.data.arena : "saxon_village")
+      && (wj.data.arena !== "danelaw_camp" || TERRITORIES.find((t) => t.id === dealt)?.people === "norse"),
+    `dealt ${dealt}, arena=${wj?.data.arena}`);
+  engine.stop?.();
+}
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}: the war says what it did — ${pass}/${pass + fail}\n`);

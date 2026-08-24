@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 // — "obstacle decoration" blocks, "decoration decoration" does not. This module
 // contributes the tick order and nothing else; see the wiring note in
 // `gameTick`, and `tools/solidtest.mjs` for the gate on it.
-import { getGround, groundForPeople, DEFAULT_GROUND_ID } from "./grounds.mjs";
+import { getGround, groundForPeople, GROUNDS, DEFAULT_GROUND_ID } from "./grounds.mjs";
 import { resolveSolids } from "./solidground.mjs";
 // THE WAR, and this is the whole of the engine's knowledge of it.
 //
@@ -2034,13 +2034,36 @@ export function makeEngine(options = {}) {
     // the war is not watching, so no territory is dealt, nothing will bank,
     // and the lobby has nothing to name. The arena falls back to the default
     // rather than to a people's own ground for the same reason.
-    if (room.friendly) { room.territoryId = null; room.arena = DEFAULT_GROUND_ID; return; }
+    if (room.friendly) { room.territoryId = null; room.arena = room.chosenArena || DEFAULT_GROUND_ID; return; }
     // A ROOM RAISED FROM THE MAP FIGHTS WHERE THE MAP SAID. `pinnedTerritory`
     // is set at creation from a validated id — the whole point of the "fight
     // for this ground" button is that the promise survives from the map to the
     // lobby to the bell, so a pinned room never re-deals, not even between
     // matches: the players came here to fight for THAT ground.
-    room.territoryId = room.pinnedTerritory || dealTerritory(`${++matchOrdinal}:${simMs}`, warFront);
+    //
+    // AND AN UNPINNED ROOM DOES NOT SEE ONE PLACE TWICE RUNNING. The owner,
+    // 24 Aug 2026: "work into when each map should be played… so people arent
+    // playing the same map over & over or never seeing other maps." The deal
+    // draws from the four most contested territories, and when the front
+    // concentrates on one people that is the same ARENA every match — four
+    // grounds built and a room could still live its whole life in one. So a
+    // re-deal that lands on the arena the room just fought re-draws, up to
+    // twice, with the draw's own seed extended — deterministic for a given
+    // room history, and never a lie about the map: every draw is still a
+    // legal deal from the same front. If the front truly offers one ground,
+    // the third draw stands and the room fights there again, honestly.
+    if (room.pinnedTerritory) {
+      room.territoryId = room.pinnedTerritory;
+    } else {
+      const ordinal = ++matchOrdinal;
+      let pick = dealTerritory(`${ordinal}:${simMs}`, warFront);
+      for (let redraw = 1; redraw <= 2 && room.lastArena; redraw++) {
+        const t0 = territory(pick);
+        if (!t0 || groundForPeople(t0.people) !== room.lastArena) break;
+        pick = dealTerritory(`${ordinal}:${simMs}:r${redraw}`, warFront);
+      }
+      room.territoryId = pick;
+    }
     // AND THE ARENA FOLLOWS THE GROUND. `arena` was the string "saxon_village"
     // typed at both room-creation sites, so a territory could never have
     // brought its own place with it. It resolves through one table now
@@ -2049,6 +2072,9 @@ export function makeEngine(options = {}) {
     // edit instead of a hunt through this file. See `GROUND_BY_PEOPLE`.
     const t = territory(room.territoryId);
     room.arena = t ? groundForPeople(t.people) : DEFAULT_GROUND_ID;
+    // What the NEXT deal must avoid. Written on every path through here —
+    // friendly and solo rooms above never re-deal, so they never read it.
+    room.lastArena = room.arena;
   }
 
   /** The named ground on a snapshot, or null. Nothing here is a number. */
@@ -2270,10 +2296,20 @@ export function makeEngine(options = {}) {
     // the normal deal, not a crash and not a fake ground.
     const friendly = data.friendly === true;
     const pinned = !friendly && territory(data.territoryId) ? String(data.territoryId) : null;
+    // A FRIENDLY MOOT MAY CHOOSE ITS GROUND — the owner, 24 Aug 2026: "maybe
+    // choice to choose map location for certain scenarios?" This is the
+    // scenario: the war is not watching, so nothing an arena means to the map
+    // is at stake, and friends settling things may pick where. A WAR room
+    // never gets this — the map names the ground or the deal does, because a
+    // ground is a people's country and choosing it IS the war layer's job.
+    // Validated against the real table; anything else quietly gets the
+    // default, same shape as the forged-territory rule above.
+    const chosenArena = friendly && typeof data.arena === "string" && GROUNDS[data.arena]
+      ? String(data.arena) : null;
 
     const room = {
       code, mode, state: "lobby", arena: "saxon_village",
-      friendly, pinnedTerritory: pinned,
+      friendly, pinnedTerritory: pinned, chosenArena,
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
@@ -2334,7 +2370,10 @@ export function makeEngine(options = {}) {
     while (rooms.has(code)) code = "SOLO" + generateCode();
 
     const room = {
-      code, mode: "solo", state: "lobby", arena: "saxon_village",
+      code, mode: "solo", state: "lobby",
+      // Training on the ground you will fight on: the same validated choice a
+      // friendly moot gets, because a trial is the other war-less scenario.
+      arena: typeof data.arena === "string" && GROUNDS[data.arena] ? String(data.arena) : "saxon_village",
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: 1, killFeed: [], lastStandTriggered: false,
       // Training is not a match: it has one endless round and pays nothing out.

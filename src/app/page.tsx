@@ -257,6 +257,8 @@ export default function Page() {
    * thing you choose.
    */
   const [friendlyMoot, setFriendlyMoot] = useState(false);
+  /** The friendly moot's chosen ground. War rooms never read this. */
+  const [friendlyGround, setFriendlyGround] = useState("saxon_village");
   /**
    * The ground this room was raised FOR, when the player came from the map's
    * "fight for this ground". Null is the ordinary case: the engine deals from
@@ -1041,8 +1043,11 @@ export default function Page() {
       // the client only ever ASKS.
       friendly: friendlyMoot,
       territoryId: warTerritory ?? undefined,
+      // A friendly moot may choose its ground (validated server-side); a war
+      // room never sends one — the map or the deal names it.
+      arena: friendlyMoot ? friendlyGround : undefined,
     });
-  }, [playerName, selectedMode, bestOf, ensureTransport, sendMsg, showError]);
+  }, [playerName, selectedMode, bestOf, friendlyMoot, friendlyGround, warTerritory, ensureTransport, sendMsg, showError]);
 
   const handleJoin = useCallback(async () => {
     if (!playerName.trim()) { showError("Enter your warrior name first!"); return; }
@@ -1578,6 +1583,7 @@ export default function Page() {
                   who knows he is about to take Deira off the Norse is fighting
                   for something; the same man told nothing is queueing. */}
               <GroundLine territory={roomState.territory} friendly={roomState.friendly}
+                arena={roomState.arena}
                 humans={Object.keys(roomState.players).filter((id) => !id.startsWith("bot_")).length} />
             </div>
 
@@ -2174,6 +2180,31 @@ export default function Page() {
                 </div>
               </button>
             </div>
+            {/* THE ONE ROOM THAT CHOOSES ITS GROUND — the owner, 24 Aug 2026:
+                "maybe choice to choose map location for certain scenarios?"
+                This is the scenario. A war room never shows this: the map or
+                the deal names its ground, because a ground is a people's
+                country and naming it is the war's job. The friendly moot has
+                nothing at stake, so friends pick where they meet. */}
+            {friendlyMoot && (
+              <div className="flex flex-col gap-2">
+                <div className="label-overline !text-[10px] text-[#a89a7c]">WHERE YOU MEET</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {([
+                    { id: "saxon_village", name: "The Village", hint: "firelit timber & thatch" },
+                    { id: "pict_moor", name: "The Moor", hint: "heather, standing stones" },
+                    { id: "roman_fort", name: "The Old Fort", hint: "ruined stone, high ground" },
+                    { id: "danelaw_camp", name: "The Winter Camp", hint: "frozen fen, a beached ship" },
+                  ]).map((g) => (
+                    <button key={g.id} onClick={() => setFriendlyGround(g.id)}
+                      className={`card card-interactive p-3 text-left ${friendlyGround === g.id ? "card-selected" : ""}`}>
+                      <div className="font-display text-[12px] tracking-wider text-amber-100">{g.name}</div>
+                      <div className="mt-0.5 text-[10px] leading-snug text-[#7d7057]">{g.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* One life was the whole match before this control existed. It is
@@ -3200,10 +3231,18 @@ type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: n
  * claim on somebody rather than as a place name, which is the whole difference
  * between a map and a backdrop.
  */
-function GroundLine({ territory, friendly, humans }: {
+/** The four grounds by wire id, for the one line that names a friendly's pick. */
+const ARENA_NAME: Record<string, string> = {
+  saxon_village: "The Village", pict_moor: "The Moor",
+  roman_fort: "The Old Fort", danelaw_camp: "The Winter Camp",
+};
+
+function GroundLine({ territory, friendly, arena, humans }: {
   territory?: { name: string; native: string; holder: string } | null;
   /** A friendly moot: the war agreed not to watch, and the line says so. */
   friendly?: boolean;
+  /** The room's arena id off the snapshot — the friendly moot's chosen ground. */
+  arena?: string;
   /** Free men in the room. Below two, the anti-farm gate will refuse to bank. */
   humans?: number;
 }) {
@@ -3215,7 +3254,7 @@ function GroundLine({ territory, friendly, humans }: {
   if (friendly) {
     return (
       <div className="mt-2 flex flex-col items-center gap-0.5" data-ground="friendly">
-        <div className="label-overline !text-[9px] text-[#a89a7c]">A FRIENDLY MOOT</div>
+        <div className="label-overline !text-[9px] text-[#a89a7c]">A FRIENDLY MOOT{arena && ARENA_NAME[arena] ? ` AT ${ARENA_NAME[arena].toUpperCase()}` : ""}</div>
         <div className="text-[10px] text-[#7d7057]">nothing at stake but pride — kits worn as bought</div>
       </div>
     );
