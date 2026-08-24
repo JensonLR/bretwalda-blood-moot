@@ -353,6 +353,8 @@ async function settleSeason(db: Db, season: SeasonRow): Promise<SeasonVerdict | 
 async function bankOne(db: Db, season: SeasonRow, entry: {
   matchKey: string; playerId: string; profileId: number;
   people: PeopleId; territoryId: string; points: number;
+  /** The second attribution key, off the profile at bank time. See backlog 4.4. */
+  hearthId: number | null;
   // THE FLIP, HANDED BACK RATHER THAN ONLY FILED. `war_flips` has always
   // recorded a territory changing hands, and the only reader was the map's own
   // dispatch list — so the man whose points DID it heard nothing at the moment
@@ -367,6 +369,7 @@ async function bankOne(db: Db, season: SeasonRow, entry: {
       people: entry.people,
       territoryId: entry.territoryId,
       points: entry.points,
+      hearthId: entry.hearthId,
     }).onConflictDoNothing().returning({ id: warLedger.id });
     // ALREADY BANKED. The retry ends here, having moved nothing.
     if (!inserted.length) return { ok: false };
@@ -477,10 +480,16 @@ export async function bankMatchDetailed(report: MatchEndReport): Promise<BankRes
     for (const c of claims) if (c.profileId === null) outcomes.push({ playerId: c.entry.playerId, kind: "guest" });
     if (!bound.length) return { banked: 0, outcomes };
 
-    const sworn = await db.select({ id: players.id, allegiance: players.allegiance })
+    const sworn = await db.select({ id: players.id, allegiance: players.allegiance, hearthId: players.hearthId })
       .from(players).where(inArray(players.id, bound.map((c) => c.profileId)));
     const people = new Map<number, PeopleId>();
-    for (const row of sworn) if (isPeople(row.allegiance)) people.set(row.id, row.allegiance);
+    const hearthOf = new Map<number, number | null>();
+    for (const row of sworn) {
+      if (isPeople(row.allegiance)) people.set(row.id, row.allegiance);
+      // Read HERE, at bank time, like the allegiance beside it: a client is
+      // never asked which house it fights for either.
+      hearthOf.set(row.id, row.hearthId ?? null);
+    }
 
     let banked = 0;
     for (const claim of bound) {
@@ -501,6 +510,7 @@ export async function bankMatchDetailed(report: MatchEndReport): Promise<BankRes
         matchKey: report.matchKey, playerId: claim.entry.playerId,
         profileId: claim.profileId, people: side,
         territoryId: report.territoryId, points,
+        hearthId: hearthOf.get(claim.profileId) ?? null,
       });
       if (landed.ok) banked++;
       outcomes.push({
@@ -911,6 +921,8 @@ export interface WarSelfView {
   locked: boolean;
   /** The period title his season's points have earned. See TITLE_LADDER. */
   title: string | null;
+  /** The Hearth he sits at, by id — the API composes the view. Backlog 4.4. */
+  hearthId: number | null;
   /** Every territory he has banked a point on this season, most-bled-for first. */
   ground: WarSelfGround[];
   /**
@@ -1011,6 +1023,7 @@ export async function warSelf(id: unknown, secret: unknown): Promise<WarSelfView
       bretwaldaSeasons: Array.isArray(row.bretwaldaSeasons) ? row.bretwaldaSeasons : [],
       locked: points > 0,
       title: titleFor(row.allegiance, points),
+      hearthId: row.hearthId ?? null,
       ground: ground.map((g) => ({
         territoryId: g.territoryId,
         points: Number(g.points) || 0,

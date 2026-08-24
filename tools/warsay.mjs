@@ -121,6 +121,62 @@ check("the row count and the reasons agree",
     ok, ok ? peoples.map((p) => `${p}: ${floors.map((f) => titleFor(p, f)).join(" < ")}`).join("  |  ") : notes.join("; "));
 }
 
+// ---- THE HEARTH'S THREE VERBS, AND THE HOUSE RULES — backlog 4.4 ----
+//
+// Against the real database only: found, join and leave through the shipped
+// functions, plus the three refusals that make a hearth a fair institution —
+// the unsworn cannot found one, a house is not divided between kingdoms, and
+// one name is one house whatever the capitalisation.
+if (DB) {
+  const { hearthFound, hearthJoin, hearthLeave, hearthRoll } =
+    await import(pathToFileURL(resolve(ROOT, "src/db/hearths.ts")).href);
+  const { getDb } = await import(pathToFileURL(resolve(ROOT, "src/db/index.ts")).href);
+  const { hashSecret } = await import(pathToFileURL(resolve(ROOT, "src/db/credentials.ts")).href);
+  const db = await getDb();
+  const { sql: dsql } = await import("drizzle-orm");
+  const stamp = Math.floor(Date.now() / 1000) % 100000;
+  const mint = async (name, allegiance) => {
+    const secret = `warsay-${name}-${stamp}`;
+    const rows = await db.execute(dsql`
+      INSERT INTO players (name, secret_hash, allegiance)
+      VALUES (${name}, ${hashSecret(secret)}, ${allegiance}) RETURNING id`);
+    return { id: rows.rows?.[0]?.id ?? rows[0]?.id, secret };
+  };
+  const saxon = await mint(`Hearther${stamp}`, "saxon");
+  const norse = await mint(`Northman${stamp}`, "norse");
+  const nobody = await mint(`Unsworn${stamp}`, null);
+  // Letters only: the name rule is deliberately period-enforcing (no digits
+  // at a mead-bench), so the run's uniqueness rides in letters.
+  const houseName = `Warsay Hall ${String.fromCharCode(...String(stamp).split("").map((d) => 65 + Number(d)))}`;
+
+  const noOath = await hearthFound(nobody.id, nobody.secret, houseName);
+  check("the unsworn cannot found a hearth — a house belongs to a kingdom first",
+    noOath && noOath.ok === false && /swear/i.test(noOath.message), JSON.stringify(noOath));
+
+  const founded = await hearthFound(saxon.id, saxon.secret, houseName);
+  check("a sworn man founds a hearth and it takes his kingdom and seats him",
+    founded?.ok === true && founded.hearth.people === "saxon" && founded.hearth.members === 1,
+    JSON.stringify(founded));
+
+  const taken = await hearthFound(norse.id, norse.secret, houseName.toUpperCase());
+  check("one name is one house, whatever the capitalisation",
+    taken && taken.ok === false && /already bears/i.test(taken.message), JSON.stringify(taken));
+
+  const divided = await hearthJoin(norse.id, norse.secret, houseName);
+  check("a house is not divided — a Dane cannot sit at a Saxon hearth",
+    divided && divided.ok === false && /another kingdom/i.test(divided.message), JSON.stringify(divided));
+
+  const left = await hearthLeave(saxon.id, saxon.secret);
+  check("leaving is free, and the house survives its founder",
+    left?.ok === true && left.hearth.name === houseName, JSON.stringify(left));
+
+  const seats = await hearthRoll(20);
+  check("the hearth roll answers, in points order, houses only from the four kingdoms",
+    Array.isArray(seats) && seats.every((s, i) => (i === 0 || seats[i - 1].points >= s.points)
+      && ["saxon", "norse", "briton", "pict"].includes(s.people)),
+    Array.isArray(seats) ? `${seats.length} house(s)` : JSON.stringify(seats));
+}
+
 // ---- THE ROLL OF HONOUR IS THE CROWN'S OWN ORDER — backlog 4.6 ----
 {
   const roll = await warRoll(50);

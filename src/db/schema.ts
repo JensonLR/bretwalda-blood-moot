@@ -43,6 +43,8 @@ export const players = pgTable("players", {
   wins: integer("wins").notNull().default(0),
   matches: integer("matches").notNull().default(0),
   favoriteClass: text("favorite_class").notNull().default("warden"),
+  /** The Hearth he sits at, or null. See `hearths` and docs/FACTIONS.md §8. */
+  hearthId: integer("hearth_id"),
   /** What is equipped. Every value is validated against ARMOURY before it lands here. */
   cosmetics: jsonb("cosmetics").$type<Appearance | Record<string, never>>().notNull().default({}),
   /** ARMOURY option ids the player owns. Free ids are seeded at mint. */
@@ -194,6 +196,12 @@ export const warLedger = pgTable("war_ledger", {
   people: text("people").notNull(),
   territoryId: text("territory_id").notNull(),
   points: integer("points").notNull(),
+  /**
+   * THE SECOND ATTRIBUTION KEY — backlog 4.4. Read off the profile's hearth
+   * at bank time, never off the wire, exactly as `people` is. Nullable: most
+   * men fight for no house, and a null here is that fact, not a default.
+   */
+  hearthId: integer("hearth_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("war_ledger_match_player_idx").on(t.matchKey, t.playerId),
@@ -280,4 +288,25 @@ export const legacyClaims = pgTable("legacy_claims", {
 }, (t) => [
   uniqueIndex("legacy_claims_fingerprint_idx").on(t.fingerprint),
   index("legacy_claims_player_idx").on(t.playerId),
+]);
+
+/**
+ * THE HEARTHS — backlog 4.4's clans, in the game's own word: the household a
+ * warrior fights beside. A Hearth PICKS A BASE KINGDOM at founding (its
+ * founder's own sworn people) and inherits that kingdom's colour — it may not
+ * choose its own, because faction colour is how you read an enemy at range
+ * (`docs/DESIGN-SYSTEM.md`, Hearth heraldry). Membership is one nullable
+ * column on `players`; season standing is `war_ledger.hearth_id`, summed the
+ * same way a man's own points are.
+ */
+export const hearths = pgTable("hearths", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  /** The base kingdom: the founder's allegiance at founding. Never changes. */
+  people: text("people").notNull(),
+  founderId: integer("founder_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  /** One name, one house, case-insensitively — see the functional index in ensureSchema. */
+  index("hearths_people_idx").on(t.people),
 ]);

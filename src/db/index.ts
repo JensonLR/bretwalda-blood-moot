@@ -238,6 +238,28 @@ async function ensureSchema(db: Db): Promise<boolean> {
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS war_flips_season_idx ON war_flips (season_id, created_at)`);
 
+    // ---- THE HEARTHS — backlog 4.4, by the same idempotent route ----------
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS hearths (
+        id serial PRIMARY KEY,
+        name text NOT NULL,
+        people text NOT NULL,
+        founder_id integer NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now()
+      )`);
+    // One name, one house, whatever the capitalisation — the join is by name,
+    // and two Hearths of the Black Raven differing by a capital B would be a
+    // support ticket, not a feature.
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS hearths_name_idx ON hearths (lower(name))`);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS hearths_people_idx ON hearths (people)`);
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS hearth_id integer`);
+    await db.execute(sql`ALTER TABLE war_ledger ADD COLUMN IF NOT EXISTS hearth_id integer`);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS war_ledger_season_hearth_idx
+        ON war_ledger (season_id, hearth_id) WHERE hearth_id IS NOT NULL`);
+
     // EXACTLY ONE SEASON RUNS AT A TIME, and Postgres is what says so.
     //
     // `seasons_index_idx` was never enough, and the reason is worth keeping:

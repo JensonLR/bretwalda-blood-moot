@@ -24,6 +24,7 @@ import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
 import Roll, { type RollSeat } from "@/game/client/factionMap/Roll";
+import Hearth, { type HearthViewData, type HearthSeatData } from "@/game/client/factionMap/Hearth";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
@@ -101,6 +102,9 @@ export default function WarPage() {
   const [seen, setSeen] = useState<number | null | undefined>(undefined);
   /** The roll of honour, or null while it loads (and in local mode forever). */
   const [roll, setRoll] = useState<RollSeat[] | null>(null);
+  /** The viewer's own house and the season's houses — backlog 4.4. */
+  const [hearth, setHearth] = useState<HearthViewData | null>(null);
+  const [hearthSeats, setHearthSeats] = useState<HearthSeatData[] | null>(null);
 
   /**
    * Read the war rolls. Every setState below happens in a promise callback and
@@ -117,6 +121,7 @@ export default function WarPage() {
       .then((res) => res.json() as Promise<{
         ok?: boolean; mode?: string; war?: WarViewData; self?: SelfView | null;
         roll?: RollSeat[] | null;
+        hearth?: HearthViewData | null; hearths?: HearthSeatData[] | null;
       }>)
       .then((body) => {
         if (body.mode === "local" || !body.war) { setMode("local"); return; }
@@ -136,6 +141,8 @@ export default function WarPage() {
         setSeen((had) => (had !== undefined ? had : watermark));
         setSelf(body.self ?? null);
         setRoll(Array.isArray(body.roll) ? body.roll : null);
+        setHearth(body.hearth ?? null);
+        setHearthSeats(Array.isArray(body.hearths) ? body.hearths : null);
         if (body.self?.allegiance) setChoice(body.self.allegiance as PeopleId);
       })
       .catch(() => { setMode("local"); });
@@ -214,6 +221,10 @@ export default function WarPage() {
               of them used to live in one sentence two screens below the
               coastline on a phone. */}
           {mode === "server" && <Standing war={war} self={self} />}
+          {mode === "server" && (
+            <Hearth sworn={self?.allegiance ?? null} hearth={hearth} seats={hearthSeats}
+              credentials={storedProfile()} onChanged={() => void load()} />
+          )}
           {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} />}
 
           {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
