@@ -114,6 +114,14 @@ declare module "@/game/grounds.mjs" {
     peat(x: number, z: number): number;
   }
   export const PICT_MOOR: GroundSpec & { field: PictMoorField };
+
+  /** The fort's own analytic fields, shared with whoever draws it. */
+  export interface RomanFortField {
+    walls: ReadonlyArray<import("@/game/solidground.mjs").RaisedStone>;
+    piers: ReadonlyArray<import("@/game/solidground.mjs").RaisedStone>;
+    rubble(x: number, z: number): number;
+  }
+  export const ROMAN_FORT: GroundSpec & { field: RomanFortField };
   export const GROUND_BY_PEOPLE: Readonly<Record<string, string>>;
   export function groundForPeople(people: string): string;
 }

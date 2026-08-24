@@ -368,6 +368,22 @@ const PRESETS: Record<string, {
       { id: "c", name: "Leofric", cls: "runekeeper", x: -1, z: -4, rot: 0.2, state: "idle" },
     ],
   },
+  // The fort's establishing shot. `arena` follows the warrior at (0, 11), and
+  // on `roman_fort` that puts the lens INSIDE curtain wall three — the first
+  // ground with standing geometry at the follow camera's own radius, so the
+  // first whose wide review needs an aimed lens. A crane over the south-east
+  // breach: court, walls, piers and the low country in one frame.
+  fortwide: {
+    cam: Math.PI,
+    matchTimer: 12,
+    framing: { position: [11.5, 8.0, -15.5], target: [-2.0, 0.4, 3.0], fov: 50 },
+    poses: [
+      { id: "me", name: "Aethelred", cls: "warden", x: 0, z: 11, rot: Math.PI, state: "idle" },
+      { id: "a", name: "Beorn", cls: "berserker", x: -5, z: 2, rot: 0.4, state: "walking" },
+      { id: "b", name: "Cynric", cls: "huscarl", x: 5.5, z: 1, rot: -0.6, state: "idle" },
+      { id: "c", name: "Leofric", cls: "runekeeper", x: -1, z: -4, rot: 0.2, state: "idle" },
+    ],
+  },
   // Tight character study — judges armour, cloth, faces, materials.
   closeup: {
     cam: Math.PI,
@@ -947,7 +963,18 @@ export default function ShotPage() {
       // second one, at which point a harness that can only photograph the
       // village is a harness that cannot show you the new ground — and a ground
       // nobody can photograph is a ground nobody can judge.
-      arena: params?.get("ground") ?? "saxon_village",
+      // READ IMPERATIVELY, NOT FROM `params`. The `params` state fills in an
+      // effect, one render AFTER the canvas has already built its world from
+      // this object — so the duel preset photographed the village whatever
+      // ground was asked for, and only presets that force a remount (the
+      // fightcard's staging phase) ever honoured `?ground=`. The world is
+      // built in a mount effect and never in server HTML, so reading the URL
+      // here directly cannot mismatch hydration — a state initialiser that
+      // fixed the same race page-wide did, on every prerendered string. The
+      // fort's first look pass was spent finding both halves of this.
+      arena: (typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("ground")) ?? "saxon_village",
       players,
       hostId: "me",
       countdown: 0,

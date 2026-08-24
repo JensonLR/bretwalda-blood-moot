@@ -763,10 +763,160 @@ export const PICT_MOOR = {
   },
 };
 
+
+// ============================================================
+// THE ROMAN FORT — the third ground, and the first with stone standing on it
+// ============================================================
+//
+// `docs/MAPS.md` #3, in its own words: "enclosed, vertical and old… a ruined
+// Roman fort the Saxons never rebuilt is the strongest candidate — it is
+// historically exact for the period, it puts STONE in a game that is currently
+// all timber and thatch, and broken walls give real sightline breaks in a game
+// that has none." It is dealt to the BRITONS: the Romano-British are the
+// people who still hold these places, mustering where their grandfathers'
+// garrison stood — grey-green and slate is their livery for the same reason.
+//
+// WHAT IS DELIBERATELY THE SAME is the same list the moor kept, verbatim: the
+// 18 m play disc, the village's spawn ring, one fire of radius 2.0 at the
+// origin. Every one is load-bearing in the sim and the harnesses; a ground
+// that moved them would be a ground AND a rebalance.
+//
+// WHAT IS DIFFERENT IS EVERYTHING A PLAYER SEES — and, for the first time,
+// WALKS AROUND. Five broken curtain-wall segments stand ON the fighting floor
+// at 15 m with breaches between them: cover, shove-targets and sightline
+// breaks in one, each drawn from the same fourteen-point outline the server
+// collides. Two column stumps of the principia stand further in. The fire is
+// a garrison campfire on the flagged courtyard.
+
+/**
+ * FIVE WALL SEGMENTS, and the breaches between them are the doors.
+ *
+ * At 15.0 m they are inside the 18 m bound like the moor's stones, so a man
+ * can be driven onto one — a wall you cannot be pinned against is scenery.
+ * The bearings are irregular on purpose: a fort's curtain fell where it fell,
+ * and even gaps would read as a colonnade. `wobbleY` is doubled against the
+ * default because the TOP of each slab is the ruin — the broken course line
+ * against the sky is the silhouette that says "fort" from any bearing.
+ */
+// AT 14.2 m AND NO LONGER — and the number is the ROUTER'S, not taste.
+// The first cut stood the ring at 15.0 with half-widths to 2.95, which put the
+// walls' outer corners at ~18.3 m: OUTSIDE the 18 m play bound. A corner a
+// body cannot stand on is a corner `steerAroundSolids` rightly refuses, so
+// the outer route around the three longest walls did not exist and five bot
+// runs of 389 never arrived (solidtest --verbose named them: fortwall0/2/4 at
+// oblique bearings). The module's own contract says a map must not build
+// pockets it cannot plan; a wall end fused to the play ring IS one. Every
+// corner now sits inside 17.3 m with margin for the waypoint's own rounding.
+const FORT_WALLS = Object.freeze([
+  { a: 0.30, hw: 2.55, hh: 1.62, lean: -0.028 },
+  { a: 1.52, hw: 2.30, hh: 1.18, lean: 0.034 },
+  { a: 2.78, hw: 2.60, hh: 1.70, lean: 0.018 },
+  { a: 4.12, hw: 2.10, hh: 1.05, lean: -0.040 },
+  { a: 5.30, hw: 2.45, hh: 1.44, lean: 0.024 },
+].map((w, i) => raisedStone({
+  id: `fortwall${i}`,
+  x: Math.cos(w.a) * 14.2, z: Math.sin(w.a) * 14.2,
+  rot: w.a + Math.PI / 2,
+  radiusX: w.hw, wobbleX: 0.16,
+  radiusY: w.hh, wobbleY: 0.42,
+  depth: 0.92, bevel: 0.05, surfaceWobble: 0.05,
+  taper: 0.10, lean: w.lean,
+  span: w.hh * 2.05, base: w.hh, lift: w.hh + 0.12,
+  noise: noise2,
+  why: "A length of Roman curtain wall, still standing where the rest fell. It blocks sight and it blocks men: a fight in a ruin is a fight AROUND things, which no other ground offers, and a man shoved onto dressed stone stops.",
+})));
+
+/**
+ * TWO PIER STUMPS of the principia's colonnade, further in at 9.3 m. Square in
+ * section where the walls are long — a different solid to round at speed than
+ * a wall is, and the one vertical accent inside the ring.
+ */
+const FORT_PIERS = Object.freeze([
+  { a: 1.02 }, { a: 4.31 },
+].map((c, i) => raisedStone({
+  id: `fortpier${i}`,
+  x: Math.cos(c.a) * 9.3, z: Math.sin(c.a) * 9.3,
+  rot: c.a + (i ? 0.42 : -0.18),
+  radiusX: 0.52, wobbleX: 0.10,
+  radiusY: 0.78, wobbleY: 0.30,
+  depth: 0.60, bevel: 0.04, surfaceWobble: 0.04,
+  taper: 0.06, lean: i ? 0.03 : -0.02,
+  span: 1.62, base: 0.78, lift: 0.92,
+  noise: noise2,
+  why: "A column pier of the headquarters building, broken at chest height. The one solid inside the wall ring: cover a duel can circle.",
+})));
+
+/** Where the rubble apron lies — the band under and just inside the walls. */
+function fortRubble(x, z) {
+  const r = Math.hypot(x, z);
+  const band = smoothstep(11.8, 13.8, r) * (1 - smoothstep(15.8, 17.6, r));
+  return band * (0.35 + 0.65 * fbm(x * 0.21 + 9.1, z * 0.21 - 4.4, 2));
+}
+
+/**
+ * The fort stands on its own platform and the land FALLS AWAY outside the
+ * walls — Roman engineers built on the rise and dug the ditch below. That is
+ * the third ground's horizon answer: the village sits in a valley, the moor
+ * climbs to near hills, the fort LOOKS DOWN over low country, so the breaches
+ * frame distance rather than ground.
+ */
+function fortHeightAt(x, z) {
+  const r = Math.hypot(x, z);
+
+  // The flagged courtyard: near-flat, which after two turf grounds IS the
+  // read. A few centimetres of settle, a worn dish toward the fire, and
+  // slab-edge dips where the joints opened.
+  let h = (fbm(x * 0.14 + 24.6, z * 0.14 - 51.2, 2) - 0.5) * 0.05;
+  h -= 0.05 * (1 - smoothstep(0, 6.5, r));
+  h -= 0.06 * smoothstep(0.60, 0.80, fbm(x * 0.34 - 7.7, z * 0.34 + 18.9, 2)) * (1 - smoothstep(12, 14, r));
+
+  // The rubble apron climbs to the wall foot.
+  h += fortRubble(x, z) * (0.24 + (fbm(x * 0.45 + 2.2, z * 0.45 + 6.0, 2) - 0.5) * 0.30);
+
+  // Off the platform: a 2.4 m fall over eight metres, with the ditch cut into
+  // it. Both start OUTSIDE the play bound, so no fight is decided by them.
+  const off = smoothstep(18.5, 26.5, r);
+  h -= 2.4 * off;
+  h -= 0.75 * smoothstep(19.5, 21.5, r) * (1 - smoothstep(22.5, 24.5, r));
+
+  // Low country, gently rolling, and a far ridge kept LOW: 9 m where the moor
+  // reads 26 — the long view is the point.
+  h += (fbm(x * 0.017 - 31.5, z * 0.017 + 12.8, 4) - 0.5) * 1.9 * smoothstep(26, 58, r);
+  h += (ridged(x * 0.0051 + 17.3, z * 0.0051 - 9.6, 3) - 0.26) * 9 * smoothstep(84, 190, r);
+
+  return h;
+}
+
+export const ROMAN_FORT = {
+  id: "roman_fort",
+  name: "The Old Fort",
+
+  // The village's, exactly. See the header above FORT_WALLS.
+  play: { shape: "disc", radius: 18 },
+  spawn: { gap: 7.5, minRadius: 6, maxRadius: 12 },
+
+  // A garrison campfire on the flags: the sim's fire, radius 2.0 at the
+  // middle, because the burn path and three harnesses are written on it.
+  hazards: [
+    { id: "campfire", kind: "fire", x: 0, z: 0, radius: 2.0 },
+  ],
+
+  obstacles: [...FORT_WALLS, ...FORT_PIERS],
+
+  heightAt: fortHeightAt,
+
+  field: {
+    walls: FORT_WALLS,
+    piers: FORT_PIERS,
+    rubble: fortRubble,
+  },
+};
+
 /** Every ground the game knows, by the id that travels on the wire. */
 export const GROUNDS = {
   saxon_village: SAXON_VILLAGE,
   pict_moor: PICT_MOOR,
+  roman_fort: ROMAN_FORT,
 };
 
 /** The ground a room gets when nobody has chosen one. */
@@ -796,12 +946,13 @@ export const DEFAULT_GROUND_ID = "saxon_village";
  */
 export const GROUND_BY_PEOPLE = Object.freeze({
   saxon: "saxon_village",
-  // The Danelaw and the Britons still muster in a village. Both of them HAVE
-  // villages — this is not a claim that they do not, it is that nobody has
-  // built theirs yet, and pointing them at a Pictish moor to avoid saying so
-  // would be worse than the sameness it hid.
+  // The Danelaw still musters in a village. They HAVE villages — this is not
+  // a claim that they do not, it is that nobody has built theirs yet, and
+  // pointing them at somebody else's ground to avoid saying so would be worse
+  // than the sameness it hides.
   norse: "saxon_village",
-  briton: "saxon_village",
+  // West of the dyke the muster is where the garrison stood. See `ROMAN_FORT`.
+  briton: "roman_fort",
   // North of the Forth there is no village to muster in. See `PICT_MOOR`.
   pict: "pict_moor",
 });

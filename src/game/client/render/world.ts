@@ -3605,6 +3605,13 @@ export function createWorld(
     rng, scatter, heightAt: spec.heightAt, footing, own, place, field,
     pointLights, ownedMats, restore, frameHooks, E, Q, V,
   });
+  // Published for the capture harnesses: WHICH ground def actually built, so a
+  // routing fault reads as a wrong id on a global instead of as a bare field
+  // that has to be recognised by eye. The fort's first photograph was spent
+  // learning that the hard way.
+  if (typeof window !== "undefined") {
+    (window as unknown as Record<string, unknown>).__groundBuilt = spec.id;
+  }
 
   // Only the ground received before this: huts, stakes, rocks and barrels cast
   // shadows onto a world that could not show one landing on them. Cheap, and it

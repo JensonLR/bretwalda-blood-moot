@@ -542,7 +542,7 @@ it. The ribs below are re-marked against that.
 | 5.5 | **Unlockable profile symbols** earned by achievement or bought | NEW |
 | 5.6 | **Taglines and grey helper text** updated to the current plan | NEW |
 | 5.7 | **Creative, distinctive map locations** built to the standard | [PARTLY RAISED] `docs/MAPS.md`. **Superseded in scope by 5.7b, which is the same work with a reason attached.** |
-| 5.7b | **A ground for the territory you were dealt** — the owner, 15 Aug 2026: *"wouldn't having a map for each territory also be cool?"* | NEW, and it is the arena half of 4.3. See below. |
+| 5.7b | **A ground for the territory you were dealt** — the owner, 15 Aug 2026: *"wouldn't having a map for each territory also be cool?"* | **IN PROGRESS, two of the peoples grounded.** `GROUND_BY_PEOPLE` deals the ground from the match's people: Picts fight on `pict_moor`, Britons on `roman_fort` (merged 24 Aug 2026 — flag court, five ruined curtain walls as sim solids, coursed piers, the platform looking DOWN on low country; captures `art/look/fort/`). Saxons keep the village as theirs by right; the Norse still borrow it, so a Danelaw ground is the next rib. The archetype table below still governs the remaining territories. |
 | 5.8 | **Steam, then mobile, then console** — one account, two doors, from the first Steam build | NEW; supersedes `docs/DISTRIBUTION.md` ordering |
 
 ### WAVE 6 — engineering hygiene and tooling
@@ -927,6 +927,18 @@ Map three (enclosed, vertical, stone — the ruined Roman fort) is **BLOCKED on
 the sim being flat**: no jump, position solved in x/z, arena a clamped circle.
 Height in the renderer without height in the sim is set dressing plus camera
 bugs. That is its own project, not a rider.
+
+**POSTSCRIPT, 24 Aug 2026 — both maps exist and the block above was routed
+around, not broken.** Map two is the Pict moor (`pict_moor`, merged earlier);
+map three is the Roman fort (`roman_fort`, merged today). The fort got its
+vertical read WITHOUT sim height: the fighting floor stays flat (flags ±5 cm),
+the five curtain-wall lengths are plan-view `RaisedStone` solids the 2-D sim
+already collides, and everything that actually drops — platform edge, ditch,
+low country — is outside the 18 m play disc where no body ever stands. The
+three "outside the renderer" bugs listed above were all fixed on the way:
+`heightAt` lives on the `GroundSpec`, the engine reads `ground.play.radius`,
+and the harness takes `--ground`. `tools/solidtest.mjs` runs its bot-routing
+claims per ground, 12/12 with the fort in the list.
 
 ---
 

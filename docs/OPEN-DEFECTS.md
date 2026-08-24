@@ -8,6 +8,51 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE ROMAN FORT SHIPS — and the floor took five cuts because a grid below vertex Nyquist does not blur, it ALIASES — 24 Aug 2026
+
+The third ground (`roman_fort`, Britons' muster, backlog 5.7b) is merged:
+flagged court, five ruined curtain walls standing ON the play disc as the sim's
+own `RaisedStone` solids, two coursed piers with rolled drums, garrison fire in
+a kerb of reused building stone, and a platform that looks DOWN on low country
+— the one thing neither turf ground can do. Judged on two lenses in
+`art/look/fort/` (`duel` at ground level, the new `fortwide` crane) and both
+agree.
+
+**The lesson worth the five cuts — where a pattern may live:**
+- The court is a 1.15 m flag grid with ~7 cm joints. The terrain lattice is
+  0.8 m rings with 0.34 jitter. Cuts 3–4 wrote the grid into vertex colour and
+  photographed LAVENDER GRAVEL: a signal below Nyquist does not soften, it
+  aliases into per-vertex noise, and no palette change can fix a sampling
+  failure — that was a measurement answering the wrong question (the swatch,
+  not the lattice). The shipped court is a textured DISC riding 5–10 cm proud
+  of the terrain (1024² = 31 px/m, so a joint is two texels and stays a LINE),
+  its rim dissolving into the same rubble field the terrain shades.
+- Same failure, one octave up: merged `BoxGeometry` blocks keep 0-1 UVs PER
+  FACE, so the shared granite mapped its whole tile across every 0.9 m block
+  — camo speckle, texel density set by block size. `mergeInto(blocks, 0.5)`
+  box-projects world UVs at one tile per metre; the walls read as one coursed
+  material at every range.
+- Scatter moss CUSHIONS are cut entirely (two crane frames paid for it): a
+  bush sunk into terrain the disc rides proud of surfaces through the flags as
+  a green sliver, and on the apron's broken footing the same sink buries it to
+  an edge-on slice. The fort's moss lives in the flag texture and wall joints,
+  where it cannot clip.
+- The catalog's `rock` (0x6a7078) came back CREAM under the dusk rig's doubled
+  warm key — the moor's albedo lesson, re-learned on masonry. Every dressed
+  stone wears a fort-owned clone at 0x474d57.
+
+**Instrument note:** `arena`, the wide establishing preset, follows the warrior
+at (0, 11) — which on this ground parks the lens INSIDE curtain wall three.
+First ground with standing geometry at the follow camera's own radius, so the
+wide review gets an aimed lens: `fortwide` (crane over the south-east breach),
+registered in `shoot.mjs` EXTRA_PRESETS. In PLAY the walls are the map's stated
+sightline breaks (MAPS.md #3): five slabs cover ~27% of the 14.2 m ring, the
+moor's standing stones set the precedent that floor-standing occluders are
+momentary, and `solidtest` holds 12/12 with the fort's bots routing around
+every wall corner.
+
+---
+
 ## THE ROSE UNIT SHIPS — grade + wrap settled against clocked readings, and the residue has named owners — 22 Aug 2026
 
 The unit the boardgrade ledger demanded, closed in four probe iterations and

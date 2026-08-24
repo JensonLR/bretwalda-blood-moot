@@ -59,7 +59,7 @@ const CARD_PRESETS = ["facecard", "kitcard", "fightcard"];
 // and a helmet nobody could tell apart nearly shipped at 950 gold. An instrument
 // that produces confident wrong answers is worse than none, so it does not stay
 // in the drawer to be picked up again. The cards below answer the same question.
-const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonhoo", "pyre", "burnman", "summaryduel", "summarymoot"];
+const EXTRA_PRESETS = ["gorehead", "gorearm", "goresplit", "gorehelm", "suttonhoo", "pyre", "burnman", "summaryduel", "summarymoot", "fortwide"];
 
 // ============================================================
 // CONTACT SHEETS

@@ -59,7 +59,7 @@
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2 } from "../src/game/grounds.mjs";
+import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2, ROMAN_FORT } from "../src/game/grounds.mjs";
 // Claim 12 runs the real thing. Every other claim drives a model of the movement
 // step; this one is here because a model of a tick ORDER cannot contain the pass
 // it does not know about. See the note on claim 12.
@@ -274,7 +274,7 @@ const PROVING_GROUND = {
 //
 // Appended rather than inserted: the lever below reaches for `GROUNDS[0]` by
 // index and swaps the village's rick for a broken one.
-const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND, PICT_MOOR];
+const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND, PICT_MOOR, ROMAN_FORT];
 
 /**
  * Nothing on it and no bound. Used to MEASURE the driver's own largest
