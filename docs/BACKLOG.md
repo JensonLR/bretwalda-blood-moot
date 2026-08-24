@@ -45,8 +45,8 @@ minute. They are cheap and they are all visible.
 | 1.6 | **Rounds won must be recorded in the end-of-game table** and must feed ranking and payout | **DONE** — `roundsWon` on every ledger row, `data-rounds` in the table, place feeds the purse |
 | 1.7 | **Eyes read as East Asian; chin too pointed; lips need work; moustache placement near the lips** | NEW — face proportion pass |
 | 1.8 | **Huscarl shield colours should follow the armour finish** | **DONE** — `282eaeb` |
-| 1.9 | **Emote option appears on the next-round screen** where no players are visible, and shows even when you lost | NEW — misplaced UI |
-| 1.10 | Pupils overlap the upper eyelids | [ALREADY RAISED] 8 Aug |
+| 1.9 | **Emote option appears on the next-round screen** where no players are visible, and shows even when you lost | **DONE** — the round-break beat offers the flourish to the victor only, standing only, over the visible arena; the summary's row performs live on the tableau (the owner's "even if you don't win the round you see it" is quoted at the component) |
+| 1.10 | Pupils overlap the upper eyelids | **DONE** — `tools/eyeclip.mjs`: 0 of 12 LID assertions failed |
 | 1.11 | **"Flick screen to change foe" never leaves** — it retired on a switch that LANDS, and in an honour duel there is nobody to switch to, so it was permanent in the mode the owner plays | DONE 13 Aug — `src/game/tuition.mjs`, `tools/tuitiontest.mjs` 18/18, `docs/MOBILE-CONTROLS.md` round three |
 | 1.12 | **The QUALITY pad is in the way on a phone** — the feature is wanted, the placement was argued from a dead-zone sweep rather than looked at, and it sat over the warrior at eye level | DONE 13 Aug — moved to the top-of-screen utility column; new `touchtest` assertion per handedness; frames in `art/ui/hud/` |
 
