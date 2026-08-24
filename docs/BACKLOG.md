@@ -26,9 +26,9 @@ first, then feel, then balance and AI, then the war layer, then surface polish.
 |---|---|---|
 | 0.1 | Hair and beard were `wool`; there is now a `hair` substance with a real lay and sheen | DONE, `tools/hairmap.mjs` green 3/3 |
 | 0.2 | Helm flank "bald spots": hairline drops 0.30 rad not 0.12 under open-faced rungs | DONE, `wearmeasure` 30/30 held |
-| 0.3 | Beard shell under its own declared `cut.thick` on 8 of 16 style/class pairs | OPEN |
+| 0.3 | Beard shell under its own declared `cut.thick` on 8 of 16 style/class pairs | **DONE — verified 24 Aug 2026, the row was stale.** `tools/beardvolume.mjs` reads **16/16 rows PASS** including the fork column (worst notch 73.8 mm against a 40 bar). The tool's own header records the repair history: the 8-of-16 was measured against a flat 4 mm reading that compared the wrong quantity; the gate now reads realised crossings, and the rows hold. |
 | 0.4 | Shadow Hood swallows the Long Mane and War-locks (`cosmetictest` 15/16) | **DONE 22 Aug** — the hood routes hair out under the drape and the Sutton Hoo trio under the closed curtain; `hoodfall` produced its first clean sheet, all 120 paid pairs distinct |
-| 0.5 | Wyrm-Crest's deep cheek guard, spread 28.8 vs Spectacle's 4.2 | OPEN — helmclash §5 still carries wyrm hair rows |
+| 0.5 | Wyrm-Crest's deep cheek guard, spread 28.8 vs Spectacle's 4.2 | **DONE — verified 24 Aug 2026, the row was stale.** A fresh `helmclash` run carries FOUR wyrm rows and none is red: berserker at spread 5.6 (against the 28.8 this row was raised on, beside the Spectacle's 4.2), the runekeeper's plaits under the bar since the wearsweep scopings drove them back. §5 stands at its ledgered 77 of 288 — the exact standing state OPEN-DEFECTS records, no regression. |
 
 ### WAVE 1 — defects that break the illusion
 
