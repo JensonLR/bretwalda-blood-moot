@@ -122,6 +122,18 @@ declare module "@/game/grounds.mjs" {
     rubble(x: number, z: number): number;
   }
   export const ROMAN_FORT: GroundSpec & { field: RomanFortField };
+
+  /** The camp's own analytic fields, shared with whoever draws it. */
+  export interface DanelawCampField {
+    ship: import("@/game/solidground.mjs").RaisedStone;
+    /** Which bearing the river lies on — the D's open side. Radians. */
+    riverAngle: number;
+    /** Earthwork factor 0..1 at a point. */
+    bank(x: number, z: number): number;
+    /** Standing-water (this season: ice) mask 0..1 at a point. */
+    water(x: number, z: number): number;
+  }
+  export const DANELAW_CAMP: GroundSpec & { field: DanelawCampField };
   export const GROUND_BY_PEOPLE: Readonly<Record<string, string>>;
   export function groundForPeople(people: string): string;
 }

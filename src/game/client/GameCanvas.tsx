@@ -42,6 +42,7 @@ import { createSummary, type SummaryHandle } from "./render/summary";
 // the server's table — so the import is named here rather than left implicit.
 import "@/game/client/render/moor";
 import "@/game/client/render/fort";
+import "@/game/client/render/camp";
 
 /**
  * How far the build has got. `done` is the weight of the stages that have

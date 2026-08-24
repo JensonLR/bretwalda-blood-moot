@@ -384,6 +384,20 @@ const PRESETS: Record<string, {
       { id: "c", name: "Leofric", cls: "runekeeper", x: -1, z: -4, rot: 0.2, state: "idle" },
     ],
   },
+  // The camp's establishing shot, `fortwide`'s argument at the fourth ground:
+  // a crane from the land side, over the fire and the tents, with the ship
+  // and the frozen river reach beyond — the D-shape read in one frame.
+  campwide: {
+    cam: Math.PI,
+    matchTimer: 12,
+    framing: { position: [6.1, 5.2, 5.5], target: [-7.5, 0.9, -6.3], fov: 48 },
+    poses: [
+      { id: "me", name: "Halfdan", cls: "warden", x: 0, z: 11, rot: Math.PI, state: "idle" },
+      { id: "a", name: "Ubba", cls: "berserker", x: -5, z: 2, rot: 0.4, state: "walking" },
+      { id: "b", name: "Ivar", cls: "huscarl", x: 5.5, z: 1, rot: -0.6, state: "idle" },
+      { id: "c", name: "Guthrum", cls: "runekeeper", x: -1, z: -4, rot: 0.2, state: "idle" },
+    ],
+  },
   // Tight character study — judges armour, cloth, faces, materials.
   closeup: {
     cam: Math.PI,

@@ -8,6 +8,28 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE SCRUM GATE WAS MEASURING A ROOM ON THE WRONG GROUND — green for months because every people resolved to the village — 24 Aug 2026
+
+`solidtest`'s engine-scrum claim (eight men jammed on the woodpile, zero
+man-ticks inside it) went red the moment the Danelaw got a camp of their own,
+and the engine was innocent: the harness `create`s a plain `blood_moot` room,
+a plain room DEALS A TERRITORY, and the arena follows that territory's people
+(`dealGroundFor`). The room stood up on `danelaw_camp`; the harness teleported
+its bodies around the VILLAGE woodpile's coordinates and measured overlap
+against the VILLAGE's solids — 9786 of 48000 man-ticks "inside" a prop that
+was not in the room, deepest 1124 mm.
+
+The gate had been green since it was written because `GROUND_BY_PEOPLE` used
+to answer "the village" for every people the deal could land on — a gate green
+because the case is absent, in its purest form yet: the assertion never once
+checked WHICH WORLD the room it was asserting about stood in. Fixed twice
+over: the scrum room is `friendly` (which pins the arena to the default
+ground by the same machinery a real friendly moot uses), and the pin is
+CHECKED — a room on any other ground now throws rather than measures.
+12/12 again, with the camp's own ship routing clean in the same run.
+
+---
+
 ## THE BRITON'S MINT IS DEAD — and the mechanism was the CONE, not the vat, which is why three chroma cuts could not touch it — 24 Aug 2026
 
 The set-aside observation ("neon-mint Briton on the fightcard") is closed, and

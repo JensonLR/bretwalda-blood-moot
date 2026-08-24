@@ -912,11 +912,152 @@ export const ROMAN_FORT = {
   },
 };
 
+// ============================================================
+// THE WINTER CAMP — the fourth ground, and the Danelaw's own
+// ============================================================
+//
+// The Great Army wintered behind water: a D-shaped earthwork with its flat
+// side on the river, the ships drawn up inside it — Repton, 873-4, is the
+// excavated one. That is this ground: a camp floor inside a bank, a FROZEN
+// fen running flat to the horizon on every side, the river reach iced over
+// where the D opens, and ONE ship beached on the fighting floor. After a
+// valley, a climb and a platform, this horizon is the fourth answer: LEVEL.
+// Flat water country under a wide sky, the longest sightlines in the game.
+//
+// WHAT IS DELIBERATELY THE SAME is the invariant list, verbatim: the 18 m
+// play disc, the village's spawn ring, one fire of radius 2.0 at the origin.
+//
+// THE ONE SOLID IS THE SHIP. A beached longship at 11.8 m: nine metres of
+// hull a fight flows around, the one thing on any ground a man can be pinned
+// against that his own people SAILED HERE. One convex solid, ends well inside
+// the play ring — the router's law from the fort applies and is satisfied by
+// construction (far corner at 12.7 m).
+
+/** Which way the river lies: the D's flat side, and the ship points at it. */
+const CAMP_RIVER_A = 3.85;
+const CAMP_RIVER_UX = Math.cos(CAMP_RIVER_A);
+const CAMP_RIVER_UZ = Math.sin(CAMP_RIVER_A);
+
+const DANE_SHIP = raisedStone({
+  id: "daneship",
+  x: Math.cos(CAMP_RIVER_A) * 11.8, z: Math.sin(CAMP_RIVER_A) * 11.8,
+  // Broadside to the shore, as a hull hauled out lies.
+  rot: CAMP_RIVER_A + Math.PI / 2,
+  radiusX: 4.6, wobbleX: 0.08,
+  radiusY: 0.72, wobbleY: 0.10,
+  depth: 2.3, bevel: 0.06, surfaceWobble: 0.03,
+  // The taper is the boat: an ellipse pulled hard toward its ends reads as a
+  // hull in plan, and the collision IS the plan.
+  taper: 0.30, lean: 0.0,
+  span: 1.9, base: 0.85, lift: 0.95,
+  noise: noise2,
+  why: "A longship hauled out for the winter. Nine metres of clinker hull on the fighting floor: cover, a shove-target, and the one obstacle in the game that says whose camp this is.",
+});
+
+/**
+ * The earthwork, as a factor 0..1: how much bank stands at this bearing and
+ * radius. The D-shape is the subtraction — the bank dies where the river
+ * takes over, because the water WAS that side's defence.
+ */
+function campBank(x, z) {
+  const r = Math.hypot(x, z);
+  if (r < 18.5 || r > 27.5) return 0;
+  const inv = 1 / Math.max(r, 0.001);
+  const toward = (x * CAMP_RIVER_UX + z * CAMP_RIVER_UZ) * inv;
+  const open = smoothstep(0.45, 0.85, toward);
+  const band = smoothstep(19.0, 21.3, r) * (1 - smoothstep(21.8, 24.6, r));
+  return band * (1 - open);
+}
+
+/**
+ * Standing water, as a mask 0..1 — and in this season it is ICE. The fen
+ * holds sheets wherever the peat dips, and the river reach is one sheet.
+ * Shared with the renderer, which paints ice where the sim keeps a level
+ * floor; the sheets all sit at one water table, as water does.
+ */
+function campWater(x, z) {
+  const r = Math.hypot(x, z);
+  const inv = 1 / Math.max(r, 0.001);
+  const toward = (x * CAMP_RIVER_UX + z * CAMP_RIVER_UZ) * inv;
+  // The river reach: past the bank line on the open bearing, all water.
+  const river = smoothstep(0.55, 0.8, toward) * smoothstep(20, 26, r);
+  // Fen sheets: broad patches, only outside the earthwork.
+  const sheet = smoothstep(0.56, 0.66, fbm(x * 0.031 + 8.8, z * 0.031 - 19.3, 3)) * smoothstep(24, 30, r);
+  return clamp01(Math.max(river, sheet));
+}
+
+/**
+ * THE CAMP'S HEIGHT. The floor is trodden flat — an army lived on it all
+ * winter — the bank rises outside the play bound, and beyond it the land
+ * does the one thing no other ground does: NOTHING. Flat fen at the frozen
+ * water table, out to a horizon kept almost on the floor.
+ */
+function campHeightAt(x, z) {
+  const r = Math.hypot(x, z);
+
+  // Trodden ground: finer and flatter than any turf, rutted rather than
+  // tussocked.
+  let h = (fbm(x * 0.16 + 51.7, z * 0.16 - 33.1, 2) - 0.5) * 0.05;
+  h -= 0.04 * (1 - smoothstep(0, 5.5, r));
+
+  // The earthwork, and the borrow ditch outside it that built it.
+  const bank = campBank(x, z);
+  h += 1.45 * bank;
+  {
+    const inv = 1 / Math.max(r, 0.001);
+    const toward = (x * CAMP_RIVER_UX + z * CAMP_RIVER_UZ) * inv;
+    const open = smoothstep(0.45, 0.85, toward);
+    h -= 0.55 * smoothstep(24.6, 25.8, r) * (1 - smoothstep(26.6, 28.4, r)) * (1 - open);
+  }
+
+  // Off the camp: down to the fen. Gentle, and it starts outside the bound.
+  h -= 0.5 * smoothstep(20, 30, r);
+
+  // The fen itself: peat hummocks where it is dry ...
+  const w = campWater(x, z);
+  h += (fbm(x * 0.045 - 61.2, z * 0.045 + 27.9, 3) - 0.5) * 0.34 * smoothstep(22, 30, r) * (1 - w);
+  // ... and dead level where it is ice: one water table, every sheet.
+  h = h * (1 - w) + (-0.62) * w;
+
+  // The horizon: a low willow carr line far out, and no more. 2.2 m where the
+  // fort reads 9 and the moor 26 — the LEVEL is the identity.
+  h += (ridged(x * 0.0046 + 5.1, z * 0.0046 - 14.7, 3) - 0.26) * 2.2 * smoothstep(120, 210, r) * (1 - w);
+
+  return h;
+}
+
+export const DANELAW_CAMP = {
+  id: "danelaw_camp",
+  name: "The Winter Camp",
+
+  // The village's, exactly. See the header.
+  play: { shape: "disc", radius: 18 },
+  spawn: { gap: 7.5, minRadius: 6, maxRadius: 12 },
+
+  // The army's fire on the trodden floor: the sim's fire, radius 2.0 at the
+  // middle, because the burn path and three harnesses are written on it.
+  hazards: [
+    { id: "campfire", kind: "fire", x: 0, z: 0, radius: 2.0 },
+  ],
+
+  obstacles: [DANE_SHIP],
+
+  heightAt: campHeightAt,
+
+  field: {
+    ship: DANE_SHIP,
+    riverAngle: CAMP_RIVER_A,
+    bank: campBank,
+    water: campWater,
+  },
+};
+
 /** Every ground the game knows, by the id that travels on the wire. */
 export const GROUNDS = {
   saxon_village: SAXON_VILLAGE,
   pict_moor: PICT_MOOR,
   roman_fort: ROMAN_FORT,
+  danelaw_camp: DANELAW_CAMP,
 };
 
 /** The ground a room gets when nobody has chosen one. */
@@ -946,11 +1087,9 @@ export const DEFAULT_GROUND_ID = "saxon_village";
  */
 export const GROUND_BY_PEOPLE = Object.freeze({
   saxon: "saxon_village",
-  // The Danelaw still musters in a village. They HAVE villages — this is not
-  // a claim that they do not, it is that nobody has built theirs yet, and
-  // pointing them at somebody else's ground to avoid saying so would be worse
-  // than the sameness it hides.
-  norse: "saxon_village",
+  // The Great Army musters where it wintered: behind the bank, beside the
+  // ships. See `DANELAW_CAMP`.
+  norse: "danelaw_camp",
   // West of the dyke the muster is where the garrison stood. See `ROMAN_FORT`.
   briton: "roman_fort",
   // North of the Forth there is no village to muster in. See `PICT_MOOR`.

@@ -59,7 +59,7 @@
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2, ROMAN_FORT } from "../src/game/grounds.mjs";
+import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2, ROMAN_FORT, DANELAW_CAMP } from "../src/game/grounds.mjs";
 // Claim 12 runs the real thing. Every other claim drives a model of the movement
 // step; this one is here because a model of a tick ORDER cannot contain the pass
 // it does not know about. See the note on claim 12.
@@ -274,7 +274,7 @@ const PROVING_GROUND = {
 //
 // Appended rather than inserted: the lever below reaches for `GROUNDS[0]` by
 // index and swaps the village's rick for a broken one.
-const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND, PICT_MOOR, ROMAN_FORT];
+const GROUNDS = [SAXON_VILLAGE, PROVING_GROUND, PICT_MOOR, ROMAN_FORT, DANELAW_CAMP];
 
 /**
  * Nothing on it and no bound. Used to MEASURE the driver's own largest
@@ -977,7 +977,16 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
       if ((m.type === "game_state" || m.type === "lobby_update" || m.type === "countdown"
         || m.type === "round_end") && m.data.players) latest = m.data;
     });
-    engine.message(sid, { type: "create", data: { name: "Steward", mode: "blood_moot", bestOf: 1 } });
+    // FRIENDLY, WHICH PINS THE ARENA TO THE VILLAGE — and the pin is load-
+    // bearing. A plain `create` deals a war territory and THE ARENA FOLLOWS
+    // ITS PEOPLE (`dealGroundFor`), so the ground under this room changed the
+    // day the Danelaw got a camp of their own: the engine simulated the camp
+    // while this harness measured overlap against the VILLAGE woodpile it had
+    // teleported the bodies around — 9786 phantom man-ticks "inside" a prop
+    // that was not in the room. Green for months only because every people
+    // used to resolve to the village. A gate that asserts against one
+    // ground's geometry pins the room to that ground, and checks the pin.
+    engine.message(sid, { type: "create", data: { name: "Steward", mode: "blood_moot", bestOf: 1, friendly: true } });
     for (let i = 0; i < nBots; i++) {
       engine.message(sid, { type: "add_bot", data: { difficulty: "warrior", warriorClass: CLASSES[i % CLASSES.length] } });
     }
@@ -986,6 +995,13 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
     while (settle < 30 && latest?.state !== "fighting") { engine.step(DT); settle += DT; }
     const room = [...engine._rooms.values()][0];
     if (!room) { Math.random = real; engine.stop(); return { manTicks: 0, inside: 0, deepest: 0 }; }
+    // The pin, checked: this claim reads overlap against SAXON_VILLAGE's own
+    // solids, so a room standing on any other ground makes every count below
+    // a fiction. Refuse loudly rather than measure the wrong world.
+    if (room.arena !== SAXON_VILLAGE.id) {
+      Math.random = real; engine.stop();
+      throw new Error(`scrum room stood up on "${room.arena}", not the village — the claim's geometry no longer matches the room`);
+    }
     const bodies = [...room.players.values()];
     if (place) {
       const ring = place.bound + BODY_RADIUS - 0.20;   // shoulder to shoulder, pressed in
