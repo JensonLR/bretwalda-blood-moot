@@ -27,8 +27,8 @@ first, then feel, then balance and AI, then the war layer, then surface polish.
 | 0.1 | Hair and beard were `wool`; there is now a `hair` substance with a real lay and sheen | DONE, `tools/hairmap.mjs` green 3/3 |
 | 0.2 | Helm flank "bald spots": hairline drops 0.30 rad not 0.12 under open-faced rungs | DONE, `wearmeasure` 30/30 held |
 | 0.3 | Beard shell under its own declared `cut.thick` on 8 of 16 style/class pairs | OPEN |
-| 0.4 | Shadow Hood swallows the Long Mane and War-locks (`cosmetictest` 15/16) | OPEN |
-| 0.5 | Wyrm-Crest's deep cheek guard, spread 28.8 vs Spectacle's 4.2 | OPEN |
+| 0.4 | Shadow Hood swallows the Long Mane and War-locks (`cosmetictest` 15/16) | **DONE 22 Aug** — the hood routes hair out under the drape and the Sutton Hoo trio under the closed curtain; `hoodfall` produced its first clean sheet, all 120 paid pairs distinct |
+| 0.5 | Wyrm-Crest's deep cheek guard, spread 28.8 vs Spectacle's 4.2 | OPEN — helmclash §5 still carries wyrm hair rows |
 
 ### WAVE 1 — defects that break the illusion
 
@@ -37,14 +37,14 @@ minute. They are cheap and they are all visible.
 
 | # | Item | Note |
 |---|---|---|
-| 1.1 | **Hands/wrists on all four classes rotated ~180°** — look broken and twisted | NEW, and the loudest one on the list |
-| 1.2 | **Axe needs 90° anticlockwise** | NEW, same fix area |
-| 1.3 | **Corpses float mid-air** when a round is still running | NEW |
-| 1.4 | **Long Mane + huscarl + helm** → two front strands only; other classes bald at the sides and nothing at the back | NEW, and it is 0.2/0.4's neighbourhood |
-| 1.5 | **Results table snubs equal players by alphabetical order** — same kills, more rounds won, still placed 2nd for coins and rank | NEW, and it is a fairness bug, not a display bug |
-| 1.6 | **Rounds won must be recorded in the end-of-game table** and must feed ranking and payout | NEW |
+| 1.1 | **Hands/wrists on all four classes rotated ~180°** — look broken and twisted | **DONE** — `282eaeb` "Land the rig: hands, the axe's bit, the shield's finish" |
+| 1.2 | **Axe needs 90° anticlockwise** | **DONE** — same commit |
+| 1.3 | **Corpses float mid-air** when a round is still running | **LIKELY DONE** — the collapse-with-weight pass (`6f01941`, 19 Aug, in main) settles bodies; UNVERIFIED on sloped grounds (the moor merged after it) — wants one kill capture there |
+| 1.4 | **Long Mane + huscarl + helm** → two front strands only; other classes bald at the sides and nothing at the back | **DONE 22 Aug** — the bagged routes: coif, hood and closed curtain are one mechanism; see 0.4 |
+| 1.5 | **Results table snubs equal players by alphabetical order** — same kills, more rounds won, still placed 2nd for coins and rank | **DONE** — `rankEntrants`: "Rounds, then kills, and NOTHING ELSE — no name, no id, no arrival"; ties share a place |
+| 1.6 | **Rounds won must be recorded in the end-of-game table** and must feed ranking and payout | **DONE** — `roundsWon` on every ledger row, `data-rounds` in the table, place feeds the purse |
 | 1.7 | **Eyes read as East Asian; chin too pointed; lips need work; moustache placement near the lips** | NEW — face proportion pass |
-| 1.8 | **Huscarl shield colours should follow the armour finish** | NEW |
+| 1.8 | **Huscarl shield colours should follow the armour finish** | **DONE** — `282eaeb` |
 | 1.9 | **Emote option appears on the next-round screen** where no players are visible, and shows even when you lost | NEW — misplaced UI |
 | 1.10 | Pupils overlap the upper eyelids | [ALREADY RAISED] 8 Aug |
 | 1.11 | **"Flick screen to change foe" never leaves** — it retired on a switch that LANDS, and in an honour duel there is nobody to switch to, so it was permanent in the mode the owner plays | DONE 13 Aug — `src/game/tuition.mjs`, `tools/tuitiontest.mjs` 18/18, `docs/MOBILE-CONTROLS.md` round three |
