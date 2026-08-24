@@ -687,6 +687,27 @@ async function main() {
   await reachFight();
   console.log("[playtest] in a fight\n");
 
+  // ---- THE 44 PX FLOOR, ON DESKTOP — the other half of backlog 5.10 ----
+  // docs/DESIGN-SYSTEM.md §3: "44 px floor for every control *including on
+  // desktop*". touchtest gates the phone; this is the desktop glass, measured
+  // in the same fight the rest of this file drives. No reach band here — a
+  // mouse regrips for free — so the floor is the whole of the desktop law.
+  {
+    const rows = await page.evaluate(() => [...document.querySelectorAll("button")]
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 24),
+          w: Math.round(r.width), h: Math.round(r.height) };
+      })
+      .filter((b) => b.w > 0 && b.h > 0));
+    const under = rows.filter((b) => Math.min(b.w, b.h) < 44);
+    check("every control on the desktop glass clears the 44 px floor",
+      rows.length >= 2 && under.length === 0,
+      rows.length < 2 ? `only ${rows.length} control(s) found — a floor over an absent glass gates nothing`
+        : under.length ? under.map((b) => `"${b.name}" ${b.w}x${b.h}`).join("; ")
+          : `${rows.length} controls, smallest ${Math.min(...rows.map((b) => Math.min(b.w, b.h)))} px`);
+  }
+
   // Reads the warrior out of a snapshot STRICTLY NEWER than `afterSeq`.
   // Without that guard this box lies: the full post chain on a software
   // rasteriser blocks the main thread for most of a second, so two reads taken
