@@ -9243,9 +9243,14 @@ function faceComplexion(
     // rather than grey — the same reason the tone's `warm` channel exists.
     const flush = 0.028 * clamp01(-mottle);
 
-    let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.10 * lip) * (tint + flush);
-    let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.36 * lip) * tint;
-    let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.44 * lip) * (tint - flush * 0.6);
+    // The lip factors went 0.10/0.36/0.44 → 0.14/0.42/0.50 for backlog 1.7's
+    // "lips need work": at those depths the vermilion read flat-lit but the
+    // arena's warm key cancelled most of a rose that was mostly a green/blue
+    // cut — the beardless fightcard showed NO mouth at all. This is ~18% more
+    // separation on the same oval; the geometry's roll is unchanged.
+    let r = (1 - 0.30 * dim) * (1 + 0.085 * warm) * (1 - 0.14 * lip) * (tint + flush);
+    let g = (1 - 0.37 * dim) * (1 - 0.030 * warm) * (1 - 0.42 * lip) * tint;
+    let b = (1 - 0.42 * dim) * (1 - 0.115 * warm) * (1 - 0.50 * lip) * (tint - flush * 0.6);
 
     if (whiskers) {
       // The beard line: the lip line at the midline, climbing to the sideburn at
