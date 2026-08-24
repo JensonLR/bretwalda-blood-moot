@@ -1374,7 +1374,21 @@ a bar tuned rather than met is worse than a hole.
 ---
 
 
-## OPEN — the paid hair under the Shadow Hood is NOT a cull, it is the MANTLE — 20 Aug 2026
+## CLOSED 24 Aug 2026 — the Shadow Hood swallow: the hood-route rebuild WAS the geometry this entry prescribed, and the gate has been green since
+
+`cosmetictest --no-render` today: **"every paid hairstyle still reads under
+every helm, the hood included — all clear."** The 22 Aug bagged-route rebuild
+(hoodroute, ledgered above: the mane squashes inside the cloth, swings out at
+`hoodHemY` — the drape's own hem — and rides the registry below; plaits take
+the masked nape route) is exactly the "geometry rather than a cull" this
+entry demanded, built against the constraint it stated: `wearmeasure`'s
+through-check holds 0.0 mm where the culls' round put 89.6 mm of hair through
+the cloth, and `hoodfall` reads its first clean sheet, 120/120 pairs two
+objects. Three FREE hairstyles remain swallowed, ungated on the harness's own
+reasoning — nobody paid for them. The entry below is kept for the mantle
+anatomy, which is what made the right fix findable.
+
+## The original entry — the paid hair under the Shadow Hood is NOT a cull, it is the MANTLE — 20 Aug 2026
 
 `cosmetictest --no-render` on `main`:
 
