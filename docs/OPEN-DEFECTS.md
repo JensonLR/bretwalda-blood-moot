@@ -8,6 +8,39 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE WINTER CAMP SHIPS — the fourth ground, and the salmon was never the albedo — 24 Aug 2026
+
+The Danelaw's own ground (`danelaw_camp`, backlog 5.7b's last people) is
+merged: a Repton-shape winter camp behind a D-shaped earthwork, the frozen
+fen dead LEVEL to the horizon, the river reach iced where the D opens, one
+beached clinker longship as the only solid on the fighting floor, tents and
+stakes on the bank, a tripod and cauldron over the sim's fire. Judged on
+`duel` and the new `campwide` crane (`art/look/camp/`); `solidtest` 12/12
+with the ship routing clean, `warsay` 32/32 with the deal.
+
+**The look lesson, because the moor's was not enough here.** Three albedo
+cuts moved almost nothing: the salmon was (1) the floor's wet+churn sheen
+MIRRORING the sunset — the detail map's trampled-mud pattern is pale and the
+churn channel is a brightener, so frozen mud went matte and churn dropped to
+0.12 — and (2) the warm dusk haze owning the midground that a LEVEL horizon
+cannot hide behind hills, which no albedo can fight. The answer to (2) was
+not darker sedge but MORE ICE: flood the fen wider and nearer, because fog
+over matte sedge reads as sand while fog over a flat specular sheet reads as
+water — the one surface the warm band makes MORE itself. The mirror horizon
+plus the cold shadowed floor is now the ground's own contrast.
+
+**The process lesson, ledgered against R8.** "Cut 4" was judged an
+improvement off captures that contained NO CODE CHANGE: the edit script was
+a python heredoc whose escaped apostrophe was a SyntaxError, the build was
+chained as a separate statement rather than `&&`, so the unedited tree
+rebuilt and reshot — and the eye found the improvement it expected between
+two renders of identical code (fire-phase variance). Caught by the COMMIT
+DIFF being smaller than the narrative. Edits ride the Edit tool or `&&`
+chains with an applied-canary now, and a judged difference wants a measured
+number beside it (the matched meanLuma pairs are in the shoot logs).
+
+---
+
 ## THE SCRUM GATE WAS MEASURING A ROOM ON THE WRONG GROUND — green for months because every people resolved to the village — 24 Aug 2026
 
 `solidtest`'s engine-scrum claim (eight men jammed on the woodpile, zero

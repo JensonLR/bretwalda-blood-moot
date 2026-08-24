@@ -980,9 +980,9 @@ function campWater(x, z) {
   const inv = 1 / Math.max(r, 0.001);
   const toward = (x * CAMP_RIVER_UX + z * CAMP_RIVER_UZ) * inv;
   // The river reach: past the bank line on the open bearing, all water.
-  const river = smoothstep(0.55, 0.8, toward) * smoothstep(20, 26, r);
+  const river = smoothstep(0.45, 0.75, toward) * smoothstep(19, 24, r);
   // Fen sheets: broad patches, only outside the earthwork.
-  const sheet = smoothstep(0.56, 0.66, fbm(x * 0.031 + 8.8, z * 0.031 - 19.3, 3)) * smoothstep(24, 30, r);
+  const sheet = smoothstep(0.50, 0.60, fbm(x * 0.031 + 8.8, z * 0.031 - 19.3, 3)) * smoothstep(21, 26, r);
   return clamp01(Math.max(river, sheet));
 }
 

@@ -108,7 +108,10 @@ const CAMP_TERRAIN: TerrainSpec = {
     // one surface that has earned the sky's reflection; mud in January is
     // frozen matte.
     out.wet = w * 0.9 + 0.05 * (1 - smoothstep(8, 16, r));
-    out.churn = 0.30 * (1 - smoothstep(14, 19, r)) + 0.10;
+    // Churn LOW everywhere: the detail map's trampled-mud pattern is pale,
+    // and at 0.30 it was a share of what still read as sand after the albedo
+    // went dark. Frozen ruts do not churn.
+    out.churn = 0.12;
   },
 };
 
