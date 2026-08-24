@@ -214,6 +214,7 @@ const { ARMOURY, buildCharacter, defaultAppearance, HELM_VALUES } = CH;
 const SLOT_FIELD = {
   helm: "helm", hair: "hairStyle", hairColor: "hairColor", beard: "beardStyle",
   beardColor: "beardColor", cloak: "cloak", armor: "armorColor", warPaint: "warPaint",
+  weapon: "weapon",
 };
 const slotOf = (name) => ARMOURY.find((s) => s.slot === name);
 const OPTION_COUNT = ARMOURY.reduce((n, s) => n + s.options.length, 0);
@@ -436,7 +437,13 @@ const DIFFERS_PCT = 1.0;
 const verdictOf = (d) => (d.changed < IDENTICAL_PCT ? "IDENTICAL" : d.changed < DIFFERS_PCT ? "FAINT" : "DIFFERS");
 
 /** Slots whose product is a colour, and which therefore MUST score 0 in shape. */
-const RECOLOUR_SLOTS = new Set(["hairColor", "beardColor", "armor"]);
+// `weapon` sits here because a weapon STYLE is a material treatment with no
+// geometry of its own — and because the raster never holds the weapon at all
+// (it is mounted by the rig, not by `buildCharacter`), so the shape
+// instrument's flatness is trivially true there and says nothing. The colour
+// ladder is the instrument that judges it, off each option's `swatch` — the
+// treatment's most representative changed surface.
+const RECOLOUR_SLOTS = new Set(["hairColor", "beardColor", "armor", "weapon"]);
 /** Slots with no geometry at all: painted into the skin. Invisible to instrument 1. */
 const TEXTURE_SLOTS = new Set(["warPaint"]);
 
@@ -750,7 +757,7 @@ const sameColour = [], dullRungs = [];
 for (const slot of slotsToSweep.filter((s) => RECOLOUR_SLOTS.has(s.slot))) {
   for (let i = 0; i + 1 < slot.options.length; i++) {
     const a = slot.options[i], b = slot.options[i + 1];
-    const de = deltaE(Number(a.value), Number(b.value));
+    const de = deltaE(Number(a.swatch ?? a.value), Number(b.swatch ?? b.value));
     const v = de < JND ? "SAME COLOUR" : de < LADDER_DE ? "NEAR" : "DIFFERS";
     console.log(`  ${slot.slot.padEnd(11)}  ${`${a.label} -> ${b.label}`.slice(0, 42).padEnd(42)}  ${de.toFixed(1).padStart(5)}  ${String(b.cost).padStart(4)}g  ${v}`);
     TABLE.pairs.push({ slot: slot.slot, label: `${a.label} -> ${b.label}`, cost: b.cost, deltaE: de, lens: {} });
@@ -761,7 +768,7 @@ for (const slot of slotsToSweep.filter((s) => RECOLOUR_SLOTS.has(s.slot))) {
   // that were the same colour, and they were not next to each other in the list.
   for (let i = 0; i < slot.options.length; i++) {
     for (let j = i + 1; j < slot.options.length; j++) {
-      const de = deltaE(Number(slot.options[i].value), Number(slot.options[j].value));
+      const de = deltaE(Number(slot.options[i].swatch ?? slot.options[i].value), Number(slot.options[j].swatch ?? slot.options[j].value));
       if (de < JND && !sameColour.some((s) => s.includes(slot.options[j].label))) {
         sameColour.push(`${slot.slot}: ${slot.options[i].label} and ${slot.options[j].label} are ΔE ${de.toFixed(2)} apart (not adjacent)`);
       }

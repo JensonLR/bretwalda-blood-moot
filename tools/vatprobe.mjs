@@ -168,6 +168,8 @@ const SUBJECT_FIELD = {
   helm: "helm", hair: "hairStyle", hairColor: "hairColor",
   beard: "beardStyle", beardColor: "beardColor",
   cloak: "cloak", armor: "armorColor", warPaint: "warPaint",
+  // In-hand, not worn — kept for the slot parity guard. See factionread's note.
+  weapon: "weapon",
 };
 {
   const a = ARMOURY.map((x) => x.slot).sort().join(",");

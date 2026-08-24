@@ -49,6 +49,10 @@ export const SLOT_LENS: Readonly<Record<string, PreviewLens>> = {
   warPaint: "face",
   cloak: "figure",
   armor: "bust",
+  // The one slot whose product is in the HAND: the figure lens is the only
+  // one that shows a carried weapon at all (`armouryStage` hides it on the
+  // face and bust crops), and the blade is most of the object.
+  weapon: "figure",
 };
 
 export interface ThumbSpec {

@@ -623,13 +623,13 @@ export function createWarriorRig(
   // stopped naming the mount, in which case `handOf` has returned a sleeve.
   const gripPitch = rightHand.rotation.x || GRIP_PITCH_FALLBACK;
 
-  const weapon = buildWeaponForClass(cls, materials);
+  const weapon = buildWeaponForClass(cls, materials, ap.weapon);
   weapon.name = "weapon";
   rightHand.add(weapon);
 
   let offhand: THREE.Group | undefined;
   if (cls === "runekeeper") {
-    offhand = buildWeaponForClass("runekeeper", materials);
+    offhand = buildWeaponForClass("runekeeper", materials, ap.weapon);
     offhand.scale.setScalar(0.9);
     leftHand.add(offhand);
   }

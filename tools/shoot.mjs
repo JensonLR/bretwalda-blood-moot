@@ -583,7 +583,7 @@ const ORIGIN = `http://localhost:${PORT}`;
 // restaged with from the command line", which is what the flag machinery below
 // actually does with it, and because `npm run shots -- fightcard --people norse`
 // is the whole of how the four peoples get photographed.
-const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "people", "cls", "turn"];
+const SLOT_FLAGS = ["helm", "hair", "hairColor", "beard", "beardColor", "cloak", "armor", "warPaint", "weapon", "people", "cls", "turn"];
 // A misspelled preset used to fall through to "no presets named" and quietly
 // shoot the whole default set — twenty minutes of the wrong pictures. Name
 // which words are flag values so anything left over can be called out.

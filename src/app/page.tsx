@@ -1156,6 +1156,7 @@ export default function Page() {
       case "cloak": return ap.cloak;
       case "armor": return ap.armorColor;
       case "warPaint": return ap.warPaint;
+      case "weapon": return ap.weapon ?? "weapon_issued";
       default: return "";
     }
   }, [profile.appearance]);
@@ -1178,6 +1179,7 @@ export default function Page() {
         case "cloak": ap.cloak = String(s.value); break;
         case "armor": ap.armorColor = Number(s.value); break;
         case "warPaint": ap.warPaint = String(s.value); break;
+        case "weapon": ap.weapon = String(s.value); break;
       }
     }
     return ap;
@@ -1224,6 +1226,7 @@ export default function Page() {
         case "cloak": ap.cloak = String(s.value); break;
         case "armor": ap.armorColor = Number(s.value); break;
         case "warPaint": ap.warPaint = String(s.value); break;
+        case "weapon": ap.weapon = String(s.value); break;
       }
     }
     saveProfile({ appearance: ap, unlocked, gold: p.gold - cost });

@@ -732,9 +732,15 @@ console.log("\n[faction] === 3. AND NOT ONE OF THEM COSTS A POINT OF ANYTHING ==
     return `${n}|${lo.map((v) => v.toFixed(6)).join(",")}|${hi.map((v) => v.toFixed(6)).join(",")}`;
   };
   const reach = CLASSES.map((cls) => bbox(buildWeaponForClass(cls)));
-  check("3a REACH — a weapon has no people: `buildWeaponForClass` takes one argument",
-    buildWeaponForClass.length <= 2 && reach.every((r) => r.includes("|")),
-    `arity ${buildWeaponForClass.length} (cls, materials?) — ${CLASSES.map((c, i) => `${c} ${reach[i].split("|")[0]}v`).join(", ")}`);
+  // The arity grew by ONE for backlog 3.3's weapon STYLE — a purchase, worn
+  // identically under every livery — and the claim's real quantity was never
+  // the number: it is that no people can reach a weapon. So the bar is both
+  // halves now: the arity is exactly the declared three, AND the signature
+  // names no people, allegiance or team.
+  const sig = String(buildWeaponForClass).slice(0, String(buildWeaponForClass).indexOf(")") + 1);
+  check("3a REACH — a weapon has no people: `buildWeaponForClass` takes cls, materials and a STYLE, and nothing a people can ride",
+    buildWeaponForClass.length <= 3 && !/people|allegiance|team/i.test(sig) && reach.every((r) => r.includes("|")),
+    `arity ${buildWeaponForClass.length}, signature ${sig} — ${CLASSES.map((c, i) => `${c} ${reach[i].split("|")[0]}v`).join(", ")}`);
 
   // 3b. THE SIMULATION. The real engine, twice: one room where every man
   // declares a people in his appearance and one where none does. Every
@@ -1587,6 +1593,10 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     helm: "helm", hair: "hairStyle", hairColor: "hairColor",
     beard: "beardStyle", beardColor: "beardColor",
     cloak: "cloak", armor: "armorColor", warPaint: "warPaint",
+    // In-hand, not worn: a weapon never enters a mask or a vat, but the slot
+    // parity guard is the whole reason this list exists — a slot the shop
+    // sells that this list cannot name is exactly what it must refuse.
+    weapon: "weapon",
   };
   {
     const slots = ARMOURY.map((x) => x.slot).sort().join(",");

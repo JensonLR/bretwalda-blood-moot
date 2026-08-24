@@ -88,6 +88,13 @@ export interface Appearance {
   armorColor: number;
   warPaint: string;  // none | stripes | cross | half
   /**
+   * THE WEAPON'S FINISH — backlog 3.3, a `WEAPON_STYLES` id. Optional the way
+   * `people` is and for the same reason: every stored appearance predates it,
+   * and `weaponStyleOf` narrows anything unknown to the issued steel, so an
+   * old profile and a hostile one both draw the weapon they always drew.
+   */
+  weapon?: string;
+  /**
    * THE LIVERY OF THE PEOPLE THIS MAN SWORE TO — `saxon | norse | briton |
    * pict`, or `"none"` for the unsworn, which is most players most of the time
    * and is a deliberate look rather than a missing one.
@@ -124,6 +131,7 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
     cloak: cls === "berserker" ? "brown" : cls === "runekeeper" ? "blue" : "red",
     armorColor: 0x5f6b7a,
     warPaint: "none",
+    weapon: "weapon_issued",
     // UNSWORN, AND ON PURPOSE. Most players are unsworn on first load and a
     // default that read as "the faction failed to load" would be worse than no
     // feature at all. What an unsworn man wears is the ISSUED kit — undyed
@@ -184,8 +192,12 @@ export function migrateAppearance(ap: Appearance): Appearance {
   const armorColor = RETIRED_ARMOUR[ap.armorColor] ?? ap.armorColor;
   const hairColor = RETIRED_HAIR[ap.hairColor] ?? ap.hairColor;
   const beardColor = RETIRED_HAIR[ap.beardColor] ?? ap.beardColor;
-  if (armorColor === ap.armorColor && hairColor === ap.hairColor && beardColor === ap.beardColor) return ap;
-  return { ...ap, armorColor, hairColor, beardColor };
+  // The weapon slot arrived after every stored appearance; absent means the
+  // issued steel, written in so the armoury shows a selection.
+  const weapon = typeof ap.weapon === "string" && ap.weapon ? ap.weapon : "weapon_issued";
+  if (armorColor === ap.armorColor && hairColor === ap.hairColor
+    && beardColor === ap.beardColor && weapon === ap.weapon) return ap;
+  return { ...ap, armorColor, hairColor, beardColor, weapon };
 }
 
 /**
@@ -1708,6 +1720,114 @@ export function cloakFor(hex: number, team: TeamSide, people: Allegiance): numbe
 }
 
 // ---------------- Armoury Catalog ----------------
+// ------------------------------------------------------------
+// WEAPON STYLES — backlog 3.3: the weapon's finish as a purchase.
+//
+// A style is a TREATMENT, not a new weapon: each class keeps its own blade,
+// haft and silhouette (the four-shape gate is untouched by construction,
+// because no geometry reads this table), and the style re-tempers the
+// substances every builder already names — the steel, the dark iron, the
+// fittings, the grip, the shaft. Tints MULTIPLY each builder's own base hex,
+// so a sword's steel and a dagger's stay siblings under one treatment rather
+// than collapsing onto one swatch; fittings may be replaced outright, because
+// silvering or gilding a mount is exactly a replacement.
+//
+// The names are the period's own work: pattern-welding is the smith's pride
+// every rich find shows; fire-bluing is attested finish on high-status
+// fittings; gold wire on grips is Sutton Hoo's own vocabulary. The ISSUED
+// style is the identity treatment — every number multiplies to what the
+// builders have always drawn, so an old profile is byte-identical.
+// ------------------------------------------------------------
+export interface WeaponStyle {
+  /** Channelwise multipliers on the blade steel, and a roughness shift. */
+  blade: { tint: readonly [number, number, number]; dRough: number };
+  /** Multiplier on the dark iron (fullers, guards, axe cheeks). */
+  iron: { tint: readonly [number, number, number] };
+  /** Replacement for the fitting metal, or null to keep the builder's own. */
+  fitting: { hex: number; rough: number } | null;
+  /** Replacement for the grip leather, or null to keep the builder's own. */
+  grip: { hex: number } | null;
+  /** Multiplier on the shaft timber. */
+  shaft: { tint: readonly [number, number, number] };
+}
+
+const STYLE_ID: WeaponStyle = {
+  blade: { tint: [1, 1, 1], dRough: 0 },
+  iron: { tint: [1, 1, 1] },
+  fitting: null,
+  grip: null,
+  shaft: { tint: [1, 1, 1] },
+};
+
+export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
+  weapon_issued: STYLE_ID,
+  // Watered steel: the weld pattern already lives in the blade map; what a
+  // polished pattern-weld reads as at arm's length is a slightly greyer,
+  // softer-lit blade over an oiled grip.
+  weapon_welded: {
+    // [0.78, 0.82, 0.9], not the first cut's [0.88, 0.9, 0.94]: the colour
+    // ladder read that at ΔE 8.9 against the issued steel — a dull rung by
+    // the shop's own 10 bar — and an oiled pattern-weld is honestly darker.
+    blade: { tint: [0.78, 0.82, 0.9], dRough: 0.14 },
+    iron: { tint: [0.9, 0.9, 0.92] },
+    fitting: null,
+    grip: { hex: 0x1d1410 },
+    shaft: { tint: [0.85, 0.82, 0.8] },
+  },
+  // Fire-blued: the blade tempered to blue-black, mounts silvered against it.
+  weapon_blued: {
+    blade: { tint: [0.42, 0.48, 0.66], dRough: 0.06 },
+    iron: { tint: [0.55, 0.58, 0.7] },
+    fitting: { hex: 0xc9ced8, rough: 0.3 },
+    grip: { hex: 0x15161c },
+    shaft: { tint: [0.62, 0.6, 0.66] },
+  },
+  // Gold-wired: bright steel, gilt mounts, an oxblood grip — the rich grave's
+  // sword, priced like one.
+  weapon_gilt: {
+    blade: { tint: [1.04, 1.03, 1.0], dRough: -0.02 },
+    iron: { tint: [1.0, 0.96, 0.86] },
+    fitting: { hex: 0xd6a83e, rough: 0.26 },
+    grip: { hex: 0x4a1f16 },
+    shaft: { tint: [1.05, 0.95, 0.82] },
+  },
+};
+
+/** Anything unknown is the issued steel — same narrowing rule as `peopleOf`. */
+export function weaponStyleOf(id: string | undefined | null): WeaponStyle {
+  return (id && WEAPON_STYLES[id]) || STYLE_ID;
+}
+
+const tintHex = (hex: number, t: readonly [number, number, number]): number => {
+  const c = (v: number, m: number) => Math.max(0, Math.min(255, Math.round(v * m)));
+  return (c((hex >> 16) & 255, t[0]) << 16) | (c((hex >> 8) & 255, t[1]) << 8) | c(hex & 255, t[2]);
+};
+
+/**
+ * A builder's substances under a style. Each builder passes ITS OWN base
+ * values, so the treatment rides on top of the weapon's identity.
+ */
+function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
+  steel: readonly [number, number];
+  iron?: readonly [number, number];
+  fitting?: readonly [number, number];
+  grip?: number;
+  shaft?: number;
+}) {
+  return {
+    steel: M.blade(tintHex(base.steel[0], style.blade.tint),
+      Math.max(0.05, Math.min(0.95, base.steel[1] + style.blade.dRough))),
+    iron: base.iron
+      ? M.tinted("iron", tintHex(base.iron[0], style.iron.tint), { roughness: base.iron[1] })
+      : undefined,
+    fitting: base.fitting
+      ? (style.fitting ? M.blade(style.fitting.hex, style.fitting.rough) : M.blade(base.fitting[0], base.fitting[1]))
+      : undefined,
+    grip: base.grip !== undefined ? M.hide(style.grip ? style.grip.hex : base.grip) : undefined,
+    shaft: base.shaft !== undefined ? M.timber(tintHex(base.shaft, style.shaft.tint)) : undefined,
+  };
+}
+
 export interface ArmouryOption {
   id: string;
   label: string;
@@ -1715,6 +1835,13 @@ export interface ArmouryOption {
   slot: string;
   value: string | number;
   desc?: string;
+  /**
+   * For an id-valued option whose product is a COLOUR treatment (the weapon
+   * styles): the treatment's most representative changed surface, as a hex,
+   * so the colour-ladder instrument can hold a JND bar against it. Absent on
+   * every option whose `value` is already the colour.
+   */
+  swatch?: number;
 }
 
 export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOption[] }> = [
@@ -1956,6 +2083,29 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       { id: "wp_stripes", label: "Blood Stripes", cost: 40, slot: "warPaint", value: "stripes" },
       { id: "wp_cross", label: "Raven Cross", cost: 70, slot: "warPaint", value: "cross" },
       { id: "wp_half", label: "Half-Face Shadow", cost: 110, slot: "warPaint", value: "half" },
+    ],
+  },
+  {
+    // THE WEAPON'S FINISH — backlog 3.3. A treatment, not a new weapon: each
+    // class keeps its own blade and silhouette (no geometry reads the style
+    // table, so the four-shape gate is untouched by construction), and the
+    // style re-tempers the substances every builder names. See WEAPON_STYLES
+    // for the treatments and their sourcing. Priced on the shop's own ladder:
+    // the gilt hilt sits at the armour ladder's crown price because gold wire
+    // on a grip is exactly the rich grave's statement.
+    slot: "weapon", label: "Weapon Finish",
+    options: [
+      // `swatch` is the treatment's most representative changed surface,
+      // COMPUTED from the style table so it cannot drift from the render —
+      // the sword's blade under the style's own tint, or the replaced gilt
+      // fitting. docs/PROCESS.md failure mode 3 is a mirrored constant.
+      { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: 0xc4ccd6 },
+      { id: "weapon_welded", label: "Pattern-Welded", cost: 90, slot: "weapon", value: "weapon_welded",
+        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_welded.blade.tint) },
+      { id: "weapon_blued", label: "Fire-Blued", cost: 130, slot: "weapon", value: "weapon_blued",
+        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_blued.blade.tint) },
+      { id: "weapon_gilt", label: "Gold-Wired Hilt", cost: 160, slot: "weapon", value: "weapon_gilt",
+        swatch: WEAPON_STYLES.weapon_gilt.fitting!.hex },
     ],
   },
 ];
@@ -10357,14 +10507,17 @@ function boundGrip(
   }
 }
 
-export function buildSword(materials?: CharacterMaterials): THREE.Group {
+export function buildSword(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
-  const steel = M.blade(0xc4ccd6, 0.2);
-  const dark = M.tinted("iron", 0x4c525b, { roughness: 0.5 });
-  const leather = M.hide(0x2a1c10);
-  const brass = M.blade(0xb9a25a, 0.34);
+  const P = weaponPalette(M, weaponStyleOf(styleId), {
+    steel: [0xc4ccd6, 0.2], iron: [0x4c525b, 0.5], fitting: [0xb9a25a, 0.34], grip: 0x2a1c10,
+  });
+  const steel = P.steel;
+  const dark = P.iron!;
+  const leather = P.grip!;
+  const brass = P.fitting!;
 
   // Blade: rhombic section, distal taper, 0.9 m of it. The pattern-weld comes
   // from the steel map rather than from geometry — that is what the map is for.
@@ -10417,13 +10570,16 @@ export function buildSword(materials?: CharacterMaterials): THREE.Group {
  * The runekeeper's seax: single-edged with the broken-back spine that makes an
  * Anglo-Saxon knife unmistakable at a glance, and rune-etched down the flat.
  */
-export function buildDagger(materials?: CharacterMaterials): THREE.Group {
+export function buildDagger(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
-  const steel = M.blade(0xb8c4d2, 0.24);
-  const leather = M.hide(0x24303f);
-  const brass = M.blade(0x9a8a56, 0.4);
+  const P = weaponPalette(M, weaponStyleOf(styleId), {
+    steel: [0xb8c4d2, 0.24], fitting: [0x9a8a56, 0.4], grip: 0x24303f,
+  });
+  const steel = P.steel;
+  const leather = P.grip!;
+  const brass = P.fitting!;
 
   // Asymmetric section: the spine is thick and flat, the edge thins away. Built
   // as a swept box whose cross-section slides forward as the back breaks down.
@@ -10556,17 +10712,20 @@ function axeBlade(
  * `rig.reach` in anim.ts is measured off this geometry's bounding box, so the
  * blade trail follows it without being told.
  */
-export function buildAxe(materials?: CharacterMaterials): THREE.Group {
+export function buildAxe(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   // 0.34 rather than 0.22, and a darker albedo. A 220 mm mirror is the largest
   // specular in the game and it was clipping; a Dane axe is a forged, ground,
   // hard-used tool, not a bezel.
-  const steel = M.blade(0xa9b2bd, 0.34);
-  const iron = M.tinted("iron", 0x5c636d, { roughness: 0.52 });
-  const ash = M.timber(0x6a4c2c);
-  const leather = M.hide(0x33241a);
+  const P = weaponPalette(M, weaponStyleOf(styleId), {
+    steel: [0xa9b2bd, 0.34], iron: [0x5c636d, 0.52], grip: 0x33241a, shaft: 0x6a4c2c,
+  });
+  const steel = P.steel;
+  const iron = P.iron!;
+  const ash = P.shaft!;
+  const leather = P.grip!;
 
   const headY = 0.86;
 
@@ -10712,14 +10871,17 @@ export function buildAxe(materials?: CharacterMaterials): THREE.Group {
  * roster whose silhouette can be read from across the arena, which is what the
  * class needed to stop being "the huscarl without a shield".
  */
-export function buildSpear(materials?: CharacterMaterials): THREE.Group {
+export function buildSpear(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
-  const steel = M.blade(0xc2cad4, 0.22);
-  const iron = M.tinted("iron", 0x585f68, { roughness: 0.55 });
-  const ash = M.timber(0x7a5e38);
-  const leather = M.hide(0x2f2117);
+  const P = weaponPalette(M, weaponStyleOf(styleId), {
+    steel: [0xc2cad4, 0.22], iron: [0x585f68, 0.55], grip: 0x2f2117, shaft: 0x7a5e38,
+  });
+  const steel = P.steel;
+  const iron = P.iron!;
+  const ash = P.shaft!;
+  const leather = P.grip!;
 
   part.add(shell([
     { y: 1.02, hw: 0.016, hd: 0.016 },
@@ -11149,11 +11311,17 @@ export function buildShield(
   return g;
 }
 
-export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMaterials): THREE.Group {
-  if (cls === "runekeeper") return buildDagger(materials);
-  if (cls === "berserker") return buildAxe(materials);
-  if (cls === "warden") return buildSpear(materials);
-  return buildSword(materials);
+/**
+ * The third parameter is a WEAPON STYLE id and nothing else may ever ride
+ * here: `factionread` §3a asserts this signature carries no people, because a
+ * weapon has no people — a style is a purchase, worn identically under every
+ * livery and both team colours.
+ */
+export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMaterials, styleId?: string): THREE.Group {
+  if (cls === "runekeeper") return buildDagger(materials, styleId);
+  if (cls === "berserker") return buildAxe(materials, styleId);
+  if (cls === "warden") return buildSpear(materials, styleId);
+  return buildSword(materials, styleId);
 }
 
 /**

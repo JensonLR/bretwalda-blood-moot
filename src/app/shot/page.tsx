@@ -117,6 +117,7 @@ const SLOT_FIELD: Record<string, Exclude<keyof Appearance, "people">> = {
   cloak: "cloak",
   armor: "armorColor",
   warPaint: "warPaint",
+  weapon: "weapon",
 };
 
 const slotOptions = (slot: string) => ARMOURY.find((s) => s.slot === slot)?.options ?? [];
@@ -153,7 +154,7 @@ function resolveSlot(slot: string, token: string) {
 const DRESS_IDS: Record<string, string> = {
   helm: "helm_none", hair: "hair_short", hairColor: "hc_brown",
   beard: "beard_short", beardColor: "bc_brown", cloak: "cloak_none",
-  armor: "armor_iron", warPaint: "wp_none",
+  armor: "armor_iron", warPaint: "wp_none", weapon: "weapon_issued",
 };
 
 const AUDIT_DRESS: Partial<Appearance> = Object.fromEntries(
@@ -862,7 +863,7 @@ function restage(params: URLSearchParams, base: Partial<Appearance>) {
 /** Every slot of a staged appearance, spelled the way the query string spells it. */
 const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
   cls, turn,
-  ...Object.fromEntries(Object.entries(SLOT_FIELD).map(([slot, field]) => [slot, spell(ap[field])])),
+  ...Object.fromEntries(Object.entries(SLOT_FIELD).map(([slot, field]) => [slot, spell(ap[field] ?? "none")])),
   // Read off the merged appearance like everything else, and through the same
   // cast, so a baseline tree that has no such field publishes `"none"` and says
   // so out loud instead of publishing nothing.
