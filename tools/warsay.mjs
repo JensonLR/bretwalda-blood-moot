@@ -45,7 +45,7 @@ const DB = process.env.WAR_TEST_DB || process.env.PROFILE_TEST_DB || "";
 if (DB) process.env.DATABASE_URL = DB;   // read at module load by src/db/index.ts
 console.log(DB ? "[warsay] against a real database" : "[warsay] no WAR_TEST_DB — the shape only, see the header");
 
-const { bankMatchDetailed } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+const { bankMatchDetailed, titleFor, warRoll } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
 const { TERRITORIES } = await import(pathToFileURL(resolve(ROOT, "src/game/war.mjs")).href);
 
 const REPORT = (over = {}) => ({
@@ -97,6 +97,50 @@ check("...and each outcome names the man it belongs to",
 const banked = crowd.outcomes.filter((o) => o.kind === "banked").length;
 check("the row count and the reasons agree",
   banked === crowd.banked, `banked=${crowd.banked}, outcomes saying banked=${banked}`);
+
+// ---- THE TITLE LADDER SAYS WHAT A SEASON EARNED — backlog 4.6 ----
+//
+// Pure arithmetic, no database: four peoples, four rungs each, every rung a
+// different word, monotone in points, silent below the first point and for
+// the unsworn. "Bretwalda" must never appear — it is the crown, not a rung.
+{
+  const peoples = ["saxon", "norse", "briton", "pict"];
+  const floors = [1, 25, 75, 200];
+  let ok = true; const notes = [];
+  for (const p of peoples) {
+    if (titleFor(p, 0) !== null) { ok = false; notes.push(`${p}: a title for zero points`); }
+    const rungs = floors.map((f) => titleFor(p, f));
+    if (new Set(rungs).size !== 4 || rungs.some((t) => !t)) { ok = false; notes.push(`${p}: rungs [${rungs.join(", ")}]`); }
+    for (let i = 0; i < floors.length; i++) {
+      if (titleFor(p, floors[i] - 1) === rungs[i]) { ok = false; notes.push(`${p}: rung ${i} reached below its floor`); }
+    }
+    if (rungs.some((t) => /bretwalda/i.test(String(t)))) { ok = false; notes.push(`${p}: the crown is on the ladder`); }
+  }
+  if (titleFor(null, 500) !== null) { ok = false; notes.push("a title for the unsworn"); }
+  check("the title ladder: four peoples, four distinct rungs each, monotone, silent for the unsworn, and never the crown",
+    ok, ok ? peoples.map((p) => `${p}: ${floors.map((f) => titleFor(p, f)).join(" < ")}`).join("  |  ") : notes.join("; "));
+}
+
+// ---- THE ROLL OF HONOUR IS THE CROWN'S OWN ORDER — backlog 4.6 ----
+{
+  const roll = await warRoll(50);
+  if (!DB) {
+    check("the roll answers null with no database — the screen must say so, not draw an empty table",
+      roll === null, `got ${JSON.stringify(roll)}`);
+  } else {
+    const sorted = Array.isArray(roll)
+      && roll.every((s, i) => i === 0 || roll[i - 1].points >= s.points);
+    const seats = Array.isArray(roll) && roll.every((s, i) => s.seat === i + 1);
+    const whole = Array.isArray(roll) && roll.every((s) =>
+      ["saxon", "norse", "briton", "pict"].includes(s.people) && s.points > 0
+      && s.title === titleFor(s.people, s.points));
+    check("the roll: at most fifty seats, numbered, points never rising, every man sworn and titled by his own points",
+      Array.isArray(roll) && roll.length <= 50 && sorted && seats && whole,
+      Array.isArray(roll)
+        ? `${roll.length} seat(s)${roll.length ? `, first: ${roll[0].title ?? "(untitled)"} ${roll[0].name} of the ${roll[0].people}, ${roll[0].points} pts` : ""}`
+        : `got ${JSON.stringify(roll)}`);
+  }
+}
 
 // ---- THE GROUND IS NAMED BEFORE THE FIGHT, not only after it ----
 //

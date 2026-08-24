@@ -809,6 +809,98 @@ export interface WarSelfGround {
   holder: string;
 }
 
+// ------------------------------------------------------------
+// THE TITLES — backlog 4.6's "historically accurate titles by rating".
+//
+// Each people climbs its own society's ladder, because a Dane was never a
+// thegn and a Saxon was never a jarl, and the four names at each rung are the
+// period's own words for roughly the same standing: the free commoner, the
+// proven fighting man, the lord's officer, the great magnate. The Insular
+// terms for the Britons and Picts are applied under `docs/FACTIONS.md` §9.5's
+// own licence — chosen for legibility from the attested vocabulary of the
+// islands, stated as invention where the record thins (Pictish social ranks
+// are barely attested; Mormaer is the one native term of high office that
+// survives, and the lower rungs borrow from the Gaelic law-books their world
+// shared).
+//
+// THE RATING IS SEASON POINTS, because that is the number the whole war
+// already runs on — the crown, the flips and the standings all read the same
+// ledger, and a second rating would be a second truth. The floors are spaced
+// so a casual season ends around the second rung and only a campaigner sees
+// the fourth. BRETWALDA is deliberately NOT here: it is the season's crown,
+// one man's, decided at season's end — a title ladder that handed it out for
+// points would cheapen the one mark that cannot be bought.
+// ------------------------------------------------------------
+const TITLE_LADDER: ReadonlyArray<{ floor: number; byPeople: Readonly<Record<string, string>> }> = [
+  { floor: 200, byPeople: { saxon: "Ealdorman", norse: "Jarl", briton: "Arglwydd", pict: "Mormaer" } },
+  { floor: 75, byPeople: { saxon: "Thegn", norse: "Hersir", briton: "Uchelwr", pict: "Toísech" } },
+  { floor: 25, byPeople: { saxon: "Geneat", norse: "Drengr", briton: "Bonheddwr", pict: "Fénnid" } },
+  { floor: 1, byPeople: { saxon: "Ceorl", norse: "Karl", briton: "Taeog", pict: "Aithech" } },
+];
+
+/** The period title a sworn man's season has earned, or null before his first point. */
+export function titleFor(people: string | null, points: number): string | null {
+  if (!people) return null;
+  for (const rung of TITLE_LADDER) {
+    if (points >= rung.floor) return rung.byPeople[people] ?? null;
+  }
+  return null;
+}
+
+/** One seat on the roll of honour. No ids — the roll is public and names suffice. */
+export interface WarRollSeat {
+  seat: number;
+  name: string;
+  people: string;
+  points: number;
+  matches: number;
+  title: string | null;
+  bretwaldaSeasons: number[];
+}
+
+/**
+ * THE ROLL OF HONOUR — the season's top men across all four peoples, in the
+ * crown's own order. The tie-break is `endSeason`'s exactly (points, then the
+ * FIRST banked point, then the profile id as a string), for the same reason
+ * `warSelf`'s rank reproduces it: a public table that ordered two equal men
+ * differently from the crown would be a lie about the one thing the season
+ * decides. Fifty seats, because a roll is read, not scrolled.
+ */
+export async function warRoll(limit = 50): Promise<WarRollSeat[] | null> {
+  const cap = Math.max(1, Math.min(50, Math.round(limit)));
+  return withDb(async (db) => {
+    const season = await currentSeason(db);
+    if (!season) return [];
+    const table = await db.select({
+      profileId: warLedger.profileId,
+      people: warLedger.people,
+      points: sql<number>`sum(${warLedger.points})::int`,
+      matches: sql<number>`count(distinct ${warLedger.matchKey})::int`,
+      name: players.name,
+      bretwaldaSeasons: players.bretwaldaSeasons,
+    }).from(warLedger)
+      .innerJoin(players, eq(players.id, warLedger.profileId))
+      .where(eq(warLedger.seasonId, season.id))
+      .groupBy(warLedger.profileId, warLedger.people, players.name, players.bretwaldaSeasons)
+      .having(sql`sum(${warLedger.points}) > 0`)
+      .orderBy(
+        desc(sql`sum(${warLedger.points})`),
+        asc(sql`min(${warLedger.createdAt})`),
+        asc(sql`${warLedger.profileId}::text`),
+      )
+      .limit(cap);
+    return table.map((r, i) => ({
+      seat: i + 1,
+      name: r.name || "A nameless warrior",
+      people: r.people,
+      points: Number(r.points) || 0,
+      matches: Number(r.matches) || 0,
+      title: titleFor(r.people, Number(r.points) || 0),
+      bretwaldaSeasons: Array.isArray(r.bretwaldaSeasons) ? r.bretwaldaSeasons : [],
+    }));
+  }, null);
+}
+
 export interface WarSelfView {
   /** His own name, for a screen whose whole job is telling him who he is. */
   name: string;
@@ -817,6 +909,8 @@ export interface WarSelfView {
   matches: number;
   bretwaldaSeasons: number[];
   locked: boolean;
+  /** The period title his season's points have earned. See TITLE_LADDER. */
+  title: string | null;
   /** Every territory he has banked a point on this season, most-bled-for first. */
   ground: WarSelfGround[];
   /**
@@ -916,6 +1010,7 @@ export async function warSelf(id: unknown, secret: unknown): Promise<WarSelfView
       matches: Number(mine[0]?.matches) || 0,
       bretwaldaSeasons: Array.isArray(row.bretwaldaSeasons) ? row.bretwaldaSeasons : [],
       locked: points > 0,
+      title: titleFor(row.allegiance, points),
       ground: ground.map((g) => ({
         territoryId: g.territoryId,
         points: Number(g.points) || 0,

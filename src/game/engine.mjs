@@ -2062,6 +2062,25 @@ export function makeEngine(options = {}) {
         if (!t0 || groundForPeople(t0.people) !== room.lastArena) break;
         pick = dealTerritory(`${ordinal}:${simMs}:r${redraw}`, warFront);
       }
+      // AND THE ESCAPE IS DIRECTED, NOT HOPED FOR. Two blind redraws escape a
+      // repeat almost always on a wide front — but the front can narrow to a
+      // couple of territories (and the DB-less fallback deal does), and two
+      // coin flips then repeat one run in four, which the warsay gate duly
+      // caught as a flake. So when the blind draws all land on yesterday's
+      // arena, walk the territory table from a seeded offset and take the
+      // first that fights elsewhere: deterministic, and it cannot fail while
+      // any territory in the game maps to another ground. The walk trades a
+      // little front-fidelity for the guarantee, and only on the third try.
+      if (room.lastArena) {
+        const t0 = territory(pick);
+        if (t0 && groundForPeople(t0.people) === room.lastArena) {
+          const start = ordinal % TERRITORIES.length;
+          for (let i = 0; i < TERRITORIES.length; i++) {
+            const cand = TERRITORIES[(start + i) % TERRITORIES.length];
+            if (groundForPeople(cand.people) !== room.lastArena) { pick = cand.id; break; }
+          }
+        }
+      }
       room.territoryId = pick;
     }
     // AND THE ARENA FOLLOWS THE GROUND. `arena` was the string "saxon_village"

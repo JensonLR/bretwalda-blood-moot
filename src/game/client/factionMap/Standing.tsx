@@ -42,6 +42,8 @@ export interface StandingSelf {
   matches: number;
   bretwaldaSeasons: number[];
   locked: boolean;
+  /** The period title his points have earned on his people's ladder, or null. */
+  title: string | null;
   ground: WarSelfGround[];
   rank: number | null;
   ofPeople: number;
@@ -164,7 +166,7 @@ export default function Standing({ war, self }: StandingProps) {
         <span className="ws-swatch" style={{ background: field?.field, borderColor: field?.lit }} />
         <span className="ws-who-text">
           <strong>{self.name || "A nameless warrior"}</strong>
-          <em>of the {PEOPLE_NAME(people)}</em>
+          <em>{self.title ? `${self.title} of the ${PEOPLE_NAME(people)}` : `of the ${PEOPLE_NAME(people)}`}</em>
         </span>
         {crowned && (
           <span className="ws-crown" title={`Bretwalda, season ${self.bretwaldaSeasons.join(", ")}`}>

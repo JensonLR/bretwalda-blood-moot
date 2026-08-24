@@ -23,6 +23,7 @@ import { ArrowLeft } from "lucide-react";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
+import Roll, { type RollSeat } from "@/game/client/factionMap/Roll";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
@@ -98,6 +99,8 @@ export default function WarPage() {
    * effect body is the one place this repository does not put them.
    */
   const [seen, setSeen] = useState<number | null | undefined>(undefined);
+  /** The roll of honour, or null while it loads (and in local mode forever). */
+  const [roll, setRoll] = useState<RollSeat[] | null>(null);
 
   /**
    * Read the war rolls. Every setState below happens in a promise callback and
@@ -109,10 +112,11 @@ export default function WarPage() {
     return fetch("/api/war", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(storedProfile() ?? {}),
+      body: JSON.stringify({ ...(storedProfile() ?? {}), roll: true }),
     })
       .then((res) => res.json() as Promise<{
         ok?: boolean; mode?: string; war?: WarViewData; self?: SelfView | null;
+        roll?: RollSeat[] | null;
       }>)
       .then((body) => {
         if (body.mode === "local" || !body.war) { setMode("local"); return; }
@@ -131,6 +135,7 @@ export default function WarPage() {
         // middle of the visit that was showing it.
         setSeen((had) => (had !== undefined ? had : watermark));
         setSelf(body.self ?? null);
+        setRoll(Array.isArray(body.roll) ? body.roll : null);
         if (body.self?.allegiance) setChoice(body.self.allegiance as PeopleId);
       })
       .catch(() => { setMode("local"); });
@@ -209,6 +214,7 @@ export default function WarPage() {
               of them used to live in one sentence two screens below the
               coastline on a phone. */}
           {mode === "server" && <Standing war={war} self={self} />}
+          {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} />}
 
           {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
               placement is the point. The map plate is taller than a 390px

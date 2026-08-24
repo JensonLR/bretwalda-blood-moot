@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { clientKey, localMode, rateLimit, readBody, serverOk, tooMany } from "@/db/api";
-import { refreshFront, warSelf, warView, installWarLedger } from "@/db/war";
+import { refreshFront, warRoll, warSelf, warView, installWarLedger } from "@/db/war";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,5 +40,8 @@ export async function POST(req: NextRequest) {
   refreshFront().catch(() => {});
 
   const self = body.id && body.secret ? await warSelf(body.id, body.secret) : null;
-  return serverOk({ war: view, self });
+  // The roll rides the same read, opt-in, so the landing's dispatch fetch —
+  // which wants only the headline — never pays for fifty rows it will not draw.
+  const roll = body.roll === true ? await warRoll() : null;
+  return serverOk({ war: view, self, roll });
 }
