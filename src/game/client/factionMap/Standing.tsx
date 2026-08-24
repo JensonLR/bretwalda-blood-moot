@@ -31,7 +31,8 @@
    ========================================================================== */
 
 import React from "react";
-import { DRAWN_BY_ID, FIELD, PEOPLE_NAME } from "./territories";
+import { DRAWN, DRAWN_BY_ID, FIELD, PEOPLE_NAME } from "./territories";
+import { LAND, MAP_W, MAP_H } from "./britain";
 import type { WarViewData, WarSelfGround } from "./WarMap";
 
 export interface StandingSelf {
@@ -116,9 +117,47 @@ export default function Standing({ war, self }: StandingProps) {
     }
   }
 
+  /** Holder by territory id, for the map well's tints. */
+  const holderOf = new Map(war.territories.map((t) => [t.id, t.holder]));
+
   return (
     <section className="ws" aria-label="Your standing in the war">
       <style>{CSS}</style>
+
+      {/* ---- the map as it stands ----
+
+          THE MAP WELL, FILLED — backlog 5.12. The design review shipped this
+          compartment as an honest empty slot, not knowing the repository
+          already owns the coastline (`britain.ts`, Natural Earth, 1,655
+          points, public domain). So the well is the real Britain: every
+          territory filled in its holder's field, the player's own people at
+          full strength and the other three faded, and the ground of his last
+          fight ringed. It is a STANDING, not a control — the interactive map
+          is one screen up — so nothing here takes a pointer. */}
+      <div className="ws-cell ws-map" aria-hidden="true">
+        <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid meet">
+          {/* Same clip the WarMap uses: a territory is a claim on LAND, and a
+              field bleeding into the sea is a flag where no one stands. */}
+          <defs><clipPath id="ws-land-clip"><path d={LAND} /></clipPath></defs>
+          <path d={LAND} className="ws-land" />
+          <g clipPath="url(#ws-land-clip)">
+            {DRAWN.map((t) => {
+              const holder = holderOf.get(t.id) ?? t.origin;
+              const mine = holder === people;
+              return (
+                <path key={t.id} d={t.d}
+                  fill={FIELD[holder]?.field ?? "#555"}
+                  opacity={mine ? 0.78 : 0.26} />
+              );
+            })}
+          </g>
+          {self.last && DRAWN_BY_ID[self.last.territoryId] && (
+            <circle cx={DRAWN_BY_ID[self.last.territoryId].x}
+              cy={DRAWN_BY_ID[self.last.territoryId].y}
+              r={26} className="ws-lastmark" />
+          )}
+        </svg>
+      </div>
 
       {/* ---- who you are ---- */}
       <div className="ws-cell ws-who">
@@ -181,9 +220,20 @@ const CSS = `
   display: grid; gap: 0.5rem; grid-template-columns: 1fr;
   margin: 0 0 0.85rem;
 }
-/* Three across only when three across still leaves each compartment readable.
-   Below that they stack, which is the phone and is the default. */
-@media (min-width: 54rem) { .ws { grid-template-columns: 1fr 1fr 1.2fr; } }
+/* Three text compartments and the map rail. Across only when across still
+   leaves each compartment readable; below that they stack, which is the phone
+   and is the default — where the map leads the stack at a modest height. */
+@media (min-width: 54rem) { .ws { grid-template-columns: auto 1fr 1fr 1.2fr; } }
+
+/* THE MAP WELL. Britain is tall (639x1000), so the rail is narrow and the
+   height is capped: at 8.2rem it spans the row on desktop and stays a badge,
+   not a poster, on the phone. */
+.ws-map { display: flex; align-items: center; justify-content: center; padding: 0.4rem 0.55rem; }
+.ws-map svg { height: 8.2rem; max-width: 100%; }
+.ws-land { fill: rgba(14,12,9,0.92); stroke: rgba(217,164,65,0.28); stroke-width: 2; }
+.ws-lastmark {
+  fill: none; stroke: var(--gilt-lit); stroke-width: 7; opacity: 0.9;
+}
 
 .ws-cell {
   border-radius: 0.5rem; padding: 0.6rem 0.75rem;
