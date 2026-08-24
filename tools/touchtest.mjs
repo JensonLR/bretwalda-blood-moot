@@ -1433,6 +1433,53 @@ async function main() {
     });
     check("nothing in the cluster is drawn on top of anything else", collisions.length === 0,
       collisions.length ? collisions.join("; ") : "no button overlaps another button or covers a readout");
+
+    // -----------------------------------------------------------------
+    // THE THUMB-ZONE LAW, AS A GATE — backlog 5.10, from
+    // docs/DESIGN-SYSTEM.md §3: a 44 px floor on every control, 56 px for
+    // anything pressed mid-fight, and the band's GOOD PART — "a thing you
+    // cannot take back should cost a small movement" — as: nothing
+    // irreversible intrudes on the bottom 132 px where the combat thumbs
+    // live. The strip reading of the band ("all combat inside one 132 px
+    // strip") is deliberately NOT gated: the shipped cluster is two tiers
+    // (SLASH row at the foot, SHOVE/POWER above it) and MOBILE-CONTROLS.md
+    // itself calls the shove at 200 px up "inside the law" — a ruler that
+    // failed the layout its own law was written on would be measuring the
+    // wrong question. The HAND toggle at 92 px up is in-band on purpose and
+    // reversible, so the clearance claim names irreversibles only.
+    // Floors are size, size does not mirror, and the mirror itself is gated
+    // elsewhere — so one handedness is enough for all three.
+    {
+      const FLOOR = 44, FIGHT_FLOOR = 56, BAND = 132;
+      const COMBAT = new Set(["Slash", "Heavy attack", "Block", "Dodge", "Shove", "Power", "Run"]);
+      const IRREVERSIBLE = /graphics quality|key bindings|sound|end session/i;
+      const rows = await page.evaluate(() => [...document.querySelectorAll("button")]
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return { name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 24),
+            w: Math.round(r.width), h: Math.round(r.height), up: Math.round(window.innerHeight - r.bottom) };
+        })
+        .filter((b) => b.w > 0 && b.h > 0));
+
+      const under44 = rows.filter((b) => Math.min(b.w, b.h) < FLOOR);
+      check("every control on the glass clears the 44 px floor", rows.length >= 8 && under44.length === 0,
+        under44.length ? under44.map((b) => `"${b.name}" ${b.w}x${b.h}`).join("; ")
+          : `${rows.length} controls measured, smallest ${Math.min(...rows.map((b) => Math.min(b.w, b.h)))} px`);
+
+      const combat = rows.filter((b) => COMBAT.has(b.name));
+      const under56 = combat.filter((b) => Math.min(b.w, b.h) < FIGHT_FLOOR);
+      check("every mid-fight control clears the 56 px floor", combat.length >= 6 && under56.length === 0,
+        combat.length < 6 ? `only ${combat.length} of the combat cluster found — a floor over an absent cluster gates nothing`
+          : under56.length ? under56.map((b) => `"${b.name}" ${b.w}x${b.h}`).join("; ")
+            : `${combat.length} combat controls, smallest ${Math.min(...combat.map((b) => Math.min(b.w, b.h)))} px`);
+
+      const irr = rows.filter((b) => IRREVERSIBLE.test(b.name));
+      const intruding = irr.filter((b) => b.up < BAND);
+      check("nothing irreversible intrudes on the 132 px thumb band", irr.length >= 2 && intruding.length === 0,
+        irr.length < 2 ? `only ${irr.length} irreversible control(s) found — the clearance would be vacuous`
+          : intruding.length ? intruding.map((b) => `"${b.name}" bottom ${b.up} px from the foot`).join("; ")
+            : `${irr.length} deliberate controls, nearest bottom ${Math.min(...irr.map((b) => b.up))} px from the foot (bar ${BAND})`);
+    }
   }
 
   const cdp = await ctx.newCDPSession(page);

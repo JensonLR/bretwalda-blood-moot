@@ -1688,8 +1688,18 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
       const got = await page.evaluate(() => ({ subject: window.__shotSubject ?? null, refused: window.__shotError ?? null }));
       if (got.refused) die(`the page refused the stage: ${got.refused} (${q})`);
       if (STAGED_SUBJECT && got.subject) {
-        const want = dressKey(STAGED_SUBJECT).replace(/people=[^ ]+ ?/, "");
-        const wore = dressKey(got.subject).replace(/people=[^ ]+ ?/, "");
+        // A capture that ASKS for a different dress is its own stage, not
+        // drift. The clip CONTROL stages `cloak_gold`+`armor_gold` on
+        // purpose, and those three frames were the whole of the "3 of 126"
+        // this check reported — an anonymous count for a full clocked run,
+        // until `check()` learned to print its rows and the rows named the
+        // INSTRUMENT. So a slot the query itself sets is exempt here, and
+        // drift is only a slot that changed without being asked — which is
+        // the failed stage this accumulator was rebuilt to catch.
+        const asked = new Set([...new URLSearchParams(q).keys()]);
+        const unasked = (key) => key.split(" ").filter((kv) => !asked.has(kv.split("=")[0])).join(" ");
+        const want = unasked(dressKey(STAGED_SUBJECT));
+        const wore = unasked(dressKey(got.subject));
         if (want !== wore) dressDrift.push(`${q} — wore ${wore}`);
       }
       const buf = await page.screenshot({ timeout: 300000 });
