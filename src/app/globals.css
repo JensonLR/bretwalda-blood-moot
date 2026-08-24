@@ -81,7 +81,7 @@
     overscroll-behavior: none;
     user-select: none;
     -webkit-user-select: none;
-    font-family: var(--font-body), "Alegreya Sans", system-ui, sans-serif;
+    font-family: var(--font-body), "Alegreya", Georgia, serif;
     background: #14100b;
     color: #f0e9da;
     -webkit-font-smoothing: antialiased;

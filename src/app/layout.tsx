@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import "./globals.css";
 
-import { Cinzel, Alegreya_Sans } from "next/font/google";
+import { Cinzel, Alegreya } from "next/font/google";
 
 /**
  * THE TWO FACES, SELF-HOSTED, and it is not a style change.
@@ -31,7 +31,11 @@ const cinzel = Cinzel({
   variable: "--font-display",
   display: "swap",
 });
-const alegreyaSans = Alegreya_Sans({
+// Alegreya, not Alegreya Sans — backlog 5.11. The serif sibling is the one
+// actually drawn for long-form book text, and every body surface in this game
+// is written in a chronicle's voice; the sans was the placeholder choice. Same
+// three weights the sans loaded, same variable, so nothing else moves.
+const alegreyaBody = Alegreya({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
   variable: "--font-body",
@@ -88,7 +92,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${cinzel.variable} ${alegreyaSans.variable}`}>
+    <html lang="en" className={`${cinzel.variable} ${alegreyaBody.variable}`}>
       {/* NO COLOUR UTILITIES ON THIS ELEMENT.
           `bg-stone-950 text-white` used to sit here, and it beat the palette:
           Tailwind emits utilities into @layer utilities, which outranks the
