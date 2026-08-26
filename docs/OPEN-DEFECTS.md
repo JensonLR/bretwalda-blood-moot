@@ -7844,3 +7844,45 @@ zoom only); the bell/collar seam nick on the coif's midline (present on a
 SHAVED control — garment geometry, not hair); the bracer's pale upper cuff
 band (deliberate pushed-up-sleeve design that reads flat — owner-level taste);
 the warden's bare nape column reading waxwork above the byrnie collar.
+
+---
+
+## Three callouts, two instruments, and four stale rows — 26 Aug 2026, second wave
+
+The owner: *"Original map feels a lot more laggy while playing than the other
+maps"*; *"Other maps don't seem to have the same sort of kill cam features
+etc."*; *"Assuming weapons finish is on list to improve too."* All three
+closed on `main` (`37c798a`, `0b47499`), and the first two were ONE defect.
+
+**The lag and the missing features were the same zero.** A GL-boundary census
+(draw calls and triangles counted at the context, identical viewport) read the
+village at 1267 calls / 2.47 M tris against 875–942 / 1.6–1.8 M on the other
+three grounds — the triangles are the village being richer, but the SHADER
+outlier was the lights: village hero fire + five torches against ZERO
+pointLights on every other ground. And `GameCanvas` gates the fire's crackle
+bed, the sky haze, the lighting rig's hearth pool AND the mood ramp on the
+longest-reach light in `world.pointLights` — so on three grounds the fight
+happened by a fire that lit nothing, made no sound and never answered the
+fight. One hero light per ground plus the village's ring at three
+(quality.ts `dynamicLights`, read only by the torches) closes both reports.
+
+**The weapon cards sold one picture four times.** `specForOption` had no
+weapon case, `thumbKey` carried no weapon field, and the thumb path never
+mounts a weapon — so the Weapon Finish tab showed four identical unarmed
+mannequins (`art/ui/armourycard-desktop.png`). A new "item" lens photographs
+the weapon alone — diagonal, quarter-turned to the key, lifted to the rig's
+bust line, its own exposure bracket — and the Pattern-Welded rung now rides
+`weldsteel` (buildSteel at weld 3: the watering is the product) while
+Gold-Wired's grip wears the rope substance's twist as its wire.
+
+**Four backlog rows were stale a fortnight** (R8): 2.1–2.4 all read
+NEW/unbuilt while `weightprobe` runs 24/24 and `soundtest` 46/46 today —
+weight, shove/knockdown/get-up, parry/riposte and the combat sound family all
+shipped 12 Aug per `docs/WEIGHT.md` part two, and the camera shoulder,
+handedness mirror and spawn-heading adoption are built as well. Corrected in
+`docs/BACKLOG.md` with today's fresh numbers.
+
+**Genuinely open after this sweep, ranked:** 5.2 (mobile visual gap), 4.7b
+(party queueing 2–4), 5.5 (profile symbols), 4.8 (campaign), 4.9 (other
+modes), 5.8 (Steam prep), plus the standing nape-guard flare (round ten:
+instrument the skinGap march) and the plan-doc polish nits.

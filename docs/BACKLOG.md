@@ -57,13 +57,13 @@ ninety seconds, and it is the foundation the war layer sits on.
 
 | # | Item | Note |
 |---|---|---|
-| 2.1 | **Weight in animations and attacks** — readable wind-up, impact that moves both bodies, fluid and heavy | NEW; `docs/WEIGHT.md` exists but is unbuilt |
-| 2.2 | **Shoving; being knocked over if caught off guard; a get-up** | NEW |
-| 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | NEW — the mastery ceiling |
-| 2.4 | **Satisfying combat sound** that complements the fighting | [ALREADY RAISED] `docs/SOUND.md`, still unbuilt |
+| 2.1 | **Weight in animations and attacks** — readable wind-up, impact that moves both bodies, fluid and heavy | **DONE — the row was stale, verified 26 Aug 2026.** Built 12 Aug per `docs/WEIGHT.md` part two: `SWING_PHASES` telegraph (200–650 ms, gated against a 250 ms reaction floor), `KNOCKBACK` stated in metres the struck man covers (light 0.42 / heavy 0.95 / blocked 0.14, × `WEAPON_MASS`), striker takes a sixth backwards, `HITSTOP` both fighters, `SWING_TURN_RATE` commitment. Re-run today: `weightprobe` **24/24** in 0.6 s |
+| 2.2 | **Shoving; being knocked over if caught off guard; a get-up** | **DONE — the row was stale, verified 26 Aug 2026.** Shove as guard-break, stagger off an open heavy, knockdown with a floored stride channel, and the get-up all exist and are measured in `weightprobe` (24/24 today); the shove is a gated combat control in `touchtest` |
+| 2.3 | **Parry upgrade: animation you feel, plus a real riposte window** to capitalise with extra damage | **DONE — the row was stale, verified 26 Aug 2026.** The parry message carries its `window` on the wire, the riposte bonus lands, and three `weightprobe` claims gate WHO owns a window (a window owed to another man is not the parrier's to cash). 24/24 today |
+| 2.4 | **Satisfying combat sound** that complements the fighting | **DONE — the row was stale, verified 26 Aug 2026.** `soundtest` **46/46** on the worst of 12 seeds: every hit kind pairwise distinct (worst 2.16 JND), a riposte audibly not a free blow, `death()` wired in GameCanvas, `levelUp`/`purchase` in the screen family, `matchWon`/`matchLost` as the two long pieces |
 | 2.5 | **Death camera holds** — you stumble, spray, and the camera finds the best angle on the severing before it leaves | DONE — `src/game/deathcam.mjs`, `tools/deathcamtest.mjs` |
 | 2.6 | **Round-end beat** — the victor emotes, the last man's death is seen, before the screen changes | **DONE, 20 Aug 2026** — the beat landed 13 Aug, the match-end hole closed and the slow-motion replay wired 20 Aug. See below |
-| 2.7 | **More blood, over the top** — spray and splatter | [ALREADY RAISED] `docs/GORE-DESIGN.md` |
+| 2.7 | **More blood, over the top** — spray and splatter | **SUBSTANTIALLY DONE — verified 26 Aug 2026.** `goretest` **36/36**: spray, splatter, decals, severing, the lens-blood pass and the burning men all ship; `docs/GORE-DESIGN.md` and the gore ledger carry the record. Anything further is taste on top of a built system |
 | 2.8 | **Solid map objects** — woodpile, fire structure, fence, boulders, buildings block; small dressing does not | **DONE and WIRED.** `solidground.mjs` + `grounds.mjs` declarations, called twice a tick by `engine.mjs`; `tools/solidtest.mjs` 12/12. See the note below |
 
 ### 2.8, as built — and the pass that nearly shipped a duel-only fix
