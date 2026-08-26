@@ -271,6 +271,7 @@ for (const helm of helms) {
   let foldTag = "-", thruTag = "-", seatTag = "-", floatTag = "-";
   let gap = 0, flare = 0, hem = 0, nGround = 0;
   let gapTag = "-", flareTag = "-", hemTag = "-";
+  let flareTrace = null;
   let onKit = 0, censor = 0;
   const seen = new Set();
   for (const cls of CLASSES) {
@@ -288,7 +289,7 @@ for (const helm of helms) {
         if (blind(cls, sh.tag)) continue;
         const a = allowance(helm, sh.tag);
         if (sh.gapMm - a > gap) { gap = sh.gapMm - a; gapTag = sh.tag; }
-        if (sh.flareDeg > flare) { flare = sh.flareDeg; flareTag = sh.tag; }
+        if (sh.flareDeg > flare) { flare = sh.flareDeg; flareTag = sh.tag; flareTrace = sh.flareTrace ?? flareTrace; }
         if (sh.hemMm - a > hem) { hem = sh.hemMm - a; hemTag = sh.tag; }
         // WHAT THE RULER DID NOT READ, carried up so the table can print it.
         // `onKitFrac` is the share of a hanging plate's samples that had another
@@ -308,7 +309,7 @@ for (const helm of helms) {
   if (gap > GAP_MM) gbad.push(`${gapTag} opens ${gap.toFixed(1)} mm of daylight`);
   if (flare > FLARE_DEG) gbad.push(`${flareTag} flares ${flare.toFixed(1)} deg off the skull`);
   if (hem > HEM_MM) gbad.push(`${hemTag} hem stands ${hem.toFixed(1)} mm out`);
-  ground.push({ helm, nGround, gap, flare, hem, gapTag, flareTag, hemTag, onKit, censor, bad: gbad });
+  ground.push({ helm, nGround, gap, flare, hem, gapTag, flareTag, hemTag, onKit, censor, flareTrace, bad: gbad });
   const bad = [];
   if (fold > 0) bad.push(`fold ${(fold * 100).toFixed(1)}% on ${foldTag}`);
   if (thru > THRU_MM) bad.push(`skin ${thru.toFixed(1)} mm through ${thruTag}`);
@@ -346,6 +347,20 @@ for (const g of ground) {
     `[wear] ${g.helm.padEnd(12)} ${String(g.nGround).padStart(4)}  ` +
     `${g.gap.toFixed(1).padStart(7)}  ${g.flare.toFixed(1).padStart(9)}  ` +
     `${g.hem.toFixed(1).padStart(7)}  ${(100 * g.onKit).toFixed(1).padStart(7)}  ${(100 * g.censor).toFixed(1).padStart(9)}  ${worst}${g.bad.length ? "   <-- FAIL" : ""}`);
+  // ROUND TEN'S PRINTOUT — the march under the peak flare pair, for the rows
+  // the bar is red on. Reported, not judged (R4): nine rounds moved tables
+  // under this number and it did not move a tenth, and this is the record of
+  // what the two marches the derivative differences actually did.
+  if (g.flare > FLARE_DEG && g.flareTrace) {
+    const ft = g.flareTrace;
+    const one = (m, name) => `[wear]     ${name}: gap ${m.gapMm.toFixed(1)} mm${m.censored ? " (CENSORED)" : ""}` +
+      `  sample az ${m.sampleAz.toFixed(1)} el ${m.sampleEl.toFixed(1)}` +
+      `  -> flesh at az ${m.crossAz.toFixed(1)} el ${m.crossEl.toFixed(1)}` +
+      `  (drift ${Math.hypot(m.crossAz - m.sampleAz, m.crossEl - m.sampleEl).toFixed(1)} deg)`;
+    console.log(`[wear]   the march under ${g.helm}'s peak pair — dir az ${ft.dirAz.toFixed(1)} el ${ft.dirEl.toFixed(1)}, arc ${ft.arcMm.toFixed(1)} mm:`);
+    console.log(one(ft.here, "here"));
+    console.log(one(ft.next, "next"));
+  }
 }
 console.log("");
 console.log(`[wear] bars: gap ${GAP_MM} mm, flare ${FLARE_DEG} deg, hem ${HEM_MM} mm`);

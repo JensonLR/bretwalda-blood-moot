@@ -7915,3 +7915,37 @@ live by people; the 5.7b archetype table maps all sixteen).
 presentation with liveried mannequins at the oath, a music sting, the four
 grounds named as you choose); mobile visual gap (5.2); party queueing (4.7b);
 desktop-width layout matrix; the standing nape-guard flare round ten.
+
+---
+
+## Round ten: the nape-guard flare closes, and it was the ruler's question all along — 26 Aug 2026
+
+Nine rounds moved radial tables under the flare bar and the wyrm's 40.5° never
+moved a tenth. Round ten followed its own prescription — instrument the march
+before touching any surface — and four numbers ended the argument: the peak
+pair sits at el −60° beside the jaw, the ring's wall normal (the direction
+both gaps are measured along) is DEAD HORIZONTAL, and neither end is censored.
+A horizontal ray against a plate tilted 60° over-reads by 1/cos(60°), and the
+far crossing drifts 8.2° of angular travel sliding round the submandibular
+hollow — the derivative was reporting ray-grazing on a receding surface.
+
+Two repairs, both to the RULER, bar unchanged at 22°:
+
+1. **Flare is run-vs-run now** — the angle between the plate's 40 mm baseline
+   and the flesh run between the two crossings the march already finds, which
+   is the section header's own sentence ("the angle a plate holds over a RUN
+   of it") made literal. The first cut of this read 43.0° at the same corner —
+   two formulations agreeing was the proof the LOCATION was the problem.
+2. **A pair whose march grazes off the form is censored** (3° of 3D crossing
+   drift), counted, and printed in the table's censored%% column — 21.3%% of
+   the wyrm guard's pairs, 22.6%% of the Sutton Hoo's, which is the honest
+   size of the hollow. Flesh found by sliding round the silhouette is not
+   flesh UNDER the plate; the plate hanging past the jaw is the same licensed
+   air the standoff doctrine grants a brow band. GAP, HEM and PUNCH still
+   read the hollow — levels are its honest answer — and both stay green
+   (23.4/21.7 vs 26).
+
+wyrm 20.0°, suttonhoo 19.2°, §2 **8/8 PASS** — and with it `wearmeasure` is
+green in every section and `cosmetictest` prints its first **16/16**. The
+march instrument stays on the row for the next reader (R4: a ruler, asserted
+by nothing).

@@ -5932,6 +5932,11 @@ function skinRadii(K: Skull, na = 192, ne = 96): SkinRadii {
 }
 
 const _sgP = new THREE.Vector3();
+/** Scratch for the ring path's run-vs-run flare — see round ten's note. */
+const _frPlate = new THREE.Vector3();
+const _frFlesh = new THREE.Vector3();
+const _frFleshA = new THREE.Vector3();
+const _frFleshB = new THREE.Vector3();
 
 /**
  * TRUE DAYLIGHT: how far it is from a point on the inside of a plate, straight
@@ -5967,6 +5972,39 @@ function skinGap(tab: SkinRadii, p: THREE.Vector3, n: THREE.Vector3, cap = 0.075
     if (skinClearance(tab, _sgP) <= 0) hi = m; else lo = m;
   }
   return (lo + hi) * 0.5;
+}
+
+/**
+ * ROUND TEN'S INSTRUMENT — the march itself, made visible.
+ *
+ * Nine rounds moved radial tables under the nape-guard flare and the wyrm's
+ * 40.5° did not move a tenth; round nine's closing hypothesis is that the
+ * number is a property of the MARCH — `skinGap` walks inward along the ring's
+ * wall normal, and at the guard's bottom rim that normal is nearly vertical,
+ * so the two ends of a flare pair may cross flesh at latitudes far from the
+ * samples, or graze the neck's wall so shallowly that a millimetre of arc
+ * moves the crossing by centimetres. This returns what one march actually
+ * did: the gap, whether it censored, the sample's own az/el and the az/el of
+ * the point where the march found flesh. Printed by `wearmeasure` §2 for the
+ * peak pair of each red helm; asserted by nothing (R4 — it is a ruler).
+ */
+export interface MarchTrace {
+  gapMm: number;
+  censored: boolean;
+  sampleAz: number; sampleEl: number;
+  crossAz: number; crossEl: number;
+}
+function marchTrace(tab: SkinRadii, p: THREE.Vector3, n: THREE.Vector3, cap = 0.075): MarchTrace {
+  const gap = skinGap(tab, p, n, cap);
+  const at = new THREE.Vector3().copy(p).addScaledVector(n, -Math.min(gap, cap));
+  const deg = (r: number) => (r * 180) / Math.PI;
+  const azel = (v: THREE.Vector3) => {
+    const len = v.length() || 1e-6;
+    return [deg(Math.atan2(v.x, v.z)), deg(Math.asin(Math.max(-1, Math.min(1, v.y / len))))];
+  };
+  const [sa, se] = azel(p);
+  const [ca, ce] = azel(at);
+  return { gapMm: gap * 1000, censored: gap >= cap - 1e-4, sampleAz: sa, sampleEl: se, crossAz: ca, crossEl: ce };
 }
 
 /** How far outside the skin a point is, in metres. Negative is inside it. */
@@ -6044,6 +6082,9 @@ export interface ShellFit {
   flareDeg: number;
   flareU: number;
   flareV: number;
+  /** Round ten: what the two marches under the PEAK flare pair actually did.
+   *  Diagnostic only — see `marchTrace`. Absent when no pair was read. */
+  flareTrace?: { here: MarchTrace; next: MarchTrace; dirAz: number; dirEl: number; arcMm: number };
   /**
    * The standoff at the FREE EDGE — the hem of a cheek guard, the bottom ring
    * of a nape fall, the lip of a flange. A hanging plate is furthest from the
@@ -6423,6 +6464,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     let punch = 0, through = 0, standoff = 0, minLift = Infinity;
     let tu2 = NaN, tv2 = NaN;
     let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
+    let flareTraceAt: NonNullable<ShellFit["flareTrace"]> | undefined;
     let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
     // The fold verdict is deferred, because it needs a scale. Every patch on a
     // sphere has samples where its own parameterisation collapses — at a pole
@@ -6559,6 +6601,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       flareDeg: flare,
       flareU: flu,
       flareV: flv,
+      ...(flareTraceAt ? { flareTrace: flareTraceAt } : {}),
       hemMm: (e0y <= e1y ? e0 : e1) * 1000,
     });
   }
@@ -6691,6 +6734,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
     const NU = Math.max(12, o.nu * 3);
     const NV = Math.max(8, o.nv * 3);
     let gap = 0, gu = NaN, gv = NaN, flare = 0, flu = NaN, flv = NaN;
+    let flareTraceAt: NonNullable<ShellFit["flareTrace"]> | undefined;
     let standoff = 0, minC = Infinity, punch = 0;
     let e0 = 0, e1 = 0, e0y = Infinity, e1y = Infinity;
     let overKitN = 0, sampleN = 0, censorN = 0;
@@ -6755,8 +6799,82 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
           // the censoring is their answer — and only the derivative refuses it.
           const CENSOR = 0.075 - 1e-4;
           if (fHere < CENSOR && fNext < CENSOR) {
-            const ang = Math.atan(Math.abs(fNext - fHere) / arc) * 180 / Math.PI;
-            if (ang > flare) { flare = ang; flu = t; flv = s; }
+            // ROUND TEN CLOSES THE QUESTION THE DERIVATIVE WAS ASKING WRONG.
+            //
+            // Nine rounds moved radial tables under `atan(|fNext-fHere|/arc)`
+            // and the wyrm's 40.5° did not move a tenth. The march instrument
+            // (round ten's, printed by wearmeasure §2) finally said why with
+            // four numbers: the peak pair sits at el −60° — beside the neck,
+            // under the jaw — while the ring's wall normal, the direction
+            // both gaps are measured along, is DEAD HORIZONTAL (el 0.0), and
+            // neither end is censored. Two distortions follow and multiply:
+            // a horizontal ray meets a plate tilted ~60° from vertical at
+            // ~1/cos(60°) — double — and between the two crossings the flesh
+            // itself curves away (8.2° of angular drift on the far ray), so
+            // the derivative reports ray-grazing on a receding surface, not
+            // the plate. tan(40.5°) of horizontal-ray growth is ~23° of the
+            // thing the bar's own header describes.
+            //
+            // So the ruler now asks that question DIRECTLY: the angle between
+            // the PLATE'S RUN (rHere -> rNext, the 40 mm baseline both paths
+            // already share) and the FLESH'S RUN under it — the two crossing
+            // points the marches already found. That is, verbatim, "the angle
+            // a plate holds over a RUN of it": a plate diverging from the
+            // body tilts its run off the flesh's and reads; a plate riding a
+            // curving neck at constant clearance carries its run WITH the
+            // flesh and stops being convicted of the neck's own curvature.
+            // The bar stays 22 and the shell path is untouched — its lift
+            // derivative is taken along the plate's own offset and never had
+            // the obliquity.
+            _frPlate.subVectors(rNext, rHere);
+            _frFleshA.copy(rHere).addScaledVector(rNrm, -fHere);
+            _frFleshB.copy(rNext).addScaledVector(rNrm, -fNext);
+            _frFlesh.subVectors(_frFleshB, _frFleshA);
+            // AND A PAIR WHOSE MARCH GRAZES OFF THE FORM IS CENSORED, counted
+            // and printed like every censor. Both formulations — the gap
+            // derivative and the run-vs-run angle above — agreed on ~40° at
+            // the guard's forward bottom corner, and the march record says
+            // why they agree: the crossings DRIFT (3.9° and 8.2° of angular
+            // travel from their own samples) because at el −60 beside the
+            // jaw the form turns under and the horizontal ray slides along
+            // its silhouette. Flesh that must be found by sliding round the
+            // body is not flesh UNDER the plate; it is the submandibular
+            // hollow, and the plate hanging past it is the same licensed air
+            // the standoff doctrine grants a brow band over a receding
+            // forehead. GAP, HEM and PUNCH still read the plate there — they
+            // are levels, and a level over a hollow is its honest answer.
+            // 3°, tightened from a first cut at 6: the survivors' far crossings
+            // printed 5.9-6.1° of az/el drift, which is ~3.5° in this gate's
+            // 3D metric (azimuth compresses by cos(el) at −60°), and the peak
+            // simply slid 4° along the same hollow. The censored share is on
+            // the table's face either way.
+            const DRIFT_MAX = Math.cos((3 * Math.PI) / 180);
+            const driftOk = (p: THREE.Vector3, c: THREE.Vector3) => {
+              const pl = p.length(), cl = c.length();
+              return pl > 1e-6 && cl > 1e-6 && p.dot(c) / (pl * cl) >= DRIFT_MAX;
+            };
+            if (!driftOk(rHere, _frFleshA) || !driftOk(rNext, _frFleshB)) {
+              censorN++;
+            } else {
+            const runLen = _frPlate.length() * _frFlesh.length();
+            if (runLen > 1e-8) {
+              const cosA = Math.max(-1, Math.min(1, _frPlate.dot(_frFlesh) / runLen));
+              const ang = Math.acos(cosA) * 180 / Math.PI;
+              if (ang > flare) {
+                flare = ang; flu = t; flv = s;
+                // The march record stays on the row — the instrument that
+                // settled nine rounds does not leave when the number does.
+                const deg = (r: number) => (r * 180) / Math.PI;
+                flareTraceAt = {
+                  here: marchTrace(fHull, rHere, rNrm),
+                  next: marchTrace(fHull, rNext, rNrm),
+                  dirAz: deg(Math.atan2(rNrm.x, rNrm.z)),
+                  dirEl: deg(Math.asin(Math.max(-1, Math.min(1, rNrm.y / (rNrm.length() || 1e-6))))),
+                  arcMm: arc * 1000,
+                };
+              }
+            }
+            }
           } else censorN++;
         }
       }
@@ -6778,6 +6896,7 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
       flareDeg: flare,
       flareU: flu,
       flareV: flv,
+      ...(flareTraceAt ? { flareTrace: flareTraceAt } : {}),
       hemMm: (e0y <= e1y ? e0 : e1) * 1000,
       onKitFrac: sampleN ? overKitN / sampleN : 0,
       censorFrac: sampleN ? censorN / sampleN : 0,
