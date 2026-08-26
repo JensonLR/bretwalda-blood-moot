@@ -19,7 +19,10 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ArrowLeft } from "lucide-react";
+import { faceSeedFor } from "@/game/client/armouryThumbs";
+import type { Appearance } from "@/game/client/characters";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
@@ -31,6 +34,26 @@ import { readCreds } from "../profileLink";
 
 const PEOPLES = ["saxon", "norse", "briton", "pict"] as const;
 type PeopleId = (typeof PEOPLES)[number];
+
+/** The livery mirror — the same stage the armoury uses, behind the same
+ *  dynamic door for the same reason: this page must not eat three.js just to
+ *  draw a coastline. Loaded only once the oath section renders it. */
+const CharacterPreview = dynamic(() => import("@/game/client/CharacterPreview"), { ssr: false });
+
+/**
+ * The mirror's stand-in when no profile is stored yet. A LITERAL, not
+ * `defaultAppearance` — that helper lives in characters.ts, which imports
+ * three.js, and a static import here would drag the whole renderer into this
+ * page's first paint; the dynamic door above exists precisely to prevent
+ * that. Mirrors `defaultAppearance("huscarl")` field for field; if that
+ * table moves, this shows a slightly stale default man on a screen he is on
+ * for one oath, which is the cheapest possible drift.
+ */
+const MIRROR_DEFAULT: Appearance = {
+  helm: "nasal", hairStyle: "short", hairColor: 0x4a3220,
+  beardStyle: "short", beardColor: 0x4a3220, cloak: "red",
+  armorColor: 0x5f6b7a, warPaint: "none", weapon: "weapon_issued", people: "none",
+};
 
 /**
  * The flip thresholds, READ OFF the territory table rather than written out
@@ -100,6 +123,21 @@ export default function WarPage() {
   useEffect(() => {
     try { setFromMoot(new URLSearchParams(window.location.search).get("oath") === "first"); } catch { /* server */ }
   }, []);
+  /**
+   * The player's own look, for the livery mirror: the oath screen shows HIM
+   * in the kingdom's colours, not a stock figure. Read from the same stored
+   * profile the game plays with; absent (a brand-new device that skipped the
+   * fight somehow), the mirror simply stays a default man and the oath is
+   * unchanged.
+   */
+  const [mirror, setMirror] = useState<{ appearance: Appearance | null; seed: number }>({ appearance: null, seed: 0 });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("bretwalda_profile");
+      const p = raw ? JSON.parse(raw) as { appearance?: Appearance; recoveryCode?: string; name?: string } : null;
+      setMirror({ appearance: p?.appearance ?? null, seed: faceSeedFor(p?.recoveryCode || p?.name || "moot") });
+    } catch { /* private mode */ }
+  }, []);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /**
@@ -162,6 +200,17 @@ export default function WarPage() {
 
   const sworn = self?.allegiance as PeopleId | null | undefined;
   const locked = !!self?.locked && !!sworn;
+
+  // The graduate is CARRIED to the choice: the oath section lives below the
+  // map, and a phone's first screen would otherwise open on a coastline he
+  // has not earned yet. One scroll, once the rolls have been read.
+  useEffect(() => {
+    if (!fromMoot || mode !== "server" || sworn) return;
+    const t = setTimeout(() => {
+      document.querySelector(".war-oath")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [fromMoot, mode, sworn]);
 
   const takeTheOath = useCallback(async () => {
     if (!choice || busy) return;
@@ -294,6 +343,30 @@ export default function WarPage() {
                 : "Your people decides your colours, your kit and whose border you are dragging. It never decides your class, your numbers, or who you are put in a room with — twelve players split four ways is four empty queues."}
             </p>
 
+            {/* THE LIVERY MIRROR. The oath's whole weight is "your colours
+                for a season" — so the screen shows the man himself, dressed
+                in the kingdom under his finger, on the same stage the armoury
+                photographs him with. `people` rides the appearance the way
+                the wire carries it; the swear itself is unchanged. */}
+            {!locked && (
+              <div className="war-mirror">
+                <CharacterPreview
+                  warriorClass="huscarl"
+                  appearance={{ ...(mirror.appearance ?? MIRROR_DEFAULT), people: (choice ?? sworn ?? "none") as Appearance["people"] }}
+                  faceSeed={mirror.seed}
+                  height={300}
+                  turn={-0.55}
+                />
+                <p className="war-mirror-note">
+                  {choice
+                    ? `In the colours of the ${PEOPLE_NAME(choice)}.`
+                    : sworn
+                      ? `In the colours of the ${PEOPLE_NAME(sworn)}.`
+                      : "Touch a kingdom — on the map or below — and see yourself in its colours."}
+                </p>
+              </div>
+            )}
+
             <ul className="war-peoples">
               {PEOPLES.map((p) => (
                 <li key={p}>
@@ -395,6 +468,8 @@ const CSS = `
 .war-how-steps b { color: rgba(238,226,204,0.94); font-weight: 700; }
 
 .war-oath { margin-top: 1.25rem; }
+.war-mirror { margin: 0.75rem 0 1rem; }
+.war-mirror-note { margin: 0.5rem 0 0; text-align: center; font-size: 0.8rem; color: rgba(238,226,204,0.62); }
 .war-oath-note { margin: 0 0 0.75rem; font-size: 0.8rem; color: rgba(238,226,204,0.66); line-height: 1.5; }
 .war-peoples { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 @media (min-width: 48rem) { .war-peoples { grid-template-columns: 1fr 1fr; } }

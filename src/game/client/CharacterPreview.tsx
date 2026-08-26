@@ -57,6 +57,12 @@ export default function CharacterPreview({
    * "this is you" panel wants the whole man and his weapon, not a head crop.
    */
   defaultLens = "figure",
+  /**
+   * A fixed turntable bearing, overriding the lens's own default. The oath's
+   * livery mirror wants the man FACING the choice he is making; the cloak
+   * bearing that serves the shop's cloak tab shows him from behind.
+   */
+  turn,
 }: {
   warriorClass: WarriorClass;
   appearance?: Appearance;
@@ -66,6 +72,7 @@ export default function CharacterPreview({
   faceSeed?: number;
   controls?: boolean;
   defaultLens?: PreviewLens;
+  turn?: number;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageHandle | null>(null);
@@ -82,12 +89,19 @@ export default function CharacterPreview({
    */
   const [lit, setLit] = useState(false);
 
-  // Taken apart into its eight fields on purpose. `previewAppearance()` in
+  // Taken apart into its fields on purpose. `previewAppearance()` in
   // page.tsx builds a fresh object every render, so anything keyed on the
   // object's identity would re-enter the stage — and therefore rebuild the
   // whole warrior — sixty times a second.
+  //
+  // ALL TEN FIELDS, and the two late ones are recorded defects: this list was
+  // written at eight and never learned `weapon` (so the mannequin held the
+  // issued steel whatever finish the player had bought — the shop's own
+  // preview lying about the shop) or `people` (so the oath screen could not
+  // show a man in the kingdom's livery he was about to swear into).
   const {
     helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint,
+    weapon, people,
   } = appearance ?? defaultAppearance(warriorClass);
 
   // ---- which lens is showing ----
@@ -117,7 +131,7 @@ export default function CharacterPreview({
     if (!mount) return;
     const stage = createArmouryStage(mount, {
       warriorClass, faceSeed,
-      appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint },
+      appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint, weapon, people },
     });
     if (!stage) { setFailed(true); return; }
     stageRef.current = stage;
@@ -134,12 +148,13 @@ export default function CharacterPreview({
   useEffect(() => {
     stageRef.current?.setLoadout({
       warriorClass, faceSeed,
-      appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint },
+      appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint, weapon, people },
     });
   }, [warriorClass, faceSeed, helm, hairStyle, hairColor, beardStyle, beardColor,
-      cloak, armorColor, warPaint]);
+      cloak, armorColor, warPaint, weapon, people]);
 
   useEffect(() => { stageRef.current?.setLens(lens); }, [lens]);
+  useEffect(() => { if (turn !== undefined) stageRef.current?.setTurn(turn); }, [turn, lit]);
 
   // ---- the turntable ----
   //
