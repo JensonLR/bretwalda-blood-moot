@@ -661,7 +661,15 @@ async function main() {
     ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
     args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
   });
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  // `--w`/`--h` for the desktop-width matrix — a laptop at 1024, a monitor at
+  // 1920 — for the same reason touchtest grew them: a gate that only ever
+  // measures one window certifies one window.
+  const flagInt = (name, dflt) => {
+    const i = process.argv.indexOf(`--${name}`);
+    const v = i >= 0 ? parseInt(process.argv[i + 1], 10) : NaN;
+    return Number.isFinite(v) ? v : dflt;
+  };
+  const ctx = await browser.newContext({ viewport: { width: flagInt("w", 1280), height: flagInt("h", 800) } });
   await ctx.addInitScript(PROBE);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[page-error] ${e}`));
