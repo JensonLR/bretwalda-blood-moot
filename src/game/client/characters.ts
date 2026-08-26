@@ -1739,14 +1739,25 @@ export function cloakFor(hex: number, team: TeamSide, people: Allegiance): numbe
 // builders have always drawn, so an old profile is byte-identical.
 // ------------------------------------------------------------
 export interface WeaponStyle {
-  /** Channelwise multipliers on the blade steel, and a roughness shift. */
-  blade: { tint: readonly [number, number, number]; dRough: number };
+  /**
+   * Channelwise multipliers on the blade steel, and a roughness shift.
+   * `substance` swaps the MAP under the tint — the Pattern-Welded rung rides
+   * `weldsteel`, the same forge with the watering turned up, because a paid
+   * pattern the armoury lens cannot see is the Shadow-Hood fault in a
+   * different slot. Absent, the builder's own steel map stands.
+   */
+  blade: { tint: readonly [number, number, number]; dRough: number; substance?: "weldsteel" };
   /** Multiplier on the dark iron (fullers, guards, axe cheeks). */
   iron: { tint: readonly [number, number, number] };
   /** Replacement for the fitting metal, or null to keep the builder's own. */
   fitting: { hex: number; rough: number } | null;
-  /** Replacement for the grip leather, or null to keep the builder's own. */
-  grip: { hex: number } | null;
+  /**
+   * Replacement for the grip leather, or null to keep the builder's own.
+   * `substance: "rope"` re-maps the grip as a twisted wrap — the gilt rung's
+   * wire-bound grip, which its own name promised and its flat hide never
+   * delivered.
+   */
+  grip: { hex: number; substance?: "rope" } | null;
   /** Multiplier on the shaft timber. */
   shaft: { tint: readonly [number, number, number] };
 }
@@ -1768,7 +1779,8 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     // [0.78, 0.82, 0.9], not the first cut's [0.88, 0.9, 0.94]: the colour
     // ladder read that at ΔE 8.9 against the issued steel — a dull rung by
     // the shop's own 10 bar — and an oiled pattern-weld is honestly darker.
-    blade: { tint: [0.78, 0.82, 0.9], dRough: 0.14 },
+    // The substance carries the watering itself — see `weldsteel`'s recipe.
+    blade: { tint: [0.78, 0.82, 0.9], dRough: 0.14, substance: "weldsteel" },
     iron: { tint: [0.9, 0.9, 0.92] },
     fitting: null,
     grip: { hex: 0x1d1410 },
@@ -1788,7 +1800,10 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     blade: { tint: [1.04, 1.03, 1.0], dRough: -0.02 },
     iron: { tint: [1.0, 0.96, 0.86] },
     fitting: { hex: 0xd6a83e, rough: 0.26 },
-    grip: { hex: 0x4a1f16 },
+    // "Gold-wired" was a name and a flat oxblood hide. The rope substance's
+    // twisted strands at grip scale ARE a wire binding, and the hex warms
+    // toward the wire's own metal so the twist reads gilt over oxblood.
+    grip: { hex: 0x7a4a22, substance: "rope" },
     shaft: { tint: [1.05, 0.95, 0.82] },
   },
 };
@@ -1814,16 +1829,23 @@ function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
   grip?: number;
   shaft?: number;
 }) {
+  const bladeHex = tintHex(base.steel[0], style.blade.tint);
+  const bladeRough = Math.max(0.05, Math.min(0.95, base.steel[1] + style.blade.dRough));
   return {
-    steel: M.blade(tintHex(base.steel[0], style.blade.tint),
-      Math.max(0.05, Math.min(0.95, base.steel[1] + style.blade.dRough))),
+    steel: style.blade.substance
+      ? M.tinted(style.blade.substance, bladeHex, { roughness: bladeRough })
+      : M.blade(bladeHex, bladeRough),
     iron: base.iron
       ? M.tinted("iron", tintHex(base.iron[0], style.iron.tint), { roughness: base.iron[1] })
       : undefined,
     fitting: base.fitting
       ? (style.fitting ? M.blade(style.fitting.hex, style.fitting.rough) : M.blade(base.fitting[0], base.fitting[1]))
       : undefined,
-    grip: base.grip !== undefined ? M.hide(style.grip ? style.grip.hex : base.grip) : undefined,
+    grip: base.grip !== undefined
+      ? (style.grip?.substance
+        ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
+        : M.hide(style.grip ? style.grip.hex : base.grip))
+      : undefined,
     shaft: base.shaft !== undefined ? M.timber(tintHex(base.shaft, style.shaft.tint)) : undefined,
   };
 }
@@ -2218,7 +2240,7 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 // which is what lets the arena's full `SurfaceName` union satisfy the narrow
 // list a warrior actually wears.
 export type CharacterSurface =
-  | "mail" | "iron" | "steel" | "bronze" | "interlace"
+  | "mail" | "iron" | "steel" | "weldsteel" | "bronze" | "interlace"
   | "wool" | "hair" | "linen" | "leather" | "rope"
   | "oak" | "bone" | "skin";
 

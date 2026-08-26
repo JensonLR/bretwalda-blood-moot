@@ -30,7 +30,7 @@ import type { WarriorClass } from "../types";
  * top edge, so the two things actually on sale — the helm and the face — sat
  * at the frame's weakest point.
  */
-export type PreviewLens = "face" | "bust" | "figure" | "fight";
+export type PreviewLens = "face" | "bust" | "figure" | "fight" | "item";
 
 /**
  * Which lens each armoury slot is sold through.
@@ -49,10 +49,14 @@ export const SLOT_LENS: Readonly<Record<string, PreviewLens>> = {
   warPaint: "face",
   cloak: "figure",
   armor: "bust",
-  // The one slot whose product is in the HAND: the figure lens is the only
-  // one that shows a carried weapon at all (`armouryStage` hides it on the
-  // face and bust crops), and the blade is most of the object.
-  weapon: "figure",
+  // The one slot whose product is in the HAND — and "figure" sold it as four
+  // identical distant men: the note above claimed the figure lens "shows a
+  // carried weapon", but the thumb path builds the BODY through
+  // `buildCharacter` and never mounts a weapon at all
+  // (`art/ui/armourycard-desktop.png`, 26 Aug). A weapon card photographs
+  // THE WEAPON: the object alone, diagonal, blade filling the frame — the
+  // only lens the watering, the blueing and the wire can read at card size.
+  weapon: "item",
 };
 
 export interface ThumbSpec {
@@ -104,7 +108,13 @@ export function thumbKey(spec: ThumbSpec): string {
   // staging a cloak silently invalidates and re-renders all ten helmet cards.
   const kit = lens === "face"
     ? [a.helm, a.hairStyle, a.hairColor, a.beardStyle, a.beardColor, a.warPaint]
-    : [a.helm, a.cloak, a.armorColor, a.hairStyle, a.beardStyle];
+    // An item card depends on nothing but the weapon and the class that
+    // carries it — and the weapon HAS to be in some key: it was in neither
+    // list, so all four finish cards shared one cache entry and the shop
+    // showed one picture four times.
+    : lens === "item"
+      ? [a.weapon ?? "weapon_issued"]
+      : [a.helm, a.cloak, a.armorColor, a.hairStyle, a.beardStyle];
   return [spec.warriorClass, spec.slot, spec.faceSeed, ...kit].join("|");
 }
 
@@ -182,6 +192,9 @@ export function specForOption(
     case "cloak": ap.cloak = String(value); break;
     case "armor": ap.armorColor = Number(value); break;
     case "warPaint": ap.warPaint = String(value); break;
+    // Absent, every card photographed the STAGED weapon — four cards, one
+    // picture, nothing sold.
+    case "weapon": ap.weapon = String(value); break;
   }
   if (slot === "hair" || slot === "hairColor" || slot === "warPaint") ap.helm = "none";
   if (slot === "beard" || slot === "beardColor") {

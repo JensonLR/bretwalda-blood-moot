@@ -20,7 +20,10 @@ import { SLOT_LENS, type PreviewLens } from "./armouryThumbs";
 /** How many radians a full drag across the panel turns him. */
 const DRAG_TURN = 3.4;
 
-const LENS_LABEL: Record<PreviewLens, string> = {
+// "item" is excluded on purpose: it is the weapon CARD's lens — an object
+// photographed alone — and has no meaning as a stance for the live mannequin,
+// so it gets no button.
+const LENS_LABEL: Record<Exclude<PreviewLens, "item">, string> = {
   face: "PORTRAIT",
   bust: "SHOULDERS",
   figure: "FULL KIT",
@@ -36,7 +39,7 @@ const LENS_LABEL: Record<PreviewLens, string> = {
 const FIGHT_NOTE = "SEVEN METRES — the range you fight at, at this screen's own scale";
 
 /** The four lenses, in order. Fixed, so it is not rebuilt every render. */
-const LENS_ORDER: PreviewLens[] = ["face", "bust", "figure", "fight"];
+const LENS_ORDER: Exclude<PreviewLens, "item">[] = ["face", "bust", "figure", "fight"];
 
 export default function CharacterPreview({
   warriorClass,
@@ -96,12 +99,15 @@ export default function CharacterPreview({
   // asked to see the item at the range he fights at has asked a question, and
   // silently answering a different one on the next tab is how the shop got
   // accused of hiding things in the first place.
-  const slotLens: PreviewLens = (focusSlot && SLOT_LENS[focusSlot]) || defaultLens;
-  const [pin, setPin] = useState<{ lens: PreviewLens; slot: string } | null>(null);
-  const lens: PreviewLens =
+  // "item" is the weapon CARD's lens; the live mannequin shows the man with
+  // the weapon in his hand instead, which is the figure.
+  const rawLens: PreviewLens = (focusSlot && SLOT_LENS[focusSlot]) || defaultLens;
+  const slotLens: Exclude<PreviewLens, "item"> = rawLens === "item" ? "figure" : rawLens;
+  const [pin, setPin] = useState<{ lens: Exclude<PreviewLens, "item">; slot: string } | null>(null);
+  const lens: Exclude<PreviewLens, "item"> =
     pin && (pin.lens === "fight" || pin.slot === (focusSlot ?? "")) ? pin.lens : slotLens;
   const chooseLens = useCallback(
-    (l: PreviewLens) => setPin({ lens: l, slot: focusSlot ?? "" }),
+    (l: Exclude<PreviewLens, "item">) => setPin({ lens: l, slot: focusSlot ?? "" }),
     [focusSlot],
   );
 

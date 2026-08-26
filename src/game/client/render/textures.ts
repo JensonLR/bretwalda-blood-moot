@@ -101,6 +101,7 @@ export type SurfaceName =
   | "mail"      // riveted 4-in-1, over a padded gambeson
   | "iron"      // forged and blackened, hammer-planished
   | "steel"     // polished, pattern-welded, ground
+  | "weldsteel" // the same forge with the watering POLISHED UP — the paid finish
   | "bronze"    // sand-cast, verdigris in the cavities
   | "interlace" // tinned sheet, die-stamped ribbon plait
   // cloth and hide
@@ -1090,12 +1091,20 @@ function buildIron(g: Gen): void {
 // ---- polished, pattern-welded steel ------------------------------------
 // The chevrons are the point: Anglo-Saxon blades were pattern-welded, and a
 // blade with a herringbone in it reads as forged rather than as chrome.
-function buildSteel(g: Gen): void {
+//
+// `weld` scales how loudly the watering speaks. 1 is the issued steel —
+// "a whisper, not a flag", the rule two comments down. `weldsteel` builds
+// the same map at 3: the Pattern-Welded finish is 240 gold FOR the watering,
+// and a paid pattern you cannot see at the armoury lens is the Shadow-Hood
+// fault in a different slot. The strength rides the colour mix, the
+// roughness band and (past 1) a shallow height groove, so the bands catch
+// the key as relief and not only as paint.
+function buildSteel(g: Gen, weld = 1): void {
   const { size, h, r, m, c, bank } = g;
   const LANES = 260;
   const body = col(0xb3bcc7);
   const bright = col(0xe4ebf3);
-  const weld = col(0x878f9a);
+  const weldTone = col(0x878f9a);
   const nickCol = col(0x5b636c);
 
   forEachTexel(size, (i, u, v) => {
@@ -1130,11 +1139,12 @@ function buildSteel(g: Gen): void {
     // physically belongs is where it still is: in the albedo, as a bright streak,
     // and in the roughness, as scatter. Nicks stay — a nick is a cell field at ×2,
     // 128 texels across, and it is real geometry that deserves a real normal.
-    h[i] = clamp01(0.78 - scratch * 0.02 - nick * 0.36 + (tooth - 0.5) * 0.03);
-    mix(c, i, body, weld, weldT * 0.16);
+    h[i] = clamp01(0.78 - scratch * 0.02 - nick * 0.36 + (tooth - 0.5) * 0.03
+      - weldT * 0.012 * Math.max(0, weld - 1));
+    mix(c, i, body, weldTone, Math.min(0.55, weldT * 0.16 * weld));
     toward(c, i, bright, scratch * 0.4 + (tooth - 0.5) * 0.2);
     toward(c, i, nickCol, nick * 0.8);
-    r[i] = clamp01(0.1 + weldT * 0.05 + scratch * 0.32 + nick * 0.45 + (tooth - 0.5) * 0.05);
+    r[i] = clamp01(0.1 + weldT * 0.05 * weld + scratch * 0.32 + nick * 0.45 + (tooth - 0.5) * 0.05);
     m[i] = 1 - nick * 0.12;
   });
 }
@@ -2935,6 +2945,11 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   mail:    { detail: "hero", tint: 0x4a5568, roughness: 0.45, metalness: 0.85, normalScale: 1.15, aoIntensity: 1.1, bump: 2.6, cavity: 1.15, repeat: 3, build: buildMail },
   iron:    { detail: "prop", tint: 0x2f343b, roughness: 0.55, metalness: 0.9,  normalScale: 0.9,  aoIntensity: 0.9, bump: 1.6, cavity: 0.9,  repeat: 2, build: buildIron },
   steel:   { detail: "hero", tint: 0xb8c0ca, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: buildSteel },
+  // The Pattern-Welded finish's own steel: the same forge at weld 3, so the
+  // watering reads at the armoury lens instead of whispering. Tint a step
+  // greyer than the issued steel — an oiled weld is honestly darker — and the
+  // rest of the row is steel's, because it IS steel.
+  weldsteel: { detail: "hero", tint: 0xaab3bf, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
   // Roughness and metalness here are the recipe's own measured means, because
   // materials.ts divides a caller's request by them. `normalScale` is under
   // steel's: a stamped foil stands about a third of a millimetre proud and the

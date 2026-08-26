@@ -28,7 +28,7 @@
 // alongside `GameCanvas`'s own.
 import * as THREE from "three";
 import type { Appearance } from "./characters";
-import { buildCharacter, defaultAppearance } from "./characters";
+import { buildCharacter, buildWeaponForClass, defaultAppearance } from "./characters";
 import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
@@ -71,6 +71,8 @@ const LENS_BEARING: Record<PreviewLens, number> = {
   bust: -0.61,
   figure: 2.36,
   fight: -0.42,
+  // The item card rotates the OBJECT, not a man — see `drawThumb`'s branch.
+  item: 0,
 };
 
 interface LensFrame {
@@ -89,7 +91,7 @@ interface LensFrame {
 // puts the head in the bottom third of the frame with the sky above it, and
 // that is the owner's complaint about his own screenshot restated: the thing
 // being sold ends up at the frame's weakest point.
-const LENS: Record<Exclude<PreviewLens, "fight">, LensFrame> = {
+const LENS: Record<Exclude<PreviewLens, "fight" | "item">, LensFrame> = {
   // Crown to collarbone. 0.56 m is a head and a hand's width of air over the
   // crest, which is what a 950-gold serpent needs and no more.
   face: { height: 0.56, aim: 0.908, fov: 22, rise: 0.0 },
@@ -489,7 +491,7 @@ export interface StageHandle {
   /** The canvas is live and the first frame is on screen. */
   readonly ready: boolean;
   setLoadout(next: StageLoadout): void;
-  setLens(lens: PreviewLens): void;
+  setLens(lens: Exclude<PreviewLens, "item">): void;
   /** Adds to the turntable, in radians. The player's drag lands here. */
   turnBy(delta: number): void;
   /** Absolute turntable bearing, for a reset control. */
@@ -516,7 +518,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   mount.appendChild(canvas);
 
   const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 240);
-  let lens: PreviewLens = "face";
+  // The panel's stances exclude "item" — that lens photographs an object,
+  // not the mannequin, and exists only inside `drawThumb`.
+  let lens: Exclude<PreviewLens, "item"> = "face";
   let loadout = initial;
   let turn = LENS_BEARING.face;
   let ready = false;
@@ -856,26 +860,63 @@ function pumpThumbs(forge: Forge): void {
   // sell something on a face; a helm with no roughness map is a grey blob and a
   // cheek with no cavity AO is an egg. A shop card's entire job is to show the
   // thing you are being asked to pay for.
-  const built = buildCharacter(
+  const lens = SLOT_LENS[job.spec.slot] ?? "face";
+  // THE ITEM CARD — the weapon alone, diagonal, filling the frame. A weapon
+  // finish card that photographs a whole man photographs a 4 px sliver of
+  // what it is selling; four of them photographed the SAME man, because the
+  // body path never mounts a weapon at all. The object is built by the same
+  // builder the fight mounts, under the same material library, so the card
+  // and the arena cannot drift.
+  const built = lens === "item" ? null : buildCharacter(
     cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, forge.materials, "medium", job.spec.faceSeed,
   );
-  const subject = built.group;
-  const lens = SLOT_LENS[job.spec.slot] ?? "face";
-  subject.rotation.y = LENS_BEARING[lens === "fight" ? "face" : lens];
+  const subject = built ? built.group : buildWeaponForClass(cls, forge.materials, ap.weapon);
+  if (lens === "item") {
+    // Blade high, grip low, leaning like a sword stood in a corner: the
+    // long axis runs y, so a roll about z lays it on the card's diagonal
+    // and a quarter-turn in y gives the key light the blade's FLAT — dead
+    // edge-on is a line, dead flat-on is a mirror into the void.
+    subject.rotation.z = -0.62;
+    subject.rotation.y = 0.55;
+    // And UP into the light. The rig's key, rim and fill are aimed at a
+    // standing man; a weapon is built about its hand mount at y = 0, and the
+    // first cut of this card photographed it at the mannequin's boots — four
+    // near-black cards. The object is carried to the bust line, where the
+    // three-point rig actually is.
+    const pre = new THREE.Box3().setFromObject(subject);
+    const pc = pre.getCenter(new THREE.Vector3());
+    subject.position.set(-pc.x, 1.30 - pc.y, -pc.z);
+  } else {
+    subject.rotation.y = LENS_BEARING[lens === "fight" ? "face" : lens];
+  }
   subject.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) { m.castShadow = false; m.receiveShadow = false; }
   });
   forge.scene.add(subject);
 
-  const top = new THREE.Box3().setFromObject(subject).max.y || 1.78;
-  const L = LENS[lens === "fight" ? "figure" : lens];
-  thumbCam.fov = L.fov;
-  const aim = top * L.aim + L.rise;
-  const dist = (L.height / 2) / Math.tan((L.fov * Math.PI) / 360);
-  thumbCam.position.set(0, aim, dist);
-  thumbCam.lookAt(0, aim, 0);
-  thumbCam.updateProjectionMatrix();
+  if (lens === "item") {
+    // Framed off the object's own box, not a man's proportions: a dagger and
+    // a spear differ by a metre and both must fill the card.
+    const box = new THREE.Box3().setFromObject(subject);
+    const c = box.getCenter(new THREE.Vector3());
+    const s = box.getSize(new THREE.Vector3());
+    const span = Math.max(s.x, s.y) * 1.14;
+    thumbCam.fov = 26;
+    const dist = (span / 2) / Math.tan((thumbCam.fov * Math.PI) / 360) + s.z;
+    thumbCam.position.set(c.x, c.y, c.z + dist);
+    thumbCam.lookAt(c.x, c.y, c.z);
+    thumbCam.updateProjectionMatrix();
+  } else {
+    const top = new THREE.Box3().setFromObject(subject).max.y || 1.78;
+    const L = LENS[lens === "fight" ? "figure" : lens];
+    thumbCam.fov = L.fov;
+    const aim = top * L.aim + L.rise;
+    const dist = (L.height / 2) / Math.tan((L.fov * Math.PI) / 360);
+    thumbCam.position.set(0, aim, dist);
+    thumbCam.lookAt(0, aim, 0);
+    thumbCam.updateProjectionMatrix();
+  }
 
   // A card is a card, not a diorama: no ground, no plinth, no sky behind the
   // item, so ten of them read as ten objects rather than as ten photographs of
@@ -889,6 +930,17 @@ function pumpThumbs(forge: Forge): void {
   for (const c of forge.scene.children) {
     if (c === subject || c === forge.lights) continue;
     if (c.visible) { hidden.push(c); c.visible = false; }
+  }
+  // An item card brackets its own exposure. The rig's intensities are tuned
+  // for a man's worth of lit surface; a spear is a finger's width of it, and
+  // at the panel's figure exposure the four cards came back near-black
+  // (`art/ui/wf-cards-zoom.png`). Saved and restored around the one render —
+  // the live mannequin never sees these numbers.
+  const litKey = forge.key.intensity, litRim = forge.rim.intensity, litFill = forge.fill.intensity;
+  if (lens === "item") {
+    forge.key.intensity = 44;
+    forge.rim.intensity = 88;
+    forge.fill.intensity = 14;
   }
 
   const pr = renderer.getPixelRatio();
@@ -907,12 +959,15 @@ function pumpThumbs(forge: Forge): void {
   renderer.setScissorTest(false);
   renderer.setClearColor(prevClear, prevAlpha);
   forge.scene.background = bg;
+  forge.key.intensity = litKey;
+  forge.rim.intensity = litRim;
+  forge.fill.intensity = litFill;
   hidden.forEach((o) => { o.visible = true; });
   forge.scene.remove(subject);
   // `characters.ts` shares merged geometry between builds and patches
   // `dispose()` on every cached buffer to decrement its own refcount — so this
   // walk is a RELEASE, not a free, and skipping it is the leak.
-  built.reassemble();
+  built?.reassemble();
   subject.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) m.geometry?.dispose();
