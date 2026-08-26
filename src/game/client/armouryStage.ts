@@ -759,10 +759,24 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   };
 }
 
+/**
+ * The rebuild gate. THIS LIST MUST NAME EVERY FIELD THE BUILDER DRAWS —
+ * it was written at eight fields and never learned `weapon` or `people`,
+ * so the stage refused the rebuild those two exist to trigger: the oath
+ * mirror kept a man in issued steel under a caption naming his kingdom
+ * (the owner photographed it), and an equipped weapon finish never moved
+ * the live mannequin. Third recorded instance of the add-a-field,
+ * miss-a-comparator family (CharacterPreview's destructure and the
+ * server's SLOT_FIELD were the first two). `mark` is left out ON PURPOSE
+ * and stays out: the builder never reads it, so a mark change must not
+ * cost a rig rebuild.
+ */
 function sameAppearance(a: Appearance, b: Appearance): boolean {
   return a.helm === b.helm && a.hairStyle === b.hairStyle && a.hairColor === b.hairColor
     && a.beardStyle === b.beardStyle && a.beardColor === b.beardColor
-    && a.cloak === b.cloak && a.armorColor === b.armorColor && a.warPaint === b.warPaint;
+    && a.cloak === b.cloak && a.armorColor === b.armorColor && a.warPaint === b.warPaint
+    && (a.weapon ?? "weapon_issued") === (b.weapon ?? "weapon_issued")
+    && (a.people ?? "none") === (b.people ?? "none");
 }
 
 // ---------------------------------------------------------------------------

@@ -14699,19 +14699,35 @@ export function buildCharacter(
     // four cuts carry four fasteners — a bone pin, a disc brooch, an Irish-style
     // ring-and-pin, and a gilt disc with a boss — and the cut table names which.
     if (ap.cloak !== "none") {
-      const cx = -S.shoulderX * 0.72;
-      const cy = S.shoulderY + 0.03;
-      // THE OTHER HALF OF THE OWNER'S SCREENSHOT. `cz = S.chestHD + 0.058` is a
-      // depth measured on the CENTRELINE, and the brooch is pinned 137 mm out to
-      // the side of it — where the shoulder has already turned back toward the
-      // spine. On the huscarl, whose mantle is the widest layer on the roster,
-      // that put the gilt disc 60-odd millimetres off the metal with clean
-      // daylight under its whole rim. It is seated on the outermost garment now,
-      // plus 10 mm for the two folds of cloak the pin actually passes through,
-      // and every piece of every clasp is lifted by its OWN half-thickness so
-      // its back face lands on that surface rather than near it.
-      const pinned = padded(outer(cy), 0.010);
-      const az = azAtX(pinned, cy, cx);
+      // THE SECOND SCREENSHOT (26 Aug). The first fix seated the clasp on the
+      // outermost GARMENT plus 10 mm "for the folds of cloak the pin passes
+      // through" — at a `cy` fixed 30 mm above the shoulder. But the cloak's
+      // top edge is a DIAGONAL by design: `lead` pulls the leading corner down
+      // the chest, 75 mm on the Gilded, so at that fixed height there is no
+      // cloth under the pin at all. The owner photographed the result from the
+      // rear-left quarter: the gilt disc hanging in clean air beside the arm,
+      // pinning nothing. All four cuts had the same fault by their own `lead`;
+      // the Gilded merely wears the largest disc under the largest lead.
+      //
+      // A brooch fastens the CLOAK, so it is seated on the cloak: the pin
+      // point rides the cut's own top-edge curve just inboard of the leading
+      // corner and just below the edge (where gathered cloth actually takes a
+      // pin), and the carrier is the cloak sweep's own top ellipse — the same
+      // `topX/topZ + stack` the cloth is built from, so if the sweep moves,
+      // the clasp follows. The numbers are shared with the cloak block below
+      // by construction, not by copy: `wearmeasure` §4 measures all four.
+      const cut = CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown;
+      const pivotY = S.shoulderY + 0.030;
+      const stack = heavy ? 0.052 : robed ? 0.040 : bare ? PELT_LOFT + 0.012 : 0.024;
+      const uPin = 0.07;
+      const aPin = cut.a0 + (cut.a1 - cut.a0) * uPin;
+      const yTop = -cut.nape * Math.pow(uPin, cut.napePow)
+        - cut.lead * Math.pow(1 - uPin, 3);
+      const cy = pivotY + yTop - 0.012;
+      const rx = S.chestHW + 0.055 + stack;
+      const rz = S.chestHD + 0.05 + stack;
+      const pinned: FitCarrier = { st: () => ({ y: cy, hw: rx, hd: rz, z: -0.02 }), power: 2 };
+      const az = azAtX(pinned, cy, Math.sin(aPin) * rx);
       const clasp = (CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown).clasp;
       if (clasp === "pin") {
         // 30 gold fastens with what a traveller has: a turned bone pin through

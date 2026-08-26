@@ -1643,8 +1643,15 @@ export default function Page() {
             that this button swallowed. Free look is a drag anywhere on that
             half of the screen, so anything opaque parked there is a patch of
             dead camera. See docs/MOBILE-CONTROLS.md. */}
+        {/* …EXCEPT over the summary. The owner photographed the toggle sitting
+            ON the war banner at phone width — the summary's text runs to the
+            left edge exactly where the fight parked this button. With results
+            up the fight is over, free look with it, so the movement-side
+            argument dies and the toggle takes the corner every MENU gives it. */}
         <SoundToggle muted={muted} onToggle={toggleMute}
-          className={`absolute top-3 ${lefty ? "right-3" : "left-3"} mt-[7rem] z-30`} />
+          className={`absolute ${matchResults && !replay?.playing
+            ? "right-3 top-3 z-40"
+            : `top-3 ${lefty ? "right-3" : "left-3"} mt-[7rem] z-30`}`} />
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
