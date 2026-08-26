@@ -208,7 +208,15 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     moteCount: 140,
     decalBudget: 24,
     trails: true,
-    propDensity: 0.8,
+    // 1.0, up from 0.8 — the second of the two SCENE CONTENT rows above comes
+    // to parity (the first, dynamicLights, arrived at 3/3 when the village's
+    // torch ring was cut for every tier's sake). Props are INSTANCED — rocks,
+    // tufts, debris ride one draw call per kind at vertex prices — and the
+    // owner's measured stutter was fill (maxPixelRatio, shadow texels, DoF),
+    // none of which moves here. What remains phone-tier after this is spark
+    // density and pixel budget: overdraw and fragments, priced honestly where
+    // the stutter actually lived. A phone now stands in the SAME arena.
+    propDensity: 1,
     dynamicLights: 3,
     instancing: true,
     damageNumberBudget: 24,
