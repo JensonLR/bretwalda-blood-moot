@@ -2962,6 +2962,19 @@ function fitAdd(
 }
 
 /**
+ * The ruler's door for a fitting built as ONE sheet across several garments.
+ * `fitAdd` records a geometry against a single carrier, which is right for a
+ * stud and wrong for a strap whose upper half lies on mail and whose lower
+ * half lies on a skirt: measured against either garment alone, the far end
+ * reports a standoff that is really the other garment's radius. The sheet is
+ * added once; each span of it reports here against the garment it actually
+ * lies on, so `bodyFitProbe` keeps the case instead of losing it to the merge.
+ */
+function fitTell(tag: string, c: FitCarrier, pts: THREE.Vector3[]): void {
+  if (_fitSpy) _fitSpy.push({ tag, carrier: c, pts });
+}
+
+/**
  * A two-sided parametric sheet with real thickness — cloaks, hair, beards, helm
  * bowls, war paint. `outer` and `inner` are the same surface offset along its
  * own normal; the four rim strips between them are what stop a cloak from
@@ -14070,26 +14083,113 @@ export function buildCharacter(
     // set on the surface at their own height follow the body instead of cutting
     // through it, and they cost nothing: same material, same merge.
     if (!robed) {
-      const runs = lod.trim ? 7 : 4;
+      // A CHAIN OF BOXES IS NOT A STRAP. The segments that stood here followed
+      // the body — each seated at its own height — but each was yawed to its
+      // own bit of the barrel and rolled by one constant, and on the BACK,
+      // where the mail is widest and the run is most diagonal, the roll is
+      // wrong by the difference and the corners show: a diagonal of loose
+      // rectangles marching down the hauberk, which is the owner's "weird
+      // squares ... on the back". A strap is ONE surface. It is swept along
+      // its own run, each station solved on the garment at that height, and
+      // the section is REPROJECTED onto the garment rather than chorded
+      // across it — a flat section between two on-surface edges dips inside
+      // a convex barrel by its own sagitta, which on this chest is a visible
+      // 1.5 mm trench under each edge.
       const yTop = S.shoulderY + 0.035;
       const yBot = S.beltY + 0.01;
-      const pad = bare ? 0.032 : 0.052;
-      for (let i = 0; i < runs; i++) {
-        const t = (i + 0.5) / runs;
-        const y = mix(yTop, yBot, t);
-        const carry = padded(outer(y), 0);
-        // From over the left shoulder down to the right hip. The lateral position
-        // is still authored; the depth and the yaw are SOLVED off the garment the
-        // strap lies on. `lean` was the ellipse's own chord — right for a circle,
-        // 20 mm out on a 2.3-power chest, and wrong by the same amount on every
-        // class whose outer layer is not the one the number was tuned against.
-        const x = mix(-0.62, 0.34, t) * carry.st(y).hw;
-        for (const face of [1, -1]) {
-          // 1.75 of the step, not 1.1: consecutive segments are yawed to their own
-          // bit of the barrel, so anything under about 1.5 leaves the corners
-          // showing and the strap reads as a chain of blocks.
-          fitAdd(p, "baldric", carry, box(0.046, ((yTop - yBot) / runs) * 1.6, 0.013), buff,
-            seatXf(carry, y, azAtX(carry, y, x, face > 0), 0.0065, 0.4));
+      const RIB = lod.trim ? 24 : 12;
+      const HALF_W = 0.023;
+      const THICK = 0.0048;
+      /** On the garment, not in it: enough to clear the mail texture's relief. */
+      const BED = 0.0008;
+      const _rbT = new THREE.Vector3();
+      const _rbN = new THREE.Vector3();
+      const _rbS = new THREE.Vector3();
+      for (const face of [1, -1]) {
+        const front = face > 0;
+        const sts: { p: THREE.Vector3; n: THREE.Vector3; s: THREE.Vector3; c: FitCarrier }[] = [];
+        for (let i = 0; i <= RIB; i++) {
+          const t = i / RIB;
+          const y = mix(yTop, yBot, t);
+          // The garment that stands FURTHEST OUT AT THE STRAP'S OWN AZIMUTH,
+          // not the one `outer` picks. `outer` compares half-WIDTHS, which is
+          // the right contest for a brooch on the chest's flank and the wrong
+          // one on the back of this run: the mantle out-measures the hauberk
+          // in x while sitting inside it in z, so a strap bedded on the
+          // mantle's back is a strap buried under the hauberk's — measured as
+          // the 60 px break in `art/backreview/ribbon1`.
+          let c: FitCarrier = { st: (yy: number) => at(yy, 0), power: 2.4 };
+          {
+            let deep = -1;
+            for (const w of worn) {
+              if (y > w.sts[0].y + 1e-6 || y < w.sts[w.sts.length - 1].y - 1e-6) continue;
+              const cw: FitCarrier = { st: (yy: number) => stationAlong(w.sts, yy), power: w.power };
+              const xw = mix(-0.62, 0.34, t) * cw.st(y).hw;
+              shellPoint(cw, y, azAtX(cw, y, xw, front), _rbT);
+              const d = Math.hypot(_rbT.x, _rbT.z - (cw.st(y).z ?? 0));
+              if (d > deep) { deep = d; c = cw; }
+            }
+          }
+          // From over the left shoulder down to the right hip. The lateral
+          // position is still authored; the depth is SOLVED off the garment
+          // the strap lies on.
+          const x = mix(-0.62, 0.34, t) * c.st(y).hw;
+          const az = azAtX(c, y, x, front);
+          sts.push({
+            p: shellPoint(c, y, az, new THREE.Vector3()),
+            n: shellNormal(c, y, az, new THREE.Vector3()),
+            s: new THREE.Vector3(), c,
+          });
+        }
+        for (let i = 0; i <= RIB; i++) {
+          _rbT.subVectors(sts[Math.min(RIB, i + 1)].p, sts[Math.max(0, i - 1)].p).normalize();
+          sts[i].s.crossVectors(sts[i].n, _rbT).normalize();
+        }
+        /** A point of the strap: `u` along the run, `v` across it, bedded on
+         *  the garment by reprojection and lifted `lift` along its normal. */
+        const strapAt = (u: number, v: number, lift: number, out: THREE.Vector3): void => {
+          const f = u * RIB;
+          const i = Math.min(RIB - 1, Math.floor(f));
+          const fr = f - i;
+          out.copy(sts[i].p).lerp(sts[i + 1].p, fr);
+          _rbS.copy(sts[i].s).lerp(sts[i + 1].s, fr).normalize();
+          out.addScaledVector(_rbS, (v - 0.5) * 2 * HALF_W);
+          const c = fr < 0.5 ? sts[i].c : sts[i + 1].c;
+          const st = c.st(out.y);
+          const zr = out.z - (st.z ?? 0);
+          const e = Math.pow(
+            Math.pow(Math.abs(out.x) / st.hw, c.power) + Math.pow(Math.abs(zr) / st.hd, c.power),
+            1 / c.power) || 1;
+          out.x /= e;
+          out.z = (st.z ?? 0) + zr / e;
+          const az = Math.atan2(
+            Math.sign(zr) * Math.pow(Math.abs(zr / e) / st.hd, c.power / 2),
+            Math.sign(out.x) * Math.pow(Math.abs(out.x) / st.hw, c.power / 2));
+          shellNormal(c, out.y, az, _rbN);
+          out.addScaledVector(_rbN, lift);
+        };
+        p.add(patch({
+          nu: RIB, nv: 3,
+          outer: (u, v, out) => strapAt(u, v, BED + THICK * (1 - 0.35 * Math.abs(v - 0.5) * 2), out),
+          inner: (u, v, out) => strapAt(u, v, BED, out),
+        }), buff);
+        // Each STATION reports to the ruler against the garment it beds on —
+        // one station, one carrier. A span of several stations paired with one
+        // of their carriers measures the others' points against a garment they
+        // never touched, and `stationAlong` clamps past a garment's own ends,
+        // so a strap point at chest height read against the shoulder ruff's
+        // clamped bottom station came back "66 mm inside it": a FAIL the strap
+        // never earned, from the ruler answering the wrong question.
+        const seen = new THREE.Vector3();
+        for (let i = 0; i <= RIB; i += 2) {
+          const pts: THREE.Vector3[] = [];
+          for (const v of [0.06, 0.5, 0.94]) {
+            strapAt(i / RIB, v, BED, seen);
+            pts.push(seen.clone());
+            strapAt(i / RIB, v, BED + THICK, seen);
+            pts.push(seen.clone());
+          }
+          fitTell("baldric", sts[i].c, pts);
         }
       }
       // The boss where the baldric crosses. Down 65 mm and in from 52 mm across to
@@ -15501,7 +15601,14 @@ export function buildCharacter(
     // 0.052 hem flare the mid-heights only approximate, and seven of his mane's
     // vertices sat just inside at the tighter figure. One extra millimetre is
     // under anything a lens can see and it clears the approximation error.
-    const clear = coifed ? LAYER_GAP : 0.030;
+    // CHOSEN BY THE TABLE BEING RIDDEN, NOT BY THE ROUTE. `coifed ?` stood
+    // here, while the table three lines up is chosen by `helmed` — two
+    // mirrored definitions, and they drift exactly where both apply: the
+    // coifed man in a hard helm rides the STATION tables (a shell drawn with
+    // a 16 mm wall) at the aventail's own ring gap, which delivers the mane
+    // inside the drawn wall — the fall pressed flat under the hauberk's own
+    // surface, visible as thin cracks in the mail and nothing else.
+    const clear = helmed && !hooded ? 0.030 : coifed ? LAYER_GAP : 0.030;
     const hw = under.hw + clear, hd = under.hd + clear;
     // The garment's own curve, not an ellipse standing in for it. See the note
     // on `shoulderOut`: `power` IS the superellipse exponent, because
@@ -15509,6 +15616,67 @@ export function buildCharacter(
     const p = under.power;
     const e = Math.pow(Math.pow(Math.abs(out.x) / hw, p)
       + Math.pow(Math.abs(out.z) / hd, p), 1 / p);
+    // THE COIFED GATHER IS PINNED, NOT PUSHED — and pinned BOTH WAYS, so it
+    // runs before the outside-bail below, which would wave the 104 mm wings
+    // through. Every other fall arrives near the garment and needs at most a
+    // nudge; the coifed mane arrives at the aventail's ring radius — deep
+    // inside the mantle — and four rounds of pushing it out with typed
+    // constants produced four different eels (`art/backreview/helmed` through
+    // `hair4`): buried where the constant lost to the mantle's curve, 104 mm
+    // proud where it won. The hood's settled route is the reference: its
+    // curtain LIVES AT the bag's own radius, so it emerges at the hem already
+    // dressed. So below the coif's hem the gather's radius IS the stack's
+    // outer wall plus a band — 18 mm floor (the 16 mm drawn wall plus
+    // daylight), 40 mm cap — with the vertex's own arriving standoff kept
+    // inside that band so the hank and rag relief still texture the surface.
+    // The blend from ring radius rides `t` as before, and every partially-
+    // blended vertex sits INSIDE the mantle, whose own cloth covers the
+    // transition.
+    if (coifed) {
+      // AT THE HOOD'S OWN STANDOFF, WHICH IS THE WHOLE TRICK. Rounds five
+      // through nine tried bands 18-52 mm above the station table and every
+      // one interleaved with a drawn wall somewhere — the tables are an
+      // APPROXIMATION of the drawn garments, the hauberk's collar roll and
+      // the mantle's shell both out-stand them at exactly the heights the
+      // gather crosses, and hair within z-precision of a wall renders as
+      // sliced wedges. The hood's settled curtain never interleaves with
+      // anything because it hangs at the BAG's radius, 45-70 mm clear of the
+      // mantle it drapes over. This band is that read, on the coifed release
+      // — which also puts the paid rung back in the portrait frame, where
+      // `cosmetictest` §3 holds it to 1% and where the owner's 2026-08-08
+      // ruling ("long hair disappears fully even if it should be visible
+      // below the helmet") expects to see it.
+      const rr = Math.hypot(out.x, out.z);
+      const eB = Math.pow(Math.pow(Math.abs(out.x) / under.hw, p)
+        + Math.pow(Math.abs(out.z) / under.hd, p), 1 / p);
+      if (eB > 1e-6 && rr > 1e-6) {
+        const Rs = rr / eB;
+        const d = Math.max(0.045, Math.min(0.070, rr - Rs));
+        // AND THE STEP IS HARD, LIKE THE HOOD'S. A 35 mm fade below the hem
+        // was tried twice, and its band IS the moth-eaten read: every
+        // partially-blended vertex sits at ring-radius-plus-a-fraction,
+        // which is inside the coif bell's drawn wall, and the renderer
+        // slices hair and mail into interleaved wedges there. The hood's
+        // route — the settled reference — releases at its hem in one step,
+        // and the shelf that step makes faces DOWN, under the bag's own
+        // edge, where no lens sees it.
+        let kPin = (Rs + d) / rr;
+        // AND A CLOAK CAPS IT. The cloak is the outermost thing a man owns:
+        // a curtain standing at the hood-class band pushed a fan of ragged
+        // spikes up through the collar roll (`art/backreview/hair11c`) —
+        // worse than the complaint this route set out to fix. Under a cloak
+        // the gather is pressed to the cloth's own lining: the cap ellipse
+        // is the cloak's `topX/topZ` less its lining inset and daylight —
+        // the same numbers the collar roll registers in `worn`.
+        if (ap.cloak !== "none") {
+          const cx = S.chestHW + 0.037, cz = S.chestHD + 0.032;
+          const eC = Math.hypot((out.x * kPin) / cx, (out.z * kPin) / cz);
+          if (eC > 1) kPin /= eC;
+        }
+        out.x *= kPin; out.z *= kPin;
+      }
+      return;
+    }
     if (e >= 1 || e < 1e-6) return;
     // THE STANDOFF FADES IN; CONTAINMENT DOES NOT. The old line blended the
     // WHOLE push over the 60 mm below the hem — right at a coif's hem, where
@@ -15533,6 +15701,14 @@ export function buildCharacter(
     // lens, where the berserker's ruff crest carried 15-18 mm of buried
     // mane — and under the hood, whose route was built on this containment,
     // it stays unconditional.
+    // AND IT STAYS CONDITIONAL UNDER A COIF, WHICH WAS TRIED THE OTHER WAY.
+    // Making the coifed gather's containment unconditional pushed hem-flush
+    // vertices straight from the aventail's face to the trunk table with no
+    // fade — a depth step right at the dag line, read as mail showing through
+    // the top of the emerging fall (`art/backreview/hair3`). The faded blend
+    // is the aventail-to-trunk transition working as designed; what buried
+    // the coifed fall was never this line — it was `clear` below reading
+    // LAYER_GAP against a station table drawn with a 16 mm wall.
     const kBare = (!helmed || hooded) && eBare < 1 && eBare > 1e-6 ? 1 / eBare : 1;
     const k = Math.max(1, kBare + t * (1 / e - kBare));
     out.x *= k; out.z *= k;
@@ -16464,8 +16640,13 @@ export function buildCharacter(
         // inside the bag the whole way down and emerges at ITS hem, swinging
         // out onto the back below. One route for all three bags.
         const baggedFall = coifed || hooded || style.mask;
-        const maneFrontDead = baggedFall ? 2.06 : Math.PI - 1.99;
-        const maneFrontFull = baggedFall ? 2.40 : Math.PI - 0.95;
+        // The coifed pair opens 0.06 rad wider than the hood's and the mask's:
+        // its release moved to the MANTLE's hem (see the pin in
+        // `shoulderRide`), which hides the first stretch of the fall, and the
+        // paid rung buys its remaining visibility across the mantle's whole
+        // back edge. The hood and the uncoifed mask keep their settled pair.
+        const maneFrontDead = coifed ? 2.00 : baggedFall ? 2.06 : Math.PI - 1.99;
+        const maneFrontFull = coifed ? 2.34 : baggedFall ? 2.40 : Math.PI - 0.95;
         const maneArc = Math.PI - maneFrontDead + 0.03;
         const maneMass = (u: number) => hairFall(u)
           * Math.pow(smooth(maneFrontDead, maneFrontFull, awayFromFace(u)), 0.95);
@@ -16524,7 +16705,17 @@ export function buildCharacter(
         const _mrProf = new THREE.Vector3();
         const uncoifedMask = style.mask && !coifed && !hooded;
         let swingFrom = 0.16;
-        let swingAmt = MASK_SWING;
+        // COIFED, THE SWING IS A NUDGE AND THE RIDE IS THE LAW. 0.190 was
+        // measured at the bishop's-mantle line and typed; the back swells
+        // faster below it, so the section was inside the hauberk for a band
+        // under the hem and 104 mm proud of it at the deep stations — the
+        // fall surfaced only where one constant finally beat a curved garment
+        // it never read. `shoulderRide` now contains the coifed gather
+        // unconditionally (see `kBare`), which puts every buried vertex ON
+        // the mail's own surface; the swing's remaining job is to aim the
+        // free length below the mail's hem, and 60 mm is that lean, not an
+        // escape attempt.
+        let swingAmt = coifed ? 0.060 : MASK_SWING;
         if (uncoifedMask) {
           dirOf(Math.PI, maneRoot(Math.PI), _mrProf);
           faceSurface(K, _mrProf, _mrProf);
@@ -16550,7 +16741,15 @@ export function buildCharacter(
           { o: -0.011, d: 0.068 },
           { o: 0.000, d: 0.000 },
         ] as const).map((b) => (baggedFall
-          ? { o: b.o + swingAmt * smooth(swingFrom, MANE_DEEP, b.d), d: b.d }
+          // COIFED, THE TUCK IS BLUNTED. The negative-`o` return leg folds the
+          // hem back under itself, which is right for a fall hanging in open
+          // air and wrong once the release moved to the mantle's hem: at the
+          // reach that gives the paid rung its length back, those stations
+          // land in the visible window BEHIND the outward leg and hollow the
+          // gather into a horseshoe with mail in the middle
+          // (`art/backreview/hair9`). A third of the fold keeps the hem blunt
+          // without opening a cave under it.
+          ? { o: (coifed && b.o < 0 ? b.o * 0.35 : b.o) + swingAmt * smooth(swingFrom, MANE_DEEP, b.d), d: b.d }
           : { o: b.o, d: b.d }));
         const _mrA = new THREE.Vector3();
         const maneReach = (u: number) => {
@@ -16611,14 +16810,21 @@ export function buildCharacter(
           // The gather does not come out at the opening any more; it comes out
           // at the hem, on the same bearing and by the same arithmetic the
           // masked rung uses, so it is solved rather than typed on both.
+          // NO PARTING ON THE BAGGED ROUTE. The centre trough — here and in
+          // `hank` below — is the meeting of two combed masses over an OPEN
+          // crown, and it is right there. Hair coming out under a mail hem has
+          // been gathered by the bag itself: one mass, no midline. Keeping the
+          // trough split the emerging fall into two lobes with mail showing
+          // between them, which is the two-clumps read every round of the
+          // owner's "hair sticks out of the chain mail" report kept producing.
           reach: (u) => (baggedFall ? maneReach(u) : 1)
-            * (1 - 0.10 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
+            * (1 - (baggedFall ? 0 : 0.10) * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))),
           // AND THE RIDGES ARE DEEPER WHERE THE HAIR IS PLAITED. `hank` is the
           // surface's own ropes; a gather that is going into four braids is
           // already parted into ropes before it leaves the mail, and doubling
           // the two harmonics is what makes the same one surface read as
           // twisted rather than combed at the same lens.
-          hank: (u) => -0.30 * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))
+          hank: (u) => (baggedFall ? 0 : -0.30) * Math.exp(-Math.pow((u - Math.PI) / 0.22, 2))
             + (plaited ? 0.36 : 0.18) * Math.cos(u * 6.1 + 0.7)
             + (plaited ? 0.24 : 0.11) * Math.cos(u * 10.3 - 1.4),
           // A hem that is not a curve. Hair ends where it stops growing, and
@@ -18508,14 +18714,24 @@ export function buildCharacter(
           // flanks instead of peaking only at the pole, which is the same
           // correction the comb version's note records making and then made only
           // to its height, not to its path.
-          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.92 + 0.04)), 0.70);
+          // THE TAIL TOUCHES THE IRON, WHICH IS WHAT KEEPS THE ARCH FROM
+          // FLOATING. `t * 0.92 + 0.04` never reaches zero, so the "anchor"
+          // hovered: 10.7 mm of rise plus the 12 mm base offset put a 3 mm
+          // tail tip 23 mm off the cap, and with both ends in the air the
+          // whole animal read as levitating over the helmet — the owner's
+          // "floating top piece", verbatim. The rise now dies at exactly
+          // t = 0 and the base offset blends from the tail's own half-height,
+          // so the first sixth of the body CRAWLS on the cap and the arch
+          // springs from a visible anchor. The head keeps its throw — clear
+          // of everything is that end's whole design.
+          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.96)), 0.70);
           out.set(
             // The wander. A snake does not run down a centreline, and 11 mm of
             // travel is enough to break the symmetry at portrait size. Taken
             // back out over the last quarter so the head sits square to the
             // face, which is the bearing a duel is fought at.
             0.011 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
-            Math.max(capY(z), yTop - 0.030) + 0.012 + rise
+            Math.max(capY(z), yTop - 0.030) + mix(0.0045, 0.012, smooth(0.0, 0.22, t)) + rise
               // The head is thrown DOWN as well as forward, over the brow, so it
               // looks at whoever the man is looking at.
               - 0.030 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
