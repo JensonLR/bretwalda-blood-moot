@@ -774,7 +774,13 @@ async function lockAct(browser, url, check) {
     // bigger than a swing could close.
     const exercised = (m) => !!m && (m.demandRate > CAP || m.peakResidual > 0.9);
     const better = (a, b) => !b || (a.demandRate + a.peakResidual) > (b.demandRate + b.peakResidual);
-    for (let attempt = 0; attempt < 8 && !exercised(best); attempt++) {
+    // Fourteen draws, not eight. The manoeuvre is stochastic — the recruit
+    // must happen to stand close while stamina and state line up — and on the
+    // tablet shape eight draws produced sweeps of 0.65-1.11 rad/s twice in
+    // three runs: a red that indicts the STAGE, not the cap (the same engine
+    // passed at 4.06 rad/s between them). The bar is untouched; the stage
+    // just refuses to give up while the case has not yet existed.
+    for (let attempt = 0; attempt < 14 && !exercised(best); attempt++) {
       if (!hb) break;
       await waitForAlive().catch(() => {});
       await page.waitForFunction(() => {
@@ -796,9 +802,12 @@ async function lockAct(browser, url, check) {
         const f = window.__probe.frames[window.__probe.frames.length - 1];
         if (!f || !f.lock) return false;
         const p = f.foes[f.lock];
-        // Inside two metres. The sweep goes as 1/range, so three metres is the
-        // difference between a demand of 1.2 rad/s and one of 3.5.
-        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 2.2;
+        // Inside 1.8 m. The sweep goes as 1/range, so three metres is the
+        // difference between a demand of 1.2 rad/s and one of 3.5 — and the
+        // 2.2 m gate this started with let through draws that could only ever
+        // sweep at 0.7. A tighter gate times out more often; a timed-out draw
+        // costs an attempt, a weak draw costs a false red.
+        return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 1.8;
       }, null, { timeout: 20000 }).catch(() => {});
 
       const mark = await now();
@@ -809,7 +818,9 @@ async function lockAct(browser, url, check) {
       // not matter; that it is across his front and not at him does.
       await hand.press(STICK, stickHome.x, stickHome.y);
       await Promise.all([0.4, 0.75, 1].map((k) => hand.move(STICK, stickHome.x - 62 * k, stickHome.y)));
-      await wait(900);
+      // Held past the swing's own 1.15 s, so the grading window is the whole
+      // blow rather than however much strafe a 0.9 s hold happened to overlap.
+      await wait(1150);
       await hand.lift(STICK);
       await wait(250);
 
