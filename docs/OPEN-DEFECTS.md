@@ -8047,3 +8047,26 @@ run — which is what tripped over this — now photographs a hydrated Saga.
 verbatim, so a save from before a free armoury id existed showed
 "−13 unlocks earned" on the Saga (current free set subtracted from an older
 roll). The free kit is unioned in on read now.
+
+---
+
+## THE 8.1 SWEEP (26 Aug 2026): verdicts and the one taste item left open
+
+The instrument: 4 classes x 2 kits (issued and the crowned-gold regal the
+owner photographs) x 8 bearings, photographed at the armoury stage. This is
+the ruler the clasp defect proved necessary — wearmeasure's fitting section
+measures distance to a garment and cannot see that the garment's CLOTH is
+not where the fitting is.
+
+CLEARED: no floating fitting on any class at any bearing after the clasp
+reseat. CONVICTED AND FIXED: the shield's rim crescents (chord-topped planks
+over dark hide backing read as stepped holes; a timber annulus now reads as
+the bare-wood border real boards show) and the Gilded cloak's dead rear
+(fold amplitude decayed v-squared; v^1.4 gathers while there is cape left).
+
+LEFT OPEN, TASTE: the Gilded cloak's rear 180 is still a broad calm field
+in the armoury's even light — physically deeper folds now, but the premium
+read may want DESIGN rather than amplitude: a centre-back seam, a glimpse
+of contrasting lining at the train, a tablet-woven hem band. That is a
+deliberate design pass with the owner's eye, not a number to chase against
+a flat light rig.

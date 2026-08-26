@@ -83,7 +83,7 @@ not, the message is dropped silently.
 | `ready` | — | — | Toggles. Broadcasts `lobby_update`. Nothing reads `ready` to decide anything — see §9.4. |
 | `loaded` | — | ignored unless the caller declared `awaitLoad` | **"My arena is standing."** Releases this man from the muster; when he is the last one the countdown starts on that message rather than on a timer. Idempotent. See §2.1. |
 | `set_appearance` | `{appearance}` | — | Stored opaquely and echoed to every client on every snapshot. The simulation never reads it; see §5. |
-| `add_bot` | `{difficulty?, warriorClass?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. |
+| `add_bot` | `{difficulty?, warriorClass?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. NO LOBBY GATE, and since 26 Aug 2026 that is load-bearing: a bot added into a running fight is dealt the emptiest point on the round's spawn ring, facing centre, whole — the First Moot's staged foe (backlog 8.5) is the first deliberate mid-match caller. |
 | `remove_bot` | `{botId?}` | host only | Named bot, or the last one added. |
 | `set_bots` | `{count?, difficulty?}` | host only; `state === "lobby"` | Sizes the whole roster in one message and re-grades existing bots. |
 | `set_rounds` | `{bestOf}` | host only; `state === "lobby"`; not solo | Best of 1, 3 or 5; anything else falls back (`normalizeBestOf`, 890). |

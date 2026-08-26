@@ -1499,7 +1499,12 @@ export default function Page() {
     return (
       <div className="fixed inset-0 bg-black">
         <GameCanvas playerId={playerId} roomState={roomState} onSendInput={handleSendInput} matchEnd={matchResults} onForge={setForge}
-          onEmote={sendEmote} onCanEmote={setCanEmote} onReplay={setReplay} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef} />
+          onEmote={sendEmote} onCanEmote={setCanEmote} onReplay={setReplay} emoteFeed={emoteFeedRef} hitFeed={hitFeedRef}
+          // The staged foe (8.5). Only for a rite entered through THE FIRST
+          // MOOT door — that session starts with an empty ring on purpose. A
+          // player who chose zero bots in TRAINING chose an empty ring and
+          // keeps it; the HUD's callback fires either way, the guard is here.
+          onMootFoe={() => { if (mootSessionRef.current) sendMsg("add_bot", { difficulty: "recruit" }); }} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -2196,7 +2201,13 @@ export default function Page() {
                 on this device); FIND A FIGHT then takes the lead back. */}
             {mootOffered && (
               <button data-snd="confirm" disabled={busy}
-                onClick={() => { mootSessionRef.current = true; void handleSolo("recruit", 1); }}
+                // ZERO bots, and that is the staging (backlog 8.5, the owner:
+                // "the tutorial needs to be staged"): the rite opens on an
+                // EMPTY ring, the MOVE beat is learned in peace, and the foe
+                // walks in when the rite reaches STRIKE — `onMootFoe` below
+                // sends `add_bot` and the engine deals the latecomer a real
+                // spawn. Learn to stand before someone is swinging at you.
+                onClick={() => { mootSessionRef.current = true; void handleSolo("recruit", 0); }}
                 className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
                 <Flame size={20} /> THE FIRST MOOT
               </button>

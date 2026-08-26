@@ -2216,7 +2216,36 @@ export function makeEngine(options = {}) {
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);
         if (botsIn(room) >= botCapacity(room)) return;
         room.difficulty = room.difficulty || diff;
-        addBot(room, botsIn(room), diff, data.warriorClass);
+        const late = addBot(room, botsIn(room), diff, data.warriorClass);
+        // A BOT ADDED INTO A RUNNING FIGHT WALKS IN DRESSED FOR IT. This
+        // handler never had a lobby gate — the button that drives it lives in
+        // the lobby — but `createPlayer` parks a man at the origin, which
+        // mid-match is inside the hero fire. The First Moot's staging (backlog
+        // 8.5) is the first caller that adds mid-fight on purpose: the rite
+        // opens on an empty ring and the foe arrives when it is time to
+        // STRIKE. He takes the emptiest point on the round's own spawn ring,
+        // faces the centre, and starts whole — the same shape `startRound`
+        // deals, for one man, late.
+        if (late && room.state !== "lobby" && room.state !== "finished") {
+          const radius = spawnRadius(room.players.size);
+          let bestA = 0, bestD = -1;
+          for (let k = 0; k < 24; k++) {
+            const a = (k / 24) * Math.PI * 2;
+            const x = Math.cos(a) * radius, z = Math.sin(a) * radius;
+            let d = Infinity;
+            room.players.forEach((p) => {
+              if (p !== late && p.state !== "dead") d = Math.min(d, Math.hypot(p.position.x - x, p.position.z - z));
+            });
+            if (d > bestD) { bestD = d; bestA = a; }
+          }
+          late.position.x = Math.cos(bestA) * radius;
+          late.position.z = Math.sin(bestA) * radius;
+          late.position.y = 0;
+          late.rotation = Math.atan2(-late.position.x, -late.position.z);
+          late.health = late.maxHealth;
+          late.stamina = late.maxStamina;
+          late.state = "idle";
+        }
         sendLobbyUpdate(room);
       });
       case "remove_bot": return withRoom(sid, (room, player) => {
@@ -2652,6 +2681,7 @@ export function makeEngine(options = {}) {
     bot.favourBias = 0.22 + Math.random() * 0.26;
     retuneBot(bot, diff);
     room.players.set(id, bot);
+    return bot;
   }
 
   // Difficulty is a dial, not a birthmark: a bot can be re-graded in the lobby

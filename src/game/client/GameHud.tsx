@@ -82,6 +82,8 @@ interface GameHudProps {
   setFlag: (flag: keyof MobileFlags, value: boolean) => void;
   joyOrigin: { x: number; y: number } | null;
   joystickPos: { x: number; y: number; active: boolean };
+  /** The rite left MOVE (learned or skipped): the staged foe may walk in. */
+  onMootFoe?: () => void;
 }
 
 /**
@@ -595,7 +597,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos,
+  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe,
 }: GameHudProps) {
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
@@ -748,7 +750,15 @@ export default function GameHud({
   const ensureMoot = useCallback(() => (
     mootRef.current ??= createFirstMoot(browserStore(FIRST_MOOT_KEY))
   ), []);
-  const [mootUp, setMootUp] = useState<{ line: string | null; at: number; total: number }>({ line: null, at: 0, total: 0 });
+  const [mootUp, setMootUp] = useState<{ line: string | null; at: number; total: number; flash?: boolean }>({ line: null, at: 0, total: 0 });
+  // The staged foe (backlog 8.5): fired once, the first time the rite is seen
+  // past its MOVE beat — learned or skipped — so the First Moot's empty ring
+  // gets its opponent exactly when striking becomes the lesson. A ref, so the
+  // interval below never has to be torn down over a parent re-render.
+  const mootFoeSentRef = useRef(false);
+  const onMootFoeRef = useRef(onMootFoe);
+  useEffect(() => { onMootFoeRef.current = onMootFoe; });
+  const mootPrevAtRef = useRef(0);
   // The interval reads the LATEST snapshot through a ref: `localPlayer` is a
   // fresh object twenty times a second and an effect keyed on it would tear
   // the interval down as fast as it built it.
@@ -769,10 +779,24 @@ export default function GameHud({
     const moot = ensureMoot();
     if (moot.done) return;
     const STEP = 0.25;
+    let flashTimer: ReturnType<typeof setTimeout> | null = null;
     const push = () => {
       const b = moot.beat;
+      if (!mootFoeSentRef.current && (!b || b.id !== "move")) {
+        mootFoeSentRef.current = true;
+        onMootFoeRef.current?.();
+      }
+      // A beat retiring is the rite's one reward moment — flash the line so
+      // "learned" reads as an event, not as text quietly swapping.
+      const learned = moot.at > mootPrevAtRef.current;
+      mootPrevAtRef.current = moot.at;
+      if (learned) {
+        if (flashTimer) clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => setMootUp((p) => (p.flash ? { ...p, flash: false } : p)), 1300);
+      }
       const line = b ? (isMobile.current ? b.touch : b.desk) : null;
-      setMootUp((prev) => (prev.line === line && prev.at === moot.at ? prev : { line, at: moot.at, total: moot.total }));
+      setMootUp((prev) => (prev.line === line && prev.at === moot.at && !learned
+        ? prev : { line, at: moot.at, total: moot.total, flash: learned || (prev.flash && prev.at === moot.at) }));
     };
     const t0 = setTimeout(push, 0);
     const id = setInterval(() => {
@@ -780,7 +804,7 @@ export default function GameHud({
       if (p) moot.note(p, STEP);
       push();
     }, STEP * 1000);
-    return () => { clearTimeout(t0); clearInterval(id); };
+    return () => { clearTimeout(t0); clearInterval(id); if (flashTimer) clearTimeout(flashTimer); };
   }, [mootEligible, ensureMoot, isMobile]);
   const skipMoot = useCallback(() => {
     ensureMoot().skip();
@@ -965,11 +989,26 @@ export default function GameHud({
               teaches, never on a timer alone. */}
           {mootUp.line && (
             <div className="absolute bottom-[352px] left-1/2 z-10 -translate-x-1/2 pointer-events-none max-w-[86vw]">
-              <div className="rounded-md bg-black/55 px-3 py-1.5 text-center"
+              <div className={`rounded-md px-3 py-1.5 text-center transition-colors duration-300 ${
+                mootUp.flash ? "bg-amber-900/70 ring-1 ring-amber-400/70" : "bg-black/55"
+              }`}
                 style={{ textShadow: "0 1px 4px black" }}>
-                <div className="text-[8px] font-bold tracking-[0.24em] text-amber-400/80">
-                  THE FIRST MOOT — {Math.min(mootUp.at + 1, mootUp.total)} OF {mootUp.total}
+                {/* Pips, not a fraction: five dots a thumb can read without
+                    parsing "3 OF 5" mid-fight; the flash marks the beat that
+                    just retired as an EVENT. Staged, as the owner asked. */}
+                <div className="flex items-center justify-center gap-1.5">
+                  <span className="text-[8px] font-bold tracking-[0.24em] text-amber-400/80">THE FIRST MOOT</span>
+                  <span className="flex gap-1">
+                    {Array.from({ length: mootUp.total }, (_, i) => (
+                      <span key={i} className={`inline-block h-1.5 w-1.5 rounded-full ${
+                        i < mootUp.at ? "bg-amber-300" : i === mootUp.at ? "bg-amber-100 ring-1 ring-amber-300/70" : "bg-stone-600"
+                      }`} />
+                    ))}
+                  </span>
                 </div>
+                {mootUp.flash && (
+                  <div className="text-[9px] font-black tracking-[0.3em] text-amber-300">LEARNED</div>
+                )}
                 <div className="mt-0.5 text-[11px] font-bold tracking-[0.1em] text-amber-100/95">
                   {mootUp.line}
                 </div>

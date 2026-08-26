@@ -85,6 +85,14 @@ interface GameCanvasProps {
    */
   onEmote?: (emote: EmoteId) => void;
   /**
+   * The First Moot's rite has left its MOVE beat (learned, or skipped), and
+   * the staged foe should now walk in. Same division of labour as `onEmote`:
+   * the HUD reports the rite's moment, page.tsx owns the transport and sends
+   * `add_bot`, the engine deals the latecomer a real spawn. Fired at most
+   * once per mount, only in solo, only while a rite is actually running.
+   */
+  onMootFoe?: () => void;
+  /**
    * Whether the STAGE would honour a flourish from the local player, pushed up
    * so the button and the thing that honours it stop being two different
    * answers. Fired only on a change — this is evaluated every frame.
@@ -229,7 +237,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -2037,6 +2045,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         setFlag={setFlag}
         joyOrigin={touch.origin}
         joystickPos={touch.knob}
+        onMootFoe={onMootFoe}
       />
     </div>
   );
