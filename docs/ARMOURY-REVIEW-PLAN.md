@@ -96,3 +96,26 @@ Work on local `helm-land`; push `helm-land:main` (Render deploys),
 `helm-land:helm-land`. Push after every commit — container rollbacks have
 destroyed unpushed work more than once (this session started on a container
 309 commits behind main).
+
+
+## State after 26 Aug 2026, fourth wave — the first all-green sheet
+
+Every tracked gate is green at once, for the first time: wearmeasure all
+sections (round ten closed the nape-guard flare — the last standing red),
+cosmetictest 16/16, warsay 48/48, wartest 82/82, protocoltest 81/81,
+playtest 38/38 at three desktop widths, touchtest 32/32 at four device
+shapes, moottest 25/25, weightprobe 24/24, soundtest 46/46, goretest 36/36.
+
+Shipped this wave: THE FIRST MOOT (rite + doors + oath mirror), WAR PARTY
+(4.7b), ability lore on every class surface, the Z Fold hitbox fix + device
+matrix, mobile scene-content parity (5.2), the weapon item-cards, per-ground
+hero fire (lag + feature parity), and round ten.
+
+**What remains is new build, not repair, and most of it wants the owner's
+word first:** 5.5 profile symbols (design: which achievements unlock what),
+4.9 other game modes (open question), 4.10 historically accurate flags
+(scope), 5.8 Steam packaging (accounts/doors), 5.1 every-screen polish
+(ongoing), the First Moot's further cinematics (music sting, per-kingdom
+ground flythroughs), and the sixteen-territory ground build-out per the
+5.7b archetype table (dyke-and-march first — it covers three border
+territories).
