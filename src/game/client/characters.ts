@@ -14221,11 +14221,18 @@ export function buildCharacter(
       }
     }
     if (cls === "huscarl" || cls === "warden") {
+      // The sword's scabbard, on the left hip. It hung at z -0.03 — inside
+      // the skirt's own depth — so the mail hem swallowed its throat and the
+      // only part in view was the lower half poking out underneath: a dark
+      // teardrop floating below the hem, attached to nothing
+      // (`art/backreview/sv-warden`). A scabbard hangs from the belt OUTSIDE
+      // the skirt; 30 mm further out and 12 mm higher put its throat at the
+      // belt line where the eye can see what it hangs from.
       p.add(shell([
         { y: 0.0, hw: 0.028, hd: 0.014 },
         { y: -0.46, hw: 0.022, hd: 0.011 },
         { y: -0.5, hw: 0.008, hd: 0.005 },
-      ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.06, S.beltY - 0.02, -0.03, 0.32, 0, 0.34));
+      ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.075, S.beltY - 0.008, -0.06, 0.32, 0, 0.34));
     }
 
     // Class ornament that hangs on the body rather than on a limb.
