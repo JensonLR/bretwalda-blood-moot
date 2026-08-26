@@ -51,28 +51,33 @@ red on main — compare counts against a baseline worktree, not against zero).
 
 ## Open, in priority order
 
-1. **helmclash regression check** — a baseline run against `origin/main` was
-   in flight in `../clashbase` when this file was written. Compare per-section
-   red counts (LAYERS/FLESH/WRAP/CREST/PELT/SEAM) between main and the new
-   tree before trusting the hair-route change fully. Main is NOT green on
-   this ruler; the question is whether any section got WORSE.
+1. ~~**helmclash regression check**~~ — DONE 26 Aug: baseline worktree at
+   `cf9279e` read LAYERS 19 / FLESH 24 / WRAP 6 / CREST 16 / PELT 77 /
+   SEAM 13; the new tree reads the same except PELT **74**. Strictly better,
+   no section worse. Main still ships this ruler red — always compare against
+   a baseline, never against zero.
 2. **Premium polish sub-items found during the review** (each reproduced in
    `art/backreview/`):
    - The **bracer's pale upper cuff** reads as flat plastic tan from behind
-     (`hair10b/zoom-blob.png`, every back capture). Wants leather texture,
-     a strap or edge-roll, and a tone nearer the lower bracer.
+     (`hair10b/zoom-blob.png`, every back capture). Deliberate design (the
+     pushed-up-sleeve band of bare forearm) — the sleeve-cuff hems (`5280f5e`)
+     improved the top of it; what remains is owner-level taste.
    - The **bell/collar seam nick** — a small dark dagger at the coif bell's
      midline where it meets the collar band, visible on a SHAVED control
      (`shaved/zoom.png`), so it is garment geometry, not hair.
-   - The **baldric's top tip** peeks above the cloak's collar roll at the
-     left shoulder in cloaked back views (`final-cloak`). The strap should
-     duck under the roll's registry ring near the shoulder crest.
+   - ~~The **baldric's top tip** above the cloak's collar roll~~ — DONE
+     (`85faf95`): the strap's garment contest skips the cloak's roll ring.
    - A small **mail wedge at the mane's root** where the release quads cross
      the bell hem (`hair12-pair.png`, left panel, top of the fall). Invisible
      at fight distance; visible at kitcard zoom.
    - The **grey sliver at the cloak's hem edge** at the left hip (down from
      the original capture but check `redcloak/zoom-sliver.png` against the
      current build).
+   - ~~The **scabbard teardrop** below the warden's skirt hem~~ — DONE
+     (`c1612af`): throat at the belt line, body outside the skirt.
+   - The **warden's bare nape column** reads waxwork between crop hair and
+     byrnie collar (`sv-warden2`). Careful: the neck is measured by the helm
+     rulers — any collar or hairline change must re-run wearmeasure §2/§3.
 3. **The rest of the "premium & defined" pass** — the owner asked for the
    whole armoury: run the four class kitcards front and back, all helms via
    `helmcards`, and judge each against `docs/VISUAL-BAR.md` 8+. The berserker

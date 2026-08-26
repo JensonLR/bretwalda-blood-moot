@@ -7768,3 +7768,79 @@ The box was carrying `load average 10.13` on four cores with other agents' brows
 on it. **The number "14/14" is not a property of `main`; it is a property of a
 quiet box.** Anything compared against it has to be run beside it, in the same
 window, which is what the R2 evidence on `mercyweight5` does.
+
+---
+
+## The back of the man — three owner reports closed, and what ten rounds of the mane cost — 26 Aug 2026
+
+The owner, in two messages: *"long hair on huscarl still sticks out the back of
+the chain mail and looks ugly, the back has those weird squares under the cape
+and when theres no cape just the squares or rectangle aspects on the back"* —
+and, mid-review: *"the 2nd last helmet option has a floating top piece."*
+All three closed on `main` (`dc56f9d` → `5280f5e`), with the evidence run in
+`art/backreview/` (untracked; regenerate with the commands in
+`docs/ARMOURY-REVIEW-PLAN.md`).
+
+**The squares were the baldric.** Seven boxes yawed to their own bit of the
+barrel and rolled by one constant — a diagonal of loose rectangles on the
+hauberk. It is one swept ribbon now, and two instrument findings came with it:
+
+* the strap's garment contest selected by half-WIDTH, and the mantle
+  out-measures the hauberk in x while sitting inside it in z — a strap bedded
+  on the wrong one dove under the mail for sixty pixels of its run. The
+  contest is at the strap's OWN azimuth now. The same contest must skip the
+  cloak's collar-roll registry ring (`85faf95`) — a strap bedded on THAT ring
+  is a strap worn over the cloak.
+* `bodyFitProbe` merges an assembly's rows by tag — standoff is the CLOSEST
+  approach of ANY piece — so one touching box passed a whole floating chain
+  for as long as the chain existed. The ribbon reports per station against the
+  garment that station beds on, through `fitTell`.
+
+**The hair was ten rounds, and the ledger keeps the shape of them.**
+`helmed` → `hair11c` in `art/backreview/` are the failures; `hair12` is the
+fix. What each round taught, compressed:
+
+1. `wearsweep`'s hair rows build with `helm: "none"` — **the helmed mane was
+   absent from every green gate**. The tufts the owner photographed sat behind
+   54/54 for months. A gate green because the case is absent is not a gate.
+2. The fall arrived at the aventail's ring radius, and every typed constant
+   that tried to push it out produced a different eel: buried where the
+   constant lost to the mantle's curve, 104 mm proud where it won, wedge-
+   sliced wherever it sat within z-precision of a drawn wall. The station
+   tables are an APPROXIMATION of the drawn garments; hair placed off them by
+   small clearances interleaves with the real mesh.
+3. The ride's `clear` was chosen by ROUTE (`coifed ?`) while its table is
+   chosen by HELM (`helmed &&`) — mirrored definitions, drifting exactly where
+   both apply, delivering the mane inside the hauberk's 16 mm drawn wall.
+4. **The hood's settled route is the reference for every bagged fall**: its
+   curtain hangs at the BAG's radius, clear of everything it drapes over, and
+   releases at one hard hem with the step's shelf facing down under the bag's
+   own edge. The coifed gather now does the same — released at the coif's hem
+   into a 45–70 mm band above the station table, no parting trough (hair out
+   of a mail bag is one gathered mass), cloak-capped at the cloth's lining.
+5. `cosmetictest` §3 measures paid-hair visibility at the PORTRAIT lens, and
+   it is the wire that catches every route change here: the first clean-but-
+   short construction fell to 0.74–0.85% against the 1% bar — **the ugly
+   tufts had been the green**. The shipped route holds main's own numbers
+   (Long Mane 1.51/1.41, War-locks 1.23) with an honest curtain.
+6. `helmclash` against a fresh `origin/main` baseline worktree: PELT 77 → 74,
+   the other five sections byte-identical. Main ships this ruler red; the
+   comparison is against the baseline, never against zero.
+
+**The floating top piece was the Wyrm-Crest's tail.** `t * 0.92 + 0.04` never
+reaches zero, so the "anchor" hovered 23 mm off the cap and the whole animal
+read as levitating. The rise dies at exactly t = 0 now and the first sixth of
+the body crawls on the iron. The head keeps its throw — that end's whole
+design.
+
+**Also closed in the same sweep:** the scabbard's throat was inside the byrnie
+skirt's depth (a dark teardrop floating below the hem, attached to nothing —
+`c1612af`); both sleeve cuffs ended in raw cut edges, so the linen band read
+as a plaster strip (`5280f5e`).
+
+**Open nits, named and small**, all reproduced in `art/backreview/`: a mail
+wedge at the mane's root where the release quads cross the bell hem (kitcard
+zoom only); the bell/collar seam nick on the coif's midline (present on a
+SHAVED control — garment geometry, not hair); the bracer's pale upper cuff
+band (deliberate pushed-up-sleeve design that reads flat — owner-level taste);
+the warden's bare nape column reading waxwork above the byrnie collar.
