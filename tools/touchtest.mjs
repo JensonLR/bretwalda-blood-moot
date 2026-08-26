@@ -33,8 +33,20 @@ const HEADED = process.argv.includes("--headed");
 
 // A mid-size phone in portrait, which is what a link in a group chat lands on.
 // Nothing here is tuned to these exact numbers: every touch point is derived
-// from the viewport or measured off the button it belongs to.
-const SCREEN = { width: 390, height: 844 };
+// from the viewport or measured off the button it belongs to — which is the
+// claim `--w`/`--h` exist to TEST. A Z Fold's inner screen is nearly square
+// (~840x760 CSS), its cover screen a narrow tower (~374x873), and an owner's
+// playtester reported rough hit targets on exactly that hardware; a gate that
+// only ever measures one aspect certifies one aspect.
+//
+//   node tools/touchtest.mjs --w 841 --h 757     # fold, unfolded
+//   node tools/touchtest.mjs --w 374 --h 873     # fold, cover screen
+const flagInt = (name, dflt) => {
+  const i = process.argv.indexOf(`--${name}`);
+  const v = i >= 0 ? parseInt(process.argv[i + 1], 10) : NaN;
+  return Number.isFinite(v) ? v : dflt;
+};
+const SCREEN = { width: flagInt("w", 390), height: flagInt("h", 844) };
 
 /** Stick travel that pins the joystick at full deflection (input.ts divides by
  *  55 and clamps), plus enough margin that a slow ramp still gets there. */

@@ -1528,12 +1528,22 @@ export default function Page() {
             onLeave={() => { leaveRoom(); setMatchResults(null); setScreen("landing"); }}
           />
         )}
-        {/* Centred on a desktop; on a phone it moves to the movement thumb's
+        {/* Centred on a desktop; on TOUCH it moves to the movement thumb's
             corner and mirrors with the rest of the controls. Centred, it
             straddles the line the touch scheme splits the screen on and leaves
             a 108px-wide patch of "a drag here does nothing" in the free-look
-            half — see docs/MOBILE-CONTROLS.md. The short label is what lets it
-            clear the split outright rather than nearly. */}
+            half — see docs/MOBILE-CONTROLS.md.
+
+            BY POINTER, NOT BY WIDTH. This used to centre at Tailwind's `sm:`
+            (>=640px), which asks "is the window wide" when the touch scheme
+            asks "is this a thumb". A Z Fold's inner screen is both — 841 CSS px
+            wide AND coarse-pointer — and the centred button sat in the
+            free-look half eating drags: touchtest at --w 841 --h 757 read 223
+            sampled points dead on the aim side, all of them this button, which
+            is the owner's playtester's "hit boxes were slightly rough" on that
+            exact hardware. `pointer-fine:` centres it only where a mouse
+            exists; every coarse screen keeps it in the corner whatever its
+            width. */}
         {/* Sound, over the fight: the one place a player wants it off in a
             hurry is the one place he cannot reach a menu.
 
@@ -1548,9 +1558,9 @@ export default function Page() {
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
             data-snd="back"
-            className={`absolute top-3 ${lefty ? "right-3" : "left-3"} sm:left-1/2 sm:right-auto sm:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur`}
+            className={`absolute top-3 ${lefty ? "right-3" : "left-3"} pointer-fine:left-1/2 pointer-fine:right-auto pointer-fine:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur`}
           >
-            <DoorOpen size={15} /> <span className="sm:hidden">END</span><span className="hidden sm:inline">END SESSION</span>
+            <DoorOpen size={15} /> <span className="inline pointer-fine:hidden">END</span><span className="hidden pointer-fine:inline">END SESSION</span>
           </button>
         )}
       </div>
