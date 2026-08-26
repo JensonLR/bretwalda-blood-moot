@@ -124,6 +124,23 @@ with defaults before the boot reader ran; masked in server mode). Both
 ledgered in OPEN-DEFECTS with measurements; the wipe fix is
 `diskReadRef` in `page.tsx`, proven by seed-load-read.
 
+The fifth-wave sheet: marktest 25/25, cosmetictest 19/19 (full render),
+warsay 49/49, wartest 82/82, protocoltest 81/81, solidtest 12/12 (its
+standing deferral), moottest 25/25, soundtest 46/46, goretest 36/36,
+locktest 6/6, weightprobe 24/24, profiletest 22/0 (degraded paths — no
+DB in this box, per the credentials rule), wearmeasure every section
+(its standing 5-window deferral), playtest 38/38 at 1280/1024/1920,
+touchtest 32/32 at phone, fold, cover — and at the tablet shape after a
+harness correction that is its own commit: the committed-swing stage
+could fail to produce the super-cap sweep its claim needs (a red
+indicting the stage, not the cap) and now draws harder. One residual
+honesty note: the "lock holds facing" claim flickers ONLY on runs whose
+own printout reports 3.6-4.9 s main-thread stalls on this GPU-less
+container (5 of 7 tablet runs green, every red stall-marked, engine
+untouched by the wave); it is left as-is deliberately — softening a
+ruler to fit a bad box is how wrong questions start. Re-measure on
+quiet hardware before ever believing that red.
+
 **What remains is new build, not repair, and most of it wants the owner's
 word first:** 5.5's BOUGHT half (gold-priced marks want an armoury rail
 decision), 4.9 other game modes (open question), 4.10 historically
