@@ -134,6 +134,25 @@ declare module "@/game/grounds.mjs" {
     water(x: number, z: number): number;
   }
   export const DANELAW_CAMP: GroundSpec & { field: DanelawCampField };
+
+  /** The dyke's own analytic fields, shared with whoever draws it. */
+  export interface OffaDykeField {
+    reliefRadius: number;
+    /** Where the bank's crest runs, in x. Every point of it is at r >= 21. */
+    bankX: number;
+    ditchX: number;
+    gateZ: number;
+    gateHalf: number;
+    /** How much of the bank stands at a z: full away from the gate, a
+     *  causeway hump through it. */
+    bankShare(z: number): number;
+    /** Marsh in the ditch bottom, 0..1. */
+    wet(x: number, z: number): number;
+    stone: import("@/game/solidground.mjs").RaisedStone;
+  }
+  export const OFFA_DYKE: GroundSpec & { field: OffaDykeField };
   export const GROUND_BY_PEOPLE: Readonly<Record<string, string>>;
+  export const GROUND_BY_TERRITORY: Readonly<Record<string, string>>;
   export function groundForPeople(people: string): string;
+  export function groundForTerritory(territoryId: string, people: string): string;
 }

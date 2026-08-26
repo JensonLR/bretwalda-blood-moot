@@ -43,6 +43,7 @@ import { createSummary, type SummaryHandle } from "./render/summary";
 import "@/game/client/render/moor";
 import "@/game/client/render/fort";
 import "@/game/client/render/camp";
+import "@/game/client/render/dyke";
 
 /**
  * How far the build has got. `done` is the weight of the stages that have

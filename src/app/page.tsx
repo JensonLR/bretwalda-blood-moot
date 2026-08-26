@@ -2296,6 +2296,7 @@ export default function Page() {
                     { id: "pict_moor", name: "The Moor", hint: "heather, standing stones" },
                     { id: "roman_fort", name: "The Old Fort", hint: "ruined stone, high ground" },
                     { id: "danelaw_camp", name: "The Winter Camp", hint: "frozen fen, a beached ship" },
+                    { id: "offa_dyke", name: "The Dyke", hint: "open march, the great earthwork" },
                   ]).map((g) => (
                     <button key={g.id} onClick={() => setFriendlyGround(g.id)}
                       className={`card card-interactive p-3 text-left ${friendlyGround === g.id ? "card-selected" : ""}`}>
@@ -3341,6 +3342,7 @@ type LedgerRow = MatchEndData["results"][number] & { place: number; roundsWon: n
 const ARENA_NAME: Record<string, string> = {
   saxon_village: "The Village", pict_moor: "The Moor",
   roman_fort: "The Old Fort", danelaw_camp: "The Winter Camp",
+  offa_dyke: "The Dyke",
 };
 
 function GroundLine({ territory, friendly, arena, humans }: {

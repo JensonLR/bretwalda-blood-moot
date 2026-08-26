@@ -1058,12 +1058,120 @@ export const DANELAW_CAMP = {
   },
 };
 
+// ============================================================
+// OFFA'S DYKE — the fifth ground, and the first dealt to TERRITORIES
+// ============================================================
+//
+// The 5.7b archetype table's own first pick: "dyke and march — Mercia,
+// Gwynedd, Dyfed — Offa's earthwork; a bank and ditch is a shield wall in
+// landscape form." Three BORDER territories share it, which is why it is the
+// first ground dealt by TERRITORY rather than by people: a fight for Mercia
+// and a fight for Gwynedd are both fights AT THE DYKE, from opposite sides.
+//
+// WHAT IS DELIBERATELY THE SAME is the same list every ground keeps,
+// verbatim: the 18 m play disc, the village's spawn ring, one fire of radius
+// 2.0 at the origin. WHAT IS DIFFERENT: the march is the openest floor in
+// the game — sheep-cropped border turf, one boundary stone — and the WEST
+// side of the world is the earthwork itself: a 2.1 m bank with its timber
+// revetment, the ditch beyond it, and the Welsh hills beyond that. The bank
+// runs north–south at x = −21, every point of it at r ≥ 21 — outside the
+// fighting floor BY CONSTRUCTION, so the flat-floor law holds with no radial
+// gate. A causeway breaks the bank at one point, where a gate stands.
+
+/** Where the bank's crest runs. min |r| on the line is 21 > 18: off the floor. */
+const DYKE_BANK_X = -21;
+const DYKE_DITCH_X = -25.4;
+/** Where the causeway breaks the bank, in z, and its half-width. */
+const DYKE_GATE_Z = 5.6;
+const DYKE_GATE_HALF = 2.4;
+const DYKE_RELIEF_RADIUS = 19.5;
+
+/** How much of the bank stands at a given z: full away from the gate, a low
+ *  causeway hump through it. */
+function dykeBankShare(z) {
+  return 0.16 + 0.84 * smoothstep(DYKE_GATE_HALF, DYKE_GATE_HALF + 2.4, Math.abs(z - DYKE_GATE_Z));
+}
+
+/** Marsh in the ditch bottom — the renderer's colour and sheen read it. */
+function dykeWet(x, z) {
+  const d = Math.exp(-((x - DYKE_DITCH_X) ** 2) / (2 * 1.5 * 1.5));
+  return clamp01(d * dykeBankShare(z) * 1.2 - 0.15);
+}
+
+function dykeHeightAt(x, z) {
+  const r = Math.hypot(x, z);
+  // Sheep-cropped march turf: shorter grain than the village's, barely any
+  // amplitude — the openness IS the identity.
+  let h = (fbm(x * 0.11 + 8.1, z * 0.11 - 31.5, 3) - 0.5) * 0.055;
+  // The bank. A gaussian ridge along its crest line, its height wandering
+  // the way a hand-dug earthwork's does, dying to a causeway at the gate.
+  const bank = Math.exp(-((x - DYKE_BANK_X) ** 2) / (2 * 1.9 * 1.9));
+  const bankH = (2.1 + (fbm(z * 0.055 + 4.4, 0.7, 2) - 0.5) * 0.5) * dykeBankShare(z);
+  h += bank * bankH;
+  // The ditch, on the Welsh side, shallowing where the causeway crosses it.
+  const ditch = Math.exp(-((x - DYKE_DITCH_X) ** 2) / (2 * 2.1 * 2.1));
+  h -= ditch * 1.35 * (0.25 + 0.75 * dykeBankShare(z));
+  // Rolling march east and behind, held off the floor like every ground's.
+  const out = smoothstep(DYKE_RELIEF_RADIUS - 2, DYKE_RELIEF_RADIUS + 5, r);
+  const rolling = (fbm(x * 0.019 - 3.3, z * 0.019 + 9.1, 4) - 0.5) * 2;
+  h += rolling * (0.6 + 5.2 * smoothstep(24, 80, r)) * out;
+  // And Wales climbing beyond the ditch — the hills the dyke faces.
+  h += smoothstep(30, 96, -x) * fbm(x * 0.012 + 7.1, z * 0.012 - 2.4, 4) * 24 * out;
+  return h;
+}
+
+/**
+ * THE MEARC-STONE — one boundary stone on the fighting floor, because a march
+ * is DEFINED by its markers and a floor with one solid keeps the shove-into-
+ * something play every other ground has without crowding the openest
+ * sightlines in the game.
+ */
+const DYKE_MEARCSTONE = raisedStone({
+  id: "mearcstone",
+  x: 10.6, z: -6.8, rot: 0.9,
+  span: 2.6, base: 1.3, lift: 1.35, radiusX: 0.5, radiusY: 1.25,
+  taper: 0.34, lean: 0.055,
+  noise: noise2,
+  why: "A boundary stone. The march is a line somebody agreed, and the stone is where the agreement stands; a man shoved into it stops.",
+});
+
+export const OFFA_DYKE = {
+  id: "offa_dyke",
+  name: "Offa's Dyke",
+
+  // The village's, exactly. See the header.
+  play: { shape: "disc", radius: 18 },
+  spawn: { gap: 7.5, minRadius: 6, maxRadius: 12 },
+
+  // A march-warden's beacon: same sim geometry as every fire, because the
+  // burn path and three harnesses are written on radius 2.0 at the origin.
+  hazards: [
+    { id: "beaconfire", kind: "fire", x: 0, z: 0, radius: 2.0 },
+  ],
+
+  obstacles: [DYKE_MEARCSTONE],
+
+  heightAt: dykeHeightAt,
+
+  field: {
+    reliefRadius: DYKE_RELIEF_RADIUS,
+    bankX: DYKE_BANK_X,
+    ditchX: DYKE_DITCH_X,
+    gateZ: DYKE_GATE_Z,
+    gateHalf: DYKE_GATE_HALF,
+    bankShare: dykeBankShare,
+    wet: dykeWet,
+    stone: DYKE_MEARCSTONE,
+  },
+};
+
 /** Every ground the game knows, by the id that travels on the wire. */
 export const GROUNDS = {
   saxon_village: SAXON_VILLAGE,
   pict_moor: PICT_MOOR,
   roman_fort: ROMAN_FORT,
   danelaw_camp: DANELAW_CAMP,
+  offa_dyke: OFFA_DYKE,
 };
 
 /** The ground a room gets when nobody has chosen one. */
@@ -1110,6 +1218,27 @@ export const GROUND_BY_PEOPLE = Object.freeze({
 export function groundForPeople(people) {
   const id = GROUND_BY_PEOPLE[people];
   return id && GROUNDS[id] ? id : DEFAULT_GROUND_ID;
+}
+
+/**
+ * TERRITORIES WITH A GROUND OF THEIR OWN — the 5.7b archetype table starting
+ * to come true, one archetype at a time. The dyke-and-march row covers three
+ * BORDER territories; a territory named here fights on its own ground, and
+ * every other falls back to its people's. `groundForTerritory` is the one
+ * resolver the deal reads, so adding the next archetype is rows in this
+ * table and a renderer module, nothing else.
+ */
+export const GROUND_BY_TERRITORY = Object.freeze({
+  mierce: "offa_dyke",
+  gwynedd: "offa_dyke",
+  dyfed: "offa_dyke",
+});
+
+/** The ground a territory's fight is held on: its own if it has one, its
+ *  people's otherwise. Same falling-back contract as `groundForPeople`. */
+export function groundForTerritory(territoryId, people) {
+  const id = GROUND_BY_TERRITORY[territoryId];
+  return id && GROUNDS[id] ? id : groundForPeople(people);
 }
 
 /**

@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 // — "obstacle decoration" blocks, "decoration decoration" does not. This module
 // contributes the tick order and nothing else; see the wiring note in
 // `gameTick`, and `tools/solidtest.mjs` for the gate on it.
-import { getGround, groundForPeople, GROUNDS, DEFAULT_GROUND_ID } from "./grounds.mjs";
+import { getGround, groundForPeople, groundForTerritory, GROUNDS, DEFAULT_GROUND_ID } from "./grounds.mjs";
 import { resolveSolids } from "./solidground.mjs";
 // THE WAR, and this is the whole of the engine's knowledge of it.
 //
@@ -2069,7 +2069,7 @@ export function makeEngine(options = {}) {
       let pick = dealTerritory(`${ordinal}:${simMs}`, warFront);
       for (let redraw = 1; redraw <= 2 && room.lastArena; redraw++) {
         const t0 = territory(pick);
-        if (!t0 || groundForPeople(t0.people) !== room.lastArena) break;
+        if (!t0 || groundForTerritory(t0.id, t0.people) !== room.lastArena) break;
         pick = dealTerritory(`${ordinal}:${simMs}:r${redraw}`, warFront);
       }
       // AND THE ESCAPE IS DIRECTED, NOT HOPED FOR. Two blind redraws escape a
@@ -2083,11 +2083,11 @@ export function makeEngine(options = {}) {
       // little front-fidelity for the guarantee, and only on the third try.
       if (room.lastArena) {
         const t0 = territory(pick);
-        if (t0 && groundForPeople(t0.people) === room.lastArena) {
+        if (t0 && groundForTerritory(t0.id, t0.people) === room.lastArena) {
           const start = ordinal % TERRITORIES.length;
           for (let i = 0; i < TERRITORIES.length; i++) {
             const cand = TERRITORIES[(start + i) % TERRITORIES.length];
-            if (groundForPeople(cand.people) !== room.lastArena) { pick = cand.id; break; }
+            if (groundForTerritory(cand.id, cand.people) !== room.lastArena) { pick = cand.id; break; }
           }
         }
       }
@@ -2100,7 +2100,10 @@ export function makeEngine(options = {}) {
     // nothing a player sees changes — and makes the second ground a one-line
     // edit instead of a hunt through this file. See `GROUND_BY_PEOPLE`.
     const t = territory(room.territoryId);
-    room.arena = t ? groundForPeople(t.people) : DEFAULT_GROUND_ID;
+    // It resolves through `groundForTerritory` now: a territory with a ground
+    // of its own (the dyke's three border territories are the first) fights
+    // there; every other keeps its people's.
+    room.arena = t ? groundForTerritory(t.id, t.people) : DEFAULT_GROUND_ID;
     // What the NEXT deal must avoid. Written on every path through here —
     // friendly and solo rooms above never re-deal, so they never read it.
     room.lastArena = room.arena;
