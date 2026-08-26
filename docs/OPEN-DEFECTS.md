@@ -7886,3 +7886,32 @@ handedness mirror and spawn-heading adoption are built as well. Corrected in
 (party queueing 2–4), 5.5 (profile symbols), 4.8 (campaign), 4.9 (other
 modes), 5.8 (Steam prep), plus the standing nape-guard flare (round ten:
 instrument the skinGap march) and the plan-doc polish nits.
+
+---
+
+## The owner's five asks, one sitting — 26 Aug 2026, third wave
+
+Delivered on `main` (`1fea0f9` → `24092a5`), with the container having rolled
+back to the same stale snapshot a third time mid-window (reset to
+`origin/main`, nothing lost — push-after-every-commit is why).
+
+**The campaign is closed by the owner's own ruling and THE FIRST MOOT stands
+in its place** — first act built and gated: `firstmoot.mjs` (five beats,
+demonstration-retired, sim-read), `moottest` 25/25 headless, the landing door,
+the beat line and skip on the glass, the oath door at `/factions?oath=first`.
+Two instrument catches worth keeping: the spawn's own repositioning credited
+MOVE unearned (travel now counts only moving-state ground — a teleport is not
+a step), and the skip button's first cut crossed the w*0.45 split exactly as
+END had — touchtest caught both before a person did.
+
+**The powers read** (`ABILITY_LORE` beside the client sheet, printed at all
+three class surfaces), **the Z Fold's rough hit boxes were the END button
+centring on width instead of pointer** (`pointer-fine:`; touchtest learned
+`--w/--h` and the matrix reads 32/32 at 390×844, 841×757, 820×1180, layout-
+clean at 374×873), and **the maps question is answered in the plan doc** (4
+live by people; the 5.7b archetype table maps all sixteen).
+
+**Open next, in order:** the First Moot's cinematic dressing (per-kingdom
+presentation with liveried mannequins at the oath, a music sting, the four
+grounds named as you choose); mobile visual gap (5.2); party queueing (4.7b);
+desktop-width layout matrix; the standing nape-guard flare round ten.
