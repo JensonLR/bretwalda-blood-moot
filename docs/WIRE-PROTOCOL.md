@@ -67,15 +67,16 @@ to `{}` (939). **Unknown types are silently dropped** (the `switch` at 941 has
 no `default`) — there is no negative acknowledgement, ever. Malformed JSON is
 swallowed by the transport (`custom-server.mjs:42`).
 
-All of these except `create`/`join`/`solo`/`ping` require the session to
-already hold a room and a player (`withRoom`, 1011-1019); if it does not, the
-message is dropped silently.
+All of these except `create`/`join`/`solo`/`quickplay`/`ping` require the
+session to already hold a room and a player (`withRoom`, 1011-1019); if it does
+not, the message is dropped silently.
 
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
 | `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
 | `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
 | `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
+| `quickplay` | `{name?, mode?, appearance?, awaitLoad?}` | none | Backlog 4.7's FIND A FIGHT. Seats the caller in the fullest OPEN public lobby of his `mode` (anything not `war_band`/`honour_duel` normalises to `blood_moot`), or raises a fresh PUBLIC room when none has a seat — `public` is set through a closure, never off the wire, so no crafted `create` can claim it. The caller arrives `ready:true`; once two free men are seated the lobby self-starts on `QUICK_MUSTER` (12 s) with no host press. A war-room field sent here (`territoryId`, `arena`) is stripped before the create. Replies `join`. |
 | `select_class` | `{warriorClass}` | class must exist in `WARRIOR_STATS` | Sets class **and refills health and stamina to the new maximum**. ⚠ **No room-state guard — see §9.1.** Broadcasts `lobby_update`. |
 | `select_team` | `{team}` | **none whatsoever** (953) | Writes `data.team` onto the player verbatim. ⚠ **See §9.2.** Broadcasts `lobby_update`. |
 | `ready` | — | — | Toggles. Broadcasts `lobby_update`. Nothing reads `ready` to decide anything — see §9.4. |
@@ -776,6 +777,7 @@ match. Keep it in sync or the gate goes red.
 C2S create
 C2S join
 C2S solo
+C2S quickplay
 C2S select_class
 C2S select_team
 C2S ready

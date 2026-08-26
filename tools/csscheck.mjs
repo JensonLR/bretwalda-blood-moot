@@ -217,6 +217,20 @@ while (i < css.length) {
 {
   const declared = new Set();
   for (const hit of stripped.matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) declared.add(hit[1]);
+  // `next/font` DECLARES CUSTOM PROPERTIES TOO. `layout.tsx` passes
+  // `variable: "--font-display"` to the font loader, which emits a class
+  // carrying that declaration and puts it on <html> — a real declaration this
+  // ruler cannot see in the CSS source. Without this scan the check failed on
+  // `--font-display`/`--font-body` the day the fonts moved to `next/font`,
+  // and the "fix" it invited — fallback declarations in `:root` — would race
+  // the loader's own class on specificity and could beat the REAL font. Read
+  // the declaration where it is actually made.
+  const layout = resolve(ROOT, "src/app/layout.tsx");
+  if (existsSync(layout)) {
+    for (const hit of readFileSync(layout, "utf8").matchAll(/variable:\s*["'](--[a-zA-Z][\w-]*)["']/g)) {
+      declared.add(hit[1]);
+    }
+  }
   const used = new Map();
   for (const hit of stripped.matchAll(/var\(\s*(--[a-zA-Z][\w-]*)/g)) {
     used.set(hit[1], (used.get(hit[1]) ?? 0) + 1);
