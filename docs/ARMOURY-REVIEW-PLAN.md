@@ -141,11 +141,16 @@ untouched by the wave); it is left as-is deliberately — softening a
 ruler to fit a bad box is how wrong questions start. Re-measure on
 quiet hardware before ever believing that red.
 
-**What remains is new build, not repair, and most of it wants the owner's
-word first:** 5.5's BOUGHT half (gold-priced marks want an armoury rail
-decision), 4.9 other game modes (open question), 4.10 historically
-accurate flags (scope), 5.8 Steam packaging (accounts/doors), 5.1
-every-screen polish. Also ledgered, engineering: 11 pre-existing
+**The owner's word arrived, 26 Aug 2026 — two question rounds, every
+open decision ruled.** The programme is BACKLOG WAVE 7: marks stay
+earned-only (5.5 closed), TWO new modes (Tournament Moot + a horde mode
+pending its Anglo-Saxon name), banners in the grounds, Steam scaffold
+now then mobile with everything dual-platform from here, war seasons +
+leaderboards, forged dynamic score, executions + weapon choice +
+directional guard (gated on the mobile attack-controls review — the
+owner reports spamming heavy and never using the red attack), and
+clips-then-spectate with camera angles as the explicit quality gate.
+Also ledgered, engineering: 11 pre-existing
 `react-doctor` lint errors (set-state-in-effect and purity, across
 `page.tsx`, `factions`, `shot`, `GameHud`) predate this wave — the same
 rule family whose earlier fix bred the save-wipe, so they deserve a
