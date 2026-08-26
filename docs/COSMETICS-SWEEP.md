@@ -39,8 +39,8 @@ expected — that is what a recolour is, and it is why the ΔE and PIX columns e
 | helm | Ridge Helm -> Spectacle Helm | 280g | 1.02% | 14.26% | 0.22% | 3.19% | — | — | DIFFERS |
 | helm | Spectacle Helm -> Boar-Crest Helm | 380g | 2.09% | 12.76% | 0.48% | 2.82% | — | — | DIFFERS |
 | helm | Boar-Crest Helm -> Jarl's Crowned Helm | 570g | 4.17% | 9.38% | 1.00% | 2.28% | — | — | DIFFERS |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | 950g | 5.10% | 15.62% | 1.21% | 3.90% | — | — | DIFFERS |
-| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | 2400g | 5.06% | 35.64% | 1.24% | 8.53% | — | — | DIFFERS |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | 950g | 3.96% | 16.38% | 0.96% | 4.05% | — | — | DIFFERS |
+| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | 2400g | 3.92% | 36.09% | 0.99% | 8.55% | — | — | DIFFERS |
 | hair | Shaved -> Warrior Crop | 0g | 4.26% | 15.41% | 0.87% | 2.97% | — | — | DIFFERS |
 | hair | Warrior Crop -> Long Mane | 40g | 10.53% | 54.85% | 2.48% | 10.71% | — | — | DIFFERS |
 | hair | Long Mane -> Braided War-locks | 100g | 4.37% | 52.78% | 1.11% | 10.38% | — | — | DIFFERS |
@@ -129,14 +129,14 @@ know, and a maximum hides it.
 | helm | Boar-Crest Helm -> Jarl's Crowned Helm | portrait | 180° | 3.16% | 7.35% | 70877 |
 | helm | Boar-Crest Helm -> Jarl's Crowned Helm | fight | -35° | 1.00% | 2.28% | 12258 |
 | helm | Boar-Crest Helm -> Jarl's Crowned Helm | fight | 180° | 0.73% | 1.70% | 12981 |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | portrait | -35° | 5.10% | 15.62% | 68268 |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | portrait | 180° | 4.02% | 9.09% | 72097 |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | fight | -35° | 1.21% | 3.90% | 12288 |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | fight | 180° | 1.01% | 2.02% | 13036 |
-| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | portrait | -35° | 5.06% | 35.64% | 68514 |
-| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | portrait | 180° | 2.55% | 7.42% | 71376 |
-| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | fight | -35° | 1.24% | 8.53% | 12306 |
-| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | fight | 180° | 0.55% | 1.79% | 13005 |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | portrait | -35° | 3.96% | 16.38% | 67455 |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | portrait | 180° | 3.73% | 9.24% | 71875 |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | fight | -35° | 0.96% | 4.05% | 12257 |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | fight | 180° | 0.96% | 2.04% | 13029 |
+| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | portrait | -35° | 3.92% | 36.09% | 67701 |
+| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | portrait | 180° | 2.25% | 7.43% | 71154 |
+| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | fight | -35° | 0.99% | 8.55% | 12275 |
+| helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | fight | 180° | 0.49% | 1.79% | 12998 |
 | hair | Shaved -> Warrior Crop | portrait | -35° | 3.65% | 9.27% | 57078 |
 | hair | Shaved -> Warrior Crop | portrait | 180° | 4.26% | 15.41% | 58508 |
 | hair | Shaved -> Warrior Crop | fight | -35° | 0.81% | 1.99% | 11802 |
@@ -242,7 +242,7 @@ decides whether a hidden cosmetic is a mask doing its job or a defect.
 | Spectacle Helm | 48% | 1.50% | 5.02% | 7.33% |
 | Boar-Crest Helm | 48% | 1.20% | 4.75% | 6.94% |
 | Jarl's Crowned Helm | 48% | 1.22% | 4.84% | 7.08% |
-| Wyrm-Crest Helm | 48% | 0.00% | 1.51% | 4.19% |
+| Wyrm-Crest Helm | 48% | 0.00% | 1.53% | 4.24% |
 | The Sutton Hoo Helm | 100% | 0.00% | 1.41% | 1.23% |
 
 ## Cosmetics on a severed head
@@ -258,7 +258,7 @@ The only place in the game the head is drawn on its own, and nothing had ever lo
 | helm | Ridge Helm -> Spectacle Helm | 19.70% |
 | helm | Spectacle Helm -> Boar-Crest Helm | 3.12% |
 | helm | Boar-Crest Helm -> Jarl's Crowned Helm | 21.25% |
-| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | 38.28% |
+| helm | Jarl's Crowned Helm -> Wyrm-Crest Helm | 39.00% |
 | helm | Wyrm-Crest Helm -> The Sutton Hoo Helm | 72.08% |
 | hair | Shaved -> Warrior Crop | 28.94% |
 | hair | Warrior Crop -> Long Mane | 32.25% |

@@ -1906,7 +1906,7 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
         desc: "A bronze boar stands the length of the crown, tusks forward." },
       { id: "helm_crowned", label: "Jarl's Crowned Helm", cost: 570, slot: "helm", value: "crowned" },
       { id: "helm_wyrm", label: "Wyrm-Crest Helm", cost: 950, slot: "helm", value: "wyrm",
-        desc: "A serpent arched over the crown, its head thrown out past the brow." },
+        desc: "A wyrm coiled along the crown, head raised over the brow." },
       { id: "helm_suttonhoo", label: "The Sutton Hoo Helm", cost: 2400, slot: "helm", value: "suttonhoo",
         desc: "Tinned silver, gilt and garnet. A face with no man in it." },
     ],
@@ -18882,50 +18882,59 @@ export function buildCharacter(
         // midline as it runs, and that it is thickest just behind a head that is
         // thrown clear of everything. All three are properties of a swept spine
         // and none of them can be said by a lift function.
+        // THE ARCH IS DEAD; THE OWNER KILLED IT TWICE. The design above this
+        // block promised "a real arch with sky under it", and the owner's two
+        // verdicts on the built thing — "the 2nd last helmet option has a
+        // floating top piece", then, after the tail was anchored, a screenshot
+        // with "the wyrm helmet is a really poor design & the top piece is
+        // STILL floating above the helmet" — are the measurements that matter.
+        // They are also right mechanically: the spine rode
+        // `max(capY, yTop − 0.030)`, a HORIZONTAL FLOOR that held the rear leg
+        // in the air while the bowl's slope fell away beneath it, and a 3-13 mm
+        // tube carrying 46 mm of rise reads as bent wire from every rear
+        // quarter whatever its ends do.
+        //
+        // A wyrm on a Dark Age helm is the Sutton Hoo grammar: the beast LIES
+        // ALONG THE IRON, soldered, its body following the metal it guards.
+        // So the spine now rides `capY` directly — belly kissing the bowl the
+        // whole run, centre held at ~0.7 of its own height above the surface —
+        // side-winding in plan (a 20 mm S over 2.6 turns is visible coiling at
+        // portrait size where 11 mm was a wobble), with two shallow humps
+        // (≤6 mm of daylight, the coil's own rhythm, not an arch) and ONE
+        // licensed lift: the head rises 20 mm over the last fifth to look
+        // forward over the brow. The body fattens to 30 mm through the coil —
+        // an animal's mass, not a strap's.
         const wyrmSpine = (t: number, out: THREE.Vector3) => {
-          const z = zTop + mix(-0.090, 0.132, t);
-          // THE ARCH. The body springs off the nape, clears the crown by 46 mm
-          // and comes down in front of the brow — so from the side there is
-          // daylight between the animal and the cap over the whole middle third,
-          // which is the one thing that says "arched over" rather than "lying
-          // on". `sin^0.7` rather than `sin` keeps the height up along both
-          // flanks instead of peaking only at the pole, which is the same
-          // correction the comb version's note records making and then made only
-          // to its height, not to its path.
-          // THE TAIL TOUCHES THE IRON, WHICH IS WHAT KEEPS THE ARCH FROM
-          // FLOATING. `t * 0.92 + 0.04` never reaches zero, so the "anchor"
-          // hovered: 10.7 mm of rise plus the 12 mm base offset put a 3 mm
-          // tail tip 23 mm off the cap, and with both ends in the air the
-          // whole animal read as levitating over the helmet — the owner's
-          // "floating top piece", verbatim. The rise now dies at exactly
-          // t = 0 and the base offset blends from the tail's own half-height,
-          // so the first sixth of the body CRAWLS on the cap and the arch
-          // springs from a visible anchor. The head keeps its throw — clear
-          // of everything is that end's whole design.
-          const rise = 0.046 * Math.pow(Math.sin(Math.PI * clamp01(t * 0.96)), 0.70);
+          // The run STOPS on the high front quarter (+0.085, not +0.128): the
+          // first cut of the coil ran the head down the brow's steep fall,
+          // where `capY` drops faster than any honest lift can climb, and the
+          // head ended up parked against the band with its fittings — while
+          // the crown showed a bare hump that read as the head from three
+          // bearings. The head is the one part licensed to rise; it rises
+          // where the iron is still high, 30 mm over the last quarter, so the
+          // raised head IS the silhouette's peak and the jaw, horns and eyes
+          // are on it, not under it.
+          const z = zTop + mix(-0.070, 0.085, t);
+          const settle = 1 - clamp01((t - 0.70) / 0.30);
+          const hump = 0.006 * Math.pow(Math.sin(Math.PI * clamp01(t * 1.3 - 0.06)), 2)
+            * (0.5 + 0.5 * Math.cos(t * Math.PI * 5.2 - 0.9)) * settle;
+          const headLift = 0.030 * Math.pow(clamp01((t - 0.74) / 0.26), 1.3);
           out.set(
-            // The wander. A snake does not run down a centreline, and 11 mm of
-            // travel is enough to break the symmetry at portrait size. Taken
-            // back out over the last quarter so the head sits square to the
-            // face, which is the bearing a duel is fought at.
-            0.011 * Math.sin(t * Math.PI * 2.3) * (1 - clamp01((t - 0.68) / 0.32)),
-            Math.max(capY(z), yTop - 0.030) + mix(0.0045, 0.012, smooth(0.0, 0.22, t)) + rise
-              // The head is thrown DOWN as well as forward, over the brow, so it
-              // looks at whoever the man is looking at.
-              - 0.030 * Math.pow(clamp01((t - 0.70) / 0.30), 1.5),
+            0.020 * Math.sin(t * Math.PI * 2.6) * settle,
+            capY(z) + wyrmAt(t, 2) * 0.7 + hump + headLift,
             z,
           );
         };
         //          t     half     tall     scales
         const WYRM: ReadonlyArray<readonly [number, number, number, number]> = [
-          [0.00, 0.0030, 0.0032, 0.0000], // tail tip, on the nape
-          [0.16, 0.0082, 0.0092, 0.0030],
-          [0.42, 0.0116, 0.0132, 0.0050], // the thick of the body, over the crown
-          [0.62, 0.0104, 0.0118, 0.0046],
-          [0.74, 0.0090, 0.0100, 0.0034], // the neck
-          [0.86, 0.0158, 0.0132, 0.0030], // the head — BROAD across the jaw
-          [0.94, 0.0128, 0.0104, 0.0012], // the muzzle
-          [1.00, 0.0060, 0.0052, 0.0000], // the snout
+          [0.00, 0.0044, 0.0040, 0.0000], // tail tip, coiling out on the rear slope
+          [0.14, 0.0100, 0.0096, 0.0036],
+          [0.40, 0.0150, 0.0150, 0.0060], // the thick of the coil, over the crown
+          [0.62, 0.0128, 0.0132, 0.0052],
+          [0.76, 0.0102, 0.0106, 0.0036], // the neck
+          [0.87, 0.0170, 0.0140, 0.0030], // the head — BROAD across the jaw
+          [0.95, 0.0132, 0.0106, 0.0012], // the muzzle
+          [1.00, 0.0064, 0.0054, 0.0000], // the snout
         ];
         const wyrmAt = (t: number, k: 1 | 2 | 3) => {
           for (let i = 0; i < WYRM.length - 1; i++) {
@@ -18955,10 +18964,24 @@ export function buildCharacter(
           // a line between two masses rather than a seam drawn on one. This is
           // the second thing after the arch that says "serpent": a head with a
           // jaw under it has a MOUTH, and two merged ellipsoids never can.
-          const jaw = onWyrm(0.90).clone();
-          const jz = jaw.z, jy = jaw.y;
+          // SEATED ALONG THE HEAD'S OWN LINE, not at fixed-axis offsets. The
+          // old pose threw the head forward-and-DOWN and the jaw hung on
+          // hard-coded y/z deltas tuned to it; the coiled redesign raises the
+          // head instead, and the same deltas left the jaw and horns parked
+          // at the brow while the head curled above them. The head's local
+          // direction is the spine's own difference, so the fittings follow
+          // whatever pose the spine takes next.
+          const hA = onWyrm(0.86).clone();
+          const hB = onWyrm(0.97).clone();
+          const hDir = hB.clone().sub(hA).normalize();
+          // "Down" in the head's frame: perpendicular to the run, in the
+          // sagittal plane, pointing away from the crown.
+          const hDown = new THREE.Vector3(0, -1, 0).addScaledVector(hDir, hDir.y).normalize();
+          const jawRoot = onWyrm(0.89).clone().addScaledVector(hDown, 0.0085);
           p.add(beast((t, out) => {
-            out.set(0, jy - 0.008 - 0.004 * (1 - t), jz - 0.020 + 0.040 * t);
+            out.copy(jawRoot)
+              .addScaledVector(hDir, t * 0.038)
+              .addScaledVector(hDown, 0.003 * (1 - t));
           }, {
             rows: 8, ring: 6,
             half: (t) => 0.0125 * (1 - 0.55 * t * t),
@@ -18968,13 +18991,13 @@ export function buildCharacter(
           for (const s of [-1, 1]) {
             // The brow horns, swept back off the skull the way a serpent's are
             // drawn in the interlace this game's identity is built on.
-            const h = onWyrm(0.845);
+            const h = onWyrm(0.86).clone().addScaledVector(hDown, -0.010);
             p.add(rod(0.0010, 0.0044, 0.034, 5), brass,
-              xf(h.x + s * 0.0100, h.y + 0.011, h.z - 0.006, -0.92, 0, -s * 0.42));
+              xf(h.x + s * 0.0100, h.y, h.z - 0.004, -0.92 + Math.atan2(hDir.y, hDir.z) * 0.5, 0, -s * 0.42));
           }
           for (const s of [-1, 1]) {
-            const e = onWyrm(0.875);
-            p.add(ball(0.0040, 6), garnet, xf(e.x + s * 0.0112, e.y + 0.0035, e.z + 0.003));
+            const e = onWyrm(0.885).clone().addScaledVector(hDown, -0.004);
+            p.add(ball(0.0040, 6), garnet, xf(e.x + s * 0.0112, e.y, e.z + 0.003));
           }
         }
       }
