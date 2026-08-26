@@ -13688,18 +13688,25 @@ export function buildCharacter(
   // hanging vertices inside the trunk under that cloak and the tips visibly
   // swallowed by the roll (tools/wearsweep.mjs; art/look/wearsweep/). The
   // radii are the cloak's own `topX/topZ` plus the roll's stand-off.
+  // Held by name as well as pushed: the baldric's garment contest must skip
+  // it — a strap bedded on the CLOAK's roll is a strap worn over the cloak,
+  // and a baldric goes under one (`art/backreview/final-cloak`: the strap's
+  // tip peeking above the collar at the shoulder). Hair keeps reading it —
+  // plaits dive into the roll without it, which is what it was added for.
+  let cloakRoll: { sts: Station[]; power: number } | null = null;
   if (ap.cloak !== "none") {
     const rollY = S.shoulderY + 0.030;
     const rx = S.chestHW + 0.055 + 0.014;
     const rz = S.chestHD + 0.05 + 0.014;
-    worn.push({
+    cloakRoll = {
       sts: [
         { y: rollY + 0.048, hw: rx * 0.90, hd: rz * 0.90 },
         { y: rollY + 0.012, hw: rx, hd: rz },
         { y: rollY - 0.018, hw: rx, hd: rz },
       ],
       power: 2.0,
-    });
+    };
+    worn.push(cloakRoll);
   }
 
   const torsoMeshes = emit("torso", root, () => {
@@ -14122,6 +14129,10 @@ export function buildCharacter(
           {
             let deep = -1;
             for (const w of worn) {
+              // Not the cloak's collar roll: a strap bedded on that ring is a
+              // strap worn OVER the cloak. See the note where the roll joins
+              // the registry.
+              if (w === cloakRoll) continue;
               if (y > w.sts[0].y + 1e-6 || y < w.sts[w.sts.length - 1].y - 1e-6) continue;
               const cw: FitCarrier = { st: (yy: number) => stationAlong(w.sts, yy), power: w.power };
               const xw = mix(-0.62, 0.34, t) * cw.st(y).hw;
