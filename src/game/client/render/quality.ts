@@ -116,7 +116,16 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     decalBudget: 64,
     trails: true,
     propDensity: 1,
-    dynamicLights: 5,
+    // 3, down from 5, and the reason is a measurement, not a mood. Only the
+    // village reads this (its torch ring); every other ground carries one
+    // hero fire light. At 5 the village ran a SIX-point-light shader while
+    // the other three grounds ran zero — the owner's "the original map feels
+    // a lot more laggy than the other maps" is that gap: in a forward
+    // renderer every point light is evaluated per fragment on every lit
+    // surface. Hero + 3 torches against everyone else's hero + 0 narrows the
+    // shader gap to what the torch ring is worth, and every torch still
+    // FLAMES — the flame is art direction, only the light is budgeted.
+    dynamicLights: 3,
     instancing: true,
     damageNumberBudget: 48,
   },

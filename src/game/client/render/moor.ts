@@ -103,7 +103,7 @@ const MOOR_TERRAIN: TerrainSpec = {
 // ---------------------------------------------------------------------------
 
 function buildMoor(ctx: GroundBuildContext): void {
-  const { root, materials, own, place, field, rng, scatter, heightAt, footing } = ctx;
+  const { root, materials, own, place, field, rng, scatter, heightAt, footing, pointLights } = ctx;
 
   // ---- the standing stones ----
   //
@@ -169,6 +169,13 @@ function buildMoor(ctx: GroundBuildContext): void {
     fire.add(bed);
 
     fire.add(fireMarker(0, 0.16, 0, 0.5, 1.05, "bonfire"));
+    // The arena's hero light — see the note on the camp's. Sized to this
+    // fire, which is the smallest of the four: a balefire on a turf bed,
+    // not the village's log stack.
+    const fireLight = new THREE.PointLight(0xff8830, 3.4, 16);
+    fireLight.position.y = 1.5;
+    fire.add(fireLight);
+    pointLights.push(fireLight);
     fire.position.y = heightAt(0, 0);
     root.add(fire);
   }

@@ -268,7 +268,7 @@ function buildCourtDisc(heightAt: (x: number, z: number) => number): THREE.Buffe
 // ---------------------------------------------------------------------------
 
 function buildFort(ctx: GroundBuildContext): void {
-  const { root, materials, own, place, field, rng, scatter, heightAt, footing } = ctx;
+  const { root, materials, own, place, field, rng, scatter, heightAt, footing, pointLights } = ctx;
 
   // Every dressed stone in the fort wears this instead of the shared "rock":
   // the same granite, pulled down and blue. The catalog's 0x6a7078 is a
@@ -471,6 +471,12 @@ function buildFort(ctx: GroundBuildContext): void {
     stack.castShadow = true;
     fire.add(stack);
     fire.add(fireMarker(0, 0.18, 0, 0.62, 1.2, "bonfire"));
+    // The arena's hero light — see the note on the camp's. Every ground's
+    // frame is built on its fire; only the village's fire actually lit it.
+    const fireLight = new THREE.PointLight(0xff8830, 4, 18);
+    fireLight.position.y = 1.8;
+    fire.add(fireLight);
+    pointLights.push(fireLight);
     fire.position.y = heightAt(0, 0);
     root.add(fire);
   }

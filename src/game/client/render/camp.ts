@@ -316,7 +316,7 @@ function buildShip(ctx: GroundBuildContext): THREE.Group {
 // ---------------------------------------------------------------------------
 
 function buildCamp(ctx: GroundBuildContext): void {
-  const { root, materials, own, place, field, rng, scatter, heightAt, footing } = ctx;
+  const { root, materials, own, place, field, rng, scatter, heightAt, footing, pointLights } = ctx;
 
   // ---- the ship, on the plan the server collides ----
   {
@@ -377,6 +377,16 @@ function buildCamp(ctx: GroundBuildContext): void {
     pot.castShadow = true;
     fire.add(pot);
     fire.add(fireMarker(0, 0.18, 0, 0.62, 1.2, "bonfire"));
+    // The arena's hero light — the same one the village's frame is built on,
+    // and until this line the ONLY ground that had one was the village. The
+    // winter camp's fight was fought by a fire that lit nothing: no warm pool
+    // on the ice, no rim on the mail, while the village paid for six lights.
+    // One light here, registered with the machinery, so the flicker and the
+    // mood ramp treat it exactly as they treat the village's.
+    const fireLight = new THREE.PointLight(0xff8830, 4, 18);
+    fireLight.position.y = 1.8;
+    fire.add(fireLight);
+    pointLights.push(fireLight);
     fire.position.y = heightAt(0, 0);
     root.add(fire);
   }
