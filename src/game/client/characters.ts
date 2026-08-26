@@ -11348,6 +11348,17 @@ export function buildShield(
   // turf through it. 6 mm of rawhide backing costs ~70 triangles and no draw call.
   part.add(new THREE.CylinderGeometry(R * 0.99, R * 0.99, 0.006, 24), leather, xf(0, 0, zf - 0.007, Math.PI / 2));
 
+  // …and a TIMBER ring in front of that hide, behind the planks. The planks
+  // are chords, so between each board's flat top and the round rim there is a
+  // crescent of nothing — the hide fix above stopped the sky showing through,
+  // but from the FRONT those crescents then read as dark holes stepping round
+  // the rim (the 26 Aug sweep photographed it on the garnet board, where the
+  // contrast is worst). Boards that stop short of a rim are a broken shield.
+  // The annulus reads instead as an unpainted border ring inside the binding
+  // — bare wood around the painted field, which real boards actually show —
+  // and it stays out of the mid-disc so the seams keep their dark backing.
+  part.add(new THREE.RingGeometry(R * 0.55, R * 0.985, 28), board, xf(0, 0, zf - 0.002));
+
   // Seven boards, one geometry, one material — and until this pass one *grain*.
   // `BoxGeometry` parameterises every face over 0..1 whatever size the face is,
   // so all seven front faces asked `oak` for the same three repeats of the same
@@ -20685,7 +20696,14 @@ export function buildCharacter(
         // three folds and the Traveller's 30 mm in five, because how coarsely a
         // garment gathers is one of the few things about cloth that survives to
         // fight distance.
-        const fold = (0.5 - 0.5 * Math.cos(a * cut.foldN)) * cut.foldA * v * v
+        // v^1.4, not v²: at mid-cape v² had spent only a quarter of the fold
+        // amplitude and the 26 Aug sweep photographed the result — the rear
+        // 180° of the Gilded cloak reading as one smooth bell on every class,
+        // the "lampshade" the audit already rejected once, returned by decay
+        // rather than by shape. The folds still start at zero at the collar
+        // and still only push OUT (the law two comments up), they just arrive
+        // while there is still cape left to gather.
+        const fold = (0.5 - 0.5 * Math.cos(a * cut.foldN)) * cut.foldA * Math.pow(v, 1.4)
           + (0.5 - 0.5 * Math.cos(a * cut.foldN * 2)) * cut.foldA * 0.3 * v;
         const grow = v * v * cut.grow + v * (1 - cut.grow);
         // THE TOP EDGE IS A DIAGONAL, and this is the whole asymmetry. The cloth
