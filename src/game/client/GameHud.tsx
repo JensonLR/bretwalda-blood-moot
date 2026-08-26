@@ -97,6 +97,15 @@ const SWIPE_ARM_MS = 90;
  *  the 60 Hz sampler to see it at all. */
 const MIN_ATTACK_MS = 70;
 
+/**
+ * The chain multiplier as the player reads it — the engine's own curve
+ * (`engine.mjs`: min(1 + comboCount * 0.15, 1.6)), trimmed of trailing
+ * zeroes. Edit the mechanic, edit this, same commit.
+ */
+function comboLabel(count: number): string {
+  return String(Math.round(Math.min(1 + count * 0.15, 1.6) * 100) / 100);
+}
+
 const DIR_LABEL: Record<AttackDirection, string> = {
   left: "◀ LEFT",
   right: "RIGHT ▶",
@@ -1005,6 +1014,18 @@ export default function GameHud({
               <div className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-[width] duration-200"
                 style={{ width: `${Math.max(0, (localPlayer.stamina / localPlayer.maxStamina) * 100)}%` }} />
             </div>
+            {/* THE CHAIN, SAID OUT LOUD — backlog 7.1. The combo multiplier
+                has been real since the engine existed (×1.15 per linked light
+                inside 0.8 s, capped ×1.6) and never drawn, so the fast button
+                read as the weak button and the owner — correctly — spammed
+                heavies. A number that changes what a blow is worth is shown
+                where the blow is thrown. */}
+            {(localPlayer.comboCount ?? 0) >= 2 && (
+              <div className="mt-0.5 text-[11px] font-black tracking-[0.14em] text-amber-300"
+                style={{ textShadow: "0 1px 3px black" }}>
+                CHAIN ×{comboLabel(localPlayer.comboCount)}
+              </div>
+            )}
           </div>
 
           {/* Kill feed. THE WHOLE TOP ROW MIRRORS, not just the thumb cluster.
@@ -1126,13 +1147,21 @@ export default function GameHud({
           onTouchEnd={slash.onTouchEnd}
           onTouchCancel={slash.onTouchCancel}>
           <Swords size={26} /><span className="text-[10px] font-bold tracking-wider">{DIR_LABEL[armed]}</span>
+          {/* The chain badge rides the button that builds it — see the note
+              at the desktop stamina bar. `pointer-events-none` so the badge
+              cannot eat the press it is advertising. */}
+          {(localPlayer.comboCount ?? 0) >= 2 && (
+            <span className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-amber-200 bg-amber-400 px-2 py-0.5 text-[10px] font-black leading-none text-black shadow-md">
+              ×{comboLabel(localPlayer.comboCount)}
+            </span>
+          )}
         </button>
 
         {/* HEAVY */}
         <button
           style={near(112, 32)}
           className={`absolute z-20 w-[68px] h-[68px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.stamina >= 22 ? "bg-orange-700/95 active:bg-orange-500 border-orange-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+            localPlayer.stamina >= 30 ? "bg-orange-700/95 active:bg-orange-500 border-orange-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
           }`}
           aria-label="Heavy attack"
           onTouchStart={heavy.onTouchStart}

@@ -361,7 +361,7 @@ async function checkShoveClaims() {
     near(SHOVE.windup, 0.30) && near(SHOVE.recover, 0.35) && near(SHOVE.range, 1.7) &&
     near(SHOVE.stamina, 25) && near(SHOVE.push, 2.2) && near(SHOVE.cooldown, 1.5),
     `windup ${SHOVE.windup}s (readable, like the weight pass), recover ${SHOVE.recover}s, range ${SHOVE.range} m, ` +
-    `cost ${SHOVE.stamina} stamina (a heavy is 22), push ${SHOVE.push} m, stagger ${SHOVE.stagger}s, cooldown ${SHOVE.cooldown}s`);
+    `cost ${SHOVE.stamina} stamina (a heavy is 30), push ${SHOVE.push} m, stagger ${SHOVE.stagger}s, cooldown ${SHOVE.cooldown}s`);
 
   const engine = getEngine();
   try {

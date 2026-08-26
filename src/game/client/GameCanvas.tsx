@@ -848,7 +848,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("touchstart", onTouch);
       canvas.removeEventListener("mousedown", onMouseDown);
-      canvas.removeEventListener("mouseup", onMouseUp);
+      // FROM THE WINDOW, where it was added — a mouse released off the canvas
+      // still ends the swing, which is why the add is on window; removing it
+      // from the canvas (as this line did) leaked one window listener per
+      // canvas mount, every match. react-doctor found it.
+      window.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("contextmenu", onCtx);
       document.removeEventListener("pointerlockchange", onPLChange);
       canvas.removeEventListener("mousemove", onMM);

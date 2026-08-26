@@ -2922,8 +2922,18 @@ export function makeEngine(options = {}) {
       beginSwing(player, input.attackDir, stats.attackDamage, false);
     }
 
-    if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 22) {
-      player.stamina -= 22;
+    // 30, RAISED FROM 22 (backlog 7.1). The owner's own play found the fault:
+    // "I find myself currently spamming the heavy attack & very rarely using
+    // the red attack." Measured, he was right to: at 22 the heavy beat the
+    // light on BOTH axes of the opener — warden 27.3 vs 18.8 DPS AND 1.32 vs
+    // 1.23 damage-per-stamina — plus the only clean-hit stagger, so one
+    // button was strictly correct. At 30 the heavy stays the harder blow and
+    // the opener of choice, but a bar of ~105-135 pays for three of them
+    // before the man is winded (five before), and the light chain — combo
+    // ×1.15→×1.6 inside the 0.8 s window, up to ~30 DPS at 13 a swing — is
+    // the sustained game. Spike and tempo, instead of one right answer.
+    if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 30) {
+      player.stamina -= 30;
       player.comboCount = 0; player.comboTimer = 0;
       beginSwing(player, input.attackDir, stats.heavyDamage, true);
     }
@@ -4108,7 +4118,11 @@ export function makeEngine(options = {}) {
     // reaches 1.04 of his own reach and whiffs; a jarl holds to 0.87 and lands.
     const strikeReach = myReach * (0.95 + (0.7 - bot.aiSkill) * 0.35);
     if (!bot.isBlocking && dist <= strikeReach && (now >= bot.nextAttackAt || openings) && bot.stamina > 25) {
-      const heavy = Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
+      // Stamina-aware since the heavy went to 30: a bot that rolls a heavy it
+      // cannot pay for would send an input the gate refuses and stand there
+      // having spent its swing window on nothing.
+      const heavy = bot.stamina >= 30
+        && Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
       botAct(room, bot, {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
         attack: !heavy, heavyAttack: heavy, attackDir,
