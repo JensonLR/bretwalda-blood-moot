@@ -189,6 +189,14 @@ const EDGE_ACTIONS = ["attack", "heavyAttack", "dodge", "ability", "block", "sho
 // message, so there the stream is thinned to roughly the server's tick.
 const CONTINUOUS_GAP_MS = { ws: 12, http: 48 };
 
+/**
+ * For `useSyncExternalStore` over browser stores that never notify (query
+ * strings, localStorage keys written by other screens): subscribe to nothing;
+ * every render re-reads the snapshot, which is exactly the staleness the old
+ * effect mirrors had — without the mirror.
+ */
+const NO_RESUBSCRIBE = () => () => {};
+
 const DEFAULT_PROFILE: ProfileData = {
   name: "", level: 1, xp: 0, gold: 0, honour: 0, kills: 0, deaths: 0, wins: 0, matches: 0,
   unlocked: freeCosmeticIds(),
@@ -212,6 +220,14 @@ export default function Page() {
    * hang and would trade one bad experience for another.
    */
   const [muster, setMuster] = useState<{ waitingFor: string[]; until: number } | null>(null);
+  // Entering a fight forges from nothing. This used to be an effect watching
+  // `screen` for the LEAVING edge — a state mirror react-doctor rightly
+  // flags — but the observable rule is identical either way round: nothing
+  // renders the forge or the muster outside the game screen, so clearing
+  // them in the two EVENTS that enter it (the `countdown` and `game_state`
+  // arms of the message handler) leaves no frame in which stale values are
+  // visible, and no effect cascade.
+  const resetForge = useCallback(() => { setForge(null); setForgeStalled(false); setMuster(null); }, []);
   /**
    * THE DISPATCH, ON THE TITLE SCREEN — backlog 5.13 in its own words: "a man
    * who has not opened the map still learns the map moved". The component,
@@ -335,15 +351,19 @@ export default function Page() {
   const [profile, setProfile] = useState<ProfileData>(DEFAULT_PROFILE);
   /**
    * THE FIRST MOOT'S DOOR — offered to a warrior with no matches behind him
-   * and no rite behind him on this device. Read in an effect because the
-   * store is the browser's; the server render must not guess at it.
+   * and no rite behind him on this device. The rite store is the browser's,
+   * so it is read through `useSyncExternalStore`: the server snapshot says
+   * "done" (a server render must not offer a door it cannot see), the client
+   * snapshot reads the key, and there is no state to mirror — react-doctor's
+   * set-state-in-effect finding here was real, this screen's own save-wipe
+   * came from exactly that mirror pattern one hook down.
    */
-  const [mootOffered, setMootOffered] = useState(false);
-  useEffect(() => {
-    try {
-      setMootOffered(profile.matches === 0 && localStorage.getItem(FIRST_MOOT_KEY) !== "done");
-    } catch { setMootOffered(false); }
-  }, [profile.matches]);
+  const mootDone = useSyncExternalStore(
+    NO_RESUBSCRIBE,
+    () => { try { return localStorage.getItem(FIRST_MOOT_KEY) === "done"; } catch { return true; } },
+    () => true,
+  );
+  const mootOffered = profile.matches === 0 && !mootDone;
   /** True while the current room IS the First Moot, so the leave path knows
    *  to carry the graduate to the oath rather than back to the hall. */
   const mootSessionRef = useRef(false);
@@ -646,6 +666,14 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    let dropped = false;
+    // Deferred by one microtask, so nothing here sets state synchronously in
+    // the effect body (react-doctor's rule, and the right one: this is the
+    // hook whose sibling mirror wiped the save). Behaviourally identical —
+    // effects already run after paint, and the disk is read on the next tick,
+    // still ahead of anything a human can press.
+    void Promise.resolve().then(() => {
+    if (dropped) return;
     const saved = localStorage.getItem("bretwalda_name");
     if (saved) setPlayerName(saved);
     const savedProfile = localStorage.getItem(LEGACY_KEY);
@@ -698,7 +726,6 @@ export default function Page() {
     // be typing a name and creating a room before it answers, and if it never
     // answers the game is the one it has always been, with the gold on the
     // device. The one step it must not skip is carrying that gold across.
-    let dropped = false;
     bootRef.current = bootProfile(saved ?? "", parsed).then((result) => {
       if (dropped) return;
       settleLink(result.mode);
@@ -739,6 +766,7 @@ export default function Page() {
       const waiting = unboundRef.current;
       if (result.mode === "server" && waiting) { unboundRef.current = null; void bindWarrior(waiting); }
     }).catch(() => settleLink("local"));
+    });
     return () => { dropped = true; setBindingsPersister(null); };
   }, [adoptServer, settleLink, adoptBindings, adoptAllegiance, audio]);
 
@@ -886,6 +914,7 @@ export default function Page() {
         setMatchResults(null);
         rematchRef.current = false;
         setRematchWaiting(false);
+        resetForge();
         setScreen("game");
         break;
       }
@@ -901,6 +930,7 @@ export default function Page() {
         if (screenRef.current !== "game" &&
             (d.state === "loading" || d.state === "fighting" || d.state === "last_stand")) {
           setMatchResults(null);
+          resetForge();
           setScreen("game");
         }
         break;
@@ -1012,7 +1042,7 @@ export default function Page() {
         break;
       }
     }
-  }, [adoptServer, tallyLocally, showError, settled, sendMsg, stampSnapshot]);
+  }, [adoptServer, tallyLocally, showError, settled, sendMsg, stampSnapshot, resetForge]);
 
   const ensureTransport = useCallback(async (): Promise<boolean> => {
     if (transportRef.current && transportRef.current.mode) return true;
@@ -1411,10 +1441,6 @@ export default function Page() {
   // free-look half, and which half that is is the player's choice.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
 
-  // Leaving the fight tears the canvas down; the next one forges from nothing.
-  useEffect(() => {
-    if (screen !== "game") { setForge(null); setForgeStalled(false); setMuster(null); }
-  }, [screen]);
 
   /**
    * "MY ARENA IS STANDING." Sent once the forge has landed every stage, which
@@ -2099,7 +2125,12 @@ export default function Page() {
           <div className="text-center">
             {/* The owner's winged-helm mark — the game's one binary asset, by
                 their explicit instruction. Served from public/brand/, already
-                centred on the helm's own symmetry axis. */}
+                centred on the helm's own symmetry axis. A plain img on
+                purpose: next/image would route the game's one static brand
+                asset through the optimizer for zero benefit — it is already
+                sized, local and above the fold on a page with no other
+                images competing for bandwidth. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/helm-mark.png"
               alt=""

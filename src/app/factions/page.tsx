@@ -17,7 +17,7 @@
 // looks fine.
 // ============================================================
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ArrowLeft } from "lucide-react";
@@ -54,6 +54,32 @@ const MIRROR_DEFAULT: Appearance = {
   beardStyle: "short", beardColor: 0x4a3220, cloak: "red",
   armorColor: 0x5f6b7a, warPaint: "none", weapon: "weapon_issued", people: "none",
 };
+
+/** Subscribe-to-nothing for `useSyncExternalStore` over stores that never
+ *  notify; the snapshot is simply re-read on every render. */
+const NO_RESUBSCRIBE = () => () => {};
+
+/** What the mirror shows before (and without) a stored profile. */
+const MIRROR_UNREAD = { appearance: null as Appearance | null, seed: 0 };
+
+/**
+ * The player's own look, read from the same stored profile the game plays
+ * with, once per page load and cached — `useSyncExternalStore` compares
+ * snapshots by identity, so this must return the same object every call.
+ * Absent or unreadable (a brand-new device, private mode), the mirror keeps
+ * a default man and the oath is unchanged.
+ */
+let mirrorCache: typeof MIRROR_UNREAD | null = null;
+function readMirrorOnce(): typeof MIRROR_UNREAD {
+  if (!mirrorCache) {
+    try {
+      const raw = localStorage.getItem("bretwalda_profile");
+      const p = raw ? JSON.parse(raw) as { appearance?: Appearance; recoveryCode?: string; name?: string } : null;
+      mirrorCache = { appearance: p?.appearance ?? null, seed: faceSeedFor(p?.recoveryCode || p?.name || "moot") };
+    } catch { mirrorCache = MIRROR_UNREAD; }
+  }
+  return mirrorCache;
+}
 
 /**
  * The flip thresholds, READ OFF the territory table rather than written out
@@ -119,10 +145,11 @@ export default function WarPage() {
    * returning campaigner; nothing else changes, because the oath is the
    * oath. Read in an effect: the query string is the browser's.
    */
-  const [fromMoot, setFromMoot] = useState(false);
-  useEffect(() => {
-    try { setFromMoot(new URLSearchParams(window.location.search).get("oath") === "first"); } catch { /* server */ }
-  }, []);
+  const fromMoot = useSyncExternalStore(
+    NO_RESUBSCRIBE,
+    () => { try { return new URLSearchParams(window.location.search).get("oath") === "first"; } catch { return false; } },
+    () => false,
+  );
   /**
    * The player's own look, for the livery mirror: the oath screen shows HIM
    * in the kingdom's colours, not a stock figure. Read from the same stored
@@ -130,14 +157,12 @@ export default function WarPage() {
    * fight somehow), the mirror simply stays a default man and the oath is
    * unchanged.
    */
-  const [mirror, setMirror] = useState<{ appearance: Appearance | null; seed: number }>({ appearance: null, seed: 0 });
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("bretwalda_profile");
-      const p = raw ? JSON.parse(raw) as { appearance?: Appearance; recoveryCode?: string; name?: string } : null;
-      setMirror({ appearance: p?.appearance ?? null, seed: faceSeedFor(p?.recoveryCode || p?.name || "moot") });
-    } catch { /* private mode */ }
-  }, []);
+  // Read once per visit and cached at module level: `useSyncExternalStore`
+  // calls the snapshot every render and compares by identity, so the parse
+  // must not mint a fresh object each time. Nothing on this page writes the
+  // profile, so one read is the truth for the visit — the same staleness the
+  // old effect had, without the state mirror react-doctor flags.
+  const mirror = useSyncExternalStore(NO_RESUBSCRIBE, readMirrorOnce, () => MIRROR_UNREAD);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /**

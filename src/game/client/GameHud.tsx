@@ -744,10 +744,19 @@ export default function GameHud({
   // fresh object twenty times a second and an effect keyed on it would tear
   // the interval down as fast as it built it.
   const mootPlayerRef = useRef<GamePlayer | undefined>(undefined);
-  mootPlayerRef.current = localPlayer;
+  // Written post-commit rather than during render (react-doctor: refs are not
+  // for render bodies). The only reader is the 250 ms interval below, which
+  // never runs inside a render, so commit-time freshness is full freshness.
+  useEffect(() => { mootPlayerRef.current = localPlayer; });
   const mootEligible = Boolean(roomState?.mode === "solo" && isFighting && isAlive && localPlayer);
   useEffect(() => {
-    if (!mootEligible) { setMootUp((p) => (p.line ? { line: null, at: p.at, total: p.total } : p)); return; }
+    // Both first writes ride a 0 ms timer so the effect body itself sets no
+    // state (the cascade react-doctor flags); a beat line appearing one task
+    // later than the commit is not observable against a 250 ms cadence.
+    if (!mootEligible) {
+      const t = setTimeout(() => setMootUp((p) => (p.line ? { line: null, at: p.at, total: p.total } : p)), 0);
+      return () => clearTimeout(t);
+    }
     const moot = ensureMoot();
     if (moot.done) return;
     const STEP = 0.25;
@@ -756,13 +765,13 @@ export default function GameHud({
       const line = b ? (isMobile.current ? b.touch : b.desk) : null;
       setMootUp((prev) => (prev.line === line && prev.at === moot.at ? prev : { line, at: moot.at, total: moot.total }));
     };
-    push();
+    const t0 = setTimeout(push, 0);
     const id = setInterval(() => {
       const p = mootPlayerRef.current;
       if (p) moot.note(p, STEP);
       push();
     }, STEP * 1000);
-    return () => clearInterval(id);
+    return () => { clearTimeout(t0); clearInterval(id); };
   }, [mootEligible, ensureMoot, isMobile]);
   const skipMoot = useCallback(() => {
     ensureMoot().skip();

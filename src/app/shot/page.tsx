@@ -22,11 +22,30 @@
 //                          card sizes, so the capture tool builds its sheets
 //                          from the armoury rather than from a copy of it
 // ============================================================
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import GameCanvas from "@/game/client/GameCanvas";
 import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone, MatchEndData } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
 import { ARMOURY, defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
+
+/** Module-load stamp for staged kill-feed rows — see the killFeed note. */
+const BOOT_TS = Date.now();
+/** Subscribe-to-nothing, for stores that never notify (the query string). */
+const NO_RESUBSCRIBE = () => () => {};
+let searchCache: URLSearchParams | null = null;
+const readSearchOnce = () => (searchCache ??= new URLSearchParams(window.location.search));
+/** The viewport as an external store, invalidated by real resize events. */
+let viewportCache: { w: number; h: number } | null = null;
+const readViewport = () => {
+  if (!viewportCache || viewportCache.w !== window.innerWidth || viewportCache.h !== window.innerHeight) {
+    viewportCache = { w: window.innerWidth, h: window.innerHeight };
+  }
+  return viewportCache;
+};
+const subscribeResize = (cb: () => void) => {
+  window.addEventListener("resize", cb);
+  return () => window.removeEventListener("resize", cb);
+};
 
 type Pose = {
   id: string;
@@ -797,8 +816,7 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
     burnTimer: p.burn?.timer ?? 0,
     burnInside: p.burn?.inside ?? false,
     ...(isLocal ? {} : {}),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    appearance: { ...defaultAppearance(p.cls), ...(p.ap ?? {}) } as any,
+    appearance: { ...defaultAppearance(p.cls), ...(p.ap ?? {}) } as Appearance,
   } as GamePlayer;
 }
 
@@ -871,7 +889,10 @@ const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
 });
 
 export default function ShotPage() {
-  const [params, setParams] = useState<URLSearchParams | null>(null);
+  // The query string, through `useSyncExternalStore` rather than a state
+  // mirror set from the mount effect (react-doctor). Cached at module level —
+  // the store never notifies and a capture page's URL never changes under it.
+  const params = useSyncExternalStore(NO_RESUBSCRIBE, readSearchOnce, () => null);
 
   // The yaw is published here, in the same effect that unblocks the render,
   // rather than in an effect of its own. GameCanvas reads __photoCam from its
@@ -880,7 +901,8 @@ export default function ShotPage() {
   // silently ignored, and only appeared to work because every preset happens to
   // ask for the rig's default yaw of PI.
   useEffect(() => {
-    const search = new URLSearchParams(window.location.search);
+    if (!params) return;
+    const search = params;
     const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
     const camOverride = search.get("cam");
     // `?ground=pict_moor`. Unknown ids fall through to the village exactly as
@@ -918,8 +940,7 @@ export default function ShotPage() {
         unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
       };
     }
-    setParams(search);
-  }, []);
+  }, [params]);
 
   // 0 is the preset as authored. 1 is the same room after `?revive=1` has put
   // every dead warrior back on his feet, so a capture can show what the body
@@ -994,9 +1015,12 @@ export default function ShotPage() {
       hostId: "me",
       countdown: 0,
       matchTimer: preset.matchTimer,
+      // Stamped from module load, not from render time: `Date.now()` in a
+      // memo is an impure render read (react-doctor), and a capture harness
+      // settles within seconds of load anyway, so feed age is indistinguishable.
       killFeed: [
-        { killerName: "Aethelred", victimName: "Wulfred", timestamp: Date.now() },
-        { killerName: "Beorn", victimName: "Aelric", timestamp: Date.now() },
+        { killerName: "Aethelred", victimName: "Wulfred", timestamp: BOOT_TS },
+        { killerName: "Beorn", victimName: "Aelric", timestamp: BOOT_TS },
       ],
       lastStandTriggered: !!preset.lastStand,
     };
@@ -1112,8 +1136,10 @@ function Guides({ card }: { card: CardSpec }) {
   // capture over about seventeen frames and two seconds ("frames=17@2081ms" on
   // every line it prints), so one extra tick is invisible to it. The clean
   // shape costs nothing and removes the branch instead of arguing with it.
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => { setSize({ w: window.innerWidth, h: window.innerHeight }); }, []);
+  // …and the effect-set mirror is now a real external-store read, which is
+  // strictly better again: same server-null/client-value hydration shape, no
+  // state cascade, and the guides follow a live resize for free.
+  const size = useSyncExternalStore(subscribeResize, readViewport, () => null);
   if (!size) return null;
   const span = 2 * card.dist * Math.tan((card.fov * Math.PI) / 360);
   const pxPerM = size.h / span;
