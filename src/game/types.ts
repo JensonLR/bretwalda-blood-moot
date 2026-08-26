@@ -148,6 +148,9 @@ export interface WarriorStats {
  * because a rationale copied twice drifts exactly the way these numbers did.
  */
 export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
+  // (ABILITY_LORE below is the powers' player-facing half; it lives beside
+  // this table because every screen that prints an ability name reads THIS
+  // file, and a sentence exiled to the engine would be a third copy to drift.)
   // HEALTH + DEFENCE. The wall: the largest bar and the best guard in the game,
   // the slowest walk, and damage that is merely adequate.
   huscarl: {
@@ -217,6 +220,26 @@ export const WARRIOR_STATS: Record<WarriorClass, WarriorStats> = {
     ability: "BLOOD FURY",
     abilityCooldown: 18,
   },
+};
+
+/**
+ * WHAT EACH POWER ACTUALLY DOES, in the player's own language — one sentence
+ * with the numbers in it. The owner, 26 Aug 2026: *"the powers of the warrior
+ * classes aren't very easy to know what they do or what they are"* — and he
+ * was right in the plainest way: every surface printed the NAME ("ABILITY —
+ * SHIELD WALL") and not one printed what it does. Each sentence is written
+ * from the engine's mechanics, not from ambition: SHIELD WALL is the sheet's
+ * 0.8 block turned 0.95 for 4 s; BATTLE FOCUS is ×1.3 damage for 5 s; SHADOW
+ * STEP lands 1.35 m behind the foe with the roll's own 0.3 s of grace and is
+ * refunded when there is nowhere worth going; BLOOD FURY is ×1.5 damage for
+ * 6 s draining 3 health a second, never below 1. Edit the mechanic, edit the
+ * sentence, same commit.
+ */
+export const ABILITY_LORE: Record<WarriorClass, string> = {
+  huscarl: "Four heartbeats of the unbreakable wall — while your shield is up, blows that would stagger another guard barely scratch.",
+  warden: "Five seconds of battle-sight — every blow you land bites a third harder.",
+  runekeeper: "Step through shadow to your foe's back, untouchable for the landing breath. Never wasted: nowhere worth going, nothing spent.",
+  berserker: "Six seconds of fury — half again more damage on every stroke, paid for in your own blood.",
 };
 
 export interface GamePlayer {

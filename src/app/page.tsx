@@ -13,7 +13,7 @@ import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId,
 } from "../game/types";
-import { WARRIOR_STATS, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
+import { WARRIOR_STATS, ABILITY_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
 // `statshape.mjs` for the two warriors this screen used to draw identically.
@@ -2412,6 +2412,7 @@ export default function Page() {
                       <div className="flex items-center gap-2 text-sm font-bold text-amber-200"><w.Icon size={14} className="shrink-0" /> {w.name}</div>
                       <div className="mt-1 text-xs leading-snug text-[#a89a7c]">{w.desc}</div>
                       <div className="mt-1.5 text-[10px] font-bold tracking-[0.15em] text-purple-300">ABILITY — {s.ability}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-[#b6a888]">{ABILITY_LORE[w.id]}</div>
                     </div>
                   );
                 })}
@@ -2718,6 +2719,9 @@ function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack
         <div className="text-[10px] font-bold tracking-[0.15em] text-purple-300">
           ABILITY — {WARRIOR_STATS[warriorClass].ability}
         </div>
+        <div className="max-w-[30ch] text-[11px] leading-snug text-[#b6a888]">
+          {ABILITY_LORE[warriorClass]}
+        </div>
         <p className="mt-1 text-xs leading-relaxed text-[#a89a7c]">{note}</p>
         <button onClick={onCustomise} className="btn-primary mt-2 !min-h-[2.75rem] !px-5 !text-sm">
           <Shirt size={15} /> CUSTOMISE
@@ -2920,6 +2924,7 @@ function ClassGrid({ selected, onSelect, compact }: {
               ))}
             </div>
             <div className="mt-3 text-[9px] font-bold tracking-[0.15em] text-purple-300">{stats.ability}</div>
+            <div className="mt-1 text-[10px] leading-snug text-[#a89a7c]">{ABILITY_LORE[w.id]}</div>
           </button>
         );
       })}
