@@ -91,6 +91,17 @@ function levelFor(xp: number): number {
   return Math.max(1, Math.floor(1 + Math.sqrt(Math.max(0, xp) / 100)));
 }
 
+/**
+ * What the row's record can vouch for, for the mark's earned rules. `sworn`
+ * is the real oath column — the one `src/db/war.ts` banks by — which makes
+ * the server's answer STRICTER than the client's livery-based one, and
+ * that is the right way round for the copy that follows the four words onto
+ * the next device.
+ */
+function factsOf(row: PlayerRow) {
+  return { level: row.level, wins: row.wins, matches: row.matches, sworn: !!row.allegiance };
+}
+
 function view(row: PlayerRow): ProfileView {
   const unlocked = Array.isArray(row.unlockedCosmetics) ? row.unlockedCosmetics : startingUnlocks();
   const stored = row.cosmetics && typeof row.cosmetics === "object" && "helm" in row.cosmetics
@@ -102,7 +113,7 @@ function view(row: PlayerRow): ProfileView {
     level: row.level, xp: row.xp, gold: row.gold, honour: row.honour,
     kills: row.kills, deaths: row.deaths, wins: row.wins, matches: row.matches,
     favoriteClass: row.favoriteClass,
-    appearance: sanitizeAppearance(stored, unlocked, baseAppearance(row.favoriteClass)),
+    appearance: sanitizeAppearance(stored, unlocked, baseAppearance(row.favoriteClass), factsOf(row)),
     unlocked,
     // Checked on the way out as well as on the way in: a row written by an
     // older build, or by hand, must not be able to hand a client a table its
@@ -215,7 +226,7 @@ export async function setPresentation(
   if (typeof next.name === "string") changes.name = cleanName(next.name);
   if (typeof next.favoriteClass === "string") changes.favoriteClass = next.favoriteClass.slice(0, 20);
   if (next.appearance !== undefined) {
-    changes.cosmetics = sanitizeAppearance(next.appearance, current.unlocked, current.appearance);
+    changes.cosmetics = sanitizeAppearance(next.appearance, current.unlocked, current.appearance, factsOf(row));
   }
   if (next.bindings !== undefined) {
     // Refused rather than reduced, unlike the appearance above: a half-kept
@@ -273,7 +284,7 @@ export async function purchase(
       const updated = await tx.update(players).set({
         gold: row.gold - check.cost,
         unlockedCosmetics: unlocked,
-        cosmetics: sanitizeAppearance(appearance, unlocked, current.appearance),
+        cosmetics: sanitizeAppearance(appearance, unlocked, current.appearance, factsOf(row)),
         updatedAt: new Date(),
       }).where(eq(players.id, row.id)).returning();
       const after = updated[0];
@@ -550,16 +561,22 @@ export async function claimLegacySave(
       }
       const unlocked = [...new Set([...current.unlocked, ...affordable])];
       const xp = clamp(legacy.xp, LEGACY_CAPS.xp);
+      const level = Math.max(1, levelFor(xp));
+      const wins = clamp(legacy.wins, LEGACY_CAPS.wins);
+      const matches = clamp(legacy.matches, LEGACY_CAPS.matches);
       const updated = await tx.update(players).set({
         name: row.name || cleanName(legacy.name),
-        gold, xp, level: Math.max(1, levelFor(xp)),
+        gold, xp, level,
         honour: clamp(legacy.honour, LEGACY_CAPS.honour),
         kills: clamp(legacy.kills, LEGACY_CAPS.kills),
         deaths: clamp(legacy.deaths, LEGACY_CAPS.deaths),
-        wins: clamp(legacy.wins, LEGACY_CAPS.wins),
-        matches: clamp(legacy.matches, LEGACY_CAPS.matches),
+        wins, matches,
         unlockedCosmetics: unlocked,
-        cosmetics: sanitizeAppearance(legacy.appearance, unlocked, current.appearance),
+        // The mark is judged against the record being WRITTEN, not the empty
+        // row the gate above proved — a claim carrying 30 wins carries the
+        // banner those wins earned.
+        cosmetics: sanitizeAppearance(legacy.appearance, unlocked, current.appearance,
+          { level, wins, matches, sworn: !!row.allegiance }),
         legacyClaimedAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(players.id, row.id)).returning();

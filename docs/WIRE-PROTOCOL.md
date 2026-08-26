@@ -446,10 +446,14 @@ S→C  lobby_update                                      state=lobby
 ## 5. What is *not* in the protocol
 
 - **`appearance` is opaque to the simulation.** It is stored on `create`,
-  `join`, `solo` and `set_appearance` and republished untouched. The engine
-  never reads a field of it. A native client may define its own vocabulary; the
-  web client's is `{helm, hairStyle, hairColor, beardStyle, beardColor, cloak,
-  armorColor, warPaint}` (`BOT_APPEARANCES`, 553).
+  `join`, `solo` and `set_appearance` and republished untouched — with one
+  narrow exception: `dressFor` strips `people` in a friendly room (§11). The
+  engine never otherwise reads a field of it. A native client may define its
+  own vocabulary; the web client's is `{helm, hairStyle, hairColor,
+  beardStyle, beardColor, cloak, armorColor, warPaint}` plus three optional
+  late-comers — `weapon` (the finish, backlog 3.3), `people` (the livery,
+  §11) and `mark` (the profile device, backlog 5.5, `src/game/marks.mjs`) —
+  all of which older clients simply never send and never draw.
 - **`arena` is always `"saxon_village"`** (1049, 1103). Nothing sets it and
   nothing reads it. `ARENAS` in `types.ts:525` lists three; two do not exist.
 - **No chat.** `types.ts:512` declares a `"chat"` message type; the engine has

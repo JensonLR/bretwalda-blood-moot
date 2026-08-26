@@ -3,6 +3,10 @@ import {
   type Appearance, type ArmouryOption,
 } from "../game/client/characters";
 import type { WarriorClass } from "../game/types";
+// The profile marks (backlog 5.5): earned, never bought, so they are not a
+// slot — `sanitizeAppearance` narrows them against the row's own record
+// instead of against the unlock list. Same shared-module law as `ARMOURY`.
+import { earnedMark, type MarkFacts } from "@/game/marks.mjs";
 
 /**
  * The server's view of the shop.
@@ -26,6 +30,15 @@ const SLOT_FIELD = {
   cloak: { field: "cloak", numeric: false },
   armor: { field: "armorColor", numeric: true },
   warPaint: { field: "warPaint", numeric: false },
+  // ABSENT UNTIL 26 AUG 2026, AND ITS ABSENCE WAS A PAID DEFECT. The weapon
+  // finish (backlog 3.3) has been a real catalogue slot since it shipped —
+  // `priceBasket` charged for it and `unlockedCosmetics` recorded it — but
+  // with no row here `equipIds` skipped it and `sanitizeAppearance` dropped
+  // it, so on a server-linked profile a bought finish reverted to Issued
+  // Steel at the next boot: the gold left, the look did not stay. The client
+  // never noticed because localStorage kept its own copy until the server's
+  // overwrote it.
+  weapon: { field: "weapon", numeric: false },
 } as const satisfies Record<string, { field: keyof Appearance; numeric: boolean }>;
 
 export type ArmourySlot = keyof typeof SLOT_FIELD;
@@ -64,7 +77,7 @@ export function isSlot(slot: string): slot is ArmourySlot {
   return Object.prototype.hasOwnProperty.call(SLOT_FIELD, slot);
 }
 
-function readSlot(ap: Appearance, slot: ArmourySlot): string | number {
+function readSlot(ap: Appearance, slot: ArmourySlot): string | number | undefined {
   return ap[SLOT_FIELD[slot].field];
 }
 
@@ -104,6 +117,15 @@ export function idsForAppearance(ap: Appearance): string[] {
  */
 export function sanitizeAppearance(
   input: unknown, owned: readonly string[], current: Appearance,
+  /**
+   * The row's own record, for the mark. Marks are earned rather than owned,
+   * so the unlock list can say nothing about them; when the caller passes
+   * what the row actually holds, a mark the record does not support is
+   * reduced to none — the same silent narrowing as a slot. Omitted (older
+   * callers, tests that only care about kit), the stored mark passes through
+   * migration untouched.
+   */
+  facts?: MarkFacts,
 ): Appearance {
   const out: Appearance = { ...current };
   const raw = (input && typeof input === "object") ? input as Record<string, unknown> : {};
@@ -113,6 +135,7 @@ export function sanitizeAppearance(
     const opt = optionForValue(slot, readSlot(candidate, slot));
     if (opt && ownedSet.has(opt.id)) writeSlot(out, slot, opt.value);
   }
+  out.mark = facts ? earnedMark(candidate.mark, facts).id : candidate.mark;
   return out;
 }
 

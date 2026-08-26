@@ -111,10 +111,28 @@ Shipped this wave: THE FIRST MOOT (rite + doors + oath mirror), WAR PARTY
 matrix, mobile scene-content parity (5.2), the weapon item-cards, per-ground
 hero fire (lag + feature parity), and round ten.
 
+## State after 26 Aug 2026, fifth wave — 5.5 landed, and two saves' worth of defects with it
+
+Shipped: the EARNED HALF OF 5.5 (ten sourced marks, the Saga picker, the
+mark beside the name in lobby/ledger/landing, server-side earned narrowing
+— see BACKLOG 5.5 and `tools/marktest.mjs`, 25/25), plus Offa's Dyke
+earlier in the day. Found under 5.5's stone and fixed in the same wave:
+the 3.3 PAID WEAPON FINISH never persisted to the server row
+(`SLOT_FIELD` had no weapon slot — charged, unlocked, dropped), and EVERY
+LOCAL-MODE BOOT WIPED THE SAVE (the profile mirror effect fired on mount
+with defaults before the boot reader ran; masked in server mode). Both
+ledgered in OPEN-DEFECTS with measurements; the wipe fix is
+`diskReadRef` in `page.tsx`, proven by seed-load-read.
+
 **What remains is new build, not repair, and most of it wants the owner's
-word first:** 5.5 profile symbols (design: which achievements unlock what),
-4.9 other game modes (open question), 4.10 historically accurate flags
-(scope), 5.8 Steam packaging (accounts/doors), 5.1 every-screen polish
+word first:** 5.5's BOUGHT half (gold-priced marks want an armoury rail
+decision), 4.9 other game modes (open question), 4.10 historically
+accurate flags (scope), 5.8 Steam packaging (accounts/doors), 5.1
+every-screen polish. Also ledgered, engineering: 11 pre-existing
+`react-doctor` lint errors (set-state-in-effect and purity, across
+`page.tsx`, `factions`, `shot`, `GameHud`) predate this wave — the same
+rule family whose earlier fix bred the save-wipe, so they deserve a
+deliberate pass, not a drive-by.
 (ongoing), the First Moot's further cinematics (music sting, per-kingdom
 ground flythroughs), and the sixteen-territory ground build-out per the
 5.7b archetype table (dyke-and-march first — it covers three border

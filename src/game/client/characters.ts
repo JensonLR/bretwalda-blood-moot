@@ -115,6 +115,17 @@ export interface Appearance {
    * existed and is amended, not stretched, in the same commit.
    */
   people?: Allegiance;
+  /**
+   * THE PROFILE MARK — backlog 5.5, a `MARKS` id from `src/game/marks.mjs`.
+   * Not kit at all: the builder never reads it, and it draws beside the man's
+   * name in the lobby, the results and the landing panel. It lives here
+   * because appearance is the one client-declared bag the wire already
+   * carries on every snapshot, so a mark travels with zero new transport.
+   * Optional forever for the `people` reason; `earnedMark` narrows anything
+   * unknown OR UNEARNED to no mark, so a stale profile and a modified client
+   * both show the bare shield rather than a wrong device.
+   */
+  mark?: string;
 }
 
 export interface PlayerAppearanceHolder {
@@ -141,6 +152,7 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
     // screenshot in `art/` has been showing since the game existed. Swearing
     // adds a livery; it does not repair a hole.
     people: "none",
+    mark: "none",
   };
 }
 
@@ -195,9 +207,12 @@ export function migrateAppearance(ap: Appearance): Appearance {
   // The weapon slot arrived after every stored appearance; absent means the
   // issued steel, written in so the armoury shows a selection.
   const weapon = typeof ap.weapon === "string" && ap.weapon ? ap.weapon : "weapon_issued";
+  // The mark slot likewise postdates every stored appearance; absent means
+  // unmarked, written in so the picker shows a selection.
+  const mark = typeof ap.mark === "string" && ap.mark ? ap.mark : "none";
   if (armorColor === ap.armorColor && hairColor === ap.hairColor
-    && beardColor === ap.beardColor && weapon === ap.weapon) return ap;
-  return { ...ap, armorColor, hairColor, beardColor, weapon };
+    && beardColor === ap.beardColor && weapon === ap.weapon && mark === ap.mark) return ap;
+  return { ...ap, armorColor, hairColor, beardColor, weapon, mark };
 }
 
 /**

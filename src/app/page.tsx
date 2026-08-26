@@ -15,6 +15,11 @@ import type {
 } from "../game/types";
 import { WARRIOR_STATS, ABILITY_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
+// The profile marks — backlog 5.5. The set and the unlock rules live in one
+// shared module so this screen, the glyph component and `tools/marktest.mjs`
+// all read the same law; see the header of `marks.mjs`.
+import { MARKS, markEarned, earnedMark, markHint, type MarkFacts } from "@/game/marks.mjs";
+import { MarkGlyph } from "../game/client/MarkGlyph";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
 // `statshape.mjs` for the two warriors this screen used to draw identically.
@@ -498,7 +503,21 @@ export default function Page() {
   // day the free-tier database lapses the game degrades to device-local gold,
   // and it should degrade to the player's real total rather than to whatever he
   // had the week the server came up.
+  //
+  // AND NOT ONE KEYSTROKE BEFORE THE DISK HAS BEEN READ. Moving this write
+  // out of the state updater (the react-doctor fix above) gave it a mount
+  // firing the updater never had: effects run in declaration order, this one
+  // sits above the boot reader, and so the first thing a boot did was write
+  // DEFAULT_PROFILE over the save and then read its own blank back. Server
+  // mode papered over it — `adoptServer` restores from the roll — which left
+  // the wipe aimed at exactly the player the mirror exists for: the one with
+  // no server. Measured before the fix: seed gold 140 / level 6, one load,
+  // read back gold 0 / level 1. The flag flips in the reader below, whether
+  // or not the disk held anything, so a fresh device still persists normally
+  // from its first real change.
+  const diskReadRef = useRef(false);
   useEffect(() => {
+    if (!diskReadRef.current) return;
     try { localStorage.setItem(LEGACY_KEY, JSON.stringify(profile)); } catch { /* private mode */ }
   }, [profile]);
 
@@ -542,6 +561,33 @@ export default function Page() {
     const current = peopleOf(profileRef.current.appearance);
     if (current === people) return;
     const ap = { ...profileRef.current.appearance, people };
+    saveProfile({ appearance: ap });
+    transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+  }, [saveProfile]);
+
+  /**
+   * THE MARK — backlog 5.5. What the unlock rules may read, drawn off the
+   * profile every render so a level or a win earned this session unlocks its
+   * mark the moment the number moves. `sworn` is the livery rather than the
+   * database row for the same reason the oath mirror uses it: it is what this
+   * device knows, `adoptAllegiance` keeps it honest, and a mark is cosmetic —
+   * wrong for a minute after a fresh oath costs nothing and rights itself.
+   */
+  const markFacts: MarkFacts = {
+    level: profile.level, wins: profile.wins, matches: profile.matches,
+    sworn: peopleOf(profile.appearance) !== "none",
+  };
+  // Narrowed on OUR OWN view: a hand-edited localStorage draws the bare shield.
+  const myMark = earnedMark(profile.appearance.mark, markFacts).id;
+  const pickMark = useCallback((id: string) => {
+    // Re-check at press time rather than trusting the tile's disabled state —
+    // the rule module is the law, the button is furniture.
+    if (earnedMark(id, {
+      level: profileRef.current.level, wins: profileRef.current.wins,
+      matches: profileRef.current.matches,
+      sworn: peopleOf(profileRef.current.appearance) !== "none",
+    }).id !== id) return;
+    const ap = { ...profileRef.current.appearance, mark: id };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
   }, [saveProfile]);
@@ -611,10 +657,22 @@ export default function Page() {
         // equipped by matching the stored value against the catalog's, so a
         // finish that was re-graded between releases would show as owning nothing
         // and charge the player a second time for kit he already has.
-        const merged = { ...DEFAULT_PROFILE, ...parsed, unlocked: parsed?.unlocked ?? freeCosmeticIds() };
+        // The free kit is unioned in rather than defaulted in: a save from
+        // before a free id existed carries a list without it, and taking that
+        // list verbatim showed "-13 unlocks earned" on the Saga — the count
+        // subtracts the CURRENT free set from a roll that predates it.
+        const merged = {
+          ...DEFAULT_PROFILE, ...parsed,
+          unlocked: [...new Set([...(parsed?.unlocked ?? []), ...freeCosmeticIds()])],
+        };
         setProfile({ ...merged, appearance: migrateAppearance(merged.appearance) });
       } catch { /* ok */ }
     }
+    // The disk has now been read (or found empty/unreadable, which is the
+    // same promise): from here the mirror above may write. Set outside the
+    // parse guard on purpose — a corrupt save must not leave the game unable
+    // to persist forever after.
+    diskReadRef.current = true;
     // Deep link: ?code=WESSEX82 puts you one tap from battle
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code")?.toUpperCase().substring(0, 15);
@@ -1520,6 +1578,8 @@ export default function Page() {
             payState={payState}
             waiting={rematchWaiting}
             war={warResult}
+            marks={Object.fromEntries(Object.values(roomState.players).map((p) =>
+              [p.id, (p as GamePlayer & { appearance?: Appearance }).appearance?.mark]))}
             // The one refusal a player can undo from here. The oath is taken on
             // the map and the map is its own route, so this goes there rather
             // than growing a second swearing UI — one place decides who you
@@ -1746,6 +1806,9 @@ export default function Page() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold">
                         <span className="truncate">{p.name}</span>
+                        {/* His mark, exactly as his client declared it — the
+                            `appearance.people` trust model, see `marks.mjs`. */}
+                        <MarkGlyph id={(p as GamePlayer & { appearance?: Appearance }).appearance?.mark} size={13} className="text-amber-300/90" />
                         {p.id === roomState.hostId && <Crown size={13} className="shrink-0 text-amber-400" />}
                         {p.id === playerId && <span className="badge-sky">YOU</span>}
                         {isBot && <span className="badge-stone">AI</span>}
@@ -2162,7 +2225,13 @@ export default function Page() {
             </div>
 
             <div className="card grid grid-cols-3 divide-x divide-stone-100/10 !bg-stone-950/70 py-3">
-              <LandingStat value={`Lv.${profile.level}`} label={getLevelTitle(profile.level)} />
+              {/* The mark rides with the level it was mostly earned by — the
+                  landing's one glimpse of it; the picker is on the Saga. */}
+              <LandingStat label={getLevelTitle(profile.level)}
+                value={<span className="inline-flex items-center gap-1">
+                  {myMark !== "none" && <MarkGlyph id={myMark} size={13} className="text-amber-300" />}
+                  Lv.{profile.level}
+                </span>} />
               <LandingStat value={String(profile.gold)} label="GOLD" cls="text-yellow-400" />
               <LandingStat value={String(profile.wins)} label="VICTORIES" cls="text-emerald-400" />
             </div>
@@ -2607,8 +2676,12 @@ export default function Page() {
                 named after the player was the one screen not written in the
                 game's own hand. */}
             <div className="card card-noble flex flex-col items-center gap-3 p-6 text-center">
+              {/* The roundel is the man's crest, so a chosen mark takes it over
+                  from the stock medal — the picker below is where it is won. */}
               <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-[rgba(217,164,65,0.7)] bg-[radial-gradient(circle_at_50%_24%,rgba(96,78,54,0.85),rgba(16,12,9,0.94)_72%)] shadow-[inset_0_1px_2px_rgba(246,221,160,0.22),0_0_45px_rgba(217,164,65,0.18)]">
-                <Medal size={40} className="text-[#f6dda0]" />
+                {myMark !== "none"
+                  ? <MarkGlyph id={myMark} size={44} className="text-[#f6dda0]" />
+                  : <Medal size={40} className="text-[#f6dda0]" />}
               </div>
               <div className="screen-head screen-head-center">
                 <h1>{playerName || "Unnamed Warrior"}</h1>
@@ -2662,6 +2735,45 @@ export default function Page() {
             </div>
             <div className="text-center text-xs leading-relaxed text-[#7d7057]">
               K/D <span className="tabular-nums">{profile.deaths > 0 ? (profile.kills / profile.deaths).toFixed(2) : profile.kills}</span> · Win rate <span className="tabular-nums">{profile.matches > 0 ? Math.round((profile.wins / profile.matches) * 100) : 0}%</span> · <span className="tabular-nums">{profile.unlocked.length - freeCosmeticIds().length}</span> unlocks earned
+            </div>
+          </div>
+
+          {/* THE MARK — backlog 5.5. A device a man EARNS and wears beside his
+              name in every roster; nothing here is bought, which is why this
+              lives on the record screen and not in the armoury. A locked tile
+              shows what wins it instead of its name — the hint is the whole of
+              what a locked tile has to say. Every device is a real find or is
+              labelled an invention in `marks.mjs`, the standard the flags
+              (`docs/FACTIONS.md` §6) already hold to. */}
+          <div className="flex flex-col gap-4">
+            <h2 className="section-title"><Flag size={12} className="shrink-0" /> YOUR MARK</h2>
+            <div className="grid grid-cols-5 gap-2">
+              {MARKS.map((m) => {
+                const earned = markEarned(m, markFacts);
+                const chosen = myMark === m.id;
+                return (
+                  <button key={m.id} data-mark={m.id} data-earned={earned ? "1" : "0"}
+                    onClick={() => pickMark(m.id)} disabled={!earned}
+                    title={`${m.name} — ${m.source}`}
+                    className={`card relative flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 !p-1.5 text-center transition ${
+                      chosen ? "!border-amber-400/80 !bg-amber-950/40 shadow-[0_0_18px_rgba(217,164,65,0.22)]"
+                        : earned ? "hover:!border-amber-700/60" : "opacity-55"
+                    }`}>
+                    {m.d
+                      ? <MarkGlyph id={m.id} size={24} className={chosen ? "text-amber-200" : earned ? "text-[#d9cdb2]" : "text-[#7d7057]"} />
+                      : <span className={`inline-block h-6 w-6 rounded-full border border-dashed ${chosen ? "border-amber-300" : "border-[#7d7057]"}`} />}
+                    <span className={`text-[8px] font-bold uppercase leading-tight tracking-[0.08em] ${
+                      earned ? "text-[#a89a7c]" : "text-[#7d7057]"
+                    }`}>{earned ? m.name : markHint(m)}</span>
+                    {!earned && <Lock size={9} className="absolute right-1 top-1 text-[#7d7057]" />}
+                    {chosen && <Check size={10} className="absolute right-1 top-1 text-amber-300" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-center text-[11px] leading-relaxed text-[#7d7057]">
+              Worn beside your name in every lobby and ledger. Every device is a real
+              find of the age — or honestly called an invention.
             </div>
           </div>
 
@@ -3463,9 +3575,16 @@ function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => 
   return <div className="badge-stone !text-[10px]" data-war={war.kind}>THE LEDGER IS SHUT — THIS FIGHT WILL NOT COUNT</div>;
 }
 
-function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFightAgain, onLeave, onSwear }: {
+function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, onFightAgain, onLeave, onSwear }: {
   data: MatchEndData;
   playerId: string;
+  /**
+   * Each man's declared mark by player id, read out of the room the caller is
+   * still holding. The ledger's own rows don't carry appearance and widening
+   * the wire for a glyph would be transport for decoration; absent ids simply
+   * draw no mark, which is also what most men wear.
+   */
+  marks?: Record<string, string | undefined>;
   payState: "none" | "asking" | "paid" | "unpaid";
   waiting: boolean;
   /** What the fight did to the war, for this man. `null` until the server says. */
@@ -3581,6 +3700,7 @@ function MatchSummary({ data, playerId, payState, waiting, war, onEmote, onFight
                 <div className="min-w-0 flex-1">
                   <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-[#f3ecdc]"}`}>
                     <span className="truncate">{r.name}</span>
+                    <MarkGlyph id={marks?.[r.id]} size={12} className="text-amber-300/90" />
                     {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
                   </div>
                   <div className="text-[10px] leading-tight text-[#a89a7c]">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
@@ -3654,7 +3774,7 @@ function MatchTally({ data, playerId }: { data: MatchEndData; playerId: string }
   );
 }
 
-function LandingStat({ value, label, cls = "text-amber-100" }: { value: string; label: string; cls?: string }) {
+function LandingStat({ value, label, cls = "text-amber-100" }: { value: React.ReactNode; label: string; cls?: string }) {
   return (
     <div className="min-w-0 px-1 text-center">
       <div className={`font-display text-sm ${cls}`}>{value}</div>

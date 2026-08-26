@@ -7986,3 +7986,64 @@ boar's smaller soldered belly passes SEAM by geometry; the wyrm now does the
 same, rather than asking the ruler for a licence. wearmeasure green in every
 section; cosmetictest 16/16 with the ladder distinct on both sides and the
 paid hair holding 1.53 under the coil. Evidence: `art/wyrm2/`.
+
+---
+
+## FOUND AND FIXED UNDER 5.5 (26 Aug 2026): the paid weapon finish never persisted
+
+**The defect.** The weapon finish (backlog 3.3) has been a full catalogue
+slot since it shipped — priced by `priceBasket`, recorded in
+`unlockedCosmetics` — but `SLOT_FIELD` in `src/db/catalogue.ts` never grew a
+`weapon` row. Consequence, on any server-linked profile: `equipIds` skipped
+the finish at purchase and `sanitizeAppearance` dropped it on BOTH the write
+and the read (`view()` sanitizes outbound too), so a player paid 90–160
+gold, watched the blade change, and had it revert to Issued Steel the next
+time the server's copy overwrote localStorage. The gold left; the look did
+not stay. Nothing red anywhere — the classic silent-clamp shape: the client
+kept its own copy just long enough to hide the loss.
+
+**How it surfaced.** Backlog 5.5 put `mark` on the same rail and traced what
+actually survives `sanitizeAppearance` before trusting it — the weapon fell
+out of the trace. A gate green because the case is absent is not a gate:
+nothing measured "does the thing the player bought come back from the row?"
+
+**The fix.** `weapon` is a persisted slot in `SLOT_FIELD` (validated against
+catalogue + ownership like every slot), and the mark travels beside it,
+narrowed by `earnedMark` against the row's OWN record (`factsOf`: level,
+wins, matches, the real `allegiance` column — stricter than the client's
+livery-based answer, which is the right way round for the copy that follows
+the four words). All four `sanitizeAppearance` call sites carry facts; the
+legacy claim grades the mark against the record being written, not the empty
+row it is written over. `tools/marktest.mjs` holds the wiring (25/25).
+
+---
+
+## FOUND AND FIXED UNDER 5.5 (26 Aug 2026): every local-mode boot wiped the save
+
+**The defect, measured.** Seed `bretwalda_profile` with gold 140 / level 6 /
+wins 6, load the landing once with no server link, read the key back: gold 0,
+level 1, wins 0. The save is not corrupted — it is REPLACED WITH DEFAULTS,
+every boot.
+
+**The mechanism is a fix's shadow.** The react-doctor pass rightly moved
+`localStorage.setItem` out of the `setProfile` updater (updaters must be
+pure) into `useEffect(..., [profile])`. What the move bought that the
+updater never had is a MOUNT FIRING: effects run in declaration order, the
+mirror is declared above the boot reader, so the first commit wrote
+`DEFAULT_PROFILE` over the disk and the reader then read the blank it had
+just been handed. Server mode masked it completely — `adoptServer` restores
+the totals from the roll a moment later and the mirror re-writes them — so
+every signed-in device looked healthy while the mirror's entire reason for
+existing ("the day the free-tier database lapses the game degrades to
+device-local gold") was the one case it destroyed.
+
+**The fix.** A `diskReadRef` gate: the mirror refuses to write until the
+boot reader has read the disk (or found it empty/corrupt — the flag flips
+outside the parse guard so a bad save cannot mute persistence forever).
+Measured after: the same seed survives the boot intact, and the 5.5 capture
+run — which is what tripped over this — now photographs a hydrated Saga.
+
+**Under the same stone:** the boot reader took a stored `unlocked` list
+verbatim, so a save from before a free armoury id existed showed
+"−13 unlocks earned" on the Saga (current free set subtracted from an older
+roll). The free kit is unioned in on read now.
