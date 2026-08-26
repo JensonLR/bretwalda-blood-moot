@@ -7949,3 +7949,40 @@ wyrm 20.0°, suttonhoo 19.2°, §2 **8/8 PASS** — and with it `wearmeasure` is
 green in every section and `cosmetictest` prints its first **16/16**. The
 march instrument stays on the row for the next reader (R4: a ruler, asserted
 by nothing).
+
+---
+
+## The wyrm comes down onto the iron — the owner's second verdict, 26 Aug 2026
+
+The first fix anchored the tail and the owner's screenshot answered it: *"the
+wyrm helmet is a really poor design & the top piece is STILL floating above
+the helmet."* Reproduced at his own bearing (warden, rear-left quarter): the
+spine rode `max(capY, yTop − 0.030)` — a horizontal FLOOR holding the rear
+leg level while the bowl's slope fell away beneath it — and a 3–13 mm tube
+carrying 46 mm of deliberate arch reads as bent wire from every rear quarter
+whatever its ends do. The arch was the DESIGN, and the owner has rejected it
+twice; his verdict is the measurement.
+
+The redesign is the Sutton Hoo grammar: the beast LIES ALONG THE IRON. The
+spine rides `capY` directly, belly at the body's own 0.86 (kissing, nothing
+swallowed), side-winding ±15 mm with a lateral term paying the dome's flank
+fall-off (`capY` is a midline table — the first coil sank 2 mm per 20 mm of
+wander), two ≤6 mm humps as the coil's rhythm, body fattened to 30 mm. ONE
+licensed lift: the head rises 30 mm over the last quarter and the run stops
+on the HIGH front quarter — the first cut ran the head down the brow's steep
+fall, where `capY` drops faster than any honest lift climbs, and the head
+parked against the band while a bare crown hump played the head from three
+bearings. Jaw, horns and eyes are seated along the head's own direction
+(`hDir`/`hDown` off the spine's difference), not fixed-axis offsets tuned to
+the dead pose. Shop line now sells what is built: "A wyrm coiled along the
+crown, head raised over the brow."
+
+Two full `helmclash` runs bracketed the work, compared section by section:
+the first coil REGRESSED SEAM 13 → 21 (~900 mm² of belly part-proud-part-
+swallowed on every class, depth to 18 mm) and the kiss-depth pass paid it
+back — final counts LAYERS 19 / FLESH 24 / WRAP 6 / **CREST 16 → 8** /
+PELT 74 / **SEAM 13** — no section worse than baseline, one halved. The
+boar's smaller soldered belly passes SEAM by geometry; the wyrm now does the
+same, rather than asking the ruler for a licence. wearmeasure green in every
+section; cosmetictest 16/16 with the ladder distinct on both sides and the
+paid hair holding 1.53 under the coil. Evidence: `art/wyrm2/`.
