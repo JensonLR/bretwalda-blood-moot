@@ -14228,11 +14228,18 @@ export function buildCharacter(
       // (`art/backreview/sv-warden`). A scabbard hangs from the belt OUTSIDE
       // the skirt; 30 mm further out and 12 mm higher put its throat at the
       // belt line where the eye can see what it hangs from.
+      // AND THE WHOLE RUN STAYS OUTSIDE THE SKIRT. The owner, on the first
+      // relocation's capture: "an overlap of what looks like a sheath going
+      // through the cloth". The throat had moved to the belt line but the
+      // body still crossed the skirt's hem plane with its inner face inside
+      // the cloth, so the hem edge sliced across it. Ten more millimetres
+      // outboard and back, and a steeper rake, carry the run past the hem
+      // with daylight on the inner face.
       p.add(shell([
         { y: 0.0, hw: 0.028, hd: 0.014 },
         { y: -0.46, hw: 0.022, hd: 0.011 },
         { y: -0.5, hw: 0.008, hd: 0.005 },
-      ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.075, S.beltY - 0.008, -0.06, 0.32, 0, 0.34));
+      ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.085, S.beltY - 0.008, -0.072, 0.38, 0, 0.30));
     }
 
     // Class ornament that hangs on the body rather than on a limb.
