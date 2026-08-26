@@ -18914,14 +18914,28 @@ export function buildCharacter(
           // where the iron is still high, 30 mm over the last quarter, so the
           // raised head IS the silhouette's peak and the jaw, horns and eyes
           // are on it, not under it.
-          const z = zTop + mix(-0.070, 0.085, t);
+          const z = zTop + mix(-0.070, 0.078, t);
           const settle = 1 - clamp01((t - 0.70) / 0.30);
           const hump = 0.006 * Math.pow(Math.sin(Math.PI * clamp01(t * 1.3 - 0.06)), 2)
             * (0.5 + 0.5 * Math.cos(t * Math.PI * 5.2 - 0.9)) * settle;
           const headLift = 0.030 * Math.pow(clamp01((t - 0.74) / 0.26), 1.3);
+          // KISSING, NOT SUNK — and the wander pays the flank's own tax.
+          // helmclash SEAM read the first coil at ~900 mm² part-proud-part-
+          // swallowed against the bowl (bar 800, depth to 18 mm): the ride
+          // at 0.7 of the body's height put the belly 0.16·tall inside the
+          // iron, and `capY` is a MIDLINE table, so every millimetre of
+          // side-winding also lowered the tube into the dome's lateral
+          // fall-off (≈x²/2R, ~2 mm at the old ±20). 0.86 matches the belly
+          // factor exactly — the underside touches, nothing is swallowed —
+          // the wander narrows to ±15 mm, and the lateral term lifts the
+          // spine by the flank drop it is currently crossing. The boar's
+          // smaller soldered belly passes SEAM's bar by geometry; now the
+          // wyrm does the same, rather than asking the ruler for a licence.
+          const wander = 0.015 * Math.sin(t * Math.PI * 2.6) * settle;
+          const lat = (wander * wander) / (2 * 0.09);
           out.set(
-            0.020 * Math.sin(t * Math.PI * 2.6) * settle,
-            capY(z) + wyrmAt(t, 2) * 0.7 + hump + headLift,
+            wander,
+            capY(z) + wyrmAt(t, 2) * 0.86 + lat + hump + headLift,
             z,
           );
         };
