@@ -496,6 +496,56 @@ engine.stop?.();
   engine.stop?.();
 }
 
+// ---- WAR PARTY: friends queue as one — backlog 4.7b ----
+//
+// The party IS the private room (invite = the code, accept = joining); the
+// host's `war_party` press reseats every human together into the public war.
+{
+  const engine = mk({ autoTick: false });
+  // A stranger already waiting at a public fire, so the party has somewhere
+  // real to land — and the claim is that they land WITH him.
+  const stray = seat(engine);
+  stray.send("quickplay", { name: "Stray", awaitLoad: false });
+  const strayRoom = stray.last("join")?.data.code;
+
+  const host = seat(engine);
+  host.send("create", { name: "Hearthfather", mode: "blood_moot", bestOf: 1, awaitLoad: false });
+  const partyCode = host.last("join")?.data.code;
+  const f1 = seat(engine);
+  f1.send("join", { code: partyCode, name: "Firstman", awaitLoad: false });
+  const f2 = seat(engine);
+  f2.send("join", { code: partyCode, name: "Secondman", awaitLoad: false });
+
+  const lone = seat(engine);
+  lone.send("create", { name: "Loner", mode: "blood_moot", bestOf: 1, awaitLoad: false });
+  lone.send("war_party");
+  check("a party of one is refused with its own sentence",
+    /two to four/i.test(lone.last("error")?.data.message ?? ""),
+    lone.last("error")?.data.message ?? "(no error)");
+
+  f1.send("war_party");
+  check("only the host takes the party to war",
+    /host/i.test(f1.last("error")?.data.message ?? ""),
+    f1.last("error")?.data.message ?? "(no error)");
+
+  host.send("war_party");
+  const hj = host.last("join");
+  const j1 = f1.last("join");
+  const j2 = f2.last("join");
+  check("the host's press seats the whole party at one public fire",
+    !!hj?.data.code && hj.data.public === true
+      && j1?.data.code === hj.data.code && j2?.data.code === hj.data.code,
+    `party landed in ${hj?.data.code} / ${j1?.data.code} / ${j2?.data.code}`);
+  check("and it is the fire where the stranger was already waiting",
+    hj?.data.code === strayRoom, `${hj?.data.code} vs stray's ${strayRoom}`);
+  check("the party room they left behind is gone",
+    !engine._rooms.has(partyCode), `rooms still holding ${partyCode}: ${engine._rooms.has(partyCode)}`);
+  const started = stepUntil(engine, () => host.last("game_state")?.data.state === "fighting", 30);
+  check("nobody presses anything again — the muster takes all four to the fight",
+    started, started ? "fighting" : "still waiting");
+  engine.stop?.();
+}
+
 // ---- THE ROOM SEES THE COUNTRY, NOT ONE FIELD OF IT ----
 //
 // The owner, 24 Aug 2026: "work into when each map should be played… so

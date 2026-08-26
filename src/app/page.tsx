@@ -79,6 +79,10 @@ interface RoomState {
   lastRound: RoundResult | null; nextRoundAt: number;
   /** The stake, decided at creation: a friendly moot the war is not watching. */
   friendly?: boolean;
+  /** Open to strangers — set only through quickplay/war_party's closure,
+   *  never off the wire. Gates the WAR PARTY button (a public room is
+   *  already at the war). */
+  public?: boolean;
   /**
    * THE NAMED GROUND THIS MATCH IS FOUGHT OVER, and it has been on the wire all
    * along with nothing rendering it. `engine.mjs`'s `territoryBlock` puts it on
@@ -1825,6 +1829,24 @@ export default function Page() {
 
           {/* actions — pinned bottom on mobile for thumb reach */}
           <div className="action-bar">
+            {/* WAR PARTY — backlog 4.7b. A private lobby of two to four IS the
+                party (the code was the invite); this is the host taking
+                everyone to the public war in one press. Strangers fill the
+                remaining seats and the muster starts itself. Hidden outside
+                2-4 because the engine refuses those sizes with its own
+                sentences and a button that mostly errors is a trap. */}
+            {(() => {
+              const humans = Object.keys(roomState.players).filter((id) => !id.startsWith("bot_")).length;
+              return isHost && !roomState.public && roomState.mode === "blood_moot"
+                && humans >= 2 && humans <= 4 && (
+                <div className="action-bar-row mb-2">
+                  <button data-snd="confirm" onClick={() => sendMsg("war_party")}
+                    className="btn-ghost min-w-0 flex-1 whitespace-nowrap !min-h-[3rem] !px-3 !text-[12px] sm:!text-sm !border-amber-600/50">
+                    <Flame size={16} className="shrink-0" /> TAKE THE PARTY TO WAR — FIGHT STRANGERS AS {humans}
+                  </button>
+                </div>
+              );
+            })()}
             {/* Three targets share one 390px row, so the two word buttons are
                 allowed to shrink but never to wrap onto a second line. */}
             <div className="action-bar-row">

@@ -2171,6 +2171,7 @@ export function makeEngine(options = {}) {
       case "create": return handleCreate(sid, data);
       case "join": return handleJoin(sid, data);
       case "quickplay": return handleQuickplay(sid, data);
+      case "war_party": return handleWarParty(sid);
       case "solo": return handleSolo(sid, data);
       // Both of these were reachable AT ANY TIME, and both were exploits.
       //
@@ -2363,6 +2364,92 @@ export function makeEngine(options = {}) {
     } else {
       room.phaseAt = 0;
     }
+  }
+
+  /**
+   * WAR PARTY — backlog 4.7b's "clans queueing as 2-4", built on the parts
+   * that already exist rather than on a friends graph the game does not have.
+   *
+   * The PARTY is a private room: invite is sharing the code, accept is
+   * joining it — the mechanism friends and Hearths already use. This message
+   * is the third verb: the HOST takes the whole room to the public war in one
+   * press. Every human member is reseated together — into the fullest open
+   * public room with seats for ALL of them, or into a fresh public room the
+   * host founds — arriving ready, with quickplay's own muster armed. The
+   * loop is atomic by construction: the engine is single-threaded and no
+   * stranger's join can interleave with the reseat, so a party is never split
+   * by a race it cannot see.
+   *
+   * Two to four, the row's own numbers: one man is not a party (quickplay is
+   * one press away and does the same thing), and five is a warband taking the
+   * whole room — a party must leave seats for the strangers who make it a
+   * PUBLIC fight at all.
+   *
+   * Members are reseated with their own name and appearance, read from the
+   * players they already are. Class is re-picked in the muster lobby exactly
+   * as every quickplay arrival's is — the lobby is the class screen.
+   */
+  function handleWarParty(sid) {
+    const s = sessions.get(sid);
+    if (!s) return;
+    const room = rooms.get(s.roomCode ?? "");
+    if (!room || room.state !== "lobby") return;
+    if (room.public || room.mode === "solo") {
+      return sendSession(sid, { type: "error", data: { message: "You are already at the war." } });
+    }
+    if (room.hostId !== s.playerId) {
+      return sendSession(sid, { type: "error", data: { message: "Only the host takes the party to war." } });
+    }
+    // The members, as [sessionId, player] pairs, host first so a founded room
+    // is his to found. Collected BEFORE any reseat: the loop below mutates
+    // room membership, and each snapshot keeps the name and appearance the
+    // reseat carries.
+    const members = [];
+    for (const [sid2, s2] of sessions) {
+      if (s2.roomCode !== room.code || !s2.playerId) continue;
+      const p = room.players.get(s2.playerId);
+      if (!p || s2.playerId.startsWith("bot_")) continue;
+      if (sid2 === sid) members.unshift([sid2, p]);
+      else members.push([sid2, p]);
+    }
+    if (members.length < 2 || members.length > 4) {
+      return sendSession(sid, { type: "error", data: {
+        message: members.length < 2
+          ? "A war party is two to four. Alone, FIND A FIGHT does the same in one press."
+          : "A war party is two to four — five is a warband taking the whole room.",
+      } });
+    }
+    // The fullest open public blood moot with seats for the WHOLE party.
+    const dest = [...rooms.values()]
+      .filter((r) => r.public && r.state === "lobby" && r.mode === "blood_moot"
+        && humanCount(r) + members.length <= r.maxPlayers)
+      .sort((a, b) => humanCount(b) - humanCount(a))[0] ?? null;
+    if (dest) {
+      for (const [sid2, p] of members) {
+        handleJoin(sid2, { code: dest.code, name: p.name, appearance: p.appearance });
+      }
+    } else {
+      const [hostSid, hostP] = members[0];
+      nextCreatePublic = true;
+      handleCreate(hostSid, { name: hostP.name, appearance: hostP.appearance, mode: "blood_moot", friendly: false });
+      const founded = rooms.get(sessions.get(hostSid)?.roomCode ?? "");
+      if (!founded) return;
+      for (const [sid2, p] of members.slice(1)) {
+        handleJoin(sid2, { code: founded.code, name: p.name, appearance: p.appearance });
+      }
+    }
+    // Everyone who landed arrives READY, and the muster arms itself — the
+    // same two lines a quickplay arrival gets, for the same reason: nobody
+    // in a public room waits on a host press.
+    const landed = rooms.get(sessions.get(sid)?.roomCode ?? "");
+    if (!landed || !landed.public) return;
+    for (const [sid2] of members) {
+      const s2 = sessions.get(sid2);
+      const p2 = s2 && s2.roomCode === landed.code ? landed.players.get(s2.playerId ?? "") : null;
+      if (p2) p2.ready = true;
+    }
+    armQuickMuster(landed);
+    sendLobbyUpdate(landed);
   }
 
   /** Set by handleQuickplay for exactly one create; read and cleared here. */
