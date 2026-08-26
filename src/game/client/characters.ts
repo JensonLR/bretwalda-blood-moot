@@ -14653,6 +14653,18 @@ export function buildCharacter(
           { y: -0.16, hw: rSh * 1.14, hd: rSh * 1.18 },
           { y: elbow + 0.11, hw: rEl * 1.24, hd: rEl * 1.26 },
         ], lod.limb, { wall: 0.011 }), sleeve);
+        if (lod.trim) {
+          // Rolled hems on both cuffs. Each sleeve ended in a raw cut edge, so
+          // the linen band between wool and skin read as a flat plaster strip
+          // (`art/backreview/sv-rune/zoom-elbow.png`) — a 20 mm band of one
+          // value with two paint boundaries. A hem is a rim, a rim is a
+          // specular line, and it is the same move the wrist ring and the
+          // greave courses already make.
+          p.add(ring(rEl * 1.17, 0.0038, 4, 10), sleeveLinen,
+            xf(0, elbow + 0.061, 0, Math.PI / 2, 0, 0, 1, 1, 1.02));
+          p.add(ring(rEl * 1.25, 0.0048, 4, 10), sleeve,
+            xf(0, elbow + 0.112, 0, Math.PI / 2, 0, 0, 1, 1, 1.02));
+        }
       }
 
       // The metal on the shoulder, and mail down to the elbow where the class
