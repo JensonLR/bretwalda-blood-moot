@@ -553,7 +553,7 @@ by glamour.
 
 | # | Item | Ruling and note |
 |---|---|---|
-| 7.1 | **Attack controls review (mobile)** | The owner's live report, in his own words: *"as part of the directional guard we should review the mobile controls to see if there's a more appropriate way to attack as I find myself currently spamming the heavy attack & very rarely using the red attack."* A player spamming ONE attack button is a balance fault, a layout fault, or both — measure which before designing anything. Feeds 7.7. |
+| 7.1 | **Attack controls review (mobile)** | The owner's live report, in his own words: *"as part of the directional guard we should review the mobile controls to see if there's a more appropriate way to attack as I find myself currently spamming the heavy attack & very rarely using the red attack."* **MEASURED 26 Aug 2026 — it is a BALANCE fault wearing a legibility fault, not a layout one.** The red button IS the primary 84px SLASH; the owner ignores it for the smaller orange HEAVY because heavy is strictly dominant play: warden heavy = 27.3 DPS and 1.32 dmg/stamina vs light's 18.8 DPS and 1.23 dmg/stamina — heavy wins BOTH axes on the opener — plus a 0.30 s clean-hit stagger the light does not have, plus the sweep bisection zones. The light's real value (combo mult ×1.15→×1.6 within the 0.8 s window, i.e. a SUSTAINED chain reaching 30 DPS at ×2 the stamina efficiency) is invisible: no HUD surface shows the multiplier building, so the fast button reads as the weak button. Fix shape: (a) rebalance so heavy is the SPIKE not the default — higher stamina bite and/or light opener sped up; (b) SHOW the combo building on the slash button and the HUD; (c) then the directional-guard work of 7.7 lands on controls a player actually mixes. |
 | 7.2 | **Steam scaffold + mobile packaging shape (5.8)** | Scaffold now: account-door design (one account, two doors), wrapper/Steamworks spike, and the packaging constraints written down so every later item conforms. |
 | 7.3 | **The Tournament Moot (4.9a)** | Bracketed 1v1s, 4-8 men, on `honour_duel`; the hall watches the final (needs 7.9 spectate). |
 | 7.4 | **The Burh — horde mode (4.9b)** | WAR PARTY co-op last stand against waves of the *here*. Name to be confirmed with the owner (his ask: cooler Anglo-Saxon-ish than "Shield Wall"). |
@@ -563,6 +563,24 @@ by glamour.
 | 7.8 | **Forged dynamic score** | Music synthesized in-engine — drone, drum and lyre layers swelling with the fight — extending the "forged as you play" audio law. No licensed assets. |
 | 7.9 | **Clips first, then spectate** | Shareable clips from the existing replay system, THEN spectate seats (which the Tournament Moot final needs). The owner's bar, verbatim: *"I want to make sure the camera angles are perfect, a poor camera angle makes for a pointless clip or viewing."* Camera quality is the gate, not the export plumbing. |
 | 7.10 | **Marks stay earned-only (5.5 closed)** | Ruled: no bought half. The 5.5 row is complete as shipped. |
+
+### WAVE 8 — the owner's screenshot round of 26 Aug 2026 (defects first, then the sweeps)
+
+His directive, verbatim where it rules: *"Make sure we don't leave any aspects
+of the game left behind & also that it runs as smooth as a AAA game no jittery
+or staggered mess & 100% passage via react doctor etc."*
+
+| # | Item | Note |
+|---|---|---|
+| 8.1 | **Armour rework, all classes — floating fitting photographed** | His screenshot: huscarl, SHOULDERS lens, crowned helm + gold kit — a gold disc floating clear of the upper arm, ringed in red. *"Armour design needs rework on all class types as some have defects shown in SS."* One reproducible defect in hand plus a standing order: sweep every class in every lens for detached fittings, then the design-quality pass. |
+| 8.2 | **Mobile victory screen: volume button over the text** | His screenshot: the sound toggle sits mid-left ON TOP of the war banner ("THE WAR WATCHES MEN…"). A control may never sit on words. |
+| 8.3 | **First oath: the colours don't show** | His screenshot: the swear screen's mirror says "In the colours of the Anglo-Saxons" over a warrior in plain issued steel. Choosing a people for the first time must dress the mannequin in that people's livery immediately — the caption already claims it does. |
+| 8.4 | **Every-menu layout review** | *"All menus need review of layout for best user experience."* Screen by screen, both pointers, phone and desktop. Absorbs 5.1's remainder. |
+| 8.5 | **Tutorial staged** | *"Tutorial needs to be staged to clearly slow the player how to use & play the game."* The First Moot teaches five beats but rushes: stage it — one thing at a time, gated demonstrations, clearer text, a slower open. |
+| 8.6 | **Map boundaries & design upgrades** | *"Map boundaries & design could do with upgrades / improvements."* The r=18 stake/boundary law re-examined per ground: can the edge be diegetic everywhere (dyke, palisade, scarp, sea) rather than stakes? |
+| 8.7 | **AAA smoothness** | No jitter, no stagger: frame-pacing audit on phone-class hardware, GC pressure, spawn hitches, LOD/instancing where the profiler points. Measured, not vibes. |
+| 8.8 | **react-doctor 100%** | 11 errors + 2 warnings standing (set-state-in-effect, purity, refs-in-render across `page.tsx`, `factions`, `shot`, `GameHud`). The same rule family whose earlier half-fix bred the save-wipe — fix them properly, with the boot-order lesson applied. |
+| 8.9 | **Nothing left behind (Claude's own sweep)** | The owner: *"anything else you can think of work on it too that I may of missed."* Standing additions: reconnect/resume after a dropped socket mid-fight; a settings surface (look sensitivity, camera shake, colour-blind palette); loading/transition polish; PWA install + offline shell toward 5.8-mobile; error toasts that speak the game's language; bot difficulty curve sanity pass. |
 
 ### WAVE 6 — engineering hygiene and tooling
 
