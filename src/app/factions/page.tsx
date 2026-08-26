@@ -90,6 +90,16 @@ export default function WarPage() {
   const [self, setSelf] = useState<SelfView | null>(null);
   const [mode, setMode] = useState<"loading" | "server" | "local">("loading");
   const [choice, setChoice] = useState<PeopleId | null>(null);
+  /**
+   * A graduate of the First Moot arrives with `?oath=first` — the rite's
+   * second act. The copy above the map speaks to him rather than to a
+   * returning campaigner; nothing else changes, because the oath is the
+   * oath. Read in an effect: the query string is the browser's.
+   */
+  const [fromMoot, setFromMoot] = useState(false);
+  useEffect(() => {
+    try { setFromMoot(new URLSearchParams(window.location.search).get("oath") === "first"); } catch { /* server */ }
+  }, []);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /**
@@ -198,12 +208,14 @@ export default function WarPage() {
           </Link>
 
           <header className="screen-head screen-head-center">
-            <span className="label-overline">Britain, c. 878</span>
-            <h1>{sworn ? "The war for Britain" : "Choose your people"}</h1>
+            <span className="label-overline">{fromMoot && !sworn ? "The First Moot — your last rite" : "Britain, c. 878"}</span>
+            <h1>{sworn ? "The war for Britain" : fromMoot ? "Now choose your kingdom" : "Choose your people"}</h1>
             <p>
               {sworn
                 ? "Every match is fought over named ground. Win, and your people bank it. A territory changes hands when one people leads by enough, and at the season's end the people holding most of Britain crowns a Bretwalda."
-                : "The one year all four coexist: Alfred's Wessex against the Danelaw, the Britons holding the west, and the Picts still Picts for another generation. Swear to one, and the map becomes yours to drag."}
+                : fromMoot
+                  ? "You have stood your first fight. One thing remains: Britain is four peoples at war, and every match you win from here takes ground for one of them. Touch a kingdom on the map, read what it holds, and swear. The oath is for the season — choose like it matters."
+                  : "The one year all four coexist: Alfred's Wessex against the Danelaw, the Britons holding the west, and the Picts still Picts for another generation. Swear to one, and the map becomes yours to drag."}
             </p>
           </header>
 

@@ -26,6 +26,7 @@ import {
   type MobileFlags,
 } from "./input";
 import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
+import { createFirstMoot, FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 import {
   ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
   getBindings, getServerBindings, subscribeBindings,
@@ -53,6 +54,9 @@ const GFX_TOP = 172;
 
 interface HudRoomState {
   state: string;
+  /** "solo" gates the First Moot's beat line — taught lines belong in a
+   *  private ring, never over a live opponent. */
+  mode?: string;
   players: Record<string, GamePlayer>;
   countdown: number;
   matchTimer: number;
@@ -723,6 +727,48 @@ export default function GameHud({
     return () => clearInterval(id);
   }, [foeEligible, ensureFoeHint]);
 
+  // -----------------------------------------------------------------------
+  // THE FIRST MOOT'S BEAT LINE. `src/game/firstmoot.mjs` owns the whole of
+  // what a beat is and when it retires; this is transport, exactly as the
+  // foe hint above is. It keys off the ROOM, not off how the player arrived:
+  // a new arrival who taps TRAINING instead of the landing's FIRST MOOT
+  // button deserves the same teaching, and the device store retires the rite
+  // for everyone else. Solo only — a taught line over a live opponent's
+  // fight is a caption over the one thing he is trying to read.
+  const mootRef = useRef<ReturnType<typeof createFirstMoot> | null>(null);
+  const ensureMoot = useCallback(() => (
+    mootRef.current ??= createFirstMoot(browserStore(FIRST_MOOT_KEY))
+  ), []);
+  const [mootUp, setMootUp] = useState<{ line: string | null; at: number; total: number }>({ line: null, at: 0, total: 0 });
+  // The interval reads the LATEST snapshot through a ref: `localPlayer` is a
+  // fresh object twenty times a second and an effect keyed on it would tear
+  // the interval down as fast as it built it.
+  const mootPlayerRef = useRef<GamePlayer | undefined>(undefined);
+  mootPlayerRef.current = localPlayer;
+  const mootEligible = Boolean(roomState?.mode === "solo" && isFighting && isAlive && localPlayer);
+  useEffect(() => {
+    if (!mootEligible) { setMootUp((p) => (p.line ? { line: null, at: p.at, total: p.total } : p)); return; }
+    const moot = ensureMoot();
+    if (moot.done) return;
+    const STEP = 0.25;
+    const push = () => {
+      const b = moot.beat;
+      const line = b ? (isMobile.current ? b.touch : b.desk) : null;
+      setMootUp((prev) => (prev.line === line && prev.at === moot.at ? prev : { line, at: moot.at, total: moot.total }));
+    };
+    push();
+    const id = setInterval(() => {
+      const p = mootPlayerRef.current;
+      if (p) moot.note(p, STEP);
+      push();
+    }, STEP * 1000);
+    return () => clearInterval(id);
+  }, [mootEligible, ensureMoot, isMobile]);
+  const skipMoot = useCallback(() => {
+    ensureMoot().skip();
+    setMootUp((p) => ({ line: null, at: p.at, total: p.total }));
+  }, [ensureMoot]);
+
   const slash = useSwingButton("attack", true, setFlag, onCommit);
   const heavy = useSwingButton("heavy", false, setFlag, onCommit);
 
@@ -890,6 +936,43 @@ export default function GameHud({
                 ◀ FLICK THE GLASS TO CHANGE FOE ▶
               </div>
             </div>
+          )}
+
+          {/* THE FIRST MOOT'S BEAT. Stacked above the foe hint's slot in the
+              measured half of the screen, `pointer-events-none` for the same
+              reason every taught line here is: an opaque caption in the
+              free-look half is a patch of dead camera, and touchtest samples
+              exactly that. When it leaves is `src/game/firstmoot.mjs`'s
+              decision — a beat retires when the sim has honoured the act it
+              teaches, never on a timer alone. */}
+          {mootUp.line && (
+            <div className="absolute bottom-[352px] left-1/2 z-10 -translate-x-1/2 pointer-events-none max-w-[86vw]">
+              <div className="rounded-md bg-black/55 px-3 py-1.5 text-center"
+                style={{ textShadow: "0 1px 4px black" }}>
+                <div className="text-[8px] font-bold tracking-[0.24em] text-amber-400/80">
+                  THE FIRST MOOT — {Math.min(mootUp.at + 1, mootUp.total)} OF {mootUp.total}
+                </div>
+                <div className="mt-0.5 text-[11px] font-bold tracking-[0.1em] text-amber-100/95">
+                  {mootUp.line}
+                </div>
+              </div>
+            </div>
+          )}
+          {/* The graduate's door, on the MOVEMENT side with END, the mute
+              toggle and the graphics pad — the free-look half takes no
+              buttons, ever, and the button must FIT the movement side: its
+              first cut ran one long line 150 px wide from left-3, whose right
+              edge crossed w * 0.45 at 390 and ate 27 sampled look-side points
+              — the same class of fault the END button was cured of this
+              morning. Two stacked lines inside 8.5 rem stay left of the split
+              at every tested width, and it sits BELOW the graphics pad
+              (172–220) so nothing overlaps. 44 px floor like everything on
+              the glass. */}
+          {mootUp.line && (
+            <button onClick={skipMoot} data-snd="back"
+              className={`absolute top-3 ${lefty ? "right-3" : "left-3"} mt-[14.25rem] z-30 min-h-[44px] w-[8.5rem] px-2 py-1.5 bg-stone-900/80 hover:bg-stone-800 border border-stone-600/80 rounded-lg text-[9px] font-bold tracking-[0.12em] text-[#b6a888] transition backdrop-blur leading-tight`}>
+              I KNOW THE FIGHT<br />— SKIP —
+            </button>
           )}
 
           {/* Status HUD */}

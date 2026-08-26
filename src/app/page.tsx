@@ -14,6 +14,7 @@ import type {
   EmoteId,
 } from "../game/types";
 import { WARRIOR_STATS, ABILITY_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
+import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
 // `statshape.mjs` for the two warriors this screen used to draw identically.
@@ -323,6 +324,20 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [linkMode, setLinkMode] = useState<"ws" | "http" | null>(null);
   const [profile, setProfile] = useState<ProfileData>(DEFAULT_PROFILE);
+  /**
+   * THE FIRST MOOT'S DOOR — offered to a warrior with no matches behind him
+   * and no rite behind him on this device. Read in an effect because the
+   * store is the browser's; the server render must not guess at it.
+   */
+  const [mootOffered, setMootOffered] = useState(false);
+  useEffect(() => {
+    try {
+      setMootOffered(profile.matches === 0 && localStorage.getItem(FIRST_MOOT_KEY) !== "done");
+    } catch { setMootOffered(false); }
+  }, [profile.matches]);
+  /** True while the current room IS the First Moot, so the leave path knows
+   *  to carry the graduate to the oath rather than back to the hall. */
+  const mootSessionRef = useRef(false);
   const [copied, setCopied] = useState(false);
   const [armouryTab, setArmouryTab] = useState(0);
   const [staged, setStaged] = useState<Record<string, { id: string; cost: number; slot: string; value: string | number }>>({});
@@ -1525,7 +1540,19 @@ export default function Page() {
                 setRematchWaiting(true);
               }
             }}
-            onLeave={() => { leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+            onLeave={() => {
+              leaveRoom(); setMatchResults(null);
+              // The First Moot's second act: the fight is behind him, the
+              // profile now exists (it is minted at match end — the oath
+              // route itself demands one), so the graduate is carried to the
+              // kingdoms to swear. Everyone else goes back to the hall.
+              if (mootSessionRef.current) {
+                mootSessionRef.current = false;
+                window.location.href = "/factions?oath=first";
+                return;
+              }
+              setScreen("landing");
+            }}
           />
         )}
         {/* Centred on a desktop; on TOUCH it moves to the movement thumb's
@@ -2039,8 +2066,25 @@ export default function Page() {
                 {nameGloss}
               </p>
             )}
+            {/* THE FIRST MOOT leads for a new arrival — the owner's ruling
+                that replaced the campaign: learn the fight, then choose your
+                kingdom, one flow. It stops being offered the moment either
+                half is behind him (a match played, or the rite done/skipped
+                on this device); FIND A FIGHT then takes the lead back. */}
+            {mootOffered && (
+              <button data-snd="confirm" disabled={busy}
+                onClick={() => { mootSessionRef.current = true; void handleSolo("recruit", 1); }}
+                className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
+                <Flame size={20} /> THE FIRST MOOT
+              </button>
+            )}
+            {mootOffered && (
+              <p className="-mt-1.5 text-center text-xs text-[rgba(238,226,204,0.6)]">
+                Learn the fight. Then choose your kingdom.
+              </p>
+            )}
             <button data-snd="confirm" onClick={handleQuick} disabled={busy}
-              className="btn-primary animate-glow w-full !min-h-[3.75rem] !text-lg">
+              className={`${mootOffered ? "btn-ghost" : "btn-primary animate-glow"} w-full !min-h-[3.75rem] !text-lg`}>
               <Swords size={20} /> FIND A FIGHT
             </button>
             <button onClick={() => setScreen("create")} disabled={busy}
