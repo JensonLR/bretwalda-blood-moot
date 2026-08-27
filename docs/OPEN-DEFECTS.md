@@ -8103,3 +8103,24 @@ numbers instead of looking at pictures.
 
 Verified after: cosmetictest PASS with war paint at 12.4/18.8/18.7% of
 subject — the morning's healthy magnitudes.
+
+## /shot hydrates with React #418 on the production build (LOW)
+
+Seen 27 Aug 2026 while chasing a factionread "hang" that turned out to be
+two healthy hour-long runs killed for having block-buffered stdout. The
+probe that proved /shot healthy also logged, on every production load:
+`Minified React error #418` (hydration text mismatch, `args[]=HTML`). The
+page still forges and stages correctly — `__shotReady` lands, captures are
+right — so every capture harness is unaffected. But a hydration mismatch
+means the server HTML and the client's first render disagree somewhere on
+/shot, and one of the harness globals is the likely reader. Chase it with
+a dev build (unminified error names the node); fix belongs with the
+/shot lazy-initializer family in `docs/OPEN-DEFECTS.md`'s capture-harness
+entry.
+
+Also learned, and worth its line: a long browser suite piped through
+`tail` shows NOTHING until exit — node block-buffers to pipes — and two
+healthy factionread runs were killed as "hung" on that evidence. Line
+16 of this ledger's law applies to instruments too: look at what the
+process is DOING (CPU accumulating, artifact mtimes), not at a silent
+pipe. `stdbuf -oL` is the tool.
