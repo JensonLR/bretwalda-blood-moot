@@ -335,8 +335,8 @@ riposte?, knockback?, window?}`
 |---|---|---|
 | `light` | yes | Clean blow. |
 | `heavy` | yes | Clean heavy. The target is rocked for `HEAVY_CLEAN_STAGGER` (0.30 s). |
-| `blocked` | yes | Shield ate `blockReduction` of it. |
-| `blocked_heavy` | yes | Guard broken: half reduction, and the target staggers for 0.6 s. |
+| `blocked` | yes | Shield ate the guard's worth of it. **THE GUARD IS DIRECTIONAL (7.7c):** `blockDir` — the flick's own value, set when the block is raised — keeps the full `blockReduction` only against a matching `attackDir`; a wrong-facing guard keeps `GUARD.mismatch` (0.5) of it. SHIELD WALL is blind to direction (covering every line is the ability), and the PARRY is deliberately a pure timing read — a wrong-direction guard inside `PARRY_WINDOW` still turns the blow. |
+| `blocked_heavy` | yes | Guard broken: half reduction (direction-scaled the same way), and the target staggers for 0.6 s. |
 | `parry` | **no** — `damage:0` | Guard raised inside `PARRY_WINDOW`; the *attacker* staggers, and a riposte window opens on him. Carries `window` (seconds). |
 | `shove` | **no** — `damage:0` | Position, not damage. Sets `lastHitBy` so the bonfire pays the shover. |
 | `knockdown` | **no** — `damage:0` | His poise ran out and he is on the ground. `attackerId` is whoever spent the last of it. **Always arrives AFTER the `hit` that caused it** — cause then effect, in the order they left the server. |

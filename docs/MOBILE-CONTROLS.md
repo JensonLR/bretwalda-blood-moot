@@ -64,6 +64,13 @@ overloaded.**
   direction to mouse movement for exactly this reason), the game already has
   precisely four directions, and it puts aiming and attacking on the same thumb
   where they belong.
+  **AND THE FLICK AIMS THE GUARD TOO (7.7c).** The directional guard reads
+  `blockDir` off the same armed direction, so one gesture serves both the cut
+  and the cover — no new control was added for the guard, which is the
+  owner's mobile-attack review answered in the grain of the scheme he
+  already has. The foe's guard is drawn on the lock's own mark (a bone bar
+  on the line he covers — strike where it is not), so the read is on the
+  man, never on a HUD corner.
 - **Soft target-facing assist on attack.** When a swing starts and an enemy is
   within that weapon's reach and roughly ahead, turn toward them over the
   windup. Every console melee game does this and on a phone it is the difference

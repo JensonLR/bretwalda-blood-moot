@@ -958,6 +958,27 @@ export default function GameHud({
                      strokes that were already there, saying one more thing. */
                   transform={riposteOn ? `scale(${(1 - ripClose * 0.42).toFixed(3)})` : undefined} />
               ))}
+              {/* THE FOE'S GUARD (7.7c), on the mark the player is already
+                  reading — the riposte's own principle. The bar sits on the
+                  LINE HIS GUARD COVERS: strike where it is not. Bone over
+                  shadow like the jaws, never blood — a guard is not a
+                  threat, it is information. Overhead sits above, the stab
+                  guard below, left and right at the flanks; the mapping is
+                  consistent rather than anatomical, because a rule a player
+                  can test twice beats one he must be told. */}
+              {marked && marked.state === "blocking" && (() => {
+                const d = marked.blockDir;
+                const bar = d === "overhead" ? { x: -6, y: -16.5, w: 12, h: 2.4 }
+                  : d === "stab" ? { x: -4, y: 14.1, w: 8, h: 2.4 }
+                  : d === "left" ? { x: -16.5, y: -6, w: 2.4, h: 12 }
+                  : { x: 14.1, y: -6, w: 2.4, h: 12 };
+                return (
+                  <g data-guard-dir={d}>
+                    <rect x={bar.x - 0.8} y={bar.y - 0.8} width={bar.w + 1.6} height={bar.h + 1.6} rx={1.6} fill="rgba(10,7,4,0.55)" />
+                    <rect x={bar.x} y={bar.y} width={bar.w} height={bar.h} rx={1.2} fill="rgba(240,229,203,0.92)" />
+                  </g>
+                );
+              })()}
             </svg>
             {/* THE FINISH PROMPT (7.7a), inside the reticle so it rides the
                 same camera transform and the same fade — no second element

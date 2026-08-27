@@ -717,6 +717,25 @@ export const EXECUTION = {
 // * 1.5 = 0.90 s), and that is not a coincidence: the window is precisely as
 // long as the punishment it is the reward for, so what a player learns is "he is
 // reeling, therefore he is open", rather than two clocks he has to hold apart.
+// ---- the directional guard (backlog 7.7c) ----
+//
+// A held block has a DIRECTION now — `blockDir`, the flick's own value, so
+// one gesture aims both the cut and the guard on every platform (which is
+// the owner's mobile-controls review answered in the grain of the scheme
+// he already has: the flick was half-used). A guard that answers the
+// incoming stroke keeps its full worth; one facing the wrong way keeps
+// half. THE PARRY IS DELIBERATELY DIRECTION-BLIND: it is a 150 ms timing
+// read, already "the hardest thing in the game to do", and demanding the
+// direction too would price it out of human hands. SHIELD WALL is also
+// blind to it — covering every line at once is the ability's whole point.
+//
+// 0.5 and not lower: a wrong guard is a MISTAKE, not an absence. The
+// huscarl's 0.80 board leaking at 0.40 still stops more than a runekeeper's
+// matched 0.35 — the man and his kit still matter through the error, and a
+// multiplier that zeroed the guard would make blocking strictly worse than
+// rolling the moment you misread once.
+export const GUARD = { mismatch: 0.5 };
+
 export const RIPOSTE = {
   window: 0.90,
   // 1.6x. Enough that a riposte is the biggest single blow available to any
@@ -3660,7 +3679,11 @@ export function makeEngine(options = {}) {
         // steel free (0.95 is SHIELD WALL's ceiling) nor a guard heal.
         const guarded = Math.max(0, Math.min(0.95,
           blockStats.blockReduction + (armsDeltaOf(target).blockReduction || 0)));
-        const eff = shieldWall ? 0.95 : guarded;
+        // THE DIRECTIONAL GUARD (7.7c): the parry above has already had its
+        // timing say; what remains is the held guard, and it holds its full
+        // worth only against the stroke it faces. See the GUARD constant.
+        const matched = target.blockDir === attacker.attackDir;
+        const eff = shieldWall ? 0.95 : matched ? guarded : guarded * GUARD.mismatch;
         if (!isRiposte && target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
           attacker.state = "staggered"; attacker.staggerTimer = STAGGER_DURATION * 1.5;
           // THE WINDOW. The parried man is open, to THIS parrier and nobody
@@ -4536,7 +4559,14 @@ export function makeEngine(options = {}) {
     // hand-shy man at one difficulty.
     if (readable && !bot.isBlocking && !isCommitted(bot) && dist < theirReach * 1.15 &&
         Math.random() < (0.22 + bot.aiSkill * 0.3) * (bot.guardHabit ?? 1)) {
-      botAct(room, bot, { block: true, attackDir: target.attackDir });
+      // WHERE the guard goes is a READ now (7.7c), and reading is skill: a
+      // jarl answers the stroke he sees, a recruit covers the line he
+      // himself favours — the same temperament a player learns from the
+      // other side of the man. Anchored so a warrior reads 4 in 5.
+      botAct(room, bot, {
+        block: true,
+        attackDir: Math.random() < 0.45 + bot.aiSkill * 0.5 ? target.attackDir : bot.favoured,
+      });
       if (bot.state === "blocking") {
         bot.isBlocking = true;
         // HOW LONG HE COWERS, and this is the bottom rung of the ladder made

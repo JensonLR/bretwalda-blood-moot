@@ -230,5 +230,51 @@ console.log("[fight] the fight's depth, headless\n");
     `board let ${throughBoard} through, haft ${throughHaft}`);
 }
 
+// ---- §3 the directional guard (7.7c) ----
+{
+  // Same blow, two guards: the one that answers it and the one facing the
+  // wrong way. The mismatched guard keeps half its worth (GUARD.mismatch).
+  const guardLeak = (guardDir, swingDir, wall = false) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { b: { warriorClass: "huscarl", arms: "sword_board" } });
+    f.pa.position = { x: 8, y: 0, z: 0 };
+    f.pb.position = { x: 9.2, y: 0, z: 0 };
+    if (wall) f.b.send("input", { moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, attackDir: guardDir, ability: true });
+    const hold = () => f.b.send("input", { moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, attackDir: guardDir, block: true });
+    hold();
+    stepSeconds(eng, 0.3);
+    const hp = f.pb.health;
+    f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attackDir: swingDir, attack: true });
+    for (let i = 0; i < 40; i++) { if (i % 4 === 0) hold(); eng.step(); }
+    return hp - f.pb.health;
+  };
+  const matched = guardLeak("overhead", "overhead");
+  const wrong = guardLeak("right", "overhead");
+  check("the guard holds its full worth only on the line it faces",
+    matched >= 0 && wrong > matched,
+    `matched guard let ${matched} through, wrong-way ${wrong}`);
+  const walled = guardLeak("right", "overhead", true);
+  check("SHIELD WALL covers every line at once — the ability is blind to direction",
+    walled <= matched && walled < wrong, `wall let ${walled} through against the wrong line`);
+}
+{
+  // THE PARRY STAYS A TIMING READ. A guard snapped up inside the window
+  // with the WRONG direction still turns the blow — demanding the
+  // direction too would price the hardest input in the game out of human
+  // hands, and this claim is what keeps that a law rather than an intent.
+  const eng = makeEngine({ autoTick: false });
+  const f = duelUp(eng);
+  f.pa.position = { x: 8, y: 0, z: 0 };
+  f.pb.position = { x: 9.2, y: 0, z: 0 };
+  f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attackDir: "overhead", attack: true });
+  stepSeconds(eng, 0.25);
+  f.b.send("input", { moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, attackDir: "stab", block: true });
+  stepSeconds(eng, 1);
+  const parried = (f.b.byType.get("hit") || []).some((h) => h.type === "parry");
+  check("a parry is a timing read, never a direction test",
+    parried && f.pa.state === "staggered" || parried,
+    parried ? "wrong-direction guard inside the window still turned the blow" : `no parry seen; attacker=${f.pa.state}`);
+}
+
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);
 process.exit(failed ? 1 : 0);
