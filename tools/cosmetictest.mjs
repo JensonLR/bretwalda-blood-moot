@@ -1131,6 +1131,14 @@ async function renderPass() {
       if (String(staged2.subject?.[k]) !== String(v)) die(`asked for ${k}=${v}, got ${k}=${staged2.subject?.[k]}`);
     }
     const buf = await page.screenshot({ timeout: 300000 });
+    // Every capture kept on disk (gitignored work dir), so a disputed verdict
+    // can be settled by LOOKING at what the harness photographed instead of
+    // by probing look-alike URLs from outside — this line exists because a
+    // day was spent doing exactly that.
+    try {
+      mkdirSync(resolve(WORK, "caps"), { recursive: true });
+      writeFileSync(resolve(WORK, "caps", `${String(captures).padStart(3, "0")}-${lens.card}-${Object.values(dress).join("_").slice(0, 60) || "warm"}.png`), buf);
+    } catch { /* capture bookkeeping must never fail a run */ }
     captures++;   // warm-ups included: this number is what the run actually cost
     // Pixels, off the PNG, in the page that already has a canvas: no image
     // library and nothing to install.
