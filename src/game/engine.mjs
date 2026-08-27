@@ -1296,13 +1296,28 @@ export const ARMS = {
     // Two hands on the haft, the board slung: the biggest single trade in
     // the table — the best guard in the game (0.80) drops to a haft-parry
     // (0.30) for reach, sweep and a blow that lands like a gate-ram.
-    dane_axe: { name: "DANE AXE", delta: { attackDamage: 5, heavyDamage: 8, attackSpeed: 0.18, blockReduction: -0.50, reach: 0.30, mass: 0.22, arc: Math.PI * 0.08 } },
+    // RETUNED off armsprobe's first sheet (27 Aug 2026): at +5/+8 the axe
+    // read 67% over its own default and 85% over the warden, because the
+    // probe's ruler prices damage and stroke in full while the guard it
+    // trades away is the instrument's DOCUMENTED blind axis (bots barely
+    // block). The measured package — damage x stroke — is now parity-or-
+    // under (light 15.8/s vs the sword's 16.7), and the trade lives in the
+    // axes the ruler cannot feel but a human can: the reach, the sweep, the
+    // landing mass, against the best guard in the game given away.
+    dane_axe: { name: "DANE AXE", delta: { attackDamage: 2, heavyDamage: 4, attackSpeed: 0.18, blockReduction: -0.50, reach: 0.30, mass: 0.22, arc: Math.PI * 0.08 } },
   },
   warden: {
     gar: { name: "THE GAR", delta: {} },
     // The line becomes close-work: half a metre of reach given away for a
     // faster stroke, a wider sweep and a seax to catch steel on.
-    sword_seax: { name: "SWORD & SEAX", delta: { attackDamage: 1, heavyDamage: 1, attackSpeed: -0.13, blockReduction: 0.06, reach: -0.50, arc: Math.PI * 0.14, mass: 0.04 } },
+    // RETUNED off the same sheet: -0.13 on the stroke was a 25% DPS jump
+    // (23.6/s against the gar's 18.8) — an upgrade wearing a lean's name,
+    // 74% over its own default, because the half-metre of reach it pays is
+    // the ruler's OTHER blind axis (bots close to arm's length and stand
+    // there). The measured package is now parity (15/0.80 = 18.75/s); the
+    // sweep, the seax parry and the tempo FEEL are the buy, the gar's line
+    // is the price, and both of those are priced by humans, not bots.
+    sword_seax: { name: "SWORD & SEAX", delta: { attackDamage: -1, heavyDamage: -1, attackSpeed: -0.05, blockReduction: 0.06, reach: -0.50, arc: Math.PI * 0.14, mass: 0.04 } },
   },
   runekeeper: {
     twin_seax: { name: "TWIN SEAXES", delta: {} },
