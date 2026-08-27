@@ -81,17 +81,23 @@ try {
   }
 
   // LIVE, not a frozen join frame: the fight's clock moves on his screen.
-  // Read off the clock's OWN node — this claim's first run read bare body
-  // text, where textContent runs the clock digits straight into the ALIVE
-  // count's ("0:0712") and a word-boundary regex can never match. The ruler
-  // was measuring string concatenation, not the fight.
-  const clockOf = () => w.evaluate(() =>
-    document.querySelector("[data-bench-clock]")?.textContent?.trim() ?? null);
-  const t1 = await clockOf();
-  await w.waitForTimeout(3500);
-  const t2 = await clockOf();
-  if (t1 && t2 && t1 !== t2) good(`the fight is live on his glass — the clock walked ${t1} -> ${t2}`);
-  else bad(`the clock never moved (${t1} -> ${t2}) — a frozen frame sold as a seat`);
+  // This ruler has been wrong twice, both times about itself. First it read
+  // bare body text, where textContent runs the clock digits straight into
+  // the ALIVE count's ("0:0712") and a word-boundary regex can never match.
+  // Then it compared two samples 3.5 s apart — and both could land inside a
+  // ROUND BREAK, where `stepRoom` freezes `matchTimer` on purpose, failing
+  // the seat for the game working. The honest claim is that the clock WALKS
+  // AT ALL during his watch: read the clock's own node and wait out any
+  // break for the next round to move it.
+  const clockNode = "[data-bench-clock]";
+  const t1 = await w.evaluate((sel) =>
+    document.querySelector(sel)?.textContent?.trim() ?? null, clockNode);
+  const walked = await w.waitForFunction((args) => {
+    const t = document.querySelector(args.sel)?.textContent?.trim() ?? null;
+    return t && t !== args.was ? t : null;
+  }, { sel: clockNode, was: t1 }, { timeout: 45000 }).then((h) => h.jsonValue()).catch(() => null);
+  if (t1 && walked) good(`the fight is live on his glass — the clock walked ${t1} -> ${walked}`);
+  else bad(`the clock never moved off ${t1} in 45s — a frozen frame sold as a seat`);
 
   // The moot resolves (an idle host against a recruit still ends: somebody
   // wins each round until the format is spent) and the verdict reaches the
