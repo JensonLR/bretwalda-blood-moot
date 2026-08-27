@@ -8070,3 +8070,36 @@ read may want DESIGN rather than amplitude: a centre-back seam, a glimpse
 of contrasting lining at the train, a tablet-woven hem band. That is a
 deliberate design pass with the owner's eye, not a number to chase against
 a flat light rig.
+
+---
+
+## THE CAPTURE HARNESS'S BAD DAY (27 Aug 2026): three instruments, one ordering law
+
+The war-paint pairs in cosmetictest went flat after the react-doctor pass
+and stayed flat through two plausible-but-wrong fixes. The record, kept
+because each wrong turn is a lesson with a name:
+
+1. WRONG: "the box is contended" — a hand probe on a quiet box showed paint
+   moving, but the probe was photographing the WRONG SCENE (see 3) and its
+   deltas were fire flicker. A probe that does not look at its own pictures
+   is not a probe.
+2. WRONG: "the renderer demoted itself" — the measured-tier demotion is
+   real and the `quality=high` pin on every capture URL is right and KEPT,
+   but it was not this bug.
+3. RIGHT, found by making the harness keep its own capture PNGs: every
+   facecard since the doctor refactor photographed the DUEL SCENE at
+   distance. `__photoCam`/`__photoFraming` are read by GameCanvas's MOUNT
+   effect; a child's effects run before its parent's; and the old
+   state-mirror-in-effect — the exact shape react-doctor flags — was
+   secretly the ordering that kept the canvas unmounted until the globals
+   existed. The doctor pass traded load-bearing ordering for a race; the
+   first fix made the race deterministic-wrong.
+
+THE LAW, now written above the code: the framing globals and the params
+resolve together in the lazy initializer — once, client-side, during the
+parent's first render, strictly before any child exists. And the harness
+keeps every capture on disk, because the day was lost to arguing with
+numbers instead of looking at pictures.
+
+Verified after: cosmetictest PASS with war paint at 12.4/18.8/18.7% of
+subject — the morning's healthy magnitudes.
