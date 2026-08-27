@@ -303,7 +303,10 @@ const DEFAULT_SWING_ARC = SWING_ARC.huscarl;
  */
 function reachOf(p) {
   const r = WEAPON_REACH[p.warriorClass];
-  return r === undefined ? DEFAULT_ATTACK_RANGE : r + BODY_REACH;
+  if (r === undefined) return DEFAULT_ATTACK_RANGE;
+  // The arms lean (7.7b): a dane axe outreaches the sword it replaced, a
+  // sidearm pair gives half the gar's line away.
+  return r + (armsDeltaOf(p).reach || 0) + BODY_REACH;
 }
 
 // ---- hit zones ----
@@ -1253,6 +1256,86 @@ export const WARRIOR_STATS = {
   berserker: { maxHealth: 134, moveSpeed: 4.0, sprintSpeed: 6.1, attackDamage: 28, heavyDamage: 50, attackSpeed: 1.33, blockReduction: 0.28, dodgeDistance: 3.7, staminaMax: 95, staminaRegen: 14, ability: "BLOOD FURY", abilityCooldown: 18 },
 };
 
+// ---- THE ARMS (backlog 7.7b): weapon choice per class ----
+//
+// Each class bears one of two historically right weapons; the DEFAULT is the
+// arm the class has always carried and its delta is EMPTY — the class sheet
+// above, the reach/arc/mass tables and every measured matrix number are the
+// default loadout, untouched, so nothing about the game as shipped moves
+// when this table lands. The alternate trades on the same six axes the
+// tables already price: damage, stroke time, guard, reach, sweep, and the
+// weight a blow lands with.
+//
+// A delta is ADDITIVE over the class sheet — the class stays the chassis
+// and the weapon is a lean, never a second class. `armsDeltaOf` is the ONE
+// resolver every read point routes through; a second copy of any of these
+// numbers is this repository's third named failure mode.
+//
+// Sourcing (§9 discipline — real finds or labelled inventions):
+//   sword & board  the pattern-welded sword and the round lime board;
+//                  Sutton Hoo mound 1 for the one, every shield-boss row in
+//                  every cemetery for the other.
+//   dane axe       the two-handed broad axe of the huscarls at Hastings —
+//                  the Bayeux Tapestry draws them swinging it.
+//   the gar        the spear, the commonest weapon of the age by grave
+//                  count; "gar" is its own Old English word.
+//   sword & seax   the sidearm pair: the seax is the knife the Saxons are
+//                  named for (the Thames scramasax carries a whole runic
+//                  alphabet on its back).
+//   twin seaxes    a fighting pair of long knives — an INVENTION for the
+//                  runekeeper's tempo, labelled as such; single seaxes are
+//                  everywhere in the record, the pair is ours.
+//   hand axes      the light one-hand axe, T-shaped heads in York and
+//                  Mammen-style blades everywhere the here wintered.
+//   twin beards    a bearded axe (skeggøx) in each fist — an INVENTION,
+//                  labelled: the bearded axe is real and common, the pair
+//                  is the berserker's own madness.
+export const ARMS = {
+  huscarl: {
+    sword_board: { name: "SWORD & BOARD", delta: {} },
+    // Two hands on the haft, the board slung: the biggest single trade in
+    // the table — the best guard in the game (0.80) drops to a haft-parry
+    // (0.30) for reach, sweep and a blow that lands like a gate-ram.
+    dane_axe: { name: "DANE AXE", delta: { attackDamage: 5, heavyDamage: 8, attackSpeed: 0.18, blockReduction: -0.50, reach: 0.30, mass: 0.22, arc: Math.PI * 0.08 } },
+  },
+  warden: {
+    gar: { name: "THE GAR", delta: {} },
+    // The line becomes close-work: half a metre of reach given away for a
+    // faster stroke, a wider sweep and a seax to catch steel on.
+    sword_seax: { name: "SWORD & SEAX", delta: { attackDamage: 1, heavyDamage: 1, attackSpeed: -0.13, blockReduction: 0.06, reach: -0.50, arc: Math.PI * 0.14, mass: 0.04 } },
+  },
+  runekeeper: {
+    twin_seax: { name: "TWIN SEAXES", delta: {} },
+    // Weight over tempo: the fastest hands in the game slow a shade and hit
+    // like they mean it — mass is the axis this buys, knockdown pressure a
+    // seax cannot exert.
+    hand_axes: { name: "HAND AXES", delta: { attackDamage: 3, heavyDamage: 3, attackSpeed: 0.12, blockReduction: -0.05, reach: 0.10, mass: 0.24, arc: Math.PI * -0.06 } },
+  },
+  berserker: {
+    dane_axe: { name: "THE GREAT AXE", delta: {} },
+    // The mountain blow traded for a pace the class has never had: two
+    // bearded axes, smaller wounds, a stroke a third shorter, and a body
+    // that no longer arrives like a landslide.
+    twin_beards: { name: "TWIN BEARDS", delta: { attackDamage: -9, heavyDamage: -16, attackSpeed: -0.35, blockReduction: 0.04, reach: -0.25, mass: -0.36, arc: Math.PI * -0.06 } },
+  },
+};
+
+/** The default arm of a class: the row with the empty delta, by convention
+ *  the first. Named once so createPlayer and select_class cannot disagree. */
+export function defaultArmsOf(warriorClass) {
+  const table = ARMS[warriorClass];
+  return table ? Object.keys(table)[0] : "sword_board";
+}
+
+/** The one resolver. Every weapon-priced read point routes through here;
+ *  an unknown or foreign arms id resolves to the class default's empty
+ *  delta, so a forged value can only ever give a man his own old weapon. */
+export function armsDeltaOf(player) {
+  const table = ARMS[player.warriorClass];
+  const row = table && table[player.arms];
+  return (row && row.delta) || {};
+}
+
 /**
  * THE WHOLE FIELD IN ORDER — and the ONE definition of that order.
  *
@@ -1565,9 +1648,14 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false, cr
  * onto the function it describes: a comment attached to the wrong code is the
  * same defect as a comment asserting the wrong value.
  */
-export function swingDurationOf(warriorClass, isHeavy) {
+export function swingDurationOf(warriorClass, isHeavy, arms) {
   const stats = WARRIOR_STATS[warriorClass] ?? WARRIOR_STATS.huscarl;
-  return stats.attackSpeed * (isHeavy ? HEAVY_SWING_SCALE : 1);
+  // The arms lean (7.7b). Omitting the third argument reads the class
+  // default — every harness and probe written before the arms table keeps
+  // measuring exactly what it measured.
+  const row = ARMS[warriorClass] && ARMS[warriorClass][arms];
+  const d = (row && row.delta.attackSpeed) || 0;
+  return (stats.attackSpeed + d) * (isHeavy ? HEAVY_SWING_SCALE : 1);
 }
 
 const ROOM_NAMES = ["WESSEX", "MERCIA", "ESSEX", "KENT", "SUSSEX", "ANGLIA", "NORTHUMBRIA", "JORVIK", "LINDSEY", "BERNICIA", "DEIRA", "HWICCE"];
@@ -1849,6 +1937,10 @@ export function makeEngine(options = {}) {
     const stats = WARRIOR_STATS[warriorClass];
     return {
       id, name, warriorClass, team: "none", ready: false,
+      // THE ARMS (7.7b): which of the class's weapons he bears. Public —
+      // the rig draws it, and reading your foe's reach off his hands is
+      // the whole point of choosing. Reset with the class it belongs to.
+      arms: defaultArmsOf(warriorClass),
       // THE MUSTER, per man. `awaitsLoad` is his client's declaration that it
       // builds an arena and would like to be waited for; `loaded` is whether it
       // has finished. Both are public — the lobby draws "waiting for Guthrum"
@@ -2288,6 +2380,13 @@ export function makeEngine(options = {}) {
         if (!WARRIOR_STATS[data.warriorClass]) return;
         if (!KIT_STATES.has(room.state)) return;
         player.warriorClass = data.warriorClass;
+        // THE ARMS ride the same message (7.7b): validated against the NEW
+        // class's own table, and anything else — a forged id, another
+        // class's weapon, nothing at all — lands the class default. A class
+        // change always re-arms: a warden's gar in a huscarl's hands is not
+        // a loadout, it is a stale field.
+        player.arms = ARMS[data.warriorClass] && ARMS[data.warriorClass][data.arms]
+          ? data.arms : defaultArmsOf(data.warriorClass);
         const stats = WARRIOR_STATS[data.warriorClass];
         player.maxHealth = stats.maxHealth; player.health = stats.maxHealth;
         player.maxStamina = stats.staminaMax; player.stamina = stats.staminaMax;
@@ -2660,7 +2759,7 @@ export function makeEngine(options = {}) {
     // The ground, named before anybody has readied up. See `dealGroundFor`.
     dealGroundFor(room);
     s.roomCode = code; s.playerId = pid;
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
   }
 
   function handleJoin(sid, data) {
@@ -2670,7 +2769,7 @@ export function makeEngine(options = {}) {
     const room = rooms.get(code);
     if (room && s.roomCode === room.code) {
       // already in this room — resend snapshot instead of duplicating
-      return sendSession(sid, { type: "join", data: { playerId: s.playerId, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+      return sendSession(sid, { type: "join", data: { playerId: s.playerId, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
     }
     leaveRoomForSession(s);
     if (!room) return sendSession(sid, { type: "error", data: { message: "Room not found. Check your code." } });
@@ -2700,7 +2799,7 @@ export function makeEngine(options = {}) {
       declareLoadWait(watcher, data.awaitLoad);
       room.seats.set(pid, watcher);
       s.roomCode = code; s.playerId = pid;
-      sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+      sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
       return;
     }
 
@@ -2709,7 +2808,7 @@ export function makeEngine(options = {}) {
     declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     s.roomCode = code; s.playerId = pid;
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
     broadcast(room, { type: "player_joined", data: { playerId: pid, name: player.name } }, pid);
     sendLobbyUpdate(room);
   }
@@ -2759,7 +2858,7 @@ export function makeEngine(options = {}) {
 
     for (let i = 0; i < botCount; i++) addBot(room, i, difficulty);
 
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
     // On sim time, like every other wait: a headless host that could join a
     // trial and never be dealt one is not a host of anything.
     if (autoStart) room.phaseAt = simMs + SOLO_DEAL_DELAY * 1000;
@@ -3200,7 +3299,7 @@ export function makeEngine(options = {}) {
       player.stamina -= 13;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
       player.comboTimer = COMBO_WINDOW;
-      beginSwing(player, input.attackDir, stats.attackDamage, false);
+      beginSwing(player, input.attackDir, stats.attackDamage + (armsDeltaOf(player).attackDamage || 0), false);
     }
 
     // 30, RAISED FROM 22 (backlog 7.1). The owner's own play found the fault:
@@ -3216,7 +3315,7 @@ export function makeEngine(options = {}) {
     if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 30) {
       player.stamina -= 30;
       player.comboCount = 0; player.comboTimer = 0;
-      beginSwing(player, input.attackDir, stats.heavyDamage, true);
+      beginSwing(player, input.attackDir, stats.heavyDamage + (armsDeltaOf(player).heavyDamage || 0), true);
     }
 
     if (input.ability && player.abilityCooldown <= 0) activateAbility(room, player);
@@ -3318,7 +3417,7 @@ export function makeEngine(options = {}) {
    * while committed (see integrateMovement), so it is a step, not a chase.
    */
   function beginSwing(player, attackDir, damage, isHeavy) {
-    const dur = swingDurationOf(player.warriorClass, isHeavy);
+    const dur = swingDurationOf(player.warriorClass, isHeavy, player.arms);
     player.state = "attacking";
     player.attackDir = attackDir;
     player.attackTimer = dur;
@@ -3491,7 +3590,8 @@ export function makeEngine(options = {}) {
       attacker.abilityActive && attacker.warriorClass === "warden" ? 1.3 : 1;
     const dmg = Math.floor(baseDamage * comboMult * abilityMult);
     const range = reachOf(attacker);
-    const arc = SWING_ARC[attacker.warriorClass] ?? DEFAULT_SWING_ARC;
+    const arc = (SWING_ARC[attacker.warriorClass] ?? DEFAULT_SWING_ARC)
+      + (armsDeltaOf(attacker).arc || 0);
 
     room.players.forEach((target) => {
       if (target.id === attacker.id || target.state === "dead") return;
@@ -3528,7 +3628,11 @@ export function makeEngine(options = {}) {
       if (target.state === "blocking") {
         const blockStats = WARRIOR_STATS[target.warriorClass];
         const shieldWall = target.abilityActive && target.warriorClass === "huscarl";
-        const eff = shieldWall ? 0.95 : blockStats.blockReduction;
+        // The guard's own arms lean (7.7b), clamped: a delta can never make
+        // steel free (0.95 is SHIELD WALL's ceiling) nor a guard heal.
+        const guarded = Math.max(0, Math.min(0.95,
+          blockStats.blockReduction + (armsDeltaOf(target).blockReduction || 0)));
+        const eff = shieldWall ? 0.95 : guarded;
         if (!isRiposte && target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
           attacker.state = "staggered"; attacker.staggerTimer = STAGGER_DURATION * 1.5;
           // THE WINDOW. The parried man is open, to THIS parrier and nobody
@@ -3635,7 +3739,8 @@ export function makeEngine(options = {}) {
     // Scaled by three things and no more: the blow, the weapon carrying it, and
     // whether a shield was in the way. A riposte pushes like a heavier weapon
     // because nothing is absorbing it.
-    const mass = WEAPON_MASS[attacker.warriorClass] ?? DEFAULT_WEAPON_MASS;
+    const mass = (WEAPON_MASS[attacker.warriorClass] ?? DEFAULT_WEAPON_MASS)
+      + (armsDeltaOf(attacker).mass || 0);
     const push = (KNOCKBACK[hitType] ?? KNOCKBACK.light) * mass * (riposte ? RIPOSTE.knockbackScale : 1);
     const ax = attacker.position.x, az = attacker.position.z;
     let travelled = 0;
@@ -4480,7 +4585,7 @@ export function makeEngine(options = {}) {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
         attack: !heavy, heavyAttack: heavy, attackDir,
       });
-      bot.nextAttackAt = now + swingDurationOf(bot.warriorClass, heavy)
+      bot.nextAttackAt = now + swingDurationOf(bot.warriorClass, heavy, bot.arms)
         + BOT_SWING_GAP - bot.aiSkill * BOT_SWING_GAP_SKILL + Math.random() * 0.4;
     }
   }

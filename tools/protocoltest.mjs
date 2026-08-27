@@ -201,6 +201,11 @@ const NEUTRAL = {
 // the code does not have is worse than no comment because it is trusted.
 const PUBLISHED = [
   "id", "name", "warriorClass", "team", "ready", "appearance",
+  // THE ARMS (7.7b): which of his class's weapons he bears. Public because
+  // the rig draws it and a foe's reach is read off his hands — the choice
+  // is the information. Chosen on select_class, validated per class,
+  // never off the wire raw.
+  "arms",
   // THE MUSTER. `loaded` is whether this man's arena is standing; the room is
   // held in state `loading` until every declared client says so or the server's
   // twelve seconds run out. Public because "who are we waiting for" has to be

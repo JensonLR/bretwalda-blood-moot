@@ -264,8 +264,10 @@ console.log("[tourney] the moot of champions, headless\n");
   const wid = w.last("join").playerId;
   check("a friend joining mid-moot is seated, and the bracket does not know him",
     room.seats.has(wid) && !JSON.stringify(room.bracket.stages).includes(wid));
-  // Run the moot down: burn a floor man until the crown is dealt.
-  for (let guard = 0; guard < 8 && room.state !== "finished"; guard++) {
+  // Run the moot down: burn a floor man until the crown is dealt. The
+  // guard is generous on purpose — a seen 34/35 was this loop's budget
+  // racing a long bot duel, and a patience constant is not a claim.
+  for (let guard = 0; guard < 14 && room.state !== "finished"; guard++) {
     if (room.state === "fighting") intoTheFire(room.players.get(floorOf(room)[1]), 1);
     stepSeconds(eng, 8);
   }

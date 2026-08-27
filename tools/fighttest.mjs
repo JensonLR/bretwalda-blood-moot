@@ -13,7 +13,8 @@ import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { makeEngine, EXECUTION } = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
+const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS } =
+  await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 
 let passed = 0, failed = 0;
 const check = (name, ok, detail = "") => {
@@ -40,12 +41,17 @@ const stepSeconds = (eng, s) => { for (let i = 0; i < Math.ceil(s * RATE); i++) 
  * origin, because this section is about steel. Returns everything a claim
  * needs to swing and judge.
  */
-const duelUp = (eng) => {
+const duelUp = (eng, kit = {}) => {
   const a = open(eng);
   a.send("create", { name: "Ecgbryht", mode: "blood_moot", bestOf: 1, friendly: true, awaitLoad: false });
   const code = a.last("join").code;
   const b = open(eng);
   b.send("join", { code, name: "Osric", awaitLoad: false });
+  // Kit is chosen in the LOBBY — select_class is KIT-gated (lobby and
+  // intermission only), and this fixture's first cut selected mid-fight,
+  // was silently refused, and measured two wardens against each other.
+  if (kit.a) a.send("select_class", kit.a);
+  if (kit.b) b.send("select_class", kit.b);
   a.send("start", {});
   stepSeconds(eng, 6); // countdown + the spawn grace, fully burnt
   const room = eng._rooms.get(code);
@@ -137,6 +143,91 @@ console.log("[fight] the fight's depth, headless\n");
   stepSeconds(eng, 2);
   check("the same heavy on a STANDING low man is a death, not an execution",
     f.pb.state === "dead" && f.pb.deathCause === "blow", `cause=${f.pb.deathCause}`);
+}
+
+// ---- §2 the arms (7.7b) ----
+{
+  // The table's own law: every class offers a choice, every DEFAULT delta is
+  // empty — the game as shipped moves by nothing when the table lands.
+  const classes = Object.keys(WARRIOR_STATS);
+  check("every class bears a choice of arms",
+    classes.every((c) => ARMS[c] && Object.keys(ARMS[c]).length >= 2));
+  check("every default is the class sheet untouched — the shipped game moves by nothing",
+    classes.every((c) => Object.keys(ARMS[c][defaultArmsOf(c)].delta).length === 0));
+  check("the stroke lean is real, both ways",
+    swingDurationOf("huscarl", false, "dane_axe") > swingDurationOf("huscarl", false)
+    && swingDurationOf("berserker", false, "twin_beards") < swingDurationOf("berserker", false),
+    `huscarl ${swingDurationOf("huscarl", false).toFixed(2)}s -> axe ${swingDurationOf("huscarl", false, "dane_axe").toFixed(2)}s; `
+    + `berserker ${swingDurationOf("berserker", false).toFixed(2)}s -> beards ${swingDurationOf("berserker", false, "twin_beards").toFixed(2)}s`);
+
+  // The wire: a man is created with his class default; select_class carries
+  // the choice; a forged id or a class change lands the new class's default.
+  const eng = makeEngine({ autoTick: false });
+  const a = open(eng);
+  a.send("create", { name: "Wulf", mode: "blood_moot", awaitLoad: false });
+  const room = eng._rooms.get(a.last("join").code);
+  const me = room.players.get(a.last("join").playerId);
+  check("a new man bears his class's own arm", me.arms === defaultArmsOf(me.warriorClass), me.arms);
+  check("the join hands down the whole arms table with the balance sheet",
+    !!a.last("join").armsTable && !!a.last("join").armsTable.huscarl);
+  a.send("select_class", { warriorClass: "huscarl", arms: "dane_axe" });
+  check("the choice rides select_class", me.arms === "dane_axe");
+  check("the choice rides the snapshot", a.last("lobby_update")?.players?.[me.id]?.arms === "dane_axe");
+  a.send("select_class", { warriorClass: "huscarl", arms: "gar" });
+  check("a foreign arm is refused — the warden's gar lands the huscarl his default",
+    me.arms === "sword_board", me.arms);
+  a.send("select_class", { warriorClass: "huscarl", arms: "dane_axe" });
+  a.send("select_class", { warriorClass: "berserker" });
+  check("a class change always re-arms — no stale loadout crosses classes",
+    me.arms === defaultArmsOf("berserker"), me.arms);
+}
+{
+  // The reach lean, measured in the ring: stood where the sword falls short,
+  // the dane axe bites. Same men, same ground, one variable. The gap is NOT
+  // the table difference — a swing lunges (LUNGE_LIGHT 0.9 of impulse decays
+  // through the windup), so the first cut's 2.4 m was inside BOTH weapons'
+  // travel and measured only the damage lean. The honest gap sits between
+  // the two weapons' lunge-carried bites, found empirically.
+  const gap = 3.0;
+  const reachTrial = (arms) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { a: { warriorClass: "huscarl", arms } });
+    f.pa.position = { x: 8, y: 0, z: 0 };
+    f.pb.position = { x: 8 + gap, y: 0, z: 0 };
+    const hp = f.pb.health;
+    swing(f.a, f.face, false);
+    stepSeconds(eng, 2);
+    return hp - f.pb.health;
+  };
+  const swordBite = reachTrial("sword_board");
+  const axeBite = reachTrial("dane_axe");
+  check("the dane axe bites where the sword falls short — reach is real",
+    swordBite === 0 && axeBite > 0, `at ${gap}m: sword took ${swordBite}, axe took ${axeBite}`);
+}
+{
+  // The guard trade, measured: the same blow leaks more through a haft-parry
+  // than through the board it replaced.
+  const guardTrial = (arms) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { b: { warriorClass: "huscarl", arms } });
+    f.pa.position = { x: 8, y: 0, z: 0 };
+    f.pb.position = { x: 9.2, y: 0, z: 0 };
+    // The guard up and HELD — a single block message lapses with the intent
+    // (INPUT_LAPSE_MS 600), and this trial's first cut sent one, watched it
+    // lapse before contact, and measured two unguarded men leaking the same.
+    const hold = () => f.b.send("input", { moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, attackDir: "overhead", block: true });
+    hold();
+    stepSeconds(eng, 0.3);
+    const hp = f.pb.health;
+    swing(f.a, f.face, false);
+    for (let i = 0; i < 40; i++) { if (i % 4 === 0) hold(); eng.step(); }
+    return hp - f.pb.health;
+  };
+  const throughBoard = guardTrial("sword_board");
+  const throughHaft = guardTrial("dane_axe");
+  check("the dane axe's price is the guard — the same blow leaks harder through a haft",
+    throughBoard >= 0 && throughHaft > throughBoard,
+    `board let ${throughBoard} through, haft ${throughHaft}`);
 }
 
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);

@@ -258,8 +258,9 @@ Every player object is the server's own record **minus a denylist**,
 `blockUntil`, `isBlocking`, `yaw`, `baseName`, `aimYaw`, `pendingSwing`,
 `shovePending`, `shoveCooldown`, `emoteUntil`.
 
-That leaves 54 published fields, and it is a **denylist, not an allowlist** —
-see §9.5, this is the most fragile line in the protocol.
+That leaves 55 published fields (`arms` joined the identity group with 7.7b),
+and it is a **denylist, not an allowlist** — see §9.5, this is the most
+fragile line in the protocol.
 
 (It read 59 here and "the 53 fields" in `protocoltest`, and **both were wrong**:
 MERCY OR FINISH added six fields to a list of 54, and neither number was
@@ -269,10 +270,16 @@ figures were a mirrored definition and are now one. Mercy's six —
 `mortal`, `mercyTimer`, `mercyTo`, `spared`, `menSpared`, `menFinished` — were
 removed with the feature, see `docs/MERCY-REMOVED.md`.)
 
-The 54, grouped by what a client does with them:
+The 55, grouped by what a client does with them:
 
 - **Identity** `id, name, warriorClass, team, ready, appearance, bot?,
-  difficulty?`
+  difficulty?, arms` — `arms` (7.7b) is which of his class's weapons he
+  bears (see the `ARMS` table; the whole table rides the join message as
+  `armsTable`, the same arrangement `warriorStats` has). Chosen on
+  `select_class` (`{warriorClass, arms?}`), validated against the NEW
+  class's own rows — a forged or foreign id lands the class default, and a
+  class change always re-arms. Public because the rig draws it and a foe's
+  reach is read off his hands.
 - **Body** `position{x,y,z}, rotation, velocity{x,y,z}` — `velocity` is the
   *whole* motion, steering plus impulse (2165), and is what a client
   extrapolates on. It is forced to zero during hitstop (2278).
