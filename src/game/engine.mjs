@@ -23,6 +23,7 @@ import { resolveSolids } from "./solidground.mjs";
 // wholly conquered map in its hands.
 import { TERRITORIES, territory, pointsFor, dealTerritory } from "./war.mjs";
 import { forgeName, botName } from "./names.mjs";
+import { buildBracket, settle, reportDuel, champion } from "./bracket.mjs";
 
 const TICK_RATE = 20;
 
@@ -1445,7 +1446,16 @@ const PLACE_XP = [100, 0, 0];
 // no longer the quantity the key is built on.
 const PLACE_RANK_STEP = 1e6;
 
-export function buildLedger({ roundWins = {}, players = [], teamMode = false }) {
+/**
+ * `crowned` (7.3): the Tournament Moot's champion, when there is one, and the
+ * ONE case where the winner is not derived from the tally — the bracket is
+ * the authority, because arithmetic can lie about it: a champion who drew a
+ * first-round bye has fought one duel fewer than a full run, so a runner-up
+ * who fought every round can TIE him on duels won, and a kills tiebreak
+ * would then crown the man the final just beat. The crowned man takes the
+ * head of the order; everyone below keeps the tally's own ranking.
+ */
+export function buildLedger({ roundWins = {}, players = [], teamMode = false, crowned = null }) {
   // The entity the match ranks: a man in a free-for-all, a BAND in a war band,
   // because a war band ranks bands and not men.
   const keyOf = (p) => (teamMode ? p.team : p.id);
@@ -1458,7 +1468,21 @@ export function buildLedger({ roundWins = {}, players = [], teamMode = false }) 
   for (const key of Object.keys(roundWins)) if (!tally.has(key)) tally.set(key, 0);
   const entrants = [...tally].map(([key, kills]) => ({ key, kills }));
   const order = rankEntrants({ roundWins, entrants });
-  const { key: winnerKey, by: winnerBy } = decideMatch({ roundWins, entrants });
+  let { key: winnerKey, by: winnerBy } = decideMatch({ roundWins, entrants });
+  if (crowned && tally.has(crowned)) {
+    winnerKey = crowned; winnerBy = "bracket";
+    const i = order.findIndex((r) => r.key === crowned);
+    if (i > 0) { const [c] = order.splice(i, 1); order.unshift(c); }
+    // Renumbered even when he was already first: rankEntrants gives a
+    // genuine tie a SHARED place, and a bracket has no shared first.
+    order[0].place = 1;
+    let place = 2;
+    for (let idx = 1; idx < order.length; idx++) {
+      const above = order[idx - 1];
+      if (idx > 1 && (order[idx].rounds !== above.rounds || order[idx].kills !== above.kills)) place = idx + 1;
+      order[idx].place = place;
+    }
+  }
   const seats = new Map(order.map((r) => [r.key, r]));
   // A man with no seat has no side — he cannot have won a round or a place, so
   // he sits below everyone who could and is paid for his own hands only.
@@ -2011,6 +2035,11 @@ export function makeEngine(options = {}) {
       seats: room.seats && room.seats.size
         ? [...room.seats.values()].map((p) => ({ id: p.id, name: p.name }))
         : [],
+      // THE BRACKET (7.3), whole, on every snapshot — fixed slots are what
+      // let a client draw the entire tree from any one frame, reconnects
+      // included. Ids plus the name-book; null everywhere but a tournament.
+      bracket: room.bracket ? room.bracket.stages : null,
+      bracketNames: room.bracket ? (room.bracketNames || {}) : null,
       // The ground at stake, carried on EVERY snapshot for the same reason the
       // round state is: a late joiner, a spectator or a reconnect has to be
       // able to rebuild the whole screen from one frame. Null in a lobby that
@@ -2145,12 +2174,17 @@ export function makeEngine(options = {}) {
     return ROUND_OPTIONS.includes(fallback) ? fallback : DEFAULT_BEST_OF;
   };
 
-  /** Who a round-win key belongs to, for a scoreboard that shows names. */
+  /** Who a round-win key belongs to, for a scoreboard that shows names.
+   *  The bench and the bracket's own name-book are consulted too: a
+   *  tournament champion crowned by walkover is on the BENCH when the
+   *  verdict is written, and a man who left keeps the name he fought under. */
   function keyName(room, key) {
     if (!key) return "Draw";
     if (isTeamMode(room)) return key === "red" ? "Red War Band" : "Blue War Band";
-    const p = room.players.get(key);
-    return p ? p.name : "Draw";
+    const p = room.players.get(key) || (room.seats && room.seats.get(key));
+    if (p) return p.name;
+    if (room.bracketNames && room.bracketNames[key]) return room.bracketNames[key];
+    return "Draw";
   }
 
   // `roundLeader` stood here: it summed the room into entrants and asked
@@ -2174,8 +2208,16 @@ export function makeEngine(options = {}) {
     return n;
   }
 
-  // Every man on the bench is human — only `handleJoin` seats anybody.
-  const benchCount = (room) => (room.seats ? room.seats.size : 0);
+  // HUMANS on the bench. It used to be `seats.size` outright — every seat
+  // came through `handleJoin` — but the Tournament Moot (7.3) benches its
+  // waiting BOTS between duels, and a bot must never count against the
+  // human cap or hold a room alive.
+  const benchCount = (room) => {
+    if (!room.seats) return 0;
+    let n = 0;
+    room.seats.forEach((p) => { if (!p.bot) n++; });
+    return n;
+  };
 
   // A solo room stays sealed to other humans (maxPlayers 1) yet still holds a
   // full ring of sparring partners.
@@ -2269,6 +2311,10 @@ export function makeEngine(options = {}) {
       // format mid-match would rewrite what the men already fought for.
       case "set_rounds": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id || room.state !== "lobby" || room.mode === "solo") return;
+        // The burh and the tournament OWN their formats (waves; the
+        // bracket) and were created bestOf 1 — a crafted message must not
+        // set a dial their creation refused to offer.
+        if (room.mode === "the_burh" || room.mode === "tournament_moot") return;
         room.bestOf = normalizeBestOf(data.bestOf, room.bestOf);
         sendLobbyUpdate(room);
       });
@@ -2279,6 +2325,11 @@ export function makeEngine(options = {}) {
         // stand, and a lonely one is the saga kind.
         if (room.mode !== "solo" && room.mode !== "the_burh" && room.players.size < 2) {
           return sendSession(sid, { type: "error", data: { message: "Summon a friend, or press ADD AI below your war code." } });
+        }
+        // A bracket of two is just a duel wearing a rosette; the owner's
+        // ruling is 4-8. Bots may fill the field — ADD AI counts.
+        if (room.mode === "tournament_moot" && room.players.size < 4) {
+          return sendSession(sid, { type: "error", data: { message: "A tournament needs four. Summon friends or press ADD AI." } });
         }
         startMatch(room);
       });
@@ -2516,7 +2567,7 @@ export function makeEngine(options = {}) {
     // last stand against waves of the *here* — the Chronicle's own word for
     // the raiding host. Its name is put to the owner before ship; its id is
     // stable either way.
-    const mode = ["blood_moot", "war_band", "honour_duel", "the_burh"].includes(data.mode)
+    const mode = ["blood_moot", "war_band", "honour_duel", "the_burh", "tournament_moot"].includes(data.mode)
       ? data.mode : "blood_moot";
     let code = generateCode();
     while (rooms.has(code)) code = generateCode();
@@ -2556,8 +2607,11 @@ export function makeEngine(options = {}) {
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       // The Burh is one continuous stand, not a best-of: the format IS the
       // waves, and a "round 2" after the burh falls would be a resurrection
-      // nobody fought for.
-      bestOf: mode === "the_burh" ? 1 : normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
+      // nobody fought for. The Tournament Moot's format is the BRACKET —
+      // each duel is one fall, and `bestOf` would be a second format
+      // fighting the first.
+      bestOf: mode === "the_burh" || mode === "tournament_moot"
+        ? 1 : normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
       roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
       // The Burh's ladder: which wave stands, and the sim-time the next one
       // arrives at. Zero on every other mode and harmless there.
@@ -2880,6 +2934,15 @@ export function makeEngine(options = {}) {
       p.kills = 0; p.deaths = 0; p.damage = 0; p.score = 0;
       if (!isTeamMode(room) && room.mode !== "solo") room.roundWins[p.id] = 0;
     });
+    // THE BRACKET (7.3), dealt once per tournament, here, where the match's
+    // other identities are minted. Names are captured NOW into their own map
+    // — an eliminated man may leave the room, and a bracket that forgets who
+    // fought in it is a results screen that says "Draw beat Draw".
+    if (room.mode === "tournament_moot") {
+      room.bracket = buildBracket([...room.players.keys()]);
+      room.bracketNames = {};
+      room.players.forEach((p, id) => { room.bracketNames[id] = p.name; });
+    }
     // THE MUSTER, and it goes here rather than inside `startRound` on purpose:
     // once per match, before the first bell. See LOAD_HOLD_MS.
     musterThenRound(room);
@@ -2952,6 +3015,27 @@ export function makeEngine(options = {}) {
   }
 
   function startRound(room) {
+    // THE TOURNAMENT'S DEAL (7.3), and it runs FIRST — before the round
+    // count, the state, anything — because `settle` may finish the bracket
+    // without a fight (a cascade of walkovers when men have left), and a
+    // finished bracket must go to the verdict, not to a countdown over an
+    // empty floor. Otherwise: the next duel's two men take the floor and
+    // every other man — earlier winners and losers alike — takes the BENCH,
+    // the same seats a late friend watches from (7.9b). The hall watching
+    // the final is this line, not a feature on top of it.
+    if (room.mode === "tournament_moot" && room.bracket) {
+      const present = (id) => room.players.has(id) || room.seats.has(id);
+      const duel = settle(room.bracket, present);
+      if (!duel) return endMatch(room);
+      room.duelAt = { stage: duel.stage, index: duel.index };
+      for (const [id, p] of [...room.players.entries()]) {
+        if (id !== duel.a && id !== duel.b) { room.players.delete(id); room.seats.set(id, p); }
+      }
+      for (const fid of [duel.a, duel.b]) {
+        const sp = room.seats.get(fid);
+        if (sp) { room.seats.delete(fid); room.players.set(fid, sp); }
+      }
+    }
     room.roundIndex = (room.roundIndex || 0) + 1;
     room.state = "countdown";
     room.countdown = MATCH_COUNTDOWN;
@@ -3846,8 +3930,20 @@ export function makeEngine(options = {}) {
     };
     // Either somebody has the round wins that take it, or the format has run out
     // of rounds — a best-of-3 that draws twice still has to stop at three.
-    const decided = !!winnerKey && room.roundWins[winnerKey] >= roundsToWin(room);
-    const over = decided || room.roundIndex >= (room.bestOf || 1) || room.players.size < 2;
+    // THE TOURNAMENT'S format is the bracket (7.3): the duel's verdict goes
+    // into it — a draw stays undone and the same pairing is dealt again, the
+    // moot demands an answer — and the match is over exactly when `settle`
+    // finds no duel left to fight. `roundWins` keeps counting duels won, so
+    // the ledger's champion and the bracket's are the same man.
+    let over;
+    if (room.mode === "tournament_moot" && room.bracket) {
+      if (room.duelAt) reportDuel(room.bracket, room.duelAt.stage, room.duelAt.index, winnerKey);
+      const present = (id) => room.players.has(id) || room.seats.has(id);
+      over = settle(room.bracket, present) === null;
+    } else {
+      const decided = !!winnerKey && room.roundWins[winnerKey] >= roundsToWin(room);
+      over = decided || room.roundIndex >= (room.bestOf || 1) || room.players.size < 2;
+    }
     room.state = over ? "finished" : "intermission";
     // `nextRoundAt` is EPOCH ms and stays epoch ms — WIRE-PROTOCOL §9.6 — because
     // the only thing that reads it is a client counting the break down against
@@ -3871,11 +3967,19 @@ export function makeEngine(options = {}) {
     const teamMode = isTeamMode(room);
     const roster = [];
     room.players.forEach((p) => roster.push(p));
+    // The tournament's FIELD is bigger than its final: every benched
+    // PARTICIPANT — named in the bracket, which is what tells a knocked-out
+    // quarterfinalist apart from a friend who wandered in to watch (7.9b) —
+    // stands in the reckoning with the stats his own duels earned him.
+    if (room.mode === "tournament_moot" && room.seats && room.bracketNames) {
+      room.seats.forEach((p) => { if (room.bracketNames[p.id]) roster.push(p); });
+    }
     // Ranked, placed, paid and sorted in one pass, so the row order the client
     // prints, the podium `render/summary.ts` builds and the coins each man is
     // handed cannot come from three different opinions about who won.
     const { results, winnerKey, winnerBy } = buildLedger({
       roundWins: room.roundWins || {}, players: roster, teamMode,
+      crowned: room.mode === "tournament_moot" && room.bracket ? champion(room.bracket) : null,
     });
     const war = warReport(room, results);
     broadcast(room, { type: "match_end", data: {
@@ -3991,6 +4095,8 @@ export function makeEngine(options = {}) {
   function resetToLobby(room) {
     room.state = "lobby"; room.matchTimer = 0; room.countdown = 0; room.killFeed = []; room.lastStandTriggered = false;
     room.roundIndex = 0; room.roundWins = {}; room.lastRound = null; room.nextRoundAt = 0;
+    // The tournament is over with the match; a lobby holds no bracket.
+    room.bracket = null; room.bracketNames = null; room.duelAt = null;
     // The ground does NOT go back to nothing — it goes to the NEXT one. A lobby
     // that named the last match's territory would be promising a fight over
     // Mercia the next deal has not agreed to, which is what this line used to

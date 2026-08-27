@@ -6,8 +6,25 @@
  * "the_burh" — backlog 7.4, the co-op last stand against waves of the *here*
  * (the Chronicle's word for the raiding host; the display name is put to the
  * owner before ship, the id is stable either way).
+ * "tournament_moot" — backlog 7.3, bracketed 1v1s for 4-8 on duel rules:
+ * win and advance, the hall watches the final from the mead-bench (7.9b).
  */
-export type GameMode = "honour_duel" | "blood_moot" | "war_band" | "the_burh";
+export type GameMode = "honour_duel" | "blood_moot" | "war_band" | "the_burh" | "tournament_moot";
+
+/**
+ * One match of the Tournament Moot's bracket (7.3). Sides are player ids,
+ * `null` where a man has yet to be decided — or never will be (a bye).
+ * `done` with a null winner is a real outcome: both men gone, the void
+ * flows forward as a bye. The whole tree rides every snapshot as
+ * `bracket: BracketMatch[][]` (stages, first round first) with
+ * `bracketNames` mapping ids to the names they fought under.
+ */
+export interface BracketMatch {
+  a: string | null;
+  b: string | null;
+  winner: string | null;
+  done: boolean;
+}
 export type WarriorClass = "huscarl" | "warden" | "runekeeper" | "berserker";
 export type Team = "red" | "blue" | "none";
 export type AttackDirection = "left" | "right" | "overhead" | "stab";
@@ -622,7 +639,7 @@ export interface MatchEndData {
    * summary to one taken on rounds, so without this a player who just lost a
    * match he was level on has no way to learn why he lost it.
    */
-  winnerBy?: "rounds" | "kills" | "draw";
+  winnerBy?: "rounds" | "kills" | "draw" | "bracket";
   /** The Burh only: how many waves the stand held (7.4). */
   wave?: number;
   winnerId: string | null;

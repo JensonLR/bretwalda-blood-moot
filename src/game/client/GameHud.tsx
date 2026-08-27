@@ -67,6 +67,9 @@ interface HudRoomState {
   /** THE MEAD-BENCH (7.9b): who watches. This player is seated exactly when
    *  his id is here and not in `players`. */
   seats?: Array<{ id: string; name: string }>;
+  /** The Tournament Moot's tree (7.3); null outside a tournament. Read here
+   *  only to tell a waiting duellist from a knocked-out one. */
+  bracket?: Array<Array<{ a: string | null; b: string | null; winner: string | null; done: boolean }>> | null;
 }
 
 interface GameHudProps {
@@ -613,6 +616,21 @@ export default function GameHud({
   // snapshot both look like a missing localPlayer, and only one of them
   // should be told he is seated.
   const seated = !localPlayer && Boolean(roomState?.seats?.some((sp) => sp.id === playerId));
+  // What the bench means for THIS man. A visitor waits for the next moot; a
+  // tournament duellist (7.3) is either still in the bracket — his seat is a
+  // between-duels breath — or knocked out and watching how it ends.
+  let benchLine = "You watch. When this moot ends, you fight.";
+  if (seated && roomState?.bracket) {
+    let inIt = false, out = false;
+    for (const st of roomState.bracket) for (const m of st) {
+      if (m.a === playerId || m.b === playerId) {
+        inIt = true;
+        if (m.done && m.winner !== playerId) out = true;
+      }
+    }
+    if (out) benchLine = "Your moot is run. Watch how it ends.";
+    else if (inIt) benchLine = "Win and advance — your duel comes.";
+  }
   const hpPct = localPlayer ? Math.max(0, localPlayer.health / localPlayer.maxHealth) : 1;
 
   // Which way round the thumbs go. Stored, and shared with input.ts so the
@@ -1207,7 +1225,7 @@ export default function GameHud({
         <div data-bench="seated" className="absolute inset-0 bg-gradient-to-t from-stone-950/55 via-transparent to-transparent flex items-end justify-center pb-16 pointer-events-none z-10">
           <div className="text-center">
             <div className="font-display text-3xl sm:text-4xl font-bold text-amber-200 mb-1 tracking-[0.2em]" style={{ textShadow: "0 0 25px black" }}>THE MEAD-BENCH</div>
-            <div className="text-sm text-[#d9cdb2]">You watch. When this moot ends, you fight.</div>
+            <div className="text-sm text-[#d9cdb2]">{benchLine}</div>
           </div>
         </div>
       </>

@@ -11,7 +11,7 @@ import { forgeName } from "@/game/names.mjs";
 import { REPLAY } from "@/game/replay.mjs";
 import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
-  EmoteId,
+  EmoteId, BracketMatch,
 } from "../game/types";
 import { WARRIOR_STATS, ABILITY_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
@@ -90,6 +90,11 @@ interface RoomState {
    * "kicked" or "not yet joined".
    */
   seats?: Array<{ id: string; name: string }>;
+  /** The Tournament Moot's whole tree (7.3), stages first-round-first; null
+   *  outside a tournament. `bracketNames` is the name-book — a knocked-out
+   *  man may leave, and the tree must still say who fought in it. */
+  bracket?: BracketMatch[][] | null;
+  bracketNames?: Record<string, string> | null;
   /** The stake, decided at creation: a friendly moot the war is not watching. */
   friendly?: boolean;
   /** Open to strangers — set only through quickplay/war_party's closure,
@@ -1737,7 +1742,7 @@ export default function Page() {
           <div className="flex flex-col items-center gap-2.5 text-center">
             <LinkPill mode={linkMode} />
             <div className="label-overline">
-              {roomState.mode === "honour_duel" ? "HONOUR DUEL" : roomState.mode === "blood_moot" ? "BLOOD MOOT" : roomState.mode === "the_burh" ? "THE BURH" : "WAR BAND"}
+              {roomState.mode === "honour_duel" ? "HONOUR DUEL" : roomState.mode === "blood_moot" ? "BLOOD MOOT" : roomState.mode === "the_burh" ? "THE BURH" : roomState.mode === "tournament_moot" ? "TOURNAMENT MOOT" : "WAR BAND"}
             </div>
             <h1 className="font-display text-2xl tracking-wider text-amber-100 sm:text-3xl" style={{ textShadow: "0 0 24px rgba(255,180,60,0.3)" }}>
               {ARENA_NAMES[roomState.arena as keyof typeof ARENA_NAMES] || roomState.arena}
@@ -1821,6 +1826,18 @@ export default function Page() {
                 <span className="text-[11px] text-[#a89a7c]">
                   Waves of the here, each larger and harder. The fallen rise between waves;
                   the stand ends when the whole party is down at once.
+                </span>
+              </div>
+            ) : roomState.mode === "tournament_moot" ? (
+              /* Same reasoning as the burh: the BRACKET is the format —
+                 every duel one fall, winners advance — and the engine
+                 forces bestOf 1, so no dial is offered. */
+              <div className="card flex items-center gap-3 px-4 py-3">
+                <span className="cabochon" />
+                <span className="font-display text-sm tracking-wider text-amber-100">THE BRACKET</span>
+                <span className="text-[11px] text-[#a89a7c]">
+                  Duels of one fall each; win and advance. Four men or more, and the
+                  hall watches every fight it is not in — the final most of all.
                 </span>
               </div>
             ) : isHost ? (
@@ -2404,6 +2421,9 @@ export default function Page() {
               { id: "the_burh" as GameMode, name: "THE BURH", desc: "Hold the ground together against waves of the here.",
                 stake: "A stand, not a raid — the here banks nothing and takes no ground. Glory is how long you hold.",
                 players: "1-4 defenders", Icon: Flame, tint: "text-orange-400" },
+              { id: "tournament_moot" as GameMode, name: "TOURNAMENT MOOT", desc: "Bracketed duels. Win and advance; the hall watches the final.",
+                stake: "A moot of champions — every duel is one fall, and the bracket crowns one man for his people.",
+                players: "4-8 duellists", Icon: Crown, tint: "text-yellow-300" },
             ]).map((mode) => (
               <button key={mode.id}
                 onClick={() => setSelectedMode(mode.id)}
@@ -2488,10 +2508,25 @@ export default function Page() {
               the shape of the fight at the same moment he decides its mode. */}
           <section className="flex flex-col gap-3">
             <h2 className="section-title"><Flag size={12} className="shrink-0" /> HOW LONG IS THE FIGHT</h2>
-            <div className="card flex flex-col gap-3 p-4">
-              <RoundPicker value={bestOf} onChange={setBestOf} />
-              <p className="text-[11px] leading-relaxed text-[#a89a7c]">{roundsBlurb(bestOf, selectedMode)}</p>
-            </div>
+            {/* The burh and the tournament OWN their formats — the stand is
+                the waves, the moot is the bracket, and the engine forces
+                bestOf 1 for both — so the dial is not offered where it would
+                be wired to nothing. */}
+            {selectedMode === "the_burh" || selectedMode === "tournament_moot" ? (
+              <div className="card flex items-center gap-3 px-4 py-3">
+                <span className="cabochon" />
+                <span className="text-[11px] leading-relaxed text-[#a89a7c]">
+                  {selectedMode === "the_burh"
+                    ? "One stand: waves of the here until the whole party is down at once."
+                    : "The bracket is the format: duels of one fall each, win and advance, one champion."}
+                </span>
+              </div>
+            ) : (
+              <div className="card flex flex-col gap-3 p-4">
+                <RoundPicker value={bestOf} onChange={setBestOf} />
+                <p className="text-[11px] leading-relaxed text-[#a89a7c]">{roundsBlurb(bestOf, selectedMode)}</p>
+              </div>
+            )}
           </section>
 
           <button data-snd="confirm" onClick={handleCreate} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
@@ -3440,6 +3475,54 @@ const ROUND_HOLD_MS = REPLAY.wall * 1000;
  * that holds on the round's victor, which lives in `GameCanvas`/`render` —
  * another unit's files this pass — so it is NOT BUILT and is the next step.
  */
+/**
+ * THE BRACKET, DRAWN (7.3). The whole tree off one snapshot — fixed slots
+ * make that possible — with the winners lit and the one undone pairing that
+ * has both men named marked as NEXT. Names come from the bracket's own
+ * name-book, never the roster: a knocked-out man may have left the room,
+ * and the tree must still say who fought in it.
+ */
+function BracketCard({ stages, names }: { stages: BracketMatch[][]; names: Record<string, string> }) {
+  const nameOf = (id: string | null) => (id ? names[id] ?? "?" : null);
+  const label = (s: number) => {
+    const fromEnd = stages.length - 1 - s;
+    return fromEnd === 0 ? "THE FINAL" : fromEnd === 1 ? "SEMI-FINALS" : fromEnd === 2 ? "QUARTER-FINALS" : `ROUND ${s + 1}`;
+  };
+  // The next duel: the first undone match with both men decided. Same walk
+  // `settle` makes, minus the presence question the client cannot answer.
+  let next: BracketMatch | null = null;
+  for (const st of stages) { for (const m of st) { if (!m.done && m.a && m.b) { next = m; break; } } if (next) break; }
+  return (
+    <div data-bracket className="flex w-full flex-col gap-2 text-left">
+      {stages.map((st, s) => (
+        <div key={s}>
+          <div className="label-overline !text-[9px] text-[#a89a7c]">{label(s)}</div>
+          <div className="mt-0.5 flex flex-col gap-0.5">
+            {st.map((m, i) => {
+              const row = (id: string | null) => {
+                const n = nameOf(id);
+                const winner = m.done && m.winner != null && m.winner === id;
+                const beaten = m.done && m.winner != null && id != null && m.winner !== id;
+                return n === null
+                  ? <span className="text-[#7d7057] italic">bye</span>
+                  : <span className={winner ? "font-bold text-amber-300" : beaten ? "text-[#7d7057] line-through decoration-[#7d7057]/60" : "text-[#d9cdb2]"}>{n}</span>;
+              };
+              return (
+                <div key={i} className={`flex items-baseline gap-1.5 rounded px-1.5 py-0.5 text-[12px] ${m === next ? "bg-amber-400/10" : ""}`}>
+                  {row(m.a)}
+                  <span className="text-[10px] text-[#7d7057]">v</span>
+                  {row(m.b)}
+                  {m === next && <span className="ml-auto text-[9px] font-bold tracking-[0.2em] text-amber-400">NEXT</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; playerId: string; onEmote: (emote: EmoteId) => void }) {
   const [now, setNow] = useState(() => Date.now());
   // When THIS round ended, by the client's own clock. The component is mounted
@@ -3454,7 +3537,14 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
   const left = Math.max(0, Math.ceil(((roomState.nextRoundAt || 0) - now) / 1000));
   const won = r && !r.draw && (r.winnerId === playerId || (r.winnerTeam && roomState.players[playerId]?.team === r.winnerTeam));
   const standing = roomState.players[playerId]?.state !== "dead";
-  const verdict = !r || r.draw ? "NO MAN LEFT STANDING" : won ? "THE ROUND IS YOURS" : `${r.winnerName} TAKES IT`;
+  // The tournament's break (7.3) reads differently: "ROUND N OF 1" would be
+  // a lie (bestOf is forced to 1 — the BRACKET is the format), a drawn duel
+  // is re-fought rather than passed over, and the card's body is the tree.
+  const tourney = roomState.mode === "tournament_moot" && !!roomState.bracket;
+  const verdict = !r || r.draw
+    ? (tourney ? "BOTH MEN FELL — THE DUEL IS REFOUGHT" : "NO MAN LEFT STANDING")
+    : won ? (tourney ? "YOU ADVANCE" : "THE ROUND IS YOURS") : `${r.winnerName} TAKES IT`;
+  const overline = tourney ? `DUEL ${r?.index ?? roomState.roundIndex}` : `ROUND ${r?.index ?? roomState.roundIndex} OF ${roomState.bestOf}`;
 
   // The card never gets less than its countdown: if the break is already nearly
   // spent when this mounts, there is no beat to hold and we go straight to it.
@@ -3472,7 +3562,7 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
          intermission, so the flourish row has the thumb to itself. */
       <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-[6.6rem]">
         <div className="animate-fadeIn flex flex-col items-center gap-1 text-center">
-          <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
+          <div className="label-overline">{overline}</div>
           <div className="font-display text-xl leading-tight text-amber-100 sm:text-2xl"
             style={{ textShadow: "0 2px 24px rgba(0,0,0,0.9), 0 0 26px rgba(217,164,65,0.35)" }}>
             {verdict}
@@ -3505,15 +3595,20 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
     <div data-break-card
       className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
       <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
-        <div className="label-overline">ROUND {r?.index ?? roomState.roundIndex} OF {roomState.bestOf}</div>
+        <div className="label-overline">{overline}</div>
         <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>
           {verdict}
         </div>
         <div className="knot-band w-full max-w-[13rem]" />
-        <RoundTally roomState={roomState} playerId={playerId} noRound />
+        {/* The tournament's break shows the TREE, not a tally: duels won is
+            already drawn on the bracket as lit names, and the one thing a
+            waiting man wants — when do I fight — is the NEXT mark. */}
+        {tourney && roomState.bracket
+          ? <BracketCard stages={roomState.bracket} names={roomState.bracketNames ?? {}} />
+          : <RoundTally roomState={roomState} playerId={playerId} noRound />}
         <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-[#a89a7c]">
           <Hourglass size={12} className="text-amber-400" />
-          NEXT ROUND IN {left}
+          {tourney ? `THE NEXT DUEL IN ${left}` : `NEXT ROUND IN ${left}`}
         </div>
       </div>
     </div>
@@ -3771,6 +3866,12 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
         )}
         {data.winnerBy === "draw" && data.winnerKind === "none" && (
           <div className="badge-stone !text-[10px]">LEVEL ON ROUNDS AND ON KILLS</div>
+        )}
+        {/* The tournament's crown (7.3): the bracket is the authority — a
+            bye can leave the tally level, and this line says which law the
+            table below was seated by. */}
+        {data.winnerBy === "bracket" && data.winnerKind !== "none" && (
+          <div className="badge-garnet !text-[10px]">THE BRACKET CROWNS THE CHAMPION</div>
         )}
         {/* `isWinner` and not an id match: a war band is won by a side, and
             every man on it won it. */}

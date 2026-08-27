@@ -65,6 +65,8 @@
     "burhtest": "node tools/burhtest.mjs",
     "benchtest": "node tools/benchtest.mjs",
     "benchseen": "node tools/benchseen.mjs",
+    "tourneytest": "node tools/tourneytest.mjs",
+    "tourneyseen": "node tools/tourneyseen.mjs",
     "clipseen": "node tools/clipseen.mjs"
   },
   "dependencies": {

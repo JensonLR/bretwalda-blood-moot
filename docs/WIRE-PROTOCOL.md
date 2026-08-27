@@ -73,7 +73,7 @@ not, the message is dropped silently.
 
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
-| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` is VALIDATED against {blood_moot, war_band, honour_duel, the_burh} — anything else lands blood_moot (27 Aug 2026; it used to accept any string). `"honour_duel"` caps the room at 2, everything else at 8; `"the_burh"` additionally caps HUMANS at 4 (the waves own the other seats), forces `bestOf` 1, and clears lobby bots at the bell. Caller's class is forced to `warden` (1056). |
+| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` is VALIDATED against {blood_moot, war_band, honour_duel, the_burh, tournament_moot} — anything else lands blood_moot (27 Aug 2026; it used to accept any string). `"honour_duel"` caps the room at 2, everything else at 8; `"the_burh"` additionally caps HUMANS at 4 (the waves own the other seats), forces `bestOf` 1, and clears lobby bots at the bell. `"tournament_moot"` (7.3) forces `bestOf` 1 too — the BRACKET is its format — and its `start` refuses fewer than four in the room (bots count; ADD AI fills a field). `set_rounds` is refused for both format-owning modes. Caller's class is forced to `warden` (1056). |
 | `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; floor humans + bench `< humanCap` (`humanCap` is 4 for `the_burh`, else `maxPlayers`) | Joins. Into a LOBBY: replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Into a RUNNING room (any non-lobby state): **THE MEAD-BENCH (7.9b)** — the caller is seated as a watcher instead of refused. He gets the same `join` snapshot (arena, round state, every fighter), his id appears in `seats` and NOT in `players`, and that absence is the contract: `withRoom` drops every message he sends, no simulation loop can reach him, and the spectate lens on his client engages off it. `resetToLobby` promotes the whole bench onto the floor when the match ends, bots yielding places first (a human outranks furniture); `player_joined` announces each promotion. Quickplay only matches into lobbies, so a stranger never takes a seat — the bench is reached by code alone. Solo rooms refuse (cap of 1). Code is upper-cased. Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you. Failures reply `error`. |
 | `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
 | `quickplay` | `{name?, mode?, appearance?, awaitLoad?}` | none | Backlog 4.7's FIND A FIGHT. Seats the caller in the fullest OPEN public lobby of his `mode` (anything not `war_band`/`honour_duel` normalises to `blood_moot`), or raises a fresh PUBLIC room when none has a seat — `public` is set through a closure, never off the wire, so no crafted `create` can claim it. The caller arrives `ready:true`; once two free men are seated the lobby self-starts on `QUICK_MUSTER` (12 s) with no host press. A war-room field sent here (`territoryId`, `arena`) is stripped before the create. Replies `join`. |
@@ -210,8 +210,24 @@ lastStandTriggered, difficulty, botCount, maxBots, autoStart,
 bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt,
 wave,                                    // the Burh's ladder; 0 elsewhere
 seats: [{ id, name }],                   // the mead-bench (7.9b); [] when empty
+bracket: BracketMatch[][] | null,        // the Tournament Moot's tree (7.3)
+bracketNames: { [id]: name } | null,     // the bracket's own name-book
 territory: { id, name, native, holder } | null
 ```
+
+`bracket` is the Tournament Moot's WHOLE single-elimination tree, first
+round first, on every snapshot — fixed slots (stage s match i feeds stage
+s+1 match ⌊i/2⌋ side i%2) are what let a client draw the entire thing from
+any one frame. A match is `{a, b, winner, done}`; sides are player ids or
+`null` (a bye, or a slot not yet decided), and `done` with a null winner is
+a real outcome — both men gone. `bracketNames` maps ids to the names they
+fought under, because a knocked-out man may leave the room and the tree
+must still say who fought in it. During a tournament, everyone not in the
+current duel sits in `seats` — the mead-bench IS the tournament's waiting
+room, and the hall watching the final is the same machinery. A drawn duel
+(both fell on one tick) stays undone and is dealt again. The champion is
+the bracket's, never re-derived from the tally: `match_end.winnerBy` says
+`"bracket"`, and the results table seats him first.
 
 `seats` is names only, deliberately: a watcher has no position, health or
 team, and a player-shaped ghost on the wire would invite every consumer to
