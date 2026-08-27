@@ -36,13 +36,10 @@ Work on local `helm-land`. Push after every commit to all three:
 
 ## State at handover
 
-**Main is current through The Burh + backlog records.** Committed to the WORK
-BRANCHES but **NOT yet merged to main**: the 7.9a clip feature (3 commits:
-clip recorder, harness door, clipseen registration). Its merge was gated on a
-playtest+touchtest run that was still in flight at handover — **first action:
-run `node tools/playtest.mjs` and `node tools/touchtest.mjs`; if 38/38 and
-32/32, push `helm-land:main`.** (A background run may have finished — its logs
-would be in the old session's scratchpad, gone now; just re-run.)
+**Main is current through the 7.9a clips half** — the gating browser pair
+came back green (playtest 38/38, touchtest 32/32) at the very end of the old
+session and everything was merged. Main, the designated branch and
+helm-land are identical at handover.
 
 ## Landed this session (all merged, all gated)
 
@@ -143,6 +140,4 @@ classmatrix (~3 min, only for balance changes).
 ## Immediate next actions for the new session
 
 1. `git fetch origin && git status` — confirm/recover local vs origin/main.
-2. Run playtest + touchtest; on green push `helm-land:main` (the clips half).
-3. Update BACKLOG 7.9 row for the clips half; task-list it.
-4. Begin 7.9b spectate seats.
+2. Begin 7.9b spectate seats (unlocks 7.3, the Tournament Moot).
