@@ -8124,3 +8124,46 @@ healthy factionread runs were killed as "hung" on that evidence. Line
 16 of this ledger's law applies to instruments too: look at what the
 process is DOING (CPU accumulating, artifact mtimes), not at a silent
 pipe. `stdbuf -oL` is the tool.
+
+---
+
+## THE ROSE SETTLEMENT'S FIRST TWO CUTS — the release completes, on both axes — 27 Aug 2026
+
+`roseFade`'s release was asymptotic: a pale hide on the red arc always kept
+a madder remnant (a few points of chroma at high L*), and the vat's
+DARKENING (`bias` through the bands) never saw `keep` at all — a "released"
+surface came back its own hue at somebody else's value. Both are the rose
+corridor's own definition, and both are closed: the fade is a smoothstep
+reaching ZERO at `ROSE_LIT + ROSE_FULL` (0.12), gentler near the floor
+than the exponential was (the leg wraps keep MORE honest madder), and the
+release now blends the VALUE back to the surface's own by the same `keep`.
+Off-arc surfaces stay byte-identical by construction (`keep` 1).
+
+**vatprobe, before → after (sworn − unsworn rose points):**
+buff@0° +29.83 → +2.33, buff@90° +2.94 → 0.00, buff@180° → −0.19;
+hide 0.00 across; wraps NEGATIVE (deep madder holding).
+
+**The full clocked walk (6059 s): every family improved, no family solved:**
+- 7.1: 29 → 24 frames, worst +8.878 (norse buff family) → **+3.590**
+  (pict/Blackened@0° — a NEW leader, a different mechanism)
+- 7.1b: 163 → 155, worst +24.90 (norse buff) → +19.50 (pict WRAP)
+- 7.1c: 154 → 140, worst unchanged: +30.1 L* pict/Sea Queen's TUNIC
+- 1.2 ΔC 6.12 → 6.94 toward the 10 bar; 1.3 −34.87° → −26.42°;
+  5.1b 37 → 36; 5.2b 18 → 17
+- 6.1 CLIP: a NEW singleton — 1 of 120 frames at 7.66% vs the 3.75% bar
+  (norse/Polished@160°). Seen ONCE, unreplicated; §6's 160° bearing is the
+  noisy one. The law: it rides the next walk before anybody believes it.
+
+**What remains is named and is DESIGN, not curve mechanics:** the new 7.x
+leaders are the PICT's deliberate two-value lightening (the "MINT WAS
+VALUE" identity — its dye lifts dark warm tunics/wraps, and where the
+source sits on the arc that lift reads as rose/value-on-arc), and the
+sub-release-lightness wrap remnants. The pict item is the same class of
+decision as 1.2/1.3's "three owner-level levers" (already ledgered): which
+identities the peoples keep versus which bars they clear is the owner's
+palette conversation, not a constant to nudge in the dark. The Danelaw
+mechanism — the one the owner actually reported ("pink Viking") — is dead:
+his buff family reads at or under its unsworn floor on every bearing.
+
+Iteration cost, measured twice: the full walk is ~101 min on this box.
+`stdbuf -oL` or it is silent (see the silent-pipe entry).

@@ -115,7 +115,13 @@ hardware before believing a red) · moottest 25/25 · marktest 25/25 ·
 scoretest 16/16 · burhtest 19/19 · platformcheck 6/6 · clipseen PASS ·
 soundtest 46/46 · goretest 36/36 · locktest 6/6 · weightprobe 24/24 ·
 profiletest 22/0 (degraded; no DB here by the credentials rule) ·
-classmatrix (~3 min, only for balance changes).
+classmatrix (~3 min, only for balance changes) · fighttest 23/23 ·
+benchtest 23/23 · rejointest 12/12 · tourneytest 38/38 · armsprobe 16/16
+· bottest 11/11 · benchseen/tourneyseen/armshot (browser probes) ·
+factionread — NOT green and not expected to be: 26/34 is the rose
+settlement's clocked baseline (see OPEN-DEFECTS), the walk costs ~101
+min, and node BLOCK-BUFFERS to pipes: `stdbuf -oL` into a file or the
+run is silent and looks hung. Two healthy runs were killed for that.
 
 ## Hard-won laws (do not relearn these)
 
