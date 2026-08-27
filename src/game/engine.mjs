@@ -1938,12 +1938,18 @@ export function makeEngine(options = {}) {
 
   function broadcast(room, msg, excludePlayerId) {
     const str = JSON.stringify(msg);
-    room.players.forEach((p) => {
+    const say = (p) => {
       if (p.id === excludePlayerId || p.id.startsWith("bot_")) return;
       sessions.forEach((s) => {
         if (s.playerId === p.id && s.sender) { try { s.sender(str); } catch { /* closed */ } }
       });
-    });
+    };
+    room.players.forEach(say);
+    // THE BENCH HEARS EVERYTHING (7.9b). Its first run of `benchtest` caught
+    // this list stopping at the floor: the watcher got his join snapshot and
+    // then silence — a frozen first frame sold as a spectate seat. A watcher
+    // is a full listener; only his SENDING is refused (`withRoom`).
+    if (room.seats) room.seats.forEach(say);
   }
 
   // Simulation scratch: needed every tick, meaningless off the server, and
@@ -1997,6 +2003,14 @@ export function makeEngine(options = {}) {
       // The Burh's standing wave, on every snapshot like the round state and
       // for the same reconnect reason. Zero everywhere else.
       wave: room.wave || 0,
+      // THE BENCH, names only. A watcher's client learns "I am seated" from
+      // his own id being here and not in `players`; the fighters' HUD gets a
+      // roster to say who waits. Nothing else about a watcher belongs on the
+      // wire — he has no position, no health, no team, and serializing a
+      // player-shaped ghost would invite every consumer to treat him as one.
+      seats: room.seats && room.seats.size
+        ? [...room.seats.values()].map((p) => ({ id: p.id, name: p.name }))
+        : [],
       // The ground at stake, carried on EVERY snapshot for the same reason the
       // round state is: a late joiner, a spectator or a reconnect has to be
       // able to rebuild the whole screen from one frame. Null in a lobby that
@@ -2160,6 +2174,9 @@ export function makeEngine(options = {}) {
     return n;
   }
 
+  // Every man on the bench is human — only `handleJoin` seats anybody.
+  const benchCount = (room) => (room.seats ? room.seats.size : 0);
+
   // A solo room stays sealed to other humans (maxPlayers 1) yet still holds a
   // full ring of sparring partners.
   function botCapacity(room) {
@@ -2302,9 +2319,22 @@ export function makeEngine(options = {}) {
     if (!s.roomCode || !s.playerId) return;
     const room = rooms.get(s.roomCode);
     if (room) {
+      // A watcher leaving moves nothing on the floor: no host to hand over,
+      // no muster to release, no lobby to update. His chair is simply empty —
+      // though a room whose last human just stood up from the bench dies the
+      // same death an abandoned floor does.
+      if (room.seats && room.seats.delete(s.playerId)) {
+        broadcast(room, { type: "player_left", data: { playerId: s.playerId } });
+        if (humanCount(room) === 0 && benchCount(room) === 0) rooms.delete(room.code);
+        s.roomCode = null; s.playerId = null;
+        return;
+      }
       room.players.delete(s.playerId);
       broadcast(room, { type: "player_left", data: { playerId: s.playerId } });
-      if (humanCount(room) === 0) {
+      // The BENCH keeps a room alive: every seated man is owed the next
+      // match, and deleting the room under him would turn his watch into a
+      // disconnect. Bots finish the fight; `resetToLobby` hands him the room.
+      if (humanCount(room) === 0 && benchCount(room) === 0) {
         rooms.delete(room.code);
       } else {
         if (room.hostId === s.playerId) {
@@ -2517,6 +2547,12 @@ export function makeEngine(options = {}) {
       code, mode, state: "lobby", arena: "saxon_village",
       friendly, pinnedTerritory: pinned, chosenArena, public: isPublic,
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
+      // THE MEAD-BENCH (7.9b). Men who arrived while a fight was running sit
+      // here, OUTSIDE `players`, and that outside-ness is the whole design:
+      // nothing in the round machinery — bots, blows, the ledger, the round
+      // end — can see a watcher, because none of it iterates this map. They
+      // stand up in `resetToLobby`, the one door back onto the floor.
+      seats: new Map(),
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
       // The Burh is one continuous stand, not a best-of: the format IS the
       // waves, and a "round 2" after the burh falls would be a resurrection
@@ -2553,11 +2589,35 @@ export function makeEngine(options = {}) {
     }
     leaveRoomForSession(s);
     if (!room) return sendSession(sid, { type: "error", data: { message: "Room not found. Check your code." } });
-    if (room.state !== "lobby") return sendSession(sid, { type: "error", data: { message: "Battle already in progress." } });
     // The Burh seats four defenders; the other four places belong to the
-    // waves. Everywhere else the human cap is the room's own.
+    // waves. Everywhere else the human cap is the room's own. The BENCH
+    // counts against it too — every watcher is a fighter the next match owes
+    // a place, so a room may never promise more places than it has.
     const humanCap = room.mode === "the_burh" ? 4 : room.maxPlayers;
-    if (humanCount(room) >= humanCap) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
+    if (humanCount(room) + benchCount(room) >= humanCap) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
+    if (room.state !== "lobby") {
+      // THE MEAD-BENCH (7.9b). This used to be "Battle already in progress."
+      // — a friend with the code, three seconds late, turned away at the
+      // door. Now he is seated: he gets the same join snapshot everyone gets
+      // (it carries the arena, the round state and every man's position, so
+      // his client can draw the whole fight), his id is NOT in `players`, and
+      // that absence is what makes him a watcher — the spectate lens engages
+      // on exactly that condition, `withRoom` drops every message he sends,
+      // and no loop in the simulation can reach him. `resetToLobby` deals him
+      // in when the moot ends.
+      //
+      // A trial is fought alone — it is one man and his sparring partners,
+      // and its maxPlayers of 1 already says so through the cap above. Only
+      // rooms raised with a CODE can be watched: quickplay matches into
+      // lobbies alone, so a stranger never watches your fight uninvited.
+      const pid = randomUUID();
+      const watcher = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", dressFor(room, data.appearance));
+      declareLoadWait(watcher, data.awaitLoad);
+      room.seats.set(pid, watcher);
+      s.roomCode = code; s.playerId = pid;
+      sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, ...serializeRoom(room) } });
+      return;
+    }
 
     const pid = randomUUID();
     const player = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", dressFor(room, data.appearance));
@@ -2589,6 +2649,9 @@ export function makeEngine(options = {}) {
       // Training on the ground you will fight on: the same validated choice a
       // friendly moot gets, because a trial is the other war-less scenario.
       arena: typeof data.arena === "string" && GROUNDS[data.arena] ? String(data.arena) : "saxon_village",
+      // A trial has no bench — `handleJoin` refuses other humans outright —
+      // but the map exists so every shared path reads one room shape.
+      seats: new Map(),
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: 1, killFeed: [], lastStandTriggered: false,
       // Training is not a match: it has one endless round and pays nothing out.
@@ -3936,6 +3999,30 @@ export function makeEngine(options = {}) {
     // ground is gone and the next one is already named.
     room.matchId = null;
     dealGroundFor(room);
+    // THE BENCH EMPTIES ONTO THE FLOOR — the one door from watching to
+    // fighting, and it opens exactly here, where every other piece of match
+    // state is being struck. A human outranks furniture: if the floor is
+    // full, bots yield their places first. The arithmetic makes the fit
+    // certain — the join cap counts floor humans AND bench against
+    // `humanCap`, so floor humans + bench ≤ maxPlayers always — but the
+    // guard stays, because an invariant enforced two hundred lines away is
+    // an invariant this loop should not be the first thing to trust.
+    if (room.seats && room.seats.size) {
+      for (const [id, p] of [...room.seats.entries()]) {
+        if (room.players.size >= room.maxPlayers) {
+          for (const [bid, b] of room.players) { if (b.bot) { room.players.delete(bid); break; } }
+        }
+        if (room.players.size >= room.maxPlayers) continue;
+        room.seats.delete(id);
+        room.players.set(id, p);
+        broadcast(room, { type: "player_joined", data: { playerId: id, name: p.name } }, id);
+      }
+      // The floor may have emptied entirely while he watched; the room he
+      // inherits needs a host who exists.
+      if (!room.players.has(room.hostId)) {
+        for (const [pid, p] of room.players) { if (!p.bot) { room.hostId = pid; break; } }
+      }
+    }
     room.players.forEach((p) => {
       const stats = WARRIOR_STATS[p.warriorClass];
       p.health = stats.maxHealth; p.stamina = stats.staminaMax; p.state = "idle"; p.ready = false;
@@ -5049,9 +5136,19 @@ export function makeEngine(options = {}) {
     if (s.roomCode && s.playerId) {
       const room = rooms.get(s.roomCode);
       if (room) {
+        // The bench's dropped-socket exit, mirroring `leaveRoomForSession`'s
+        // polite one: the chair empties, the floor is untouched, and a room
+        // whose last human was this watcher dies with him.
+        if (room.seats && room.seats.delete(s.playerId)) {
+          broadcast(room, { type: "player_left", data: { playerId: s.playerId } });
+          if (humanCount(room) === 0 && benchCount(room) === 0) rooms.delete(room.code);
+          sessions.delete(sid);
+          return;
+        }
         room.players.delete(s.playerId);
         broadcast(room, { type: "player_left", data: { playerId: s.playerId } });
-        if (humanCount(room) === 0) {
+        // The bench keeps the room alive here too — same rule, back door.
+        if (humanCount(room) === 0 && benchCount(room) === 0) {
           rooms.delete(room.code);
         } else {
           if (room.hostId === s.playerId) {

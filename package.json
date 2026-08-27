@@ -63,6 +63,8 @@
     "scoretest": "node tools/scoretest.mjs",
     "platformcheck": "node tools/platformcheck.mjs",
     "burhtest": "node tools/burhtest.mjs",
+    "benchtest": "node tools/benchtest.mjs",
+    "benchseen": "node tools/benchseen.mjs",
     "clipseen": "node tools/clipseen.mjs"
   },
   "dependencies": {

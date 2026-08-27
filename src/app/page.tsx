@@ -82,6 +82,14 @@ interface RoomState {
   bestOf: number; roundIndex: number; roundTarget: number;
   roundWins: Record<string, number>; roundScoreBy: RoundScoreBy;
   lastRound: RoundResult | null; nextRoundAt: number;
+  /**
+   * THE MEAD-BENCH (7.9b): men who joined while the fight ran, watching
+   * through the spectate lens. This client is seated exactly when its own id
+   * is here and not in `players` — absence from `players` is the fact the
+   * whole watcher path keys off, this list is how it is told apart from
+   * "kicked" or "not yet joined".
+   */
+  seats?: Array<{ id: string; name: string }>;
   /** The stake, decided at creation: a friendly moot the war is not watching. */
   friendly?: boolean;
   /** Open to strangers — set only through quickplay/war_party's closure,
@@ -889,7 +897,14 @@ export default function Page() {
         // flashing the invite lobby on the way to the countdown.
         if (d.mode === "solo") break;
         setBusy(false);
-        setScreen("lobby");
+        // SEATED (7.9b): the room this join landed in is already fighting, so
+        // the snapshot's state says anything but "lobby" and this man is on
+        // the bench. Straight to the game screen — the canvas draws the
+        // fight it was just handed and the spectate lens engages off his own
+        // absence from `players`. Routing him through the lobby would flash
+        // an invite screen for a battle he cannot be invited to.
+        if (d.state !== "lobby") { resetForge(); setScreen("game"); }
+        else setScreen("lobby");
         // Put the invite code in the URL bar so the current tab IS the
         // shareable link — whatever domain the player is on is the right one.
         try {

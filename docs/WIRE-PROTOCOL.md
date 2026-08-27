@@ -74,7 +74,7 @@ not, the message is dropped silently.
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
 | `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` is VALIDATED against {blood_moot, war_band, honour_duel, the_burh} — anything else lands blood_moot (27 Aug 2026; it used to accept any string). `"honour_duel"` caps the room at 2, everything else at 8; `"the_burh"` additionally caps HUMANS at 4 (the waves own the other seats), forces `bestOf` 1, and clears lobby bots at the bell. Caller's class is forced to `warden` (1056). |
-| `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
+| `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; floor humans + bench `< humanCap` (`humanCap` is 4 for `the_burh`, else `maxPlayers`) | Joins. Into a LOBBY: replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Into a RUNNING room (any non-lobby state): **THE MEAD-BENCH (7.9b)** — the caller is seated as a watcher instead of refused. He gets the same `join` snapshot (arena, round state, every fighter), his id appears in `seats` and NOT in `players`, and that absence is the contract: `withRoom` drops every message he sends, no simulation loop can reach him, and the spectate lens on his client engages off it. `resetToLobby` promotes the whole bench onto the floor when the match ends, bots yielding places first (a human outranks furniture); `player_joined` announces each promotion. Quickplay only matches into lobbies, so a stranger never takes a seat — the bench is reached by code alone. Solo rooms refuse (cap of 1). Code is upper-cased. Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you. Failures reply `error`. |
 | `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
 | `quickplay` | `{name?, mode?, appearance?, awaitLoad?}` | none | Backlog 4.7's FIND A FIGHT. Seats the caller in the fullest OPEN public lobby of his `mode` (anything not `war_band`/`honour_duel` normalises to `blood_moot`), or raises a fresh PUBLIC room when none has a seat — `public` is set through a closure, never off the wire, so no crafted `create` can claim it. The caller arrives `ready:true`; once two free men are seated the lobby self-starts on `QUICK_MUSTER` (12 s) with no host press. A war-room field sent here (`territoryId`, `arena`) is stripped before the create. Replies `join`. |
 | `war_party` | — | host of a PRIVATE lobby; 2–4 humans in it | Backlog 4.7b: the party is the private room itself (invite = share the code, accept = join), and this is the host taking everyone to the public war in one press. All human members are reseated together — into the fullest open public blood moot with seats for the WHOLE party, else into a fresh public room the host founds — each with his own name and appearance, arriving `ready:true` with the 12 s muster armed. Atomic against strangers by the engine's single thread. Refusals reply `error`: not the host, already public/solo, fewer than 2 or more than 4. |
@@ -208,8 +208,15 @@ code, mode, state, arena, hostId, countdown, matchTimer, maxPlayers,
 players: { [id]: Player }, killFeed: KillFeedEntry[]   // last 10 only
 lastStandTriggered, difficulty, botCount, maxBots, autoStart,
 bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt,
+wave,                                    // the Burh's ladder; 0 elsewhere
+seats: [{ id, name }],                   // the mead-bench (7.9b); [] when empty
 territory: { id, name, native, holder } | null
 ```
+
+`seats` is names only, deliberately: a watcher has no position, health or
+team, and a player-shaped ghost on the wire would invite every consumer to
+treat him as one. A client knows it is seated when its own `playerId` is in
+`seats` and not in `players`.
 
 `territory` is **the ground this match decides** — see §11. It is dealt when
 the match starts, so the first `countdown` frame already carries it and a man

@@ -64,6 +64,9 @@ interface HudRoomState {
   lastStandTriggered: boolean;
   /** The Burh's standing wave (7.4). 0 or absent everywhere else. */
   wave?: number;
+  /** THE MEAD-BENCH (7.9b): who watches. This player is seated exactly when
+   *  his id is here and not in `players`. */
+  seats?: Array<{ id: string; name: string }>;
 }
 
 interface GameHudProps {
@@ -604,6 +607,12 @@ export default function GameHud({
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
   const isFighting = roomState?.state === "fighting" || roomState?.state === "last_stand";
+  // ON THE MEAD-BENCH (7.9b). Not in `players` — so none of the fighter's
+  // furniture below can even reference him — but named on the bench, which is
+  // what tells "watching" apart from "not yet joined": before the first
+  // snapshot both look like a missing localPlayer, and only one of them
+  // should be told he is seated.
+  const seated = !localPlayer && Boolean(roomState?.seats?.some((sp) => sp.id === playerId));
   const hpPct = localPlayer ? Math.max(0, localPlayer.health / localPlayer.maxHealth) : 1;
 
   // Which way round the thumbs go. Stored, and shared with input.ts so the
@@ -1104,6 +1113,14 @@ export default function GameHud({
                 WAVE {roomState.wave}
               </div>
             )}
+            {/* Who waits (7.9b) — the fighters should know the next moot has
+                men in it. Quiet stone, not a fight colour: the bench is not a
+                threat and must not read as one. */}
+            {(roomState.seats?.length ?? 0) > 0 && (
+              <div className="mt-1 rounded-md bg-black/50 px-2 py-0.5 text-[10px] font-bold tracking-[0.2em] text-stone-300">
+                {roomState.seats!.length} ON THE BENCH
+              </div>
+            )}
           </div>
           {/* The respite: every raider down, more coming. Snapshot-derived —
               no living bot in a burh mid-fight IS the respite, no extra wire. */}
@@ -1150,6 +1167,49 @@ export default function GameHud({
               </div>
             </div>
           )}
+      </>
+    )}
+
+    {/* THE WATCHER'S GLASS (7.9b). A seated man has no health, no stamina, no
+        ability and no controls — none of the fighter's furniture above can
+        even name him — but he is watching a real fight and is owed its clock,
+        its feed and a plain statement of what he is. Deliberately small
+        duplicates of the two rails rather than a refactor of the fighter
+        block: that block is what every layout suite measures, and the seated
+        view is allowed to diverge from it (no handedness mirror — there are
+        no controls to mirror against). */}
+    {seated && roomState && roomState.state !== "lobby" && roomState.state !== "finished" && (
+      <>
+        <div className="absolute top-3 right-3 flex flex-col gap-1 pointer-events-none z-10">
+          {roomState.killFeed.slice(-5).map((k, i) => (
+            <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
+              <span className="text-amber-300 font-bold">{k.killerName}</span>
+              <span className="text-[#a89a7c]"> slew </span>
+              <span className="text-red-300 font-bold">{k.victimName}</span>
+            </div>
+          ))}
+        </div>
+        <div className="absolute top-3 left-3 flex flex-col items-start pointer-events-none z-10">
+          {/* data-bench-clock: benchseen's handle. Reading this off bare
+              body text ran the clock digits into the ALIVE count's. */}
+          <div data-bench-clock className="text-amber-100 text-sm font-mono bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-md">
+            {Math.floor((roomState.matchTimer ?? 0) / 60)}:{String(Math.floor((roomState.matchTimer ?? 0) % 60)).padStart(2, "0")}
+          </div>
+          <div className="text-[10px] text-amber-200/90 mt-1 tracking-[0.2em] font-bold">
+            {Object.values(roomState.players).filter(p => p.state !== "dead").length} ALIVE
+          </div>
+          {roomState.mode === "the_burh" && (roomState.wave ?? 0) > 0 && (
+            <div className="mt-1 rounded-md bg-orange-950/70 px-2 py-0.5 text-[10px] font-bold tracking-[0.2em] text-orange-300">
+              WAVE {roomState.wave}
+            </div>
+          )}
+        </div>
+        <div data-bench="seated" className="absolute inset-0 bg-gradient-to-t from-stone-950/55 via-transparent to-transparent flex items-end justify-center pb-16 pointer-events-none z-10">
+          <div className="text-center">
+            <div className="font-display text-3xl sm:text-4xl font-bold text-amber-200 mb-1 tracking-[0.2em]" style={{ textShadow: "0 0 25px black" }}>THE MEAD-BENCH</div>
+            <div className="text-sm text-[#d9cdb2]">You watch. When this moot ends, you fight.</div>
+          </div>
+        </div>
       </>
     )}
 
