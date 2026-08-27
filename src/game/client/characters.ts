@@ -1676,12 +1676,23 @@ function factionDye(hex: number, f: FactionLivery, d: Dye): number {
   const uy = uMag * Math.sin(TAU * hsl.h);
   const vx = ux + (dc * Math.cos(TAU * dh) - ux) * keep;
   const vy = uy + (dc * Math.sin(TAU * dh) - uy) * keep;
+  // THE RELEASE COVERS THE VALUE TOO — the settlement's second half, and
+  // vatprobe's rows are why it exists: with the chroma released whole, the
+  // buff@0° still read +14.4 points of rose over its unsworn floor, because
+  // the vat's DARKENING (`bias` through the bands) never saw `keep` — a
+  // "released" pale hide came back its own hue at somebody else's value,
+  // which is still the corridor. The value the vat lets go to is the
+  // surface's own (`perceptual(hsl.l)`, the same space `l` lives in); at
+  // `keep` 1 the dyed value survives exactly, so every off-arc surface
+  // stays byte-identical.
+  const lRel = perceptual(hsl.l);
+  const lOut = lRel + (l - lRel) * keep;
   // `keep` of 1 reproduces the dyed vector exactly, so every surface off the
   // red arc — all of Wessex, the Britons and the Picts, and the Danelaw's own
   // tunic, harness and cloak below `ROSE_LIT` — is byte-identical.
   return underMaxChannel(
     new THREE.Color().setHSL((Math.atan2(vy, vx) / TAU + 1) % 1,
-      Math.min(1, Math.hypot(vx, vy)), linear(l)).getHex(),
+      Math.min(1, Math.hypot(vx, vy)), linear(lOut)).getHex(),
     kitChannel());
 }
 
