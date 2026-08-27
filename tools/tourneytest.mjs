@@ -206,7 +206,13 @@ console.log("[tourney] the moot of champions, headless\n");
 // law, held at the module level in §1. What production WILL do is lose men
 // mid-moot — and that is what this section stages, with four humans so the
 // wire's own leave path is the lever.
-{
+// Two engine doors, and they used to be one nondeterministic claim: the
+// leave landed in the BREAK on most runs (the deal's walkover door) and in
+// the final's COUNTDOWN on some (which HUNG — checkRoundEnd only ran on
+// deaths, and an empty ring produces none; the engine's countdown gate is
+// that flicker fixed). Each door now has its own fixture and its own step
+// budget, so which one is exercised depends on nothing.
+for (const leaveDuring of ["intermission", "countdown"]) {
   const eng = makeEngine({ autoTick: false });
   const host = open(eng);
   host.send("create", { name: "Cyning", mode: "tournament_moot", awaitLoad: false });
@@ -227,24 +233,37 @@ console.log("[tourney] the moot of champions, headless\n");
   clients(fa).send("leave", {});
   stepSeconds(eng, 1);
   const semi1 = room.bracket.stages[0].find((m) => m.done);
-  check("fleeing the ring hands the duel to the man who stood",
-    room.state === "intermission" && !!semi1 && semi1.winner === fb);
+  if (leaveDuring === "intermission") {
+    check("fleeing the ring hands the duel to the man who stood",
+      room.state === "intermission" && !!semi1 && semi1.winner === fb);
+  }
 
   // The other semi is settled by steel.
   stepSeconds(eng, 7);
   const [sa, sb] = floorOf(room);
   intoTheFire(room.players.get(sb), 0.5);
   stepSeconds(eng, 3);
-  check("the other semi resolves by steel", room.state === "intermission"
-    && room.bracket.stages[0].every((m) => m.done));
+  if (leaveDuring === "intermission") {
+    check("the other semi resolves by steel", room.state === "intermission"
+      && room.bracket.stages[0].every((m) => m.done));
 
-  // The finalist leaves during the break. The deal finds the final a
-  // walkover and the moot ends WITHOUT another bell — this is startRound's
-  // own "the bracket finished itself" door, the subtlest line in the deal.
-  clients(fb).send("leave", {});
-  stepSeconds(eng, 8);
+    // DOOR ONE: the finalist leaves during the BREAK. The next deal finds
+    // the final a walkover and the moot ends WITHOUT another bell —
+    // startRound's own "the bracket finished itself" door.
+    check("the break stands when he goes", room.state === "intermission", `state=${room.state}`);
+    clients(fb).send("leave", {});
+    stepSeconds(eng, 8);
+  } else {
+    // DOOR TWO: the finalist leaves during the final's own 3-2-1. Only his
+    // departure can end that round — nobody dies in an empty ring — and
+    // checkRoundEnd's countdown gate is what answers it.
+    for (let guard = 0; guard < 200 && room.state !== "countdown"; guard++) eng.step();
+    check("the final's bell is counting when he goes", room.state === "countdown", `state=${room.state}`);
+    clients(fb).send("leave", {});
+    stepSeconds(eng, 8);
+  }
   const verdict = host.last("match_end");
-  check("a finalist who leaves crowns his opponent without a bell",
+  check(`a finalist who leaves in the ${leaveDuring} crowns his opponent without a fight`,
     room.state === "finished" && !!verdict && verdict.winnerId === sa && verdict.winnerBy === "bracket",
     `winner ${verdict?.winnerId === sa ? "is the standing finalist" : verdict?.winnerId}`);
 }

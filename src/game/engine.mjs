@@ -2543,6 +2543,13 @@ export function makeEngine(options = {}) {
         if (room.state === "loading" && !stillLoading(room).length) {
           room.phaseAt = 0;
           startRound(room);
+        } else if (room.state === "fighting" || room.state === "last_stand" || room.state === "countdown") {
+          // The polite exit reaches mid-round rooms too — a man who joins a
+          // DIFFERENT room mid-fight leaves this one through here, not
+          // through disconnectSession — and a round his departure decides
+          // must be decided now, the countdown included (see the gate note
+          // on checkRoundEnd: an empty ring produces no death to trigger it).
+          checkRoundEnd(room);
         } else {
           // A public muster needs its second man: if he just left, stand down.
           armQuickMuster(room);
@@ -4058,7 +4065,13 @@ export function makeEngine(options = {}) {
   // condition and it was always right; what was wrong was what it decided.
   function checkRoundEnd(room) {
     if (room.mode === "solo") return;
-    if (room.state !== "fighting" && room.state !== "last_stand") return;
+    // "countdown" is in the gate because of a hang tourneytest flickered
+    // onto (27 Aug 2026): a duellist who LEFT during his round's own 3-2-1
+    // stranded the survivor in a one-man fight nothing could end — this
+    // check only ran on deaths, and an empty ring produces none. During a
+    // countdown everyone is alive by construction, so the only way this
+    // fires there is a departure, which is exactly the case it must catch.
+    if (room.state !== "fighting" && room.state !== "last_stand" && room.state !== "countdown") return;
     const alive = [];
     room.players.forEach((p) => { if (p.state !== "dead") alive.push(p); });
     // THE BURH ends one way: the whole party down at once. Bots dying is the
@@ -5430,7 +5443,7 @@ export function makeEngine(options = {}) {
           if (room.hostId === s.playerId) {
             for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
           }
-          if (room.state === "fighting" || room.state === "last_stand") checkRoundEnd(room);
+          if (room.state === "fighting" || room.state === "last_stand" || room.state === "countdown") checkRoundEnd(room);
           // A MAN WHOSE SOCKET SHUT IS NOT A MAN TO WAIT FOR, and this is the
           // path that matters: `leaveRoomForSession` is the polite exit, and a
           // dropped connection comes through here. Without it the worst case is
