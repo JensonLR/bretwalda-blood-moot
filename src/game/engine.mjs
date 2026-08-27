@@ -38,6 +38,12 @@ const TICK_RATE = 20;
  */
 const KIT_STATES = new Set(["lobby", "intermission"]);
 
+/** Sim-seconds a dropped link may hold its body before the room moves on
+ *  (8.9). Module scope, NOT inside the closure after its return — a const
+ *  down there never initializes and the sweep read it in the TDZ, which is
+ *  how rejointest's first run found this line its home. */
+export const AWOL_GRACE = 12;
+
 /** The only sides that exist. `checkRoundEnd` counts these two and no others. */
 const TEAMS = new Set(["none", "red", "blue"]);
 const PARRY_WINDOW = 0.15;
@@ -1975,6 +1981,14 @@ export function makeEngine(options = {}) {
       // the rig draws it, and reading your foe's reach off his hands is
       // the whole point of choosing. Reset with the class it belongs to.
       arms: defaultArmsOf(warriorClass),
+      // THE WAY BACK IN (8.9): a credential, minted per body, sent ONLY to
+      // the session that owns it (top-level on its own join reply, never
+      // through serializeRoom — it is on PRIVATE_FIELDS). A dropped link
+      // presents it on `rejoin` to rebind to this body inside AWOL_GRACE.
+      reconnectKey: randomUUID(),
+      // Sim-ms the owning socket dropped mid-match; 0 = linked. Private —
+      // scratch for the grace sweep.
+      awol: 0,
       // THE MUSTER, per man. `awaitsLoad` is his client's declaration that it
       // builds an arena and would like to be waited for; `loaded` is whether it
       // has finished. Both are public — the lobby draws "waiting for Guthrum"
@@ -2148,7 +2162,13 @@ export function makeEngine(options = {}) {
     // would invite a client to reason about who else is being waited for. Its
     // consequence — `loaded` — IS published, because "who is the room standing
     // about for" has to be readable off one snapshot.
-    "awaitsLoad"];
+    "awaitsLoad",
+    // THE WAY BACK IN (8.9). `reconnectKey` is a CREDENTIAL — on any
+    // broadcast snapshot it would let any client steal any body — and
+    // `awol` is the grace sweep's scratch. Each join reply carries the
+    // caller's OWN key top-level, beside `playerId`, on a sendSession that
+    // reaches one socket.
+    "reconnectKey", "awol"];
 
   function serializeRoom(room) {
     const players = {};
@@ -2392,6 +2412,30 @@ export function makeEngine(options = {}) {
     switch (type) {
       case "create": return handleCreate(sid, data);
       case "join": return handleJoin(sid, data);
+      // THE WAY BACK IN (8.9): a fresh session claims an AWOL body with the
+      // key its old link was handed at join. Key AND awol, both: the key
+      // alone must not let a second tab hijack a live man, and awol alone
+      // is not an invitation. Refusals are quiet errors — the client's next
+      // honest move either way is a plain join, which seats him (7.9b).
+      case "rejoin": {
+        const s = sessions.get(sid);
+        if (!s) return;
+        const room = rooms.get(String(data.code || "").toUpperCase());
+        if (!room) return sendSession(sid, { type: "error", data: { message: "Room not found. Check your code." } });
+        const key = String(data.key || "");
+        let claimed = null;
+        room.players.forEach((p) => {
+          if (!claimed && !p.bot && p.awol && key && p.reconnectKey === key) claimed = p;
+        });
+        if (!claimed) return sendSession(sid, { type: "error", data: { message: "That body is not yours to claim, or the grace has run out." } });
+        leaveRoomForSession(s);
+        claimed.awol = 0;
+        s.roomCode = room.code; s.playerId = claimed.id;
+        return sendSession(sid, { type: "join", data: {
+          playerId: claimed.id, reconnectKey: claimed.reconnectKey,
+          warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room),
+        } });
+      }
       case "quickplay": return handleQuickplay(sid, data);
       case "war_party": return handleWarParty(sid);
       case "solo": return handleSolo(sid, data);
@@ -2515,7 +2559,10 @@ export function makeEngine(options = {}) {
       // A victory flourish, relayed rather than trusted: the server validates
       // and throttles, then everyone in the room hears the one broadcast.
       case "emote": return withRoom(sid, (room, player) => handleEmote(room, player, data));
-      case "leave": return disconnectSession(sid);
+      // Deliberate: a pressed LEAVE is a surrender, not a drop, and must
+      // not be held AWOL — benchtest's watcher fixtures caught the first
+      // cut holding a man who had chosen to go (8.9).
+      case "leave": return disconnectSession(sid, true);
       case "ping": return sendSession(sid, { type: "pong" });
     }
   }
@@ -2800,7 +2847,7 @@ export function makeEngine(options = {}) {
     // The ground, named before anybody has readied up. See `dealGroundFor`.
     dealGroundFor(room);
     s.roomCode = code; s.playerId = pid;
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, reconnectKey: player.reconnectKey, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
   }
 
   function handleJoin(sid, data) {
@@ -2810,7 +2857,11 @@ export function makeEngine(options = {}) {
     const room = rooms.get(code);
     if (room && s.roomCode === room.code) {
       // already in this room — resend snapshot instead of duplicating
-      return sendSession(sid, { type: "join", data: { playerId: s.playerId, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
+      return sendSession(sid, { type: "join", data: {
+        playerId: s.playerId,
+        reconnectKey: (room.players.get(s.playerId) ?? room.seats?.get(s.playerId))?.reconnectKey,
+        warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room),
+      } });
     }
     leaveRoomForSession(s);
     if (!room) return sendSession(sid, { type: "error", data: { message: "Room not found. Check your code." } });
@@ -2840,7 +2891,7 @@ export function makeEngine(options = {}) {
       declareLoadWait(watcher, data.awaitLoad);
       room.seats.set(pid, watcher);
       s.roomCode = code; s.playerId = pid;
-      sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
+      sendSession(sid, { type: "join", data: { playerId: pid, reconnectKey: watcher.reconnectKey, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
       return;
     }
 
@@ -2849,7 +2900,7 @@ export function makeEngine(options = {}) {
     declareLoadWait(player, data.awaitLoad);
     room.players.set(pid, player);
     s.roomCode = code; s.playerId = pid;
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, reconnectKey: player.reconnectKey, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
     broadcast(room, { type: "player_joined", data: { playerId: pid, name: player.name } }, pid);
     sendLobbyUpdate(room);
   }
@@ -2899,7 +2950,7 @@ export function makeEngine(options = {}) {
 
     for (let i = 0; i < botCount; i++) addBot(room, i, difficulty);
 
-    sendSession(sid, { type: "join", data: { playerId: pid, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
+    sendSession(sid, { type: "join", data: { playerId: pid, reconnectKey: player.reconnectKey, warriorStats: WARRIOR_STATS, armsTable: ARMS, ...serializeRoom(room) } });
     // On sim time, like every other wait: a headless host that could join a
     // trial and never be dealt one is not a host of anything.
     if (autoStart) room.phaseAt = simMs + SOLO_DEAL_DELAY * 1000;
@@ -4894,6 +4945,9 @@ export function makeEngine(options = {}) {
       // advances on every step whatever any room is doing, so a phase deadline
       // is honoured on the same tick under a frame loop as under the timer.
       rooms.forEach(advancePhase);
+      // The AWOL grace (8.9), on the same clock as every other deadline: a
+      // dropped body is held, then leaves through the departure's own door.
+      rooms.forEach(sweepAwol);
     }
 
     for (const room of live) broadcast(room, { type: "game_state", data: serializeRoom(room) });
@@ -5449,7 +5503,54 @@ export function makeEngine(options = {}) {
     _rooms: rooms,
   };
 
-  function disconnectSession(sid) {
+  /**
+   * The room-side removal of one floor player, shared by the dropped-socket
+   * exit and the AWOL grace sweep (8.9) — one law for what a departure does
+   * to a room, whoever finally pronounces it.
+   */
+  function removeFromRoom(room, playerId) {
+    room.players.delete(playerId);
+    broadcast(room, { type: "player_left", data: { playerId } });
+    // The bench keeps the room alive here too — same rule, back door.
+    if (humanCount(room) === 0 && benchCount(room) === 0) {
+      rooms.delete(room.code);
+      return;
+    }
+    if (room.hostId === playerId) {
+      for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
+    }
+    if (room.state === "fighting" || room.state === "last_stand" || room.state === "countdown") checkRoundEnd(room);
+    // A MAN WHOSE SOCKET SHUT IS NOT A MAN TO WAIT FOR, and this is the
+    // path that matters: `leaveRoomForSession` is the polite exit, and a
+    // dropped connection comes through here. Without it the worst case is
+    // the full twelve seconds spent on somebody who is already gone,
+    // which is exactly the "one bad connection hangs seven people" the
+    // hold exists to avoid, arriving by the back door.
+    else if (room.state === "loading" && !stillLoading(room).length) {
+      room.phaseAt = 0;
+      startRound(room);
+    }
+    else sendLobbyUpdate(room);
+  }
+
+  /**
+   * THE GRACE SWEEP (8.9), run for every room on every step beside
+   * `advancePhase`. A man whose grace has run out leaves through
+   * `removeFromRoom` — the same door a departure has always used, so the
+   * round end, the host handoff and the room's death all happen exactly as
+   * if the drop had been pronounced at once, only later.
+   */
+  function sweepAwol(room) {
+    if (!room.players) return;
+    for (const [pid, p] of [...room.players.entries()]) {
+      if (p.awol && simMs - p.awol > AWOL_GRACE * 1000) {
+        p.awol = 0;
+        removeFromRoom(room, pid);
+      }
+    }
+  }
+
+  function disconnectSession(sid, deliberate = false) {
     const s = sessions.get(sid);
     if (!s) return;
     if (s.roomCode && s.playerId) {
@@ -5464,28 +5565,27 @@ export function makeEngine(options = {}) {
           sessions.delete(sid);
           return;
         }
-        room.players.delete(s.playerId);
-        broadcast(room, { type: "player_left", data: { playerId: s.playerId } });
-        // The bench keeps the room alive here too — same rule, back door.
-        if (humanCount(room) === 0 && benchCount(room) === 0) {
-          rooms.delete(room.code);
-        } else {
-          if (room.hostId === s.playerId) {
-            for (const [pid] of room.players) { if (!pid.startsWith("bot_")) { room.hostId = pid; break; } }
+        // THE WAY BACK IN (8.9): a floor human DROPPED mid-match is not
+        // removed — his body stands, marked AWOL, held for AWOL_GRACE so
+        // the same person can walk back into it with his `reconnectKey`
+        // (`rejoin`). Deliberate exits (the LEAVE button) skip the hold —
+        // a surrender is pronounced at once — and the lobby keeps the old
+        // immediacy: there is nothing to hold a body IN, and a lobby ghost
+        // would block a seat.
+        const p = deliberate ? null : room.players.get(s.playerId);
+        const active = room.state === "fighting" || room.state === "last_stand"
+          || room.state === "countdown" || room.state === "intermission" || room.state === "loading";
+        if (p && !p.bot && active) {
+          p.awol = simMs;
+          // The muster must not wait for a dead socket, exactly as before.
+          if (room.state === "loading" && p.awaitsLoad && !p.loaded) {
+            p.loaded = true;
+            if (!stillLoading(room).length) { room.phaseAt = 0; startRound(room); }
           }
-          if (room.state === "fighting" || room.state === "last_stand" || room.state === "countdown") checkRoundEnd(room);
-          // A MAN WHOSE SOCKET SHUT IS NOT A MAN TO WAIT FOR, and this is the
-          // path that matters: `leaveRoomForSession` is the polite exit, and a
-          // dropped connection comes through here. Without it the worst case is
-          // the full twelve seconds spent on somebody who is already gone,
-          // which is exactly the "one bad connection hangs seven people" the
-          // hold exists to avoid, arriving by the back door.
-          else if (room.state === "loading" && !stillLoading(room).length) {
-            room.phaseAt = 0;
-            startRound(room);
-          }
-          else sendLobbyUpdate(room);
+          sessions.delete(sid);
+          return;
         }
+        removeFromRoom(room, s.playerId);
       }
     }
     sessions.delete(sid);

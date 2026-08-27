@@ -424,6 +424,12 @@ export default function Page() {
    */
   const screenRef = useRef(screen);
   const playerIdRef = useRef(playerId);
+  /** THE WAY BACK IN (8.9): this body's private reconnect key, off the join
+   *  reply, presented on `rejoin` when the transport relinks. A ref — the
+   *  render never reads it, and a credential does not belong in state. */
+  const reconnectKeyRef = useRef<string | null>(null);
+  /** The room the key belongs to, for the same relink moment. */
+  const rejoinCodeRef = useRef<string | null>(null);
   const profileRef = useRef(profile);
   const busyRef = useRef(busy);
   useEffect(() => {
@@ -887,6 +893,8 @@ export default function Page() {
         const d = msg.data as unknown as (RoomState & { playerId: string });
         setPlayerId(d.playerId);
         playerIdRef.current = d.playerId;
+        reconnectKeyRef.current = (d as { reconnectKey?: string }).reconnectKey ?? null;
+        rejoinCodeRef.current = d.code;
         setRoomCode(d.code);
         setRoomState(stampSnapshot(d));
         setPayState("none");
@@ -1057,6 +1065,17 @@ export default function Page() {
         feed.push(d);
         break;
       }
+      // THE LINK IS BACK (8.9) — a synthetic event from the transport's own
+      // retry, never off the wire. The session is new, so the man walks back
+      // into his held body with the key his old link was handed at join; a
+      // refusal (the grace ran out) comes back as the engine's own error
+      // sentence, and his honest next move is a plain join — the bench.
+      case "relink": {
+        if (rejoinCodeRef.current && reconnectKeyRef.current) {
+          sendMsg("rejoin", { code: rejoinCodeRef.current, key: reconnectKeyRef.current });
+        }
+        break;
+      }
       case "error": {
         setBusy(false);
         const code = msg.data?.code as string | undefined;
@@ -1152,6 +1171,10 @@ export default function Page() {
   const leaveRoom = useCallback(() => {
     transportRef.current?.close();
     transportRef.current = null;
+    // A deliberate leave surrenders the way back in (8.9): a later link
+    // flicker must not march the man back into a fight he walked out of.
+    reconnectKeyRef.current = null;
+    rejoinCodeRef.current = null;
     // A button still down when the link closes must not swallow the first
     // press of the next fight by looking like a key that never rose.
     heldActionsRef.current = {};

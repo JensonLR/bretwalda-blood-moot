@@ -19,6 +19,43 @@ export class Transport {
   private emit(msg: GameMsg) { this.handlers.forEach((h) => { try { h(msg); } catch { /* ok */ } }); }
 
   private abandoned = false;
+  private relinking = false;
+
+  /**
+   * THE RETRY (8.9). Three goes at a fresh WebSocket on a short backoff,
+   * then the HTTP/SSE fallback — either way the SESSION is new, so success
+   * emits a synthetic `relink` and the page presents its `reconnectKey` to
+   * walk back into the body the server has been holding. Emitted, not
+   * handled here: the transport does not know what room the player was in,
+   * and should not.
+   */
+  private async relink(): Promise<void> {
+    if (this.relinking || this.closedByUser) return;
+    this.relinking = true;
+    try {
+      for (const wait of [800, 1600, 3200]) {
+        await new Promise((r) => setTimeout(r, wait));
+        if (this.closedByUser) return;
+        try {
+          this.abandoned = false;
+          await this.connectWS();
+          this.mode = "ws";
+          this.emit({ type: "relink", data: {} });
+          return;
+        } catch { /* the next lap */ }
+      }
+      if (this.closedByUser) return;
+      try {
+        await this.connectHTTP();
+        this.mode = "http";
+        this.emit({ type: "relink", data: {} });
+      } catch {
+        this.emit({ type: "error", data: { message: "Could not reach the war council. Check your connection and retry." } });
+      }
+    } finally {
+      this.relinking = false;
+    }
+  }
 
   async connect(): Promise<void> {
     // Try WebSocket first (preferred low-latency)
@@ -69,7 +106,15 @@ export class Transport {
         ws.onclose = () => {
           if (this.pingTimer) clearInterval(this.pingTimer);
           if (this.abandoned || this.closedByUser) return;
-          if (this.mode === "ws") this.emit({ type: "error", data: { code: "lost", message: "Link to the war council dropped — reopening..." } });
+          if (this.mode === "ws") {
+            // "reopening..." USED TO BE A LIE (8.9): nothing retried, the
+            // server pronounced the drop, and the man's fight was over
+            // behind a message promising otherwise. The retry is real now,
+            // and the server holds his body for AWOL_GRACE while it runs —
+            // see `relink` below, which is what actually walks him back in.
+            this.emit({ type: "error", data: { code: "lost", message: "Link to the war council dropped — reopening..." } });
+            void this.relink();
+          }
         };
         ws.onerror = () => {
           if (!settled) { settled = true; clearTimeout(timer); reject(new Error("ws_error")); }
