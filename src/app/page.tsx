@@ -13,7 +13,7 @@ import type {
   GamePlayer, WarriorClass, GameMode, Team, BestOf, RoundResult, RoundScoreBy, MatchEndData,
   EmoteId, BracketMatch,
 } from "../game/types";
-import { WARRIOR_STATS, ABILITY_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
+import { WARRIOR_STATS, ABILITY_LORE, ARMS_LORE, ARENA_NAMES, getLevelTitle, xpForLevel, ROUND_OPTIONS, DEFAULT_BEST_OF } from "../game/types";
 import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // The profile marks — backlog 5.5. The set and the unlock rules live in one
 // shared module so this screen, the glyph component and `tools/marktest.mjs`
@@ -1951,6 +1951,7 @@ export default function Page() {
           <WarriorPanel
             stack
             warriorClass={roomState.players[playerId]?.warriorClass ?? "warden"}
+            arms={roomState.players[playerId]?.arms}
             appearance={profile.appearance}
             name={playerName || "Warrior"}
             note="This is exactly how you appear to everyone in battle — armour, helm, cloak and paint."
@@ -1970,6 +1971,29 @@ export default function Page() {
               selected={roomState.players[playerId]?.warriorClass}
               onSelect={(c) => sendMsg("select_class", { warriorClass: c })}
             />
+            {/* THE ARMS (7.7b): the selected class's two weapons, the server's
+                own choice highlighted — `arms` is replicated sim state, so
+                the cards read what the engine holds, never a local copy. The
+                class picker above re-arms to the new class's default, which
+                these cards then show. */}
+            {(() => {
+              const myClass = roomState.players[playerId]?.warriorClass;
+              if (!myClass) return null;
+              const rows = ARMS_LORE[myClass];
+              const held = roomState.players[playerId]?.arms ?? rows[0].id;
+              return (
+                <div className="grid grid-cols-2 gap-3">
+                  {rows.map((r) => (
+                    <button key={r.id} data-arms={r.id}
+                      onClick={() => sendMsg("select_class", { warriorClass: myClass, arms: r.id })}
+                      className={`card card-interactive p-3 text-left ${held === r.id ? "card-selected" : ""}`}>
+                      <div className="font-display text-[13px] tracking-wider text-amber-100">{r.name}</div>
+                      <div className="mt-1 text-[11px] leading-snug text-[#d9cdb2]/90">{r.blurb}</div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </section>
 
           {/* teams */}
@@ -3022,9 +3046,11 @@ function ScreenHead({ overline, title, lede, center, onBack, aside }: {
 
 // The lobby and the muster show the identical "this is you" block. Shared so
 // the two cannot drift apart, since they are the same promise made twice.
-function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack }: {
+function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack, arms }: {
   warriorClass: WarriorClass; appearance: Appearance; name: string;
   note: string; onCustomise: () => void;
+  /** THE ARMS (7.7b): what the mannequin holds — the server's own value. */
+  arms?: string;
   /**
    * Keep the mannequin above the words at every width instead of turning to a
    * row at `sm`. For the lobby's 23rem rail, where a 42% stage is about 9rem
@@ -3039,7 +3065,7 @@ function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack
   return (
     <div className={`card card-noble card-glow flex flex-col items-center gap-4 p-5 sm:p-6 ${row}`}>
       <div className={`w-full ${stack ? "" : "sm:w-[42%] sm:shrink-0"}`}>
-        <CharacterPreview warriorClass={warriorClass} appearance={appearance} height={stack ? 260 : 210} />
+        <CharacterPreview warriorClass={warriorClass} appearance={appearance} arms={arms} height={stack ? 260 : 210} />
       </div>
       <div className={`flex min-w-0 flex-1 flex-col items-center gap-2 text-center ${col}`}>
         <div className="label-overline">YOUR WARRIOR</div>

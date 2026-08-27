@@ -76,7 +76,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
 import {
-  buildCharacter, buildWeaponForClass, buildShield, shieldBoard, peopleOf,
+  buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
   type TeamSide,
@@ -598,7 +598,12 @@ export function createWarriorRig(
   // this whole feature exists because a cosmetic must not be able to decide
   // whether a stranger can tell you from the enemy.
   const team = teamOf(player);
-  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id), team);
+  // THE ARMS (7.7b): replicated sim state like `team` — the engine validates
+  // it on select_class, a client cannot write it. It picks the weapon, the
+  // off hand's burden, whether the board is carried, and the grips the
+  // builder fits the fists to.
+  const arms = player.arms;
+  const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id), team, arms);
   const body = built.group;
 
   // Crown height, measured now — before a weapon is in the fist, because the
@@ -623,13 +628,18 @@ export function createWarriorRig(
   // stopped naming the mount, in which case `handOf` has returned a sleeve.
   const gripPitch = rightHand.rotation.x || GRIP_PITCH_FALLBACK;
 
-  const weapon = buildWeaponForClass(cls, materials, ap.weapon);
+  const weapon = buildWeaponForClass(cls, materials, ap.weapon, arms);
   weapon.name = "weapon";
   rightHand.add(weapon);
 
+  // The off hand's burden is the LOADOUT's now (7.7b), not the class's: the
+  // runekeeper's twin seaxes as ever, but also the warden's sidearm seax and
+  // the twin bearded axes — one rule, `buildOffhandFor`, shared with the
+  // grips the builder already fitted.
   let offhand: THREE.Group | undefined;
-  if (cls === "runekeeper") {
-    offhand = buildWeaponForClass("runekeeper", materials, ap.weapon);
+  const off = buildOffhandFor(cls, materials, ap.weapon, arms);
+  if (off) {
+    offhand = off;
     offhand.scale.setScalar(0.9);
     leftHand.add(offhand);
   }
@@ -639,7 +649,10 @@ export function createWarriorRig(
   const offGrip = leftHand.position.clone();
 
   let shield: THREE.Group | undefined;
-  if (cls === "huscarl") {
+  // The board is the SWORD's companion: a huscarl on the dane axe has both
+  // hands on the haft and the board slung — that trade is the whole of his
+  // alternate loadout, and the engine prices it (blockReduction 0.80→0.30).
+  if (cls === "huscarl" && arms !== "dane_axe") {
     // Hung on the forearm bone but positioned at the *grip*, which is the whole
     // of the fix: this is a centre-grip shield — one bar behind the boss, no
     // forearm straps — so the fist belongs at the boss and the disc belongs

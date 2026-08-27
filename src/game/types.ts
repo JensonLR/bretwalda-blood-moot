@@ -69,6 +69,32 @@ export type DeathCause = "blow" | "fire" | "execution";
  * at or below `healthFrac` of his health takes all of him in one stroke.
  */
 export const EXECUTION = { healthFrac: 0.35, score: 50 } as const;
+
+/**
+ * THE ARMS, for the screens (7.7b) — ids, names and what a player is
+ * trading, mirrored from engine.mjs's own `ARMS` table (the WARRIOR_STATS
+ * arrangement: the engine owns the numbers, this copy owns the words; the
+ * ids must match or the picker sends ids the engine refuses). The first row
+ * of each class is its default.
+ */
+export const ARMS_LORE: Record<WarriorClass, ReadonlyArray<{ id: string; name: string; blurb: string }>> = {
+  huscarl: [
+    { id: "sword_board", name: "SWORD & BOARD", blurb: "The pattern-welded blade behind the lime board — the best guard in the game." },
+    { id: "dane_axe", name: "DANE AXE", blurb: "Two hands, the board slung: reach and a gate-ram blow, but steel comes through a haft-parry." },
+  ],
+  warden: [
+    { id: "gar", name: "THE GAR", blurb: "The spear — a line the length of the ring. Keep them at its point." },
+    { id: "sword_seax", name: "SWORD & SEAX", blurb: "Close-work: half the gar's reach traded for a faster stroke, a wider sweep and a seax to catch steel." },
+  ],
+  runekeeper: [
+    { id: "twin_seax", name: "TWIN SEAXES", blurb: "The fastest hands in the game, fighting from inside every guard." },
+    { id: "hand_axes", name: "HAND AXES", blurb: "A shade slower and they land like they mean it — knockdown weight a seax cannot exert." },
+  ],
+  berserker: [
+    { id: "dane_axe", name: "THE GREAT AXE", blurb: "The mountain blow. Everything the class is, on one haft." },
+    { id: "twin_beards", name: "TWIN BEARDS", blurb: "A bearded axe in each fist: smaller wounds at a pace the class has never had." },
+  ],
+};
 /**
  * What a warrior's body is doing. The server owns every one of these and a
  * client may present them but never decide them.
@@ -276,6 +302,11 @@ export interface GamePlayer {
   id: string;
   name: string;
   warriorClass: WarriorClass;
+  /** THE ARMS (7.7b): which of his class's weapons he bears. Replicated sim
+   *  state like `team` — chosen on `select_class`, validated server-side
+   *  against the class's own `ARMS` rows. Optional because packets predating
+   *  the table simply read as the class default. */
+  arms?: string;
   team: Team;
   ready: boolean;
   position: Vec3;

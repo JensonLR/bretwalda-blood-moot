@@ -10881,7 +10881,7 @@ function axeBlade(
  * `rig.reach` in anim.ts is measured off this geometry's bounding box, so the
  * blade trail follows it without being told.
  */
-export function buildAxe(materials?: CharacterMaterials, styleId?: string): THREE.Group {
+export function buildAxe(materials?: CharacterMaterials, styleId?: string, form: "dane" | "hand" = "dane"): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
@@ -10896,7 +10896,16 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string): THRE
   const ash = P.shaft!;
   const leather = P.grip!;
 
-  const headY = 0.86;
+  // THE HAND FORM (7.7b): the one-hand bearded axe the arms table calls
+  // "hand_axes"/"twin_beards" — the same forge as the Dane axe (same edge
+  // curve family, same eye, same langets) at a hand axe's real proportions:
+  // ~0.55 m of haft against 1.5, and a head 0.74 the size, which keeps the
+  // beard's concave throat readable at 30 px. The `dane` branch keeps every
+  // literal it always had, byte for byte — the shipped silhouette is a
+  // measured baseline and moves for nobody.
+  const hand = form === "hand";
+  const K = hand ? 0.74 : 1;
+  const headY = hand ? 0.30 : 0.86;
 
   // Haft with an oval section — and the oval's long axis runs **along the cut**,
   // which is the way round a real haft is shaped so the hand knows where the edge
@@ -10924,7 +10933,13 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string): THRE
   // again at the butt for the lower hand to pull against, which is the shape
   // below: full section under the head where the langets ride, 41 mm at the
   // grip, 56 mm at the butt.
-  part.add(shell([
+  part.add(shell(hand ? [
+    { y: headY + 0.05, hw: 0.021, hd: 0.017 },
+    { y: 0.16, hw: 0.019, hd: 0.0155 },
+    { y: 0.00, hw: 0.0165, hd: 0.0135 },
+    { y: -0.12, hw: 0.0175, hd: 0.0145 },
+    { y: -0.20, hw: 0.021, hd: 0.0175 },
+  ] : [
     { y: headY + 0.06, hw: 0.026, hd: 0.020 },
     { y: 0.44, hw: 0.024, hd: 0.019 },
     { y: 0.12, hw: 0.0205, hd: 0.0160 },
@@ -10932,7 +10947,10 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string): THRE
     { y: -0.34, hw: 0.024, hd: 0.0195 },
     { y: -0.56, hw: 0.028, hd: 0.023 },
   ], 8, { capTop: true, capBottom: true }), ash);
-  part.add(shell([
+  part.add(shell(hand ? [
+    { y: -0.185, hw: 0.025, hd: 0.021 },
+    { y: -0.215, hw: 0.021, hd: 0.018 },
+  ] : [
     { y: -0.54, hw: 0.034, hd: 0.030 },
     { y: -0.58, hw: 0.030, hd: 0.026 },
   ], 8, { capTop: true, capBottom: true }), iron);
@@ -10963,21 +10981,25 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string): THRE
   ];
   // The root line sits inside the socket's own waist, so the blade's inboard rim
   // is buried in it rather than ending in a lit 38 mm plate.
-  part.add(axeBlade(edge, root, 0.019), steel, xf(0, headY, 0));
+  // The hand form scales the whole blade table by K — same curve family,
+  // same beard throat, a head a one-hand swing can carry.
+  const scaled = (pts: Array<[number, number]>): Array<[number, number]> =>
+    K === 1 ? pts : pts.map(([x, y]) => [x * K, y * K] as [number, number]);
+  part.add(axeBlade(scaled(edge), scaled(root), 0.019 * K), steel, xf(0, headY, 0));
 
   // The eye: a forged collar round the haft with a lip at each end and a waist
   // between them. The lips are the point — they are two hard horizontal edges at
   // the one place on the weapon where the light is not raking, and without them
   // the socket was a 96 mm-deep lozenge that read as a fist round the haft and
   // stood proud of the blade it is supposed to carry.
-  part.add(shell([
+  part.add(shell(([
     { y: 0.092, hw: 0.030, hd: 0.020 },
     { y: 0.079, hw: 0.036, hd: 0.025 },
     { y: 0.058, hw: 0.032, hd: 0.022 },
     { y: -0.058, hw: 0.032, hd: 0.022 },
     { y: -0.079, hw: 0.036, hd: 0.025 },
     { y: -0.092, hw: 0.030, hd: 0.020 },
-  ], 10, { power: 2.5 }), iron, xf(0, headY, 0));
+  ]).map((s) => (K === 1 ? s : { y: s.y * 0.8, hw: s.hw * 0.85, hd: s.hd * 0.85 })), 10, { power: 2.5 }), iron, xf(0, headY, 0));
 
   // Langets: two straps down the faces the blade lies in, tapering to a point,
   // riveted through. They used to be a pair of 50 mm-deep boxes standing 5 mm
@@ -10990,18 +11012,24 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string): THRE
     [0.0, -0.145], [-0.007, -0.108], [-0.012, -0.052],
   ];
   for (const s of [-1, 1]) {
-    part.add(lensPrism(langet, 0.007, 0.3), iron, xf(s * 0.024, headY - 0.10, 0, 0, s * Math.PI / 2, 0));
-    for (const ry of [-0.01, -0.09]) {
-      part.add(ball(0.005, 6), iron, xf(s * 0.029, headY - 0.10 + ry, 0, 0, 0, 0, 0.6, 1, 1));
+    part.add(lensPrism(K === 1 ? langet : langet.map(([x, y]) => [x * 0.8, y * 0.8] as [number, number]),
+      0.007, 0.3), iron, xf(s * 0.024 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8), 0, 0, s * Math.PI / 2, 0));
+    for (const ry of (K === 1 ? [-0.01, -0.09] : [-0.008, -0.07])) {
+      part.add(ball(0.005, 6), iron, xf(s * 0.029 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8) + ry, 0, 0, 0, 0, 0.6, 1, 1));
     }
   }
   // Grip binding: 3 mm of hide over the waisted wood, not 8. It used to stand
   // proud enough to be a collar rather than a wrap, and it is the surface the
   // fist is fitted to — `HAND_GRIP.berserker` is this radius and nothing else.
-  part.add(shell([
+  // The hand form's binding sits at the haft's own waist, y = 0 on a weapon
+  // whose whole haft is 0.55 m.
+  part.add(shell(hand ? [
+    { y: 0.07, hw: 0.0195, hd: 0.0160 },
+    { y: -0.07, hw: 0.0200, hd: 0.0165 },
+  ] : [
     { y: 0.09, hw: 0.0235, hd: 0.0190 },
     { y: -0.09, hw: 0.0240, hd: 0.0195 },
-  ], 8, { wall: 0.004 }), leather, xf(0, 0.02, 0));
+  ], 8, { wall: 0.004 }), leather, xf(0, hand ? 0 : 0.02, 0));
 
   // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90°
   // anticlockwise too."
@@ -11497,11 +11525,34 @@ export function buildShield(
  * weapon has no people — a style is a purchase, worn identically under every
  * livery and both team colours.
  */
-export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMaterials, styleId?: string): THREE.Group {
+export function buildWeaponForClass(cls: WarriorClass, materials?: CharacterMaterials, styleId?: string, arms?: string): THREE.Group {
+  // THE ARMS (7.7b): the chosen weapon outranks the class assumption. An
+  // absent or unknown id falls through to the class's own default, so every
+  // caller written before the arms table — thumbnails, probes, the armoury
+  // mannequin — keeps building exactly what it built.
+  switch (arms) {
+    case "dane_axe": return buildAxe(materials, styleId);
+    case "sword_board":
+    case "sword_seax": return buildSword(materials, styleId);
+    case "gar": return buildSpear(materials, styleId);
+    case "twin_seax": return buildDagger(materials, styleId);
+    case "hand_axes":
+    case "twin_beards": return buildAxe(materials, styleId, "hand");
+  }
   if (cls === "runekeeper") return buildDagger(materials, styleId);
   if (cls === "berserker") return buildAxe(materials, styleId);
   if (cls === "warden") return buildSpear(materials, styleId);
   return buildSword(materials, styleId);
+}
+
+/** The off hand's burden under each loadout (7.7b): a second blade to
+ *  build, or null when it carries a shield or nothing. Read by `anim.ts`
+ *  beside the mounting rules; the grip radii live in `ARMS_GRIP`. */
+export function buildOffhandFor(cls: WarriorClass, materials?: CharacterMaterials, styleId?: string, arms?: string): THREE.Group | null {
+  if (arms === "sword_seax") return buildDagger(materials, styleId);
+  if (arms === "hand_axes" || arms === "twin_beards") return buildAxe(materials, styleId, "hand");
+  if (cls === "runekeeper" && (!arms || arms === "twin_seax")) return buildDagger(materials, styleId);
+  return null;
 }
 
 /**
@@ -11534,6 +11585,27 @@ const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
   runekeeper: { main: 0.014, off: 0.014 },
   berserker: { main: 0.021, off: null },
 };
+
+/**
+ * The grip under each ARMS loadout (7.7b), same convention: radius the fist
+ * closes on, `off: null` for an open hand. Every default row restates its
+ * class's own HAND_GRIP entry so `gripsFor` has one lookup order; the
+ * alternates are read off the geometry the same way the originals were —
+ * the hand axe's binding is 0.017 over the waisted wood, the seax 0.014.
+ * A huscarl on the dane axe has an OPEN off hand: the board is slung.
+ */
+const ARMS_GRIP: Record<string, { main: number; off: number | null }> = {
+  sword_board: { main: 0.017, off: 0.017 },
+  dane_axe: { main: 0.021, off: null },
+  gar: { main: 0.024, off: null },
+  sword_seax: { main: 0.017, off: 0.014 },
+  twin_seax: { main: 0.014, off: 0.014 },
+  hand_axes: { main: 0.017, off: 0.017 },
+  twin_beards: { main: 0.017, off: 0.017 },
+};
+export function gripsFor(cls: WarriorClass, arms?: string): { main: number; off: number | null } {
+  return (arms && ARMS_GRIP[arms]) || HAND_GRIP[cls] || HAND_GRIP.warden;
+}
 
 // ============================================================
 // Dismemberment
@@ -12411,7 +12483,7 @@ export interface BuiltCharacter {
   wornTrunk: ReadonlyArray<{ sts: readonly Station[]; power: number }>;
 }
 
-function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string, team: TeamSide): string {
+function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail: CharacterDetail, lib: string, team: TeamSide, arms?: string): string {
   return [
     // `team` is in the key because it repaints seven of the materials the
     // merged parts are grouped by. Leaving it out would not be a slow cache —
@@ -12419,7 +12491,10 @@ function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail:
     // the SAME material to every build with a matching signature, so the second
     // man to spawn in a war band would come out of the pool wearing the first
     // man's side.
-    lib, detail, cls, accents, team,
+    // `arms` (7.7b) is in it for the same reason at a smaller scale: the
+    // grip radius shapes the hands, and a cached fist closed on a spear
+    // handed to a man holding a seax is the same wrong-pool defect.
+    lib, detail, cls, accents, team, arms ?? "",
     ap.helm, ap.hairStyle, ap.hairColor, ap.beardStyle, ap.beardColor,
     ap.cloak, ap.armorColor, ap.warPaint,
   ].join("|");
@@ -12789,6 +12864,13 @@ export function buildCharacter(
    * argument and not a field of `Appearance`.
    */
   team: TeamSide = "none",
+  /**
+   * THE ARMS (7.7b): the loadout the fists are fitted to — see `gripsFor`.
+   * Sim state like `team` (chosen on `select_class`, validated server-side),
+   * never a field of `Appearance` for `team`'s own reason. Absent builds the
+   * class default's hands, which are the hands every caller always got.
+   */
+  arms?: string,
 ): BuiltCharacter {
   // WHICH PEOPLE THIS MAN IS DRESSED AS. Off `ap`, and not a seventh argument,
   // because it is a COSMETIC: it is stored in a profile, edited when a man
@@ -13330,7 +13412,7 @@ export function buildCharacter(
   // seed as well, because a face that varies is a face that cannot be shared. That
   // split is the difference between eight unique warriors costing one extra head
   // each and costing eight of everything. ---
-  const base = materials ? `${signatureOf(cls, ap, accents, detail, libraryId(M), team)}|s${step}` : null;
+  const base = materials ? `${signatureOf(cls, ap, accents, detail, libraryId(M), team, arms)}|s${step}` : null;
   const headSig = base ? `${base}|f${identity}` : null;
 
   function storeFor(signature: string): Map<string, MergedPart> {
@@ -14792,7 +14874,7 @@ export function buildCharacter(
   // ==========================================================
   // ARMS — pivot at the shoulder joint
   // ==========================================================
-  const grips = HAND_GRIP[cls] ?? HAND_GRIP.warden;
+  const grips = gripsFor(cls, arms);
   const armPivots: THREE.Group[] = [];
   for (const side of [1, -1]) {
     const pivot = new THREE.Group();

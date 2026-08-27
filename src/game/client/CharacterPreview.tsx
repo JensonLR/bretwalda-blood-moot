@@ -63,9 +63,12 @@ export default function CharacterPreview({
    * bearing that serves the shop's cloak tab shows him from behind.
    */
   turn,
+  /** THE ARMS (7.7b): what the mannequin holds. Absent = class default. */
+  arms,
 }: {
   warriorClass: WarriorClass;
   appearance?: Appearance;
+  arms?: string;
   height?: number | string;
   className?: string;
   focusSlot?: string;
@@ -130,7 +133,7 @@ export default function CharacterPreview({
     const mount = mountRef.current;
     if (!mount) return;
     const stage = createArmouryStage(mount, {
-      warriorClass, faceSeed,
+      warriorClass, faceSeed, arms,
       appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint, weapon, people },
     });
     if (!stage) { setFailed(true); return; }
@@ -147,10 +150,10 @@ export default function CharacterPreview({
   // ---- loadout ----
   useEffect(() => {
     stageRef.current?.setLoadout({
-      warriorClass, faceSeed,
+      warriorClass, faceSeed, arms,
       appearance: { helm, hairStyle, hairColor, beardStyle, beardColor, cloak, armorColor, warPaint, weapon, people },
     });
-  }, [warriorClass, faceSeed, helm, hairStyle, hairColor, beardStyle, beardColor,
+  }, [warriorClass, faceSeed, arms, helm, hairStyle, hairColor, beardStyle, beardColor,
       cloak, armorColor, warPaint, weapon, people]);
 
   useEffect(() => { stageRef.current?.setLens(lens); }, [lens]);

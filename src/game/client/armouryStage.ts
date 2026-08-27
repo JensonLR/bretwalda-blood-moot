@@ -485,6 +485,9 @@ export interface StageLoadout {
    * ever drew — so the shop showed every player the same man.
    */
   faceSeed: number;
+  /** THE ARMS (7.7b): the loadout the mannequin holds. Absent draws the
+   *  class default — every preview built before the table is unchanged. */
+  arms?: string;
 }
 
 export interface StageHandle {
@@ -537,6 +540,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   function buildRig(): void {
     if (rig) { rig.dispose(); rig = null; }
     player = mannequinPlayer(loadout.warriorClass, loadout.appearance);
+    // The mannequin bears the chosen arms (7.7b) the way a real player would
+    // carry them off the wire — the rig reads `player.arms` and nothing else.
+    player.arms = loadout.arms;
     // The seed goes in as the id's hash would: `createWarriorRig` interns
     // `player.id`, so the mannequin is stamped by giving it the player's own
     // id-shaped identity here instead.
@@ -731,9 +737,13 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     get ready() { return ready; },
     get turn() { return turn; },
     setLoadout(next) {
+      // `arms` is in the comparison from day one — `sameAppearance` earned
+      // its own recorded defect by learning `weapon` and `people` late, and
+      // this comparator is not collecting the same scar.
       const same =
         next.warriorClass === loadout.warriorClass &&
         next.faceSeed === loadout.faceSeed &&
+        (next.arms ?? "") === (loadout.arms ?? "") &&
         sameAppearance(next.appearance, loadout.appearance);
       loadout = next;
       if (!same) buildRig();
