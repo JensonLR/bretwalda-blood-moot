@@ -1459,11 +1459,35 @@ const UNDYED_SAT = (() => {
  * `factionread` §5.3 reads zero at both.
  */
 const ROSE_FADE = 0.04;
+/**
+ * Over how much lightness above `ROSE_LIT` the release COMPLETES. See the
+ * settlement note inside `roseFade` for why completion is the whole point.
+ */
+const ROSE_FULL = 0.12;
 function roseFade(h: number, l: number): number {
   const off = Math.abs(((h + 0.5) % 1) - 0.5);
   const red = Math.max(0, Math.min(1, (ROSE_ARC - off) / ROSE_TAPER));
   if (red <= 0 || l <= ROSE_LIT) return 1;
-  return 1 - red * (1 - Math.exp(-(l - ROSE_LIT) / ROSE_FADE));
+  // THE RELEASE COMPLETES NOW — the rose settlement, 27 Aug 2026. The old
+  // curve was asymptotic (`1 − red·(1 − e^…)`), so a pale hide on the red
+  // arc always kept a madder REMNANT: a few points of chroma at high L*,
+  // which is the rose corridor's own definition (C* between the undyed
+  // shirt's 14.8 and 0.92·L*). The clocked baseline's worst rows were
+  // exactly that remnant — the BUFF at +24.9/+29.8 points of rose over its
+  // own unsworn floor, leading every one of §7.1b/7.1c's tables — and the
+  // buff's own dye row proved blameless ("bit-identical across a halved
+  // sat": the vat releases it, and what remained was THIS curve's tail).
+  //
+  // So the fade is a smoothstep that REACHES zero at ROSE_LIT + ROSE_FULL:
+  // past it a released surface reads byte-identical sworn and unsworn,
+  // which is the floor §7.1b measures against — the vat cannot hold a pale
+  // hide, wholly, rather than almost. Near the floor the smoothstep starts
+  // GENTLER than the exponential did, which is the leg wraps' side of the
+  // bargain (ROSE_LIT is 0.44 and not 0.38 for them): a wrap just over the
+  // floor keeps MORE of its honest madder than before, and deep dye stays
+  // a colour while washed dye stops existing.
+  const t = Math.min(1, (l - ROSE_LIT) / ROSE_FULL);
+  return 1 - red * (t * t * (3 - 2 * t));
 }
 
 const BAND_KNEE = 0.42;
