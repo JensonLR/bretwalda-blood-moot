@@ -118,7 +118,7 @@ export class Transport {
         };
         ws.onerror = () => {
           if (!settled) { settled = true; clearTimeout(timer); reject(new Error("ws_error")); }
-          else if (!this.closedByUser) this.emit({ type: "error", data: { message: "Connection error." } });
+          else if (!this.closedByUser) this.emit({ type: "error", data: { message: "The link stumbled — holding your place while it recovers." } });
         };
       } catch (e) {
         clearTimeout(timer);

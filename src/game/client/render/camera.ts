@@ -7,7 +7,7 @@
 
 import * as THREE from "three";
 import {
-  getHandedness, lockFootMark, lockReticle, lockView, routeLook, subscribeHandedness,
+  getFeel, getHandedness, lockFootMark, lockReticle, lockView, routeLook, subscribeHandedness,
 } from "../input";
 import { LAYER_UNOCCLUDED, type FrameContext, type QualitySettings } from "./quality";
 // THE SAME SOLID LAW THE FEET OBEY (8.7). The jank strip photographed the
@@ -608,11 +608,17 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
 
     look(dx) {
+      // THE SENSITIVITY (8.9) is applied here, the one gate every look
+      // gesture passes — mouse and touch alike — BEFORE the lock reads it:
+      // a flick's meaning must not depend on a comfort dial, so the gain
+      // scales the hand's motion, and `routeLook` judges the scaled motion
+      // the same way it always has.
+      //
       // Offered to the lock first. With a man held it takes the whole of it and
       // spends it on choosing WHICH man; with nobody held it hands it straight
       // back and this is free-look, unchanged. The lock's own corrections do
       // not come through here — they are not the player asking for anything.
-      yaw += routeLook(dx);
+      yaw += routeLook(dx * getFeel().sensitivity);
     },
 
     setMode(next) {
@@ -642,6 +648,11 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     },
 
     shake(intensity) {
+      // The shake toggle (8.9), enforced at the source: an impulse never
+      // banked is an impulse no frame can spend. Accessibility, not a
+      // nerf — nothing the shake conveys is information the HUD does not
+      // also say in numbers and marks.
+      if (!getFeel().shake) return;
       shakeAmount = Math.max(shakeAmount, intensity);
     },
 

@@ -46,6 +46,7 @@
  * that matrix is measured under this brain.
  */
 import { makeEngine, WARRIOR_STATS } from "../src/game/engine.mjs";
+import { BYNAMES } from "../src/game/names.mjs";
 
 const argv = process.argv.slice(2);
 const argOf = (name, dflt) => {
@@ -207,8 +208,18 @@ head("1. A difficulty is a BRAIN, never a sheet");
   const skills = bots.map((b) => b.aiSkill);
   check("...and what DOES change is the brain, and it is monotone",
     skills[0] < skills[1] && skills[1] < skills[2], `aiSkill ${skills.join(" < ")}`);
+  // MEMBERSHIP, not one realisation. This claim used to demand "the Young"
+  // and "the Grim" literally — pool index 0 under one pinned stream — and
+  // any upstream change in draw order failed it against names that were
+  // doing exactly what the feature promises. That is this repo's own
+  // recorded ruler failure ("a gate pinned ONE seed and printed one
+  // realisation of a stochastic process as a property"). The property is
+  // that each rung draws its byname from ITS OWN pool, and the pools are
+  // disjoint — so the byname alone tells a player which brain he faces.
   check("...and the man is told which he is fighting, in his name",
-    bots[0].name.endsWith("the Young") && bots[2].name.endsWith("the Grim"),
+    BYNAMES.recruit.some((s) => bots[0].name.endsWith(s))
+    && BYNAMES.warrior.some((s) => bots[1].name.endsWith(s))
+    && BYNAMES.jarl.some((s) => bots[2].name.endsWith(s)),
     bots.map((b) => b.name).join(", "));
   eng.stop();
 }

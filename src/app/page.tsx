@@ -1083,7 +1083,7 @@ export default function Page() {
         // During gameplay or lobby, silently swallow transient link errors —
         // the transports keep the session alive; don't scare the player.
         if (inMenu || busyRef.current) {
-          showError((msg.data?.message as string) || "Something went wrong");
+          showError((msg.data?.message as string) || "The moot went quiet — try that once more.");
         } else if (code === "lost") {
           // soft banner only if we genuinely need action
           showError("Link flickered — try re-entering the room if things look wrong.");
@@ -1124,6 +1124,15 @@ export default function Page() {
    * the opposite of the bug being fixed. The ref is read at cleanup time, so it
    * sees whatever transport is live then rather than whatever was live at mount.
    */
+  // THE PWA SHELL's worker (8.9): registered once, fire-and-forget. The
+  // worker caches nothing (see public/sw.js for why a live-wire game must
+  // not) — it exists so the install prompt has a worker to point at.
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => { /* not offered: fine */ });
+    }
+  }, []);
+
   useEffect(() => () => {
     transportRef.current?.close();
     transportRef.current = null;

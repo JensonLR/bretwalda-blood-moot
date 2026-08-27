@@ -23,6 +23,7 @@ import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
   getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, subscribeLock,
+  getFeel, getServerFeel, setFeel, subscribeFeel,
   type MobileFlags,
 } from "./input";
 import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
@@ -464,6 +465,8 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
   const [api, setApi] = useState<QualityApi | null>(qualityApi);
   const [status, setStatus] = useState<QualityStatus | null>(null);
   const list = useRef<HTMLDivElement | null>(null);
+  // The feel store (8.9), the handedness idiom: identity is the version.
+  const feelNow = useSyncExternalStore(subscribeFeel, getFeel, getServerFeel);
 
   // KEEP THE CHOSEN ROW ON SCREEN, and this is a capture finding rather than a
   // precaution. "Automatic" is last in QUALITY_CHOICES and it is also the row
@@ -547,6 +550,36 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             throw that away and measure again, or pick a tier yourself.
           </div>
         )}
+
+        {/* THE FEEL (8.9): look speed and the shake, beside the tiers
+            because this panel is already the mid-fight settings door — the
+            moment a player wants any of it is the moment the fight feels
+            wrong, and a second menu would be a second place to not find it. */}
+        <div className="rounded-lg border border-stone-700/70 bg-black/40 px-3 py-2.5">
+          <div className="text-[10px] font-bold tracking-[0.18em] text-[#a89a7c]">THE FEEL</div>
+          <label className="mt-1.5 flex items-center gap-3">
+            <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">LOOK SPEED</span>
+            <input type="range" min={50} max={200} step={5}
+              value={Math.round(feelNow.sensitivity * 100)}
+              onChange={(e) => setFeel({ sensitivity: Number(e.target.value) / 100 })}
+              aria-label="Look sensitivity"
+              className="min-w-0 flex-1 accent-amber-500" />
+            <span className="w-11 shrink-0 text-right font-mono text-[11px] text-[#d9cdb2]">{Math.round(feelNow.sensitivity * 100)}%</span>
+          </label>
+          <label className="mt-2 flex items-center gap-3">
+            <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">CAMERA SHAKE</span>
+            <button role="switch" aria-checked={feelNow.shake}
+              onClick={() => setFeel({ shake: !feelNow.shake })}
+              className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition ${
+                feelNow.shake ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[#a89a7c]"
+              }`}>
+              {feelNow.shake ? "ON" : "OFF"}
+            </button>
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[#7d7057]">
+              Off loses nothing the HUD does not also say.
+            </span>
+          </label>
+        </div>
 
         <div ref={list} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
           {choices.map((c) => {

@@ -637,6 +637,61 @@ export function swingDirection(): AttackDirection | null {
 }
 
 // ---------------------------------------------------------------------------
+// The feel (backlog 8.9): look sensitivity and the camera shake
+// ---------------------------------------------------------------------------
+//
+// The handedness store's own idiom, for the handedness store's own reason:
+// the consumers — `camera.ts`'s look and shake — are nowhere near the panel
+// that sets them. Persisted per device; a locked-down browser costs the
+// defaults and the controls still work for the match in hand.
+
+export interface Feel {
+  /** Look gain multiplier, clamped 0.5–2. 1 is the shipped feel exactly. */
+  sensitivity: number;
+  /** Camera shake on hits. Off is an accessibility door, not a nerf —
+   *  nothing the shake conveys is information the HUD does not also say. */
+  shake: boolean;
+}
+const FEEL_KEY = "bretwalda.feel";
+const DEFAULT_FEEL: Feel = { sensitivity: 1, shake: true };
+let feel: Feel = DEFAULT_FEEL;
+let feelLoaded = false;
+const feelListeners = new Set<() => void>();
+
+export function subscribeFeel(onChange: () => void): () => void {
+  feelListeners.add(onChange);
+  if (!feelLoaded) {
+    feelLoaded = true;
+    try {
+      const raw = window.localStorage.getItem(FEEL_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as Partial<Feel>;
+        feel = {
+          sensitivity: Math.min(2, Math.max(0.5, Number(p.sensitivity) || 1)),
+          shake: p.shake !== false,
+        };
+      }
+    } catch { /* private mode: the defaults */ }
+    if (feel !== DEFAULT_FEEL) for (const l of feelListeners) l();
+  }
+  return () => { feelListeners.delete(onChange); };
+}
+
+/** Snapshot. The object is replaced on every set, so identity is the version. */
+export function getFeel(): Feel { return feel; }
+export function getServerFeel(): Feel { return DEFAULT_FEEL; }
+
+export function setFeel(next: Partial<Feel>): void {
+  feel = {
+    sensitivity: Math.min(2, Math.max(0.5, Number(next.sensitivity ?? feel.sensitivity) || 1)),
+    shake: next.shake ?? feel.shake,
+  };
+  feelLoaded = true;
+  try { window.localStorage.setItem(FEEL_KEY, JSON.stringify(feel)); } catch { /* per-match only */ }
+  for (const l of feelListeners) l();
+}
+
+// ---------------------------------------------------------------------------
 // Handedness
 // ---------------------------------------------------------------------------
 //

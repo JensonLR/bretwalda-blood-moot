@@ -58,6 +58,12 @@ export async function generateMetadata(): Promise<Metadata> {
   }
   return {
     metadataBase: origin ? new URL(origin) : undefined,
+    // THE PWA SHELL (8.9): the manifest + icons that make the game
+    // installable on a phone's home screen — the mobile path's first door,
+    // and the dual-platform posture (PLATFORM-PATH.md) made real on the
+    // cheap side. The icons are forged by tools/mkicon.mjs.
+    manifest: "/manifest.webmanifest",
+    icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
     title: "BRETWALDA: BLOOD MOOT — Anglo-Saxon Arena Combat",
     description: "Multiplayer sword fighting in Dark Age Britain. Raise a blood moot, call your friends to the field, and fight for your kingdom.",
     // NO `images` ON EITHER OF THESE, DELIBERATELY.
@@ -88,6 +94,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // The installed shell's chrome, in the game's own stone.
+  themeColor: "#1c1712",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
