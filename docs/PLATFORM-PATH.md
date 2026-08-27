@@ -322,3 +322,51 @@ group chat" pitch exactly.
 **The thing to resist:** doing 6 before 4. Steam reviews are permanent, and the
 only way to know whether this game is ready for a paying audience is to measure
 whether a free one comes back.
+
+---
+
+## 8. The scaffold, laid — the owner's ruling of 26 Aug 2026
+
+The ruling, verbatim: *"Scaffold now then mobile, everything built or added
+after with this in mind so we can almost seamlessly be able to list / sell
+the game on either platform."* Landed 27 Aug 2026 as three things, each the
+kind that survives a session:
+
+### 8.1 The laws, held mechanically
+
+`tools/platformcheck.mjs` (6/6, in the gate battery from today): the sim's
+`.mjs` modules touch no browser global and no renderer (one named seam,
+`tuition.mjs`, the guarded injected-store helper); client storage lives in
+ten named seam files only; no client fetch pins a deployment origin; no
+alert/confirm/prompt anywhere; the server reaches the renderer only through
+`db/catalogue` (the priced-shop seam, documented there). Every law names the
+platform cost of breaking it in its own comment. New seams are added IN THE
+TOOL, in a commit that says why.
+
+### 8.2 The account doors — one hoard, three keys
+
+The account IS the `players` row; the doors differ only in how a device
+proves it owns one:
+
+| Door | Key | State |
+|---|---|---|
+| Browser | `id + secret` in localStorage; the four recovery words carry it | SHIPPED, always was |
+| Steam | a Steamworks auth ticket, verified server-side, bound to `steam_id` | **column + unique index land now** (schema.ts + ensureSchema); the verify route needs a Steam app id and is deliberately NOT stubbed — a door that cannot check tickets must not open |
+| Mobile (PWA/store) | the same browser door; the platform keychain may hold the words | free with the PWA |
+
+Binding law: a Steam ticket binds to at most one row (`players_steam_id_idx`);
+a row carries at most one `steam_id`, written once. A Steam client whose
+ticket matches a row IS that profile — same hoard, same oath, same marks. A
+Steam client with no binding mints a profile exactly as a browser does, then
+binds. The recovery words keep working from every door, so the account walks
+across platforms in either direction.
+
+### 8.3 What deliberately did NOT land here, and why
+
+The Tauri build itself. This container cannot compile or run a webview
+wrapper, and a `desktop/` directory of unbuilt config would be the exact
+"asserted, never judged" artifact this repository keeps writing defects
+about. The wrapper is step 6 of §7's sequence, it needs a machine that can
+run it (the owner's, or CI), and the seam it depends on — §2, the headless
+sim — is DONE and now gated so it stays done. When the wrapper is built,
+`platformcheck` is the list of promises it can rely on.

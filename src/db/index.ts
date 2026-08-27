@@ -127,6 +127,12 @@ async function ensureSchema(db: Db): Promise<boolean> {
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS bindings jsonb`);
     // And the mute, for the same reason and by the same route.
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS muted boolean NOT NULL DEFAULT false`);
+    // THE STEAM DOOR (backlog 7.2): the column lands ahead of the route so
+    // every row is already the shape the wrapper needs. Nullable, unique
+    // below — one Steam account, one hoard. See schema.ts for the design.
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS steam_id text`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS players_steam_id_idx ON players (steam_id)`);
     await db.execute(sql`ALTER TABLE players ALTER COLUMN name SET DEFAULT ''`);
     await db.execute(sql`
       DO $$ BEGIN

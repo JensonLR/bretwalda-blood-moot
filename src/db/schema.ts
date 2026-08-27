@@ -93,9 +93,20 @@ export const players = pgTable("players", {
    * crowning. It is the one thing in this table that gold cannot buy.
    */
   bretwaldaSeasons: jsonb("bretwalda_seasons").$type<number[]>().notNull().default([]),
+  /**
+   * THE STEAM DOOR — backlog 7.2, the owner's ruling: one account, two
+   * doors. Null for every browser profile; set exactly once when a Steam
+   * client presents a verified Steamworks ticket and binds it to this row.
+   * The column lands NOW, ahead of the route, so every profile the game
+   * mints from this day is already the shape the wrapper needs — the
+   * verification half waits on a Steam app id and is designed in
+   * `docs/PLATFORM-PATH.md` §7. Unique: one Steam account, one hoard.
+   */
+  steamId: text("steam_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
+  uniqueIndex("players_steam_id_idx").on(t.steamId),
   uniqueIndex("players_recovery_code_idx").on(t.recoveryCode),
 ]);
 
