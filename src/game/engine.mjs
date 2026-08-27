@@ -2408,7 +2408,7 @@ export function makeEngine(options = {}) {
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);
         if (botsIn(room) >= botCapacity(room)) return;
         room.difficulty = room.difficulty || diff;
-        const late = addBot(room, botsIn(room), diff, data.warriorClass);
+        const late = addBot(room, botsIn(room), diff, data.warriorClass, data.arms);
         // A BOT ADDED INTO A RUNNING FIGHT WALKS IN DRESSED FOR IT. This
         // handler never had a lobby gate — the button that drives it lives in
         // the lobby — but `createPlayer` parks a man at the origin, which
@@ -2877,11 +2877,17 @@ export function makeEngine(options = {}) {
    * validated against WARRIOR_STATS here as well, because a bot with a class
    * that has no stats row is a null dereference in every tick after it.
    */
-  function addBot(room, idx, difficultyOverride, classOverride) {
+  function addBot(room, idx, difficultyOverride, classOverride, armsOverride) {
     const id = `bot_${randomUUID().slice(0, 8)}`;
     const cls = WARRIOR_STATS[classOverride] ? classOverride : BOT_CLASSES[idx % BOT_CLASSES.length];
     const diff = normalizeDifficulty(difficultyOverride, room.difficulty);
     const bot = createPlayer(id, "", cls, { ...BOT_APPEARANCES[idx % BOT_APPEARANCES.length] });
+    // ARMS override (7.7b), the classOverride's own shape and reason: it
+    // exists so `tools/armsprobe.mjs` can put an alternate loadout in the
+    // ring with the ENGINE's brain driving it — a harness that wrote its
+    // own fighter would measure the harness. Validated the same way the
+    // wire's select_class is; anything else keeps the class default.
+    if (ARMS[cls] && ARMS[cls][armsOverride]) bot.arms = armsOverride;
     bot.bot = true;
     bot.ready = true;
     // A NAME NOBODY ELSE IN THE RING IS WEARING. The old draw was a bare

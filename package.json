@@ -69,6 +69,7 @@
     "tourneyseen": "node tools/tourneyseen.mjs",
     "fighttest": "node tools/fighttest.mjs",
     "armshot": "node tools/armshot.mjs",
+    "armsprobe": "node tools/armsprobe.mjs",
     "clipseen": "node tools/clipseen.mjs"
   },
   "dependencies": {
