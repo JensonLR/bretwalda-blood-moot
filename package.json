@@ -62,7 +62,8 @@
     "marktest": "node tools/marktest.mjs",
     "scoretest": "node tools/scoretest.mjs",
     "platformcheck": "node tools/platformcheck.mjs",
-    "burhtest": "node tools/burhtest.mjs"
+    "burhtest": "node tools/burhtest.mjs",
+    "clipseen": "node tools/clipseen.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
