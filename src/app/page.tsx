@@ -345,6 +345,8 @@ export default function Page() {
     return d;
   }, []);
   const [matchResults, setMatchResults] = useState<MatchEndData | null>(null);
+  /** The last kill's clip, ready to save (7.9). Null until the canvas says. */
+  const [clipSave, setClipSave] = useState<(() => void) | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [linkMode, setLinkMode] = useState<"ws" | "http" | null>(null);
@@ -921,6 +923,7 @@ export default function Page() {
         setMatchResults(null);
         rematchRef.current = false;
         setRematchWaiting(false);
+        setClipSave(null);
         resetForge();
         setScreen("game");
         break;
@@ -1511,7 +1514,8 @@ export default function Page() {
           // MOOT door — that session starts with an empty ring on purpose. A
           // player who chose zero bots in TRAINING chose an empty ring and
           // keeps it; the HUD's callback fires either way, the guard is here.
-          onMootFoe={() => { if (mootSessionRef.current) sendMsg("add_bot", { difficulty: "recruit" }); }} />
+          onMootFoe={() => { if (mootSessionRef.current) sendMsg("add_bot", { difficulty: "recruit" }); }}
+          onClip={(f) => setClipSave(() => f)} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
             HUD's z-50 graphics-error overlay so a forge that will not wake
@@ -1618,6 +1622,7 @@ export default function Page() {
             war={warResult}
             marks={Object.fromEntries(Object.values(roomState.players).map((p) =>
               [p.id, (p as GamePlayer & { appearance?: Appearance }).appearance?.mark]))}
+            onSaveClip={clipSave}
             // The one refusal a player can undo from here. The oath is taken on
             // the map and the map is its own route, so this goes there rather
             // than growing a second swearing UI — one place decides who you
@@ -3660,7 +3665,7 @@ function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => 
   return <div className="badge-stone !text-[10px]" data-war={war.kind}>THE LEDGER IS SHUT — THIS FIGHT WILL NOT COUNT</div>;
 }
 
-function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, onFightAgain, onLeave, onSwear }: {
+function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, onFightAgain, onLeave, onSwear, onSaveClip }: {
   data: MatchEndData;
   playerId: string;
   /**
@@ -3670,6 +3675,13 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
    * draw no mark, which is also what most men wear.
    */
   marks?: Record<string, string | undefined>;
+  /**
+   * Saves the final kill's clip (7.9), recorded through the replay's own
+   * tuned lens. Null when no clip exists — no MediaRecorder, low tier, or
+   * the replay was too short to carry a frame — and then no button renders:
+   * a save button that answers "nothing saved" is worse than none.
+   */
+  onSaveClip?: (() => void) | null;
   payState: "none" | "asking" | "paid" | "unpaid";
   waiting: boolean;
   /** What the fight did to the war, for this man. `null` until the server says. */
@@ -3835,6 +3847,14 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
             LEAVE
           </button>
         </div>
+        {/* THE CLIP (7.9): the final kill, recorded through the replay's own
+            lens, one tap from saved. Renders only when a real clip exists. */}
+        {onSaveClip && (
+          <button onClick={onSaveClip} data-snd="confirm" data-clip="save"
+            className="btn-ghost w-full whitespace-nowrap !min-h-[2.9rem] !px-3 !text-[12px]">
+            <Flag size={14} className="shrink-0" /> SAVE THE CLIP — THE FINAL KILL, SLOW
+          </button>
+        )}
       </div>
     </div>
   );

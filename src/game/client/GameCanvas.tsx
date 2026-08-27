@@ -106,6 +106,16 @@ interface GameCanvasProps {
    */
   onReplay?: (s: { playing: boolean; atEnd: boolean; skip: () => void } | null) => void;
   /**
+   * THE CLIP (backlog 7.9). Every kill replay records itself to WebM through
+   * the replay's own tuned lens — the deathcam IS the camera work, which is
+   * the owner's whole bar for this feature. Called with a save-to-disk
+   * function once a clip is ready, and with null when a new fight makes the
+   * old clip stale. Absent on browsers without MediaRecorder, and never
+   * armed on the low tier — a phone that can barely draw the fight must not
+   * also encode it.
+   */
+  onClip?: (save: (() => void) | null) => void;
+  /**
    * Emote relays from the server, pushed by page.tsx and drained by the frame
    * loop, which is the only thing that can reach the rigs. A ref'd array for
    * the same reason roomState rides a ref: a flourish must not rebuild the
@@ -237,7 +247,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onClip }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -319,6 +329,24 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
    * in the record path allocates. See `replaytest` §5.
    */
   const replayBufRef = useRef(createReplayBuffer());
+  // The clip's machinery (7.9): the live recorder, its chunks, the finished
+  // blob, and a STABLE save function handed out through `onClip` — stable so
+  // the page can hold it in state without identity churn.
+  const clipRecRef = useRef<MediaRecorder | null>(null);
+  const clipChunksRef = useRef<Blob[]>([]);
+  const clipRef = useRef<Blob | null>(null);
+  const onClipRef = useRef(onClip);
+  useEffect(() => { onClipRef.current = onClip; });
+  const saveClipRef = useRef(() => {
+    const blob = clipRef.current;
+    if (!blob || typeof document === "undefined") return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bretwalda-clip.webm";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  });
   const killReplayRef = useRef(createKillReplay());
   /** The men of one recorded frame, rebuilt into this and reused. */
   const replayOutRef = useRef<ReplayPlayer[]>([]);
@@ -1287,6 +1315,48 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         onReplayRef.current?.(replaying
           ? { playing: true, atEnd: killReplayRef.current.atEnd, skip: () => killReplayRef.current.skip() }
           : null);
+        // THE CLIP (7.9): the replay records itself. Armed on the replay's
+        // opening frame, stopped on its last; the deathcam's lens does the
+        // camera work, which is the owner's whole bar. Low tier never
+        // records — encoding beside a fight it can barely draw is how a
+        // phone turns a replay into a slideshow.
+        if (replaying) {
+          const cv = canvasRef.current;
+          const canRecord = cv && typeof MediaRecorder !== "undefined"
+            && typeof (cv as HTMLCanvasElement & { captureStream?: (fps: number) => MediaStream }).captureStream === "function"
+            && ctx.quality.tier !== "low";
+          if (canRecord) {
+            try {
+              const stream = (cv as HTMLCanvasElement & { captureStream: (fps: number) => MediaStream }).captureStream(30);
+              const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+                .find((m) => MediaRecorder.isTypeSupported(m));
+              const rec = new MediaRecorder(stream, mime
+                ? { mimeType: mime, videoBitsPerSecond: 6_000_000 } : undefined);
+              clipChunksRef.current = [];
+              rec.ondataavailable = (e) => { if (e.data.size > 0) clipChunksRef.current.push(e.data); };
+              rec.onstop = () => {
+                const blob = new Blob(clipChunksRef.current, { type: rec.mimeType || "video/webm" });
+                clipChunksRef.current = [];
+                // A clip of nothing is not a clip: a few KB means the stream
+                // never carried a frame, and offering it would hand the
+                // player an unplayable file with the game's name on it.
+                if (blob.size > 16384) {
+                  clipRef.current = blob;
+                  onClipRef.current?.(saveClipRef.current);
+                  // A readback for `tools/replayseen.mjs`, the same shape as
+                  // `__bretwaldaReplay` below. Nothing in the game reads it.
+                  (window as unknown as Record<string, unknown>).__bretwaldaClip =
+                    { bytes: blob.size, mime: blob.type };
+                }
+              };
+              rec.start(250);
+              clipRecRef.current = rec;
+            } catch { clipRecRef.current = null; }
+          }
+        } else if (clipRecRef.current) {
+          try { if (clipRecRef.current.state === "recording") clipRecRef.current.stop(); } catch { /* gone */ }
+          clipRecRef.current = null;
+        }
       }
 
       const verdict = matchEndRef.current;
