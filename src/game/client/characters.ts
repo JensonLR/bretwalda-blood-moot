@@ -12494,7 +12494,18 @@ function signatureOf(cls: WarriorClass, ap: Appearance, accents: number, detail:
     // `arms` (7.7b) is in it for the same reason at a smaller scale: the
     // grip radius shapes the hands, and a cached fist closed on a spear
     // handed to a man holding a seax is the same wrong-pool defect.
-    lib, detail, cls, accents, team, arms ?? "",
+    //
+    // AND THE PEOPLE (8.9), which was the handover's standing "worth
+    // checking" and was a LIVE ROUND: with team "none" — every free-for-all
+    // — `wornBy` dyes the body's linen, leather and hood by allegiance, the
+    // cache stores material WITH geometry, and two identically-kitted men
+    // of different kingdoms shared one dyed body: the second wore the
+    // first's colours. `peopleOf` narrows the unsworn to "none", so every
+    // appearance written before the field keys exactly as it always did.
+    // (`ap.weapon` — the FINISH — is the note's other half and genuinely
+    // does NOT belong here: styles re-temper the weapon mesh, which is
+    // mounted outside the merged body and never enters this pool.)
+    lib, detail, cls, accents, team, arms ?? "", peopleOf(ap),
     ap.helm, ap.hairStyle, ap.hairColor, ap.beardStyle, ap.beardColor,
     ap.cloak, ap.armorColor, ap.warPaint,
   ].join("|");
