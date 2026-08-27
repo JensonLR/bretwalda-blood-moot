@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { clientKey, localMode, rateLimit, readBody, serverOk, tooMany } from "@/db/api";
-import { refreshFront, warRoll, warSelf, warView, installWarLedger } from "@/db/war";
+import { refreshFront, warRoll, statRoll, warSelf, warView, installWarLedger, type StatRollAxis } from "@/db/war";
 import { hearthOf, hearthRoll } from "@/db/hearths";
 
 export const runtime = "nodejs";
@@ -43,7 +43,20 @@ export async function POST(req: NextRequest) {
   const self = body.id && body.secret ? await warSelf(body.id, body.secret) : null;
   // The roll rides the same read, opt-in, so the landing's dispatch fetch —
   // which wants only the headline — never pays for fifty rows it will not draw.
-  const roll = body.roll === true ? await warRoll() : null;
+  //
+  // 7.6's axes ride the same opt-in: `rollAxis` picks deeds (the season's
+  // crown order — the default this screen has always shown), or the lifetime
+  // wins/kills/honour boards; `rollPeople` narrows deeds to one banner and
+  // `rollWeek` to the last seven days. Junk values fall back to the deeds
+  // roll rather than erroring — a leaderboard request is never worth a 400.
+  const axis = typeof body.rollAxis === "string" ? body.rollAxis : "deeds";
+  const roll = body.roll !== true ? null
+    : axis === "wins" || axis === "kills" || axis === "honour"
+      ? await statRoll(axis as StatRollAxis)
+      : await warRoll(50, {
+        people: typeof body.rollPeople === "string" ? body.rollPeople : undefined,
+        windowMs: body.rollWeek === true ? 7 * 86_400_000 : undefined,
+      });
   const hearth = self?.hearthId ? await hearthOf(self.hearthId) : null;
   const hearthsOfSeason = body.roll === true ? await hearthRoll() : null;
   return serverOk({ war: view, self, roll, hearth, hearths: hearthsOfSeason });

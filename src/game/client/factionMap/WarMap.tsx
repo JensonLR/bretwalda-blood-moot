@@ -25,6 +25,7 @@
    ========================================================================== */
 
 import React, { useMemo, useState } from "react";
+import { seasonName } from "@/game/war.mjs";
 import { LAND, NEIGHBOUR, MAP_W, MAP_H, CLIP_DALRIATA } from "./britain";
 import { DRAWN, DRAWN_BY_ID, FIELD, PEOPLE_NAME } from "./territories";
 
@@ -332,7 +333,10 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
       <div className="warmap-side">
         {/* ---- where the season stands ---- */}
         <section className="wm-panel">
-          <div className="section-title">Season {data.season.index}</div>
+          {/* Named, not numbered (7.6): an index is a database's word for a
+              season. The number rides small beside it for the ledgers. */}
+          <div className="section-title">The Season of {seasonName(data.season.index)}</div>
+          <div className="wm-season-index">season {data.season.index}</div>
           <div className="wm-season">
             <div className="wm-bar"><span style={{ width: `${(elapsed * 100).toFixed(1)}%` }} /></div>
             <p className="wm-season-note">
@@ -604,6 +608,7 @@ const CSS = `
 .wm-panel .section-title { margin-bottom: 0.5rem; }
 
 .wm-season { margin-bottom: 0.6rem; }
+.wm-season-index { margin: -0.35rem 0 0.35rem; font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(238,226,204,0.42); }
 .wm-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .wm-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--garnet), var(--gilt)); }
 .wm-season-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: rgba(238,226,204,0.72); }

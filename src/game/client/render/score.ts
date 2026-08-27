@@ -177,18 +177,30 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
   droneCut.frequency.value = 320;
   droneCut.Q.value = 0.4;
   droneGain.connect(droneCut).connect(bus);
-  const oscs: OscillatorNode[] = [];
-  for (const [ratio, detune] of [[1, -4], [1, 4], [1.5, -3], [1.5, 3]] as const) {
-    const o = ac.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.value = root * ratio;
-    o.detune.value = detune;
-    const g = ac.createGain();
-    g.gain.value = ratio === 1 ? 0.30 : 0.20;
-    o.connect(g).connect(droneGain);
-    o.start();
-    oscs.push(o);
-  }
+  // The oscillators run ONLY while the score is audible. Not thrift theatre:
+  // a silent-by-gain drone is still four live source nodes — soundtest's
+  // node-budget audit counts them, and a phone's battery pays for them in
+  // every menu with the music down. Oscillators are one-shot after stop(),
+  // so the drone is rebuilt on demand; four saws cost nothing to mint.
+  let oscs: OscillatorNode[] = [];
+  const ensureDrone = (): void => {
+    if (oscs.length) return;
+    for (const [ratio, detune] of [[1, -4], [1, 4], [1.5, -3], [1.5, 3]] as const) {
+      const o = ac.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = root * ratio;
+      o.detune.value = detune;
+      const g = ac.createGain();
+      g.gain.value = ratio === 1 ? 0.30 : 0.20;
+      o.connect(g).connect(droneGain);
+      o.start();
+      oscs.push(o);
+    }
+  };
+  const stopDrone = (): void => {
+    for (const o of oscs) { try { o.stop(); } catch { /* stopped */ } o.disconnect(); }
+    oscs = [];
+  };
 
   // ---- the drum voice ----
   const drumGain = ac.createGain();
@@ -265,10 +277,20 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
   let stepAt = 0;
   let step = 0;
 
+  let droneStopTimer: ReturnType<typeof setTimeout> | null = null;
   const applyPlan = (next: ScorePlan, ramp: number): void => {
     const now = ac.currentTime;
+    const audible = next.drone > 0 || next.drum > 0 || next.lyre > 0;
+    if (audible && next.drone > 0) {
+      if (droneStopTimer) { clearTimeout(droneStopTimer); droneStopTimer = null; }
+      ensureDrone();
+    } else if (oscs.length && !droneStopTimer) {
+      // Fade first, stop after: killing the sources at the gain's own ramp
+      // length keeps the tail clean and returns the nodes to the budget.
+      droneStopTimer = setTimeout(() => { droneStopTimer = null; stopDrone(); }, ramp * 4000 + 300);
+    }
     bus.gain.cancelScheduledValues(now);
-    bus.gain.setTargetAtTime(next.drone > 0 || next.drum > 0 || next.lyre > 0 ? 1 : 0, now, ramp);
+    bus.gain.setTargetAtTime(audible ? 1 : 0, now, ramp);
     droneGain.gain.setTargetAtTime(next.drone, now, ramp);
     droneCut.frequency.setTargetAtTime(next.droneCut, now, ramp * 2);
     plan = next;
@@ -310,7 +332,8 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
       }
     },
     dispose() {
-      for (const o of oscs) { try { o.stop(); } catch { /* stopped */ } }
+      if (droneStopTimer) { clearTimeout(droneStopTimer); droneStopTimer = null; }
+      stopDrone();
       bus.disconnect();
     },
   };

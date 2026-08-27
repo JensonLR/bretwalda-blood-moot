@@ -931,6 +931,38 @@ export function newWar({ seasonIndex = 1, startedAt = 0, holdings = null, thresh
 export const SEASON_DAYS = 35;
 
 /**
+ * THE SEASON'S NAME — backlog 7.6, the owner's ruling: "named seasons". An
+ * index is a database's word for a season; a NAME is a society's. Twelve
+ * names in a fixed cycle, deterministic off the index, so every client and
+ * every ledger agrees without a byte of extra state — and a returning player
+ * hears "the Season of the Long Frost" and knows at once whether it is the
+ * one he fought in.
+ *
+ * The names are the year as the period lived it: musters, frosts, harvests
+ * and the work of war, not fantasy flourish. Cycle position 1 is season 1.
+ */
+const SEASON_NAMES = [
+  "the First Muster",
+  "the Broken Shield",
+  "the Long Frost",
+  "the Burned Bridge",
+  "the Red Harvest",
+  "the Silent Ford",
+  "the Oath Kept",
+  "the Wolf Winter",
+  "the High Tide",
+  "the Grey March",
+  "the Torn Banner",
+  "the Last Sheaf",
+];
+
+/** "the Season of <name>", or just the name — deterministic for any index ≥ 1. */
+export function seasonName(index) {
+  const i = Math.max(1, Math.floor(Number(index) || 1));
+  return SEASON_NAMES[(i - 1) % SEASON_NAMES.length];
+}
+
+/**
  * Bank one man's contested points into one territory, ONCE.
  *
  * IDEMPOTENCY IS A PROPERTY OF THIS RULE, not only of a unique index in

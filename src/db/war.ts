@@ -876,11 +876,24 @@ export interface WarRollSeat {
  * differently from the crown would be a lie about the one thing the season
  * decides. Fifty seats, because a roll is read, not scrolled.
  */
-export async function warRoll(limit = 50): Promise<WarRollSeat[] | null> {
+export async function warRoll(
+  limit = 50,
+  opts: {
+    /** Only this people's men. The crown's order within one banner. */
+    people?: string;
+    /** Only deeds banked in the last this-many ms — "this week's roll". */
+    windowMs?: number;
+  } = {},
+): Promise<WarRollSeat[] | null> {
   const cap = Math.max(1, Math.min(50, Math.round(limit)));
   return withDb(async (db) => {
     const season = await currentSeason(db);
     if (!season) return [];
+    const wheres = [eq(warLedger.seasonId, season.id)];
+    if (opts.people && (PEOPLES as readonly string[]).includes(opts.people)) wheres.push(eq(warLedger.people, opts.people));
+    if (opts.windowMs && Number.isFinite(opts.windowMs) && opts.windowMs > 0) {
+      wheres.push(sql`${warLedger.createdAt} >= ${new Date(Date.now() - Math.min(opts.windowMs, 90 * 86_400_000))}`);
+    }
     const table = await db.select({
       profileId: warLedger.profileId,
       people: warLedger.people,
@@ -890,7 +903,7 @@ export async function warRoll(limit = 50): Promise<WarRollSeat[] | null> {
       bretwaldaSeasons: players.bretwaldaSeasons,
     }).from(warLedger)
       .innerJoin(players, eq(players.id, warLedger.profileId))
-      .where(eq(warLedger.seasonId, season.id))
+      .where(and(...wheres))
       .groupBy(warLedger.profileId, warLedger.people, players.name, players.bretwaldaSeasons)
       .having(sql`sum(${warLedger.points}) > 0`)
       .orderBy(
@@ -906,6 +919,47 @@ export async function warRoll(limit = 50): Promise<WarRollSeat[] | null> {
       points: Number(r.points) || 0,
       matches: Number(r.matches) || 0,
       title: titleFor(r.people, Number(r.points) || 0),
+      bretwaldaSeasons: Array.isArray(r.bretwaldaSeasons) ? r.bretwaldaSeasons : [],
+    }));
+  }, null);
+}
+
+/** The lifetime axes the owner's 7.6 ruling names beside the deeds. */
+export type StatRollAxis = "wins" | "kills" | "honour";
+
+/**
+ * THE LIFETIME ROLLS — top warriors by wins, kills or honour, off the
+ * `players` table itself. Unlike the deeds roll these have no season identity:
+ * a man's five hundred kills were not all cut this month, and the table says
+ * so by its own name in the UI. The `people` swatch is his sworn allegiance —
+ * the war's own column, not the client's livery — and the unsworn ride as
+ * "none", which the UI draws unbannered rather than hiding: an unsworn
+ * warrior's thousand wins are still a thousand wins.
+ *
+ * Tie-break: the axis, then matches ASCENDING (fewer fights for the same
+ * count is the better warrior), then id — total order, same law as the crown.
+ */
+export async function statRoll(axis: StatRollAxis, limit = 50): Promise<WarRollSeat[] | null> {
+  const cap = Math.max(1, Math.min(50, Math.round(limit)));
+  const col = axis === "wins" ? players.wins : axis === "kills" ? players.kills : players.honour;
+  return withDb(async (db) => {
+    const table = await db.select({
+      name: players.name,
+      allegiance: players.allegiance,
+      value: col,
+      matches: players.matches,
+      bretwaldaSeasons: players.bretwaldaSeasons,
+    }).from(players)
+      .where(sql`${col} > 0`)
+      .orderBy(desc(col), asc(players.matches), asc(sql`${players.id}::text`))
+      .limit(cap);
+    return table.map((r, i) => ({
+      seat: i + 1,
+      name: r.name || "A nameless warrior",
+      people: r.allegiance && (PEOPLES as readonly string[]).includes(r.allegiance) ? r.allegiance : "none",
+      points: Number(r.value) || 0,
+      matches: Number(r.matches) || 0,
+      title: null,
       bretwaldaSeasons: Array.isArray(r.bretwaldaSeasons) ? r.bretwaldaSeasons : [],
     }));
   }, null);

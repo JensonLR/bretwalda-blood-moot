@@ -32,6 +32,8 @@ declare module "@/game/war.mjs" {
     readonly cap: number;
   };
   export const SEASON_DAYS: number;
+  /** The season's name in the fixed twelve-name cycle. Deterministic, index ≥ 1. */
+  export function seasonName(index: number): string;
   export const FRONT_WINDOW: number;
 
   /** Degrees to britain.ts's 639 x 1000 frame. Web Mercator, same fit. */

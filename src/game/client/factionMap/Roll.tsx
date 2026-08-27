@@ -20,6 +20,8 @@
 import React from "react";
 import { FIELD, PEOPLE_NAME } from "./territories";
 
+const PEOPLE_CHIPS = ["saxon", "norse", "briton", "pict"] as const;
+
 export interface RollSeat {
   seat: number;
   name: string;
@@ -30,23 +32,82 @@ export interface RollSeat {
   bretwaldaSeasons: number[];
 }
 
-export default function Roll({ roll, selfName }: {
+/** What the roll can be asked to rank — backlog 7.6's axes and scopes. */
+export interface RollAsk {
+  axis: "deeds" | "wins" | "kills" | "honour";
+  /** Deeds only: one banner, or null for all four. */
+  people: string | null;
+  /** Deeds only: the last seven days rather than the whole season. */
+  week: boolean;
+}
+
+export const ROLL_ASK_DEFAULT: RollAsk = { axis: "deeds", people: null, week: false };
+
+const AXES: ReadonlyArray<{ id: RollAsk["axis"]; label: string; note: string }> = [
+  { id: "deeds", label: "DEEDS", note: "in the crown's own order" },
+  { id: "wins", label: "WINS", note: "of all time, fewest fights first among equals" },
+  { id: "kills", label: "KILLS", note: "of all time" },
+  { id: "honour", label: "HONOUR", note: "of all time" },
+];
+
+export default function Roll({ roll, selfName, ask, onAsk }: {
   roll: RollSeat[] | null;
   /** The viewer's own name, to mark his seat. Names collide; a collision only
    *  marks a second row, which flatters nobody and misleads about nothing. */
   selfName: string | null;
+  /** What this roll was asked to rank. Optional — old callers get the deeds. */
+  ask?: RollAsk;
+  /** Present makes the chips render; absent, the roll is a plain reading. */
+  onAsk?: (next: RollAsk) => void;
 }) {
-  if (!roll || roll.length === 0) return null;
+  const a = ask ?? ROLL_ASK_DEFAULT;
+  // The chips render even over an empty answer — a filter that vanished the
+  // moment it filtered everything out could never be un-picked.
+  if ((!roll || roll.length === 0) && !onAsk) return null;
+  const axisNote = AXES.find((x) => x.id === a.axis)?.note ?? "";
 
   return (
     <section className="roll" aria-label="The roll of honour">
       <style>{CSS}</style>
       <div className="roll-head">
         <span className="label-overline">The Roll of Honour</span>
-        <span className="roll-note">the season&rsquo;s fifty, in the crown&rsquo;s own order</span>
+        <span className="roll-note">
+          {a.axis === "deeds"
+            ? `${a.week ? "the week's" : "the season's"} fifty, ${axisNote}`
+            : `the fifty by ${a.axis}, ${axisNote}`}
+        </span>
       </div>
+      {onAsk && (
+        <div className="roll-asks">
+          {AXES.map((x) => (
+            <button key={x.id} type="button"
+              className={`roll-chip${a.axis === x.id ? " roll-chip-on" : ""}`}
+              aria-pressed={a.axis === x.id}
+              onClick={() => onAsk({ ...a, axis: x.id })}>{x.label}</button>
+          ))}
+          {a.axis === "deeds" && (
+            <>
+              <span className="roll-sep" />
+              <button type="button" className={`roll-chip${a.week ? " roll-chip-on" : ""}`}
+                aria-pressed={a.week}
+                onClick={() => onAsk({ ...a, week: !a.week })}>THIS WEEK</button>
+              {PEOPLE_CHIPS.map((p) => (
+                <button key={p} type="button"
+                  className={`roll-chip${a.people === p ? " roll-chip-on" : ""}`}
+                  aria-pressed={a.people === p}
+                  onClick={() => onAsk({ ...a, people: a.people === p ? null : p })}>
+                  {PEOPLE_NAME(p).toUpperCase()}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      {(!roll || roll.length === 0) && (
+        <p className="roll-empty">Nobody yet, by this reckoning.</p>
+      )}
       <ol className="roll-list">
-        {roll.map((s) => {
+        {(roll ?? []).map((s) => {
           const field = FIELD[s.people];
           const mine = !!selfName && s.name === selfName;
           return (
@@ -115,4 +176,14 @@ const CSS = `
   border-top-color: transparent;
 }
 .roll-mine + .roll-seat { border-top-color: transparent; }
+.roll-asks { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin: 0.1rem 0 0.5rem; }
+.roll-chip {
+  border: 1px solid rgba(217,164,65,0.28); border-radius: 999px;
+  background: rgba(0,0,0,0.35); color: rgba(238,226,204,0.62);
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.12em;
+  padding: 0.28rem 0.55rem; min-height: 1.7rem; cursor: pointer;
+}
+.roll-chip-on { background: rgba(217,164,65,0.18); color: var(--gilt-lit); border-color: rgba(217,164,65,0.6); }
+.roll-sep { width: 1px; align-self: stretch; margin: 0.15rem 0.15rem; background: rgba(217,164,65,0.18); }
+.roll-empty { margin: 0.2rem 0 0.3rem; font-size: 0.74rem; color: rgba(238,226,204,0.5); }
 `;

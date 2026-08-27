@@ -46,7 +46,7 @@ if (DB) process.env.DATABASE_URL = DB;   // read at module load by src/db/index.
 console.log(DB ? "[warsay] against a real database" : "[warsay] no WAR_TEST_DB — the shape only, see the header");
 
 const { bankMatchDetailed, titleFor, warRoll } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
-const { TERRITORIES } = await import(pathToFileURL(resolve(ROOT, "src/game/war.mjs")).href);
+const { TERRITORIES, seasonName, SEASON_DAYS } = await import(pathToFileURL(resolve(ROOT, "src/game/war.mjs")).href);
 
 const REPORT = (over = {}) => ({
   roomCode: "WARSAY", mode: "ffa",
@@ -623,6 +623,21 @@ engine.stop?.();
     `dealt ${dealt}, arena=${wj?.data.arena}`);
   engine.stop?.();
 }
+}
+
+// ---- the season's name (7.6: "named seasons") ----
+{
+  const names = new Set();
+  for (let i = 1; i <= 12; i++) names.add(seasonName(i));
+  check("twelve seasons carry twelve distinct names", names.size === 12,
+    [...names].slice(0, 3).join(" / ") + " ...");
+  check("the cycle is deterministic and total",
+    seasonName(1) === seasonName(13) && seasonName(7) === seasonName(7)
+      && typeof seasonName(0) === "string" && typeof seasonName(-3) === "string"
+      && typeof seasonName(999) === "string",
+    "index 13 wraps to 1; junk indexes still name a season");
+  check("a season is weeks, not days or years", SEASON_DAYS >= 28 && SEASON_DAYS <= 42,
+    `${SEASON_DAYS} days`);
 }
 
 console.log(`\n${fail ? "FAIL" : "PASS"}: the war says what it did — ${pass}/${pass + fail}\n`);

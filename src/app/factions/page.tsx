@@ -26,7 +26,7 @@ import type { Appearance } from "@/game/client/characters";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
-import Roll, { type RollSeat } from "@/game/client/factionMap/Roll";
+import Roll, { ROLL_ASK_DEFAULT, type RollAsk, type RollSeat } from "@/game/client/factionMap/Roll";
 import Hearth, { type HearthViewData, type HearthSeatData } from "@/game/client/factionMap/Hearth";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
@@ -223,6 +223,27 @@ export default function WarPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * THE ROLL'S ASK (7.6): which axis and scope the leaderboard ranks. A
+   * change refetches ONLY the roll — a slim POST with the same body shape —
+   * so flipping between DEEDS and KILLS never re-reads the whole map.
+   */
+  const [rollAsk, setRollAsk] = useState<RollAsk>(ROLL_ASK_DEFAULT);
+  const askRoll = useCallback((next: RollAsk) => {
+    setRollAsk(next);
+    void fetch("/api/war", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        roll: true, rollAxis: next.axis,
+        rollPeople: next.people ?? undefined, rollWeek: next.week || undefined,
+      }),
+    })
+      .then((res) => res.json() as Promise<{ roll?: RollSeat[] | null }>)
+      .then((body) => { setRoll(Array.isArray(body.roll) ? body.roll : []); })
+      .catch(() => { /* the last roll stands; a failed filter is not an outage */ });
+  }, []);
+
   const sworn = self?.allegiance as PeopleId | null | undefined;
   const locked = !!self?.locked && !!sworn;
 
@@ -311,7 +332,7 @@ export default function WarPage() {
             <Hearth sworn={self?.allegiance ?? null} hearth={hearth} seats={hearthSeats}
               credentials={storedProfile()} onChanged={() => void load()} />
           )}
-          {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} />}
+          {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} ask={rollAsk} onAsk={askRoll} />}
 
           {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
               placement is the point. The map plate is taller than a 390px

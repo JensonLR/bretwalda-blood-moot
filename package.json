@@ -59,7 +59,8 @@
     "replaytest": "node tools/replaytest.mjs",
     "replayseen": "node tools/replayseen.mjs",
     "doctor": "npx react-doctor@latest",
-    "marktest": "node tools/marktest.mjs"
+    "marktest": "node tools/marktest.mjs",
+    "scoretest": "node tools/scoretest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
