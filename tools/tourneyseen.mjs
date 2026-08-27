@@ -61,12 +61,17 @@ try {
   // The moot runs itself: bots duel, the idle host dies in his own duel.
   // The first break that shows the tree is the claim; watch for it while
   // the whole moot runs down.
-  const sawTree = await page.waitForSelector("[data-bracket]", { timeout: 240000 }).then(() => true).catch(() => false);
-  (sawTree ? good : bad)("the round break draws the TREE — [data-bracket] stood");
-  if (sawTree) {
-    const next = await page.evaluate(() => document.body.textContent?.includes("NEXT") ?? false);
-    (next ? good : bad)("the tree marks the NEXT duel");
-  }
+  // ONE atomic read for the tree and its mark: this claim's first run found
+  // the tree with one query and asked for NEXT with a second, and on a box
+  // this slow the 5-second break had ended between them — the ruler raced
+  // the break and lost. The NEXT badge lives INSIDE [data-bracket], so the
+  // element's own text in the same frame is the whole answer.
+  const tree = await page.waitForFunction(() => {
+    const el = document.querySelector("[data-bracket]");
+    return el ? { next: el.textContent?.includes("NEXT") ?? false } : null;
+  }, null, { timeout: 240000 }).then((h) => h.jsonValue()).catch(() => null);
+  (tree ? good : bad)("the round break draws the TREE — [data-bracket] stood");
+  if (tree) (tree.next ? good : bad)("the tree marks the NEXT duel");
 
   // Sooner or later the idle host's duel comes and he falls; from then on
   // his seat is the bench and it must say his moot is run. Watch for either
