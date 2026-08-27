@@ -1994,6 +1994,9 @@ export function makeEngine(options = {}) {
       roundScoreBy: isTeamMode(room) ? "team" : "player",
       lastRound: room.lastRound || null,
       nextRoundAt: room.nextRoundAt || 0,
+      // The Burh's standing wave, on every snapshot like the round state and
+      // for the same reconnect reason. Zero everywhere else.
+      wave: room.wave || 0,
       // The ground at stake, carried on EVERY snapshot for the same reason the
       // round state is: a late joiner, a spectator or a reconnect has to be
       // able to rebuild the whole screen from one frame. Null in a lobby that
@@ -2226,26 +2229,7 @@ export function makeEngine(options = {}) {
         // STRIKE. He takes the emptiest point on the round's own spawn ring,
         // faces the centre, and starts whole — the same shape `startRound`
         // deals, for one man, late.
-        if (late && room.state !== "lobby" && room.state !== "finished") {
-          const radius = spawnRadius(room.players.size);
-          let bestA = 0, bestD = -1;
-          for (let k = 0; k < 24; k++) {
-            const a = (k / 24) * Math.PI * 2;
-            const x = Math.cos(a) * radius, z = Math.sin(a) * radius;
-            let d = Infinity;
-            room.players.forEach((p) => {
-              if (p !== late && p.state !== "dead") d = Math.min(d, Math.hypot(p.position.x - x, p.position.z - z));
-            });
-            if (d > bestD) { bestD = d; bestA = a; }
-          }
-          late.position.x = Math.cos(bestA) * radius;
-          late.position.z = Math.sin(bestA) * radius;
-          late.position.y = 0;
-          late.rotation = Math.atan2(-late.position.x, -late.position.z);
-          late.health = late.maxHealth;
-          late.stamina = late.maxStamina;
-          late.state = "idle";
-        }
+        if (late && room.state !== "lobby" && room.state !== "finished") dealLateSpawn(room, late);
         sendLobbyUpdate(room);
       });
       case "remove_bot": return withRoom(sid, (room, player) => {
@@ -2273,8 +2257,10 @@ export function makeEngine(options = {}) {
       });
       case "start": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id || room.state !== "lobby") return;
-        // A trial may be a lonely one; a shared room still needs an opponent.
-        if (room.mode !== "solo" && room.players.size < 2) {
+        // A trial may be a lonely one; a shared room still needs an opponent —
+        // except the Burh, whose opponent spawns itself: one defender is a
+        // stand, and a lonely one is the saga kind.
+        if (room.mode !== "solo" && room.mode !== "the_burh" && room.players.size < 2) {
           return sendSession(sid, { type: "error", data: { message: "Summon a friend, or press ADD AI below your war code." } });
         }
         startMatch(room);
@@ -2494,7 +2480,14 @@ export function makeEngine(options = {}) {
     const isPublic = nextCreatePublic;
     nextCreatePublic = false;
     const name = String(data.name || "Warrior").substring(0, 20);
-    const mode = data.mode || "blood_moot";
+    // VALIDATED, at last: `data.mode || "blood_moot"` accepted any string a
+    // crafted message cared to send, and a room whose mode is "zzz" plays as
+    // a mislabelled moot. THE BURH (backlog 7.4) joins the set: the co-op
+    // last stand against waves of the *here* — the Chronicle's own word for
+    // the raiding host. Its name is put to the owner before ship; its id is
+    // stable either way.
+    const mode = ["blood_moot", "war_band", "honour_duel", "the_burh"].includes(data.mode)
+      ? data.mode : "blood_moot";
     let code = generateCode();
     while (rooms.has(code)) code = generateCode();
 
@@ -2525,8 +2518,14 @@ export function makeEngine(options = {}) {
       friendly, pinnedTerritory: pinned, chosenArena, public: isPublic,
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
       maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
-      bestOf: normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
+      // The Burh is one continuous stand, not a best-of: the format IS the
+      // waves, and a "round 2" after the burh falls would be a resurrection
+      // nobody fought for.
+      bestOf: mode === "the_burh" ? 1 : normalizeBestOf(data.bestOf, DEFAULT_BEST_OF),
       roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
+      // The Burh's ladder: which wave stands, and the sim-time the next one
+      // arrives at. Zero on every other mode and harmless there.
+      wave: 0, waveAt: 0,
       // See the note on the solo room above: the one phase deadline a room can
       // be waiting on, in sim ms, and never on the wire.
       phaseAt: 0,
@@ -2555,7 +2554,10 @@ export function makeEngine(options = {}) {
     leaveRoomForSession(s);
     if (!room) return sendSession(sid, { type: "error", data: { message: "Room not found. Check your code." } });
     if (room.state !== "lobby") return sendSession(sid, { type: "error", data: { message: "Battle already in progress." } });
-    if (humanCount(room) >= room.maxPlayers) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
+    // The Burh seats four defenders; the other four places belong to the
+    // waves. Everywhere else the human cap is the room's own.
+    const humanCap = room.mode === "the_burh" ? 4 : room.maxPlayers;
+    if (humanCount(room) >= humanCap) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
 
     const pid = randomUUID();
     const player = createPlayer(pid, String(data.name || "Warrior").substring(0, 20), "warden", dressFor(room, data.appearance));
@@ -2682,6 +2684,69 @@ export function makeEngine(options = {}) {
     retuneBot(bot, diff);
     room.players.set(id, bot);
     return bot;
+  }
+
+  /**
+   * A man walking into a RUNNING fight gets a real spawn: the emptiest point
+   * on the round's own ring, facing the centre, whole. The same shape
+   * `startRound` deals, for one man, late — shared by the mid-match
+   * `add_bot` (the First Moot's staged foe) and by every wave of the Burh.
+   */
+  function dealLateSpawn(room, p) {
+    const radius = spawnRadius(room.players.size);
+    let bestA = 0, bestD = -1;
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const x = Math.cos(a) * radius, z = Math.sin(a) * radius;
+      let d = Infinity;
+      room.players.forEach((q) => {
+        if (q !== p && q.state !== "dead") d = Math.min(d, Math.hypot(q.position.x - x, q.position.z - z));
+      });
+      if (d > bestD) { bestD = d; bestA = a; }
+    }
+    p.position.x = Math.cos(bestA) * radius;
+    p.position.z = Math.sin(bestA) * radius;
+    p.position.y = 0;
+    p.rotation = Math.atan2(-p.position.x, -p.position.z);
+    p.health = p.maxHealth;
+    p.stamina = p.maxStamina;
+    p.state = "idle";
+    p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
+    p.deadAt = 0; p.lastHitBy = "";
+    clearMotion(p);
+  }
+
+  /** The Burh's respite between waves, seconds — long enough to breathe and
+   *  loot a breath of stamina, short enough that a stand stays a stand. */
+  const WAVE_RESPITE = 5;
+
+  /**
+   * THE NEXT WAVE OF THE HERE (backlog 7.4). Fallen defenders rise for it —
+   * a stand of four friends should end when the party falls together, not
+   * peel to a lone survivor's twenty-minute epilogue — at part health,
+   * because the burh remembers. The dead of the LAST wave are cleared, then
+   * the new here walks in over the spawn ring, larger and harder as the
+   * waves climb: two recruits first, a jarl's war party by the eighth.
+   */
+  function spawnWave(room) {
+    room.wave = (room.wave || 0) + 1;
+    for (const [id, p] of [...room.players.entries()]) {
+      if (p.bot && p.state === "dead") room.players.delete(id);
+    }
+    room.players.forEach((p) => {
+      if (!p.bot && p.state === "dead") {
+        dealLateSpawn(room, p);
+        p.health = Math.round(p.maxHealth * 0.62);
+      }
+    });
+    const count = Math.max(1, Math.min(1 + room.wave, room.maxPlayers - humanCount(room)));
+    const difficulty = room.wave <= 2 ? "recruit" : room.wave <= 4 ? "warrior" : "jarl";
+    room.difficulty = difficulty;
+    for (let i = 0; i < count; i++) {
+      const bot = addBot(room, botsIn(room), difficulty);
+      if (bot) dealLateSpawn(room, bot);
+    }
+    broadcast(room, { type: "wave", data: { wave: room.wave, count, difficulty } });
   }
 
   // Difficulty is a dial, not a birthmark: a bot can be re-graded in the lobby
@@ -2832,6 +2897,14 @@ export function makeEngine(options = {}) {
     // it forward would mean it never fired again after the first round.
     room.lastStandTriggered = false;
     room.killFeed = [];
+    // THE BURH OPENS EMPTY. Whatever bots a lobby held are cleared — the
+    // waves own every bot in this mode — and the ladder starts from nothing;
+    // a rematch is a new stand, not a resumed one.
+    if (room.mode === "the_burh") {
+      for (const [id, p] of [...room.players.entries()]) { if (p.bot) room.players.delete(id); }
+      room.wave = 0;
+      room.waveAt = 0;
+    }
     placeForRound(room, room.roundIndex);
     room.players.forEach((p) => {
       p.health = p.maxHealth;
@@ -3671,6 +3744,13 @@ export function makeEngine(options = {}) {
     if (room.state !== "fighting" && room.state !== "last_stand") return;
     const alive = [];
     room.players.forEach((p) => { if (p.state !== "dead") alive.push(p); });
+    // THE BURH ends one way: the whole party down at once. Bots dying is the
+    // wave machinery's business (stepRoom), never a round end — and there is
+    // no last stand against the here, because every wave IS one.
+    if (room.mode === "the_burh") {
+      if (alive.every((p) => p.bot)) endRound(room, null);
+      return;
+    }
     if (isTeamMode(room)) {
       const ra = alive.filter((p) => p.team === "red").length;
       const ba = alive.filter((p) => p.team === "blue").length;
@@ -3748,6 +3828,8 @@ export function makeEngine(options = {}) {
       bestOf: room.bestOf || 1, roundsPlayed: room.roundIndex || 0,
       roundTarget: roundsToWin(room), roundWins: { ...room.roundWins },
       roundScoreBy: teamMode ? "team" : "player",
+      // How many waves the burh held (7.4). Zero on every other mode.
+      wave: room.wave || 0,
       results,
       // What this match did to the war, or null when it did nothing. On the
       // wire because the summary screen has to be able to say "you took 34
@@ -3967,6 +4049,10 @@ export function makeEngine(options = {}) {
     room.players.forEach((p) => {
       if (p.id === bot.id) return;
       if (isTeamMode(room) && p.team === bot.team && p.team !== "none") return;
+      // The here hunts DEFENDERS. A wave that turned on itself would clear
+      // the burh's ladder for free — in this mode every bot is one raiding
+      // host, and the only enemies on the field are the humans holding it.
+      if (room.mode === "the_burh" && p.bot) return;
       const d = Math.hypot(p.position.x - bot.position.x, p.position.z - bot.position.z);
       if (p.state === "dead") return;
       if (d < minDist) { minDist = d; target = p; }
@@ -4506,6 +4592,29 @@ export function makeEngine(options = {}) {
   // constant is a parameter so the substep loop above reads as what it is.
   function stepRoom(room, dt) {
     room.matchTimer += dt;
+
+    // THE BURH'S LADDER (7.4). Runs on the room's own tick, on sim time like
+    // every other deadline: when the standing wave is down to nobody, the
+    // respite clock arms; when it runs out and any defender still stands,
+    // the next wave walks in. The FIRST wave arms the moment the fight
+    // starts (wave 0, no bots yet), so the stand opens with two heartbeats
+    // of empty ring and then the here arrives — the same staging law the
+    // First Moot taught.
+    if (room.mode === "the_burh" && room.state === "fighting") {
+      let botsAlive = 0, humansAlive = 0;
+      room.players.forEach((p) => {
+        if (p.state === "dead") return;
+        if (p.bot) botsAlive++; else humansAlive++;
+      });
+      if (!room.waveAt && botsAlive === 0 && humansAlive > 0) {
+        room.waveAt = simMs + (room.wave === 0 ? 2000 : WAVE_RESPITE * 1000);
+        if (room.wave > 0) broadcast(room, { type: "wave_cleared", data: { wave: room.wave } });
+      }
+      if (room.waveAt && simMs >= room.waveAt) {
+        room.waveAt = 0;
+        if (humansAlive > 0) spawnWave(room);
+      }
+    }
 
     // The ground this room is fought on, looked up once a tick rather than once
     // a body: `getGround` falls back to the village on an id nobody knows, so a

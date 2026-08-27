@@ -73,7 +73,7 @@ not, the message is dropped silently.
 
 | `type` | `data` | Guards | Effect |
 |---|---|---|---|
-| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` defaults `"blood_moot"`; `"honour_duel"` caps the room at 2, everything else at 8 (1051). Caller's class is forced to `warden` (1056). |
+| `create` | `{name?, mode?, bestOf?, appearance?, awaitLoad?}` | none | New room, caller is host and the only member. Replies `join`. `name` truncated to 20 chars (1043). `mode` is VALIDATED against {blood_moot, war_band, honour_duel, the_burh} — anything else lands blood_moot (27 Aug 2026; it used to accept any string). `"honour_duel"` caps the room at 2, everything else at 8; `"the_burh"` additionally caps HUMANS at 4 (the waves own the other seats), forces `bestOf` 1, and clears lobby bots at the bell. Caller's class is forced to `warden` (1056). |
 | `join` | `{code, name?, appearance?, awaitLoad?}` | room exists; `state === "lobby"`; `humanCount < maxPlayers` | Joins. Replies `join` to the caller, broadcasts `player_joined` to everyone else, then `lobby_update` to all. Code is upper-cased (1067). Re-sending `join` for the room you are already in re-sends the snapshot instead of duplicating you (1069-1072). Failures reply `error`. |
 | `solo` | `{name?, difficulty?, botCount?, warriorClass?, appearance?, autoStart?, awaitLoad?}` | none | Private training room, `maxPlayers:1`, `bestOf:1`, sealed to other humans but holding up to 7 bots (`SOLO_MAX_BOTS`). `autoStart !== false` starts the match 800 ms later on a `setTimeout` (1120-1124). Replies `join`. |
 | `quickplay` | `{name?, mode?, appearance?, awaitLoad?}` | none | Backlog 4.7's FIND A FIGHT. Seats the caller in the fullest OPEN public lobby of his `mode` (anything not `war_band`/`honour_duel` normalises to `blood_moot`), or raises a fresh PUBLIC room when none has a seat — `public` is set through a closure, never off the wire, so no crafted `create` can claim it. The caller arrives `ready:true`; once two free men are seated the lobby self-starts on `QUICK_MUSTER` (12 s) with no host press. A war-room field sent here (`territoryId`, `arena`) is stripped before the create. Replies `join`. |
@@ -851,6 +851,20 @@ of the idempotency design. The database's unique index is
 `(match_key, player_id)`; a report retried after a failed write carries the key
 it carried the first time, so the retry inserts nothing and moves nothing. A
 key minted when the write happens is a new key on every retry.
+
+### THE BURH (7.4) — the wave machinery on the wire
+
+A `the_burh` room fights waves of bots ("the here") instead of men. New
+S→C messages: `wave` `{wave, count, difficulty}` when a wave walks in, and
+`wave_cleared` `{wave}` when its last raider falls. `serializeRoom` carries
+`wave` on every snapshot (reconnect law), and `match_end` carries the wave
+that finally took the burh. The waves spawn through `dealLateSpawn` — the
+same lawful ring placement the mid-match `add_bot` uses — hunt DEFENDERS
+only (a bot never targets a bot in this mode), harden with the ladder
+(recruit ≤2, warrior ≤4, jarl 5+), and between waves the fallen defenders
+rise at 62% health on the ring. The stand ends when every human is down at
+once; bots-only opposition means the war banks nothing, by the standing
+anti-farm rule. Gated by `tools/burhtest.mjs` (19 claims).
 
 ### THE RULE: the engine is never told a man's people
 

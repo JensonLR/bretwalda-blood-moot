@@ -1707,7 +1707,7 @@ export default function Page() {
   if (screen === "lobby" && roomState) {
     const isHost = roomState.hostId === playerId;
     const playersList = Object.values(roomState.players);
-    const maxP = roomState.mode === "honour_duel" ? 2 : 8;
+    const maxP = roomState.mode === "honour_duel" ? 2 : roomState.mode === "the_burh" ? 4 : 8;
     const botCount = playersList.filter((p) => p.id.startsWith("bot_")).length;
 
     return (
@@ -1717,7 +1717,7 @@ export default function Page() {
           <div className="flex flex-col items-center gap-2.5 text-center">
             <LinkPill mode={linkMode} />
             <div className="label-overline">
-              {roomState.mode === "honour_duel" ? "HONOUR DUEL" : roomState.mode === "blood_moot" ? "BLOOD MOOT" : "WAR BAND"}
+              {roomState.mode === "honour_duel" ? "HONOUR DUEL" : roomState.mode === "blood_moot" ? "BLOOD MOOT" : roomState.mode === "the_burh" ? "THE BURH" : "WAR BAND"}
             </div>
             <h1 className="font-display text-2xl tracking-wider text-amber-100 sm:text-3xl" style={{ textShadow: "0 0 24px rgba(255,180,60,0.3)" }}>
               {ARENA_NAMES[roomState.arena as keyof typeof ARENA_NAMES] || roomState.arena}
@@ -1788,10 +1788,22 @@ export default function Page() {
 
           {/* THE FORMAT — the host's, and the server's answer is what is drawn:
               the picker reads roomState, never a local copy, so every man in
-              the lobby sees the same format at the same moment. */}
+              the lobby sees the same format at the same moment. THE BURH has
+              no format to pick: the stand IS the format, one continuous
+              fight, and the engine forces bestOf 1 — so the card says what
+              the mode is instead of offering a dial that does nothing. */}
           <section className="flex flex-col gap-3">
             <h2 className="section-title"><Flag size={12} className="shrink-0" /> THE FORMAT</h2>
-            {isHost ? (
+            {roomState.mode === "the_burh" ? (
+              <div className="card flex items-center gap-3 px-4 py-3">
+                <span className="cabochon" />
+                <span className="font-display text-sm tracking-wider text-amber-100">ONE STAND</span>
+                <span className="text-[11px] text-[#a89a7c]">
+                  Waves of the here, each larger and harder. The fallen rise between waves;
+                  the stand ends when the whole party is down at once.
+                </span>
+              </div>
+            ) : isHost ? (
               <div className="card flex flex-col gap-3 p-4">
                 <RoundPicker
                   value={(roomState.bestOf as BestOf) || DEFAULT_BEST_OF}
@@ -1818,7 +1830,10 @@ export default function Page() {
                 controls and its player count disappears behind the select. */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
               <h2 className="section-title min-w-0 sm:flex-1"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-[#7d7057]">{playersList.length}/{maxP}</span></h2>
-              {isHost && (
+              {/* No AI row in the burh: the waves own every bot, and a lobby
+                  offering ADD AI for the mode that spawns its own enemies
+                  would be selling a lever wired to nothing. */}
+              {isHost && roomState.mode !== "the_burh" && (
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={botDifficulty}
@@ -2366,6 +2381,9 @@ export default function Page() {
               { id: "war_band" as GameMode, name: "WAR BAND", desc: "Team battles. Shield-friends together.",
                 stake: "Shield-walls meet — every man on the winning side banks the victory. The war's heaviest blows.",
                 players: "2v2 · 3v3 · 4v4", Icon: Users, tint: "text-sky-400" },
+              { id: "the_burh" as GameMode, name: "THE BURH", desc: "Hold the ground together against waves of the here.",
+                stake: "A stand, not a raid — the here banks nothing and takes no ground. Glory is how long you hold.",
+                players: "1-4 defenders", Icon: Flame, tint: "text-orange-400" },
             ]).map((mode) => (
               <button key={mode.id}
                 onClick={() => setSelectedMode(mode.id)}
@@ -3697,10 +3715,18 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
             thing in the frame that is NOT the fire's colour. */}
         <h1 className="font-display text-2xl leading-tight text-[#f6f1e6] sm:text-4xl"
           style={{ textShadow: "0 2px 24px rgba(0,0,0,0.95), 0 0 30px rgba(255,180,60,0.35)" }}>
-          {data.winnerKind === "none" || data.winnerName === "Draw"
-            ? "BLOOD SPILT — A DRAW"
-            : `${data.winnerName.toUpperCase()} PREVAILS`}
+          {(data.wave ?? 0) > 0
+            ? `THE BURH HELD ${Math.max(0, (data.wave ?? 1) - 1)} WAVE${(data.wave ?? 1) - 1 === 1 ? "" : "S"}`
+            : data.winnerKind === "none" || data.winnerName === "Draw"
+              ? "BLOOD SPILT — A DRAW"
+              : `${data.winnerName.toUpperCase()} PREVAILS`}
         </h1>
+        {/* The Burh's own verdict line: which wave took it. `wave` counts the
+            wave STANDING when the party fell, so the burh HELD wave-1 full
+            waves — the honest number, and the one a party will chase. */}
+        {(data.wave ?? 0) > 0 && (
+          <div className="badge-garnet !text-[10px]">THE HERE TOOK IT ON WAVE {data.wave}</div>
+        )}
         {/* WHAT THIS FIGHT DID TO THE WAR.
             The loop has always worked — `tools/warflow.mjs` proves it 28/28
             against a real database — and the game never said so, which is

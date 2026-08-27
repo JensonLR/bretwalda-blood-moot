@@ -61,7 +61,8 @@
     "doctor": "npx react-doctor@latest",
     "marktest": "node tools/marktest.mjs",
     "scoretest": "node tools/scoretest.mjs",
-    "platformcheck": "node tools/platformcheck.mjs"
+    "platformcheck": "node tools/platformcheck.mjs",
+    "burhtest": "node tools/burhtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

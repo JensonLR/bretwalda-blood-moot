@@ -62,6 +62,8 @@ interface HudRoomState {
   matchTimer: number;
   killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
   lastStandTriggered: boolean;
+  /** The Burh's standing wave (7.4). 0 or absent everywhere else. */
+  wave?: number;
 }
 
 interface GameHudProps {
@@ -1096,7 +1098,24 @@ export default function GameHud({
             <div className="text-[10px] text-amber-200/90 mt-1 tracking-[0.2em] font-bold">
               {Object.values(roomState.players).filter(p => p.state !== "dead").length} ALIVE
             </div>
+            {/* The Burh's ladder (7.4): the wave rides with the clock. */}
+            {roomState.mode === "the_burh" && (roomState.wave ?? 0) > 0 && (
+              <div className="mt-1 rounded-md bg-orange-950/70 px-2 py-0.5 text-[10px] font-bold tracking-[0.2em] text-orange-300">
+                WAVE {roomState.wave}
+              </div>
+            )}
           </div>
+          {/* The respite: every raider down, more coming. Snapshot-derived —
+              no living bot in a burh mid-fight IS the respite, no extra wire. */}
+          {roomState.mode === "the_burh" && (roomState.wave ?? 0) > 0
+            && !Object.values(roomState.players).some((p) => p.id.startsWith("bot_") && p.state !== "dead") && (
+            <div className="absolute top-[30%] left-1/2 -translate-x-1/2 pointer-events-none z-10">
+              <div className="font-display text-xl sm:text-2xl font-bold text-orange-300 tracking-[0.3em] text-center animate-pulse"
+                style={{ textShadow: "0 0 30px rgba(255,120,30,0.6), 0 2px 6px black" }}>
+                THE HERE COMES
+              </div>
+            </div>
+          )}
 
           {/* Ability cooldown. It follows the mirror on a phone: left-handed, the
               action cluster is where this used to sit — and on a phone it is

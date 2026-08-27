@@ -2,7 +2,12 @@
 // BRETWALDA: BLOOD MOOT — Shared Game Types
 // ============================================================
 
-export type GameMode = "honour_duel" | "blood_moot" | "war_band";
+/**
+ * "the_burh" — backlog 7.4, the co-op last stand against waves of the *here*
+ * (the Chronicle's word for the raiding host; the display name is put to the
+ * owner before ship, the id is stable either way).
+ */
+export type GameMode = "honour_duel" | "blood_moot" | "war_band" | "the_burh";
 export type WarriorClass = "huscarl" | "warden" | "runekeeper" | "berserker";
 export type Team = "red" | "blue" | "none";
 export type AttackDirection = "left" | "right" | "overhead" | "stab";
@@ -579,6 +584,8 @@ export interface Room {
   lastRound: RoundResult | null;
   /** Epoch ms the next round starts, during "intermission". 0 otherwise. */
   nextRoundAt: number;
+  /** The Burh's standing wave (7.4). 0 in every other mode. */
+  wave?: number;
 }
 
 /** `round_end` payload: a whole room snapshot plus the round that just ended. */
@@ -616,6 +623,8 @@ export interface MatchEndData {
    * match he was level on has no way to learn why he lost it.
    */
   winnerBy?: "rounds" | "kills" | "draw";
+  /** The Burh only: how many waves the stand held (7.4). */
+  wave?: number;
   winnerId: string | null;
   winnerTeam: Team | null;
   winnerName: string;
