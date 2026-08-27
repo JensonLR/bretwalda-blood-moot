@@ -17,6 +17,7 @@ import {
   registerGround, raisedStoneMesh, fireMarker, buildBush, mergeInto,
   type GroundBuildContext, type TerrainSpec,
 } from "./world";
+import { plantStandard } from "./banners";
 
 const FIELD = OFFA_DYKE.field;
 
@@ -268,6 +269,14 @@ function buildDyke(ctx: GroundBuildContext): void {
       root.add(g);
     }
   }
+
+  // The standards (backlog 7.5) — and on the march, BOTH sides fly. This is
+  // the border the dyke exists to draw: Mercia's cross-and-lozenge on the
+  // English approach, the triskele by the causeway gate on the Welsh side.
+  // A holder overrides only the English standard: the ground west of the
+  // bank is not theirs to plant, whoever banks the moot.
+  plantStandard(ctx, 17.8, -9.4, ctx.holder ?? "saxon", Math.atan2(-17.8, 9.4));
+  plantStandard(ctx, -19.0, 9.6, "briton", Math.atan2(19.0, -9.6));
 }
 
 export const OFFA_DYKE_GROUND = registerGround({

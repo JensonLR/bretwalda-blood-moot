@@ -20,6 +20,7 @@ import {
   registerGround, raisedStoneMesh, fireMarker, buildBush, mergeInto,
   type GroundBuildContext, type TerrainSpec,
 } from "./world";
+import { plantStandard } from "./banners";
 
 const FIELD = PICT_MOOR.field;
 
@@ -254,6 +255,12 @@ function buildMoor(ctx: GroundBuildContext): void {
     ctx.ownedMats.push(heatherMat);
     field(own(buildBush(0x71c4)), heatherMat, clumps);
     field(own(new THREE.DodecahedronGeometry(1, 0)), materials.get("rock"), rocks);
+  }
+
+  // The standards (backlog 7.5): the holder's device over held ground, the
+  // Picts' own crescent-and-V-rod over their moor by right.
+  for (const [sx, sz] of [[13, 14.8], [-15, -12.8]] as const) {
+    plantStandard(ctx, sx, sz, ctx.holder ?? "pict", Math.atan2(-sx, -sz));
   }
 }
 

@@ -15,6 +15,7 @@ import {
   registerGround, fireMarker, buildBush, mergeInto,
   type GroundBuildContext, type TerrainSpec,
 } from "./world";
+import { plantStandard } from "./banners";
 
 const FIELD = DANELAW_CAMP.field;
 
@@ -540,6 +541,13 @@ function buildCamp(ctx: GroundBuildContext): void {
     field(own(reedGeo), reedMat, reeds);
     field(own(buildBush(0x91b2)), frostMat, tufts);
     field(own(new THREE.BoxGeometry(1.3, 0.18, 0.22)), materials.get("bonfireLog"), wood);
+  }
+
+  // The standards (backlog 7.5): the raven over the winter camp — the banner
+  // the Chronicle says was taken in this game's own year flies again here —
+  // or the war's current holder's device.
+  for (const [sx, sz] of [[12.8, 15], [-16, -11.5]] as const) {
+    plantStandard(ctx, sx, sz, ctx.holder ?? "norse", Math.atan2(-sx, -sz));
   }
 }
 

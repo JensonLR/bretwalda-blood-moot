@@ -69,6 +69,9 @@ import {
 } from "@/game/grounds.mjs";
 import type { FrameContext, Mood, QualitySettings, QualityTier } from "./quality";
 import type { MaterialLibrary } from "./materials";
+// Runtime-safe despite banners importing this module: its import of
+// `GroundBuildContext` is type-only and erased at compile time.
+import { clothTexture } from "./banners";
 import type { RaisedStone } from "@/game/solidground.mjs";
 
 export type { GroundSpec };
@@ -2667,10 +2670,17 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
       if (held === null) return base;
       if (clones[i % 2]) return clones[i % 2];
       const m = (base as THREE.MeshStandardMaterial).clone();
-      // Both banners take the field, but not identically: a moot's cloth is not
-      // a paint chart, and four poles in one exact hue reads as a UI element
-      // rather than as linen somebody dyed. The second is a shade deeper.
-      m.color.setHex(held);
+      // THE DEVICE, NOT JUST THE DYE — backlog 7.5, the owner's 4.10 ruling.
+      // A held ground's banners now carry the holder's own §9-sourced device
+      // (Alfred's cross-and-lozenge, the raven, the triskele, the
+      // crescent-and-V-rod) painted into the cloth by `banners.ts`, the same
+      // drawing the planted standards wear on the other grounds. The map
+      // bakes the field colour, so the material's own colour drops to white —
+      // and the second pole still hangs a shade deeper, because four
+      // identical hues read as UI rather than as linen somebody dyed.
+      const holderName = ctx.holder ?? "";
+      m.map = clothTexture(holderName, true);
+      m.color.setHex(0xffffff);
       if (i % 2 === 1) m.color.multiplyScalar(0.78);
       restore.push(() => m.dispose());
       clones[i % 2] = m;

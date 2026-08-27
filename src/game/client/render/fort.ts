@@ -21,6 +21,7 @@ import {
   registerGround, raisedStoneMesh, fireMarker, buildBush, mergeInto,
   type GroundBuildContext, type TerrainSpec,
 } from "./world";
+import { plantStandard } from "./banners";
 
 const FIELD = ROMAN_FORT.field;
 
@@ -520,6 +521,13 @@ function buildFort(ctx: GroundBuildContext): void {
     ctx.ownedMats.push(coldMat);
     field(own(new THREE.BoxGeometry(1.0, 0.62, 0.76)), stoneMat, blocks);
     field(own(buildBush(0x91b2)), coldMat, tufts);
+  }
+
+  // The standards (backlog 7.5): the Britons' triskele over the old fort they
+  // hold by right — a British standard planted on Roman stone is the whole
+  // ground's sentence — or the war's current holder's device.
+  for (const [sx, sz] of [[15.5, -12.2], [-13.5, 13.8]] as const) {
+    plantStandard(ctx, sx, sz, ctx.holder ?? "briton", Math.atan2(-sx, -sz));
   }
 }
 
