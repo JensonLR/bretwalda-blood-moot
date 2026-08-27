@@ -27,7 +27,7 @@ import { createVfx, type VfxHandle } from "./render/vfx";
 import { createPostFx, type PostFxHandle } from "./render/postfx";
 import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
-import { createAudio, type AudioHandle, type WireHitType } from "./render/audio";
+import { createAudio, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -1954,6 +1954,47 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       if (localPlayer) stage.postfx.setPressure(localPlayer.health / localPlayer.maxHealth);
 
       stage.vfx.update(dt, ctx);
+      // THE SCORE'S DRIVER (backlog 7.8). Scene from the room's own state,
+      // heat from what the fight is actually doing to the local man: base
+      // simmer, the nearest living foe closing (sweep goes as proximity),
+      // low health, the last stand. Cheap — one pass over eight men — and
+      // said every frame because `setScore` glides rather than jumps.
+      {
+        let scene: ScoreScene;
+        let heat = 0;
+        const verdict = matchEndRef.current;
+        const st = roomState.state;
+        if (verdict) {
+          const meTeam = roomState.players[playerId]?.team;
+          const won = verdict.winnerKind !== "none" && (verdict.winnerId === playerId
+            || (verdict.winnerTeam != null && verdict.winnerTeam === meTeam));
+          scene = won ? "victory" : "defeat";
+        } else if (st === "fighting" || st === "last_stand") {
+          scene = "fight";
+          heat = st === "last_stand" ? 0.55 : 0.30;
+          if (localPlayer && localPlayer.state !== "dead") {
+            let nearest2 = Infinity;
+            for (const id in roomState.players) {
+              if (id === playerId) continue;
+              const q = roomState.players[id];
+              if (q.state === "dead") continue;
+              if (q.team !== "none" && q.team === localPlayer.team) continue;
+              const dx = q.position.x - localPlayer.position.x;
+              const dz = q.position.z - localPlayer.position.z;
+              const d2 = dx * dx + dz * dz;
+              if (d2 < nearest2) nearest2 = d2;
+            }
+            if (nearest2 < 100) heat += 0.4 * (1 - Math.sqrt(nearest2) / 10);
+            if (localPlayer.health < localPlayer.maxHealth * 0.4) heat += 0.2;
+          }
+        } else if (st === "countdown" || st === "loading") {
+          scene = "muster";
+        } else {
+          scene = "lobby";
+          heat = 0.1;
+        }
+        stage.audio.setScore(scene, Math.min(1, heat));
+      }
       // After the camera, like vfx: every pan and attenuation in the mix is
       // taken against THIS frame's view.
       stage.audio.update(dt, ctx);

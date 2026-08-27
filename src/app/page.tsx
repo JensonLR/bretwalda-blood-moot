@@ -478,6 +478,13 @@ export default function Page() {
   // tomorrow is audible without anybody remembering to make it audible, which
   // is the only way a UI sound set stays complete.
   const audio = getAudio();
+  // THE MENUS' SHARE OF THE SCORE (7.8): the hall gets the drone alone, the
+  // lobby the heartbeat; the game screen's canvas takes the wheel per frame.
+  // An imperative call, not state — the audio singleton glides on its own.
+  useEffect(() => {
+    if (screen === "game") return;
+    audio.setScore(screen === "lobby" ? "lobby" : "menu", screen === "lobby" ? 0.1 : 0);
+  }, [screen, audio]);
   const muted = useSyncExternalStore(subscribeMuted, getMuted, getServerMuted);
 
   const toggleMute = useCallback(() => {
@@ -1766,7 +1773,12 @@ export default function Page() {
                   one channel its first dozen players happened to arrive
                   through. What survives is the fact the sentence was carrying:
                   a link needs no code typed at the other end. */}
-              <p className="text-[11px] leading-relaxed text-[#a89a7c]">
+              {/* Narrow on phones, on purpose: the fixed sound toggle owns the
+                  top-right corner, and this panel can sit at the top of the
+                  scroll — the 8.4 sweep caught this line's tail underneath it.
+                  A narrower centred measure clears both corners and reads as
+                  typesetting rather than as a dodge. */}
+              <p className="mx-auto max-w-[17.5rem] text-[11px] leading-relaxed text-[#a89a7c] sm:max-w-none">
                 Send this link and they join straight into your war band —
                 no code to type, nothing to install.
               </p>
@@ -2025,7 +2037,13 @@ export default function Page() {
             <div className="lg:w-[40%] lg:shrink-0">
               <div className="sticky top-0 z-20 -mx-4 bg-black/85 px-4 pb-3 pt-2 backdrop-blur-sm sm:-mx-6 sm:px-6 lg:top-4 lg:mx-0 lg:rounded-xl lg:px-0 lg:pb-0 lg:backdrop-blur-none">
                 <div className="card card-glow flex flex-col gap-2.5 p-3 sm:p-4">
-                  <div className="flex items-baseline justify-between gap-3">
+                  {/* `pr-11` below lg: while this bar is STUCK at the top of a
+                      phone screen, the fixed sound toggle floats over its
+                      top-right corner — the 8.4 sweep photographed the class
+                      name half under it. The inset keeps the row's content
+                      left of the toggle's ground; desktop pins the panel at
+                      top-4 where nothing overlaps. */}
+                  <div className="flex items-baseline justify-between gap-3 pr-11 lg:pr-0">
                     <div className="section-title !mb-0"><Eye size={12} className="shrink-0" /> {slot.label.toUpperCase()}</div>
                     <span className="shrink-0 text-[9px] font-bold tracking-[0.14em] text-[#7d7057]">
                       {WARRIOR_INFO.find((w) => w.id === previewClass)?.name}

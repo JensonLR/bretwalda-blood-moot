@@ -35,6 +35,9 @@
 
 import { FIRE, type WarriorClass, type HitZone, type DeathCause, type EmoteId } from "../../types";
 import type { FrameContext, QualitySettings, QualityTier } from "./quality";
+import { createScore, type ScoreHandle, type ScoreScene } from "./score";
+
+export type { ScoreScene } from "./score";
 
 // ---------------------------------------------------------------- vocabulary
 
@@ -268,6 +271,13 @@ export interface AudioHandle {
   knockdown(e: AudioEvent): void;
 
   // ---- continuous ----
+  /**
+   * THE FORGED SCORE (backlog 7.8): which scene the music serves and how hard
+   * the fight is running (0..1). Idempotent and cheap — callers say it every
+   * frame or on every screen change alike; scene changes ramp over a breath,
+   * intensity glides. See `score.ts` for what the scenes mean musically.
+   */
+  setScore(scene: ScoreScene, intensity: number): void;
   /** The arena's hero fire. Pass `null` to take it away. */
   setBonfire(position: AudioVec3 | null): void;
   /**
@@ -671,6 +681,10 @@ class AudioEngine implements AudioHandle {
   private hasPanner = true;
 
   private live: Voice[] = [];
+  private score: ScoreHandle | null = null;
+  /** The scene asked for before the graph existed — applied at build. */
+  private wantScene: ScoreScene = "off";
+  private wantIntensity = 0;
   private fires = new Map<string, FireBed>();
   private budget: AudioBudget = AUDIO_BUDGET.medium;
   private grainCredit = 0;
@@ -713,6 +727,14 @@ class AudioEngine implements AudioHandle {
   }
 
   setSpeaker(mode: SpeakerMode): void { this._speaker = mode; }
+
+  setScore(scene: ScoreScene, intensity: number): void {
+    // Remembered even before a gesture has built the graph, so the score a
+    // screen asked for starts the moment the first tap unlocks audio.
+    this.wantScene = scene;
+    this.wantIntensity = intensity;
+    this.score?.set(scene, intensity);
+  }
 
   /**
    * A harness renders this graph in an `OfflineAudioContext`, which is
@@ -829,6 +851,15 @@ class AudioEngine implements AudioHandle {
 
     this.master = master; this.near = near; this.far = far; this.fire = fire; this.duck = duck;
     this.hasPanner = typeof ac.createStereoPanner === "function";
+
+    // THE SCORE'S OWN GAIN, into master and deliberately NOT through `duck`:
+    // the combat duck exists so a blow can push the ROOM down for a fifth of
+    // a second, and music that flinched with it would read as a broken mixer
+    // rather than as priority. It sits well under the effects — the fight is
+    // the lead instrument and the score is the floor it stands on.
+    const music = ac.createGain(); music.gain.value = 0.5; music.connect(master);
+    this.score = createScore(ac, music, this._speaker === "small");
+    this.score.set(this.wantScene, this.wantIntensity);
 
     // One two-second bed of white noise, reused by every whoosh, hit, footfall
     // and crackle in the game. Generating it per sound is the easy way to eat a
@@ -2155,6 +2186,10 @@ class AudioEngine implements AudioHandle {
     const ac = this.ac;
     if (!ac) return;
     this.setQuality(ctx.quality);
+    // The score's own clock. Before the mute gate on purpose: its drum
+    // schedule must keep marching while muted (master is at zero — silence is
+    // the GAIN's job) or unmuting would dump a bar of queued strokes at once.
+    this.score?.update(dt);
 
     const now = ac.currentTime;
     for (let i = this.live.length - 1; i >= 0; i--) {
@@ -2201,6 +2236,10 @@ class AudioEngine implements AudioHandle {
     for (const key of [...this.fires.keys()]) this.killFire(key);
     for (const v of this.live) v.out.disconnect();
     this.live = [];
+    // The score falls silent but the DESIRE survives: dispose keeps the
+    // context (browsers cap them), and the next build re-seats the scene the
+    // caller last asked for.
+    this.score?.set("off", 0);
   }
 }
 
