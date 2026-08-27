@@ -262,7 +262,13 @@ for (const leaveDuring of ["intermission", "countdown"]) {
     clients(fb).send("leave", {});
     stepSeconds(eng, 8);
   }
-  const verdict = host.last("match_end");
+  // The verdict is read off the CHAMPION's client — he stays by
+  // construction. It was read off the host's, and the host is one of the
+  // four shuffled men: on the draws where HE was a leaver, his session was
+  // out of the room before the verdict broadcast, and this claim flickered
+  // "winner undefined" against a match that had finished perfectly well.
+  // The ruler was interrogating a witness who had left the building.
+  const verdict = clients(sa).last("match_end");
   check(`a finalist who leaves in the ${leaveDuring} crowns his opponent without a fight`,
     room.state === "finished" && !!verdict && verdict.winnerId === sa && verdict.winnerBy === "bracket",
     `winner ${verdict?.winnerId === sa ? "is the standing finalist" : verdict?.winnerId}`);
