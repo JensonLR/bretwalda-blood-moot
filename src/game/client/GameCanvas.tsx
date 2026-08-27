@@ -1322,9 +1322,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // phone turns a replay into a slideshow.
         if (replaying) {
           const cv = canvasRef.current;
+          // `__forceClip` is the harness door, same shape as `__photoCam`:
+          // on the GPU-less capture box medium starves the replay itself and
+          // low never arms by the policy line below, so without a door the
+          // recorder MACHINERY could never be judged — only asserted. The
+          // policy stays this one readable line; the door bypasses only it.
+          const forced = (window as unknown as Record<string, unknown>).__forceClip === true;
           const canRecord = cv && typeof MediaRecorder !== "undefined"
             && typeof (cv as HTMLCanvasElement & { captureStream?: (fps: number) => MediaStream }).captureStream === "function"
-            && ctx.quality.tier !== "low";
+            && (ctx.quality.tier !== "low" || forced);
           if (canRecord) {
             try {
               const stream = (cv as HTMLCanvasElement & { captureStream: (fps: number) => MediaStream }).captureStream(30);

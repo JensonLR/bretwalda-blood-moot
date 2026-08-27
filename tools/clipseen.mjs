@@ -3,8 +3,10 @@
 //
 //   node tools/clipseen.mjs
 //
-// One real blood moot against bots at MEDIUM tier (the recorder never arms
-// on low, by design), watched until the match ends and the replay has
+// One real blood moot against bots at LOW tier with the `__forceClip`
+// harness door open — medium starves this box's render loop so the replay
+// itself never draws, and low never arms by policy; the door bypasses only
+// the one policy line so the MACHINERY can be judged — watched until the match ends and the replay has
 // played, then judged on the readback the canvas publishes: a WebM of real
 // bytes, or an honest NOT RUN when this browser has no MediaRecorder. The
 // camera work is the replay's own deathcam — `replayseen` holds that lens's
@@ -41,7 +43,8 @@ try {
   const browser = await chromium.launch({ ...(existsSync(pre) ? { executablePath: pre } : {}) });
   const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
   page.setDefaultTimeout(180000);
-  await page.goto(`http://127.0.0.1:${PORT}/?quality=medium`, { waitUntil: "domcontentloaded" });
+  await page.addInitScript(() => { window.__forceClip = true; });
+  await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });
 
   const capable = await page.evaluate(() =>
     typeof MediaRecorder !== "undefined"
@@ -82,7 +85,7 @@ try {
   } else {
     const replayDrawn = await page.evaluate(() => window.__bretwaldaReplay?.drawn ?? 0);
     bad(`no clip readback after the match — replay drew ${replayDrawn} frames; `
-      + "either the recorder never armed at medium or the blob fell under the 16KB honesty floor");
+      + "either the recorder never armed or the blob fell under the 16KB honesty floor");
   }
 
   await browser.close();
