@@ -84,8 +84,8 @@ helm-land are identical at handover.
 
 ## The remaining board (in order)
 
-1. **7.9b spectate seats** — dead/waiting players watch through the fight
-   camera. This UNLOCKS 7.3.
+1. ~~7.9b spectate seats~~ — LANDED after this handover was written (the
+   mead-bench; benchtest 23/23, benchseen 4/4). 7.3 is unblocked.
 2. **7.3 Tournament Moot** — bracketed 1v1s, 4–8 men, on honour_duel; the
    hall watches the final (sequenced after spectate by the owner's ruling).
 3. **7.7 fight depth** — executions (build on gore + kill-cam), weapon choice
@@ -140,4 +140,4 @@ classmatrix (~3 min, only for balance changes).
 ## Immediate next actions for the new session
 
 1. `git fetch origin && git status` — confirm/recover local vs origin/main.
-2. Begin 7.9b spectate seats (unlocks 7.3, the Tournament Moot).
+2. Begin 7.3, the Tournament Moot (7.9b landed; the bench is its seat).
