@@ -1108,8 +1108,15 @@ async function renderPass() {
       await capture(lens, turn, dress, null);
     }
     const page = await pageFor(lens);
+    // `quality=high`, PINNED — the demotion that took a day to catch. The
+    // renderer stores a MEASURED tier per browser context and a slow early
+    // capture on a loaded box demoted the whole run to low, where the face
+    // complexion (war paint included) is not painted at all: every warPaint
+    // pair then read pixel-identical while a fresh-context probe of the same
+    // build showed the paint moving 35-40% of the frame. A capture instrument
+    // must never let the device pick its tier.
     const q = [`preset=${lens.card}`, `turn=${turn}`, ...Object.entries(dress).map(([s, id]) => `${s}=${id}`),
-      `clean=1`, `settle=${SETTLE}`].join("&");
+      `clean=1`, `settle=${SETTLE}`, `quality=high`].join("&");
     const t = Date.now();
     await page.goto(`${ORIGIN}/shot?${q}`, { waitUntil: "domcontentloaded", timeout: 300000 });
     await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string",
