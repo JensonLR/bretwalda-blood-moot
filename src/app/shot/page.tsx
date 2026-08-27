@@ -898,41 +898,47 @@ export default function ShotPage() {
   // The world is built in a mount effect and never in server HTML, so the
   // null-on-server initializer cannot corrupt a capture; the state cell
   // keeps the object's identity stable for the memos below.
-  const [params] = useState<URLSearchParams | null>(
-    () => (typeof window === "undefined" ? null : readSearchOnce()),
-  );
-
-  // The yaw is published here, in the same effect that unblocks the render,
-  // rather than in an effect of its own. GameCanvas reads __photoCam from its
-  // mount effect and React runs a child's effects before its parent's, so a
-  // separate effect would always write the yaw one frame too late — `?cam=` was
-  // silently ignored, and only appeared to work because every preset happens to
-  // ask for the rig's default yaw of PI.
-  useEffect(() => {
-    if (!params) return;
-    const search = params;
+  // Params AND the camera globals resolve in one lazy initializer, and the
+  // ordering is the entire point — this page has now mislaid it three ways:
+  //
+  //   1. The original state-mirror set params in a mount effect, which kept
+  //      the canvas UNMOUNTED (the `!params` gate below) until the same
+  //      effect had written `__photoCam`/`__photoFraming` — correct, but the
+  //      set-state-in-effect shape react-doctor rightly flags.
+  //   2. The doctor pass read params through a store: the canvas then
+  //      mounted on a render that RACED the globals effect, and the loser
+  //      photographed an unframed scene (war-paint pairs pixel-identical on
+  //      some runs, not others).
+  //   3. A lazy initializer for params alone made the race a certainty: the
+  //      canvas mounts on the first commit, a CHILD's effects run before its
+  //      parent's, and the globals effect always lost. Every facecard in the
+  //      run photographed the duel scene at distance — the harness's own
+  //      kept captures are what finally showed it.
+  //
+  // So the globals are written HERE, inside the initializer: it runs once,
+  // on the client, during the parent's first render — strictly before any
+  // child exists, with no second render to race and no state mirror. An
+  // impure-looking write in an initializer is the honest price of a child
+  // that reads window state from its mount effect; the alternative shapes
+  // are the two bugs above.
+  const [params] = useState<URLSearchParams | null>(() => {
+    if (typeof window === "undefined") return null;
+    const search = readSearchOnce();
     const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
     const camOverride = search.get("cam");
-    // `?ground=pict_moor`. Unknown ids fall through to the village exactly as
-    // `getGround` does, so a typo photographs the village rather than a blank.
-    // `?ground=pict_moor`. Unknown ids fall through to the village exactly as
-    // `getGround` does, so a typo photographs the village rather than a blank.
     const globals = window as unknown as Record<string, unknown>;
     globals.__photoCam = camOverride !== null ? parseFloat(camOverride) : chosen.cam;
-    // Deleted rather than left stale: these globals outlive a client-side
-    // navigation, and a framing carried over from the previous preset would
-    // silently pin the camera in a shot that meant to follow the warrior.
+    // Deleted rather than left stale: a framing carried over would silently
+    // pin the camera in a shot that meant to follow the warrior.
     const turn = chosen.parametric ? parseFloat(search.get("turn") ?? "0") : 0;
     const framing = chosen.card && Number.isFinite(turn)
       ? cardFraming(CARDS[chosen.card], turn)
       : chosen.framing;
     if (framing) globals.__photoFraming = framing;
     else delete globals.__photoFraming;
-    // The shop, published for the capture tool. A tool that keeps its own copy
-    // of the ladder audits the shop it was written against — which is how 37 of
-    // 47 options went unreviewed while a helmet sheet sat in the same file. The
-    // card sizes ride along for the same reason: the fight card's lens is
-    // derived from its panel height, so the two cannot be owned separately.
+    // The shop, published for the capture tool — see `__shotRoster` in the
+    // header contract. A tool holding its own copy of the ladder audits the
+    // shop it was written against.
     if (search.get("roster") === "1") {
       globals.__shotRoster = {
         slots: ARMOURY.map((s) => ({
@@ -941,14 +947,11 @@ export default function ShotPage() {
         })),
         cards: Object.fromEntries(Object.entries(CARDS).map(([k, c]) => [k, { w: c.w, h: c.h, note: c.note }])),
         dress: DRESS_IDS,
-        // A slot the shop has and this file cannot drive. Published rather than
-        // ignored: the failure this whole pass is about is a capture set going
-        // quietly out of date, and a ninth slot appearing in `ARMOURY` should
-        // arrive as a complaint from the tool, not as a gap nobody notices.
         unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
       };
     }
-  }, [params]);
+    return search;
+  });
 
   // 0 is the preset as authored. 1 is the same room after `?revive=1` has put
   // every dead warrior back on his feet, so a capture can show what the body
