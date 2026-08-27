@@ -30,8 +30,6 @@ import { ARMOURY, defaultAppearance, HELM_VALUES, type Appearance } from "@/game
 
 /** Module-load stamp for staged kill-feed rows — see the killFeed note. */
 const BOOT_TS = Date.now();
-/** Subscribe-to-nothing, for stores that never notify (the query string). */
-const NO_RESUBSCRIBE = () => () => {};
 let searchCache: URLSearchParams | null = null;
 const readSearchOnce = () => (searchCache ??= new URLSearchParams(window.location.search));
 /** The viewport as an external store, invalidated by real resize events. */
@@ -889,10 +887,20 @@ const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
 });
 
 export default function ShotPage() {
-  // The query string, through `useSyncExternalStore` rather than a state
-  // mirror set from the mount effect (react-doctor). Cached at module level —
-  // the store never notifies and a capture page's URL never changes under it.
-  const params = useSyncExternalStore(NO_RESUBSCRIBE, readSearchOnce, () => null);
+  // The query string, resolved in a LAZY INITIALIZER so the very first client
+  // render is already the staged one — the same ruling the `arena` field
+  // below carries, applied to the whole page, and the second time this page
+  // has had to learn it: params that arrive a render late (a state mirror
+  // before the doctor pass, a store re-render after it) RACE the canvas's
+  // one-time world build, and the loser photographs the BASE pose under a
+  // caption claiming the staged one. cosmetictest caught the store variant
+  // as war-paint pairs reading pixel-identical on some loads and not others.
+  // The world is built in a mount effect and never in server HTML, so the
+  // null-on-server initializer cannot corrupt a capture; the state cell
+  // keeps the object's identity stable for the memos below.
+  const [params] = useState<URLSearchParams | null>(
+    () => (typeof window === "undefined" ? null : readSearchOnce()),
+  );
 
   // The yaw is published here, in the same effect that unblocks the render,
   // rather than in an effect of its own. GameCanvas reads __photoCam from its
