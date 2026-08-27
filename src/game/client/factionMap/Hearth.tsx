@@ -98,6 +98,7 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
             <input
               className="hearth-name" value={name} maxLength={24}
               placeholder="Name a hearth…"
+              aria-label="Name a hearth"
               onChange={(e) => setName(e.target.value)} disabled={busy}
             />
             <button className="hearth-verb" disabled={busy || !name.trim()} onClick={() => void act("found")}>FOUND</button>

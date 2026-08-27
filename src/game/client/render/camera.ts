@@ -10,6 +10,14 @@ import {
   getHandedness, lockFootMark, lockReticle, lockView, routeLook, subscribeHandedness,
 } from "../input";
 import { LAYER_UNOCCLUDED, type FrameContext, type QualitySettings } from "./quality";
+// THE SAME SOLID LAW THE FEET OBEY (8.7). The jank strip photographed the
+// follow camera inside a palisade post — the boom had no idea the world was
+// solid. The march itself lives in `@/game/boom.mjs` (the spectate.mjs
+// arrangement: one rule, imported by this rig and by `tools/solidtest.mjs`'s
+// claims), fed the ground's own obstacle table — the one `resolveSolids`
+// walks for movement — so what blocks a stride blocks the lens.
+import { clearBoom } from "@/game/boom.mjs";
+import { type Solid, type Passable } from "@/game/solidground.mjs";
 
 export type CameraMode =
   /** Over-shoulder on the local warrior. */
@@ -88,6 +96,12 @@ export interface CameraRig {
   setSpawnHeading(yaw: number): void;
   /** Adds an impulse; the rig decays it. Larger hits should ask for more. */
   shake(intensity: number): void;
+  /**
+   * The arena's own obstacle table (8.7), so the follow boom pulls in
+   * rather than clipping through a post. Passables are filtered here;
+   * an empty list — the default — is the old behavior exactly.
+   */
+  setOccluders(solids: ReadonlyArray<Solid | Passable>, bound?: number): void;
   setViewport(width: number, height: number): void;
   update(dt: number, ctx: FrameContext): void;
   dispose(): void;
@@ -98,6 +112,14 @@ const CAM_HEIGHT = 2.05;
 const CAM_SIDE = 1.0;
 const LOOK_AHEAD = 3.6;
 const LOOK_HEIGHT = 1.3;
+// The boom's occlusion march (8.7): from OCCL_MIN out (never inside the
+// man's own head) in OCCL_STEP strides, blocked when a sample sits within
+// OCCL_CLEAR of a solid that stands taller than the sample's own height.
+// Fast in, damped out — a spring arm's asymmetry, because clipping INTO a
+// post is a wrong frame now and easing back out is taste.
+const OCCL_MIN = 0.9;
+const OCCL_STEP = 0.25;
+const OCCL_CLEAR = 0.32;
 const FOV_BASE = 55;
 const FOV_SPRINT = 61;
 
@@ -252,6 +274,15 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
   /** Seconds into the summary push. */
   let summaryT = 0;
   let mode: CameraMode = "follow";
+  /** The arena's obstacle table, for the boom (8.7). Passables are skipped
+   *  by `clearBoom` itself — one rule, no second filter here. Empty = the
+   *  old rig exactly. */
+  let occluders: ReadonlyArray<Solid | Passable> = [];
+  /** The ground's play-bound radius: the ring blocks the boom before the
+   *  solids do — the palisade is the BOUND, not an obstacle row. */
+  let occlBound = Infinity;
+  /** The boom's current length, spring-armed between OCCL_MIN and CAM_DIST. */
+  let boom = CAM_DIST;
   let yaw = Math.PI;
   let fov = FOV_BASE;
   let shakeAmount = 0;
@@ -365,9 +396,24 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
     const bobAmp = state === "idle" ? 0.016 : 0.032;
     const bob = Math.sin(ctx.time * bobFreq) * bobAmp;
 
-    camera.position.x += (ctx.focus.x - fwdX * CAM_DIST + sideX - camera.position.x) * damp;
-    camera.position.z += (ctx.focus.z - fwdZ * CAM_DIST + sideZ - camera.position.z) * damp;
-    camera.position.y += (CAM_HEIGHT + bob - camera.position.y) * (snapNext ? 1 : Math.min(1, dt * 10));
+    // THE BOOM'S OCCLUSION MARCH (8.7) — the rule is `boom.mjs`'s; this rig
+    // only supplies its own geometry and constants.
+    const clear = occluders.length || Number.isFinite(occlBound)
+      ? clearBoom(occluders, ctx.focus.x, ctx.focus.z, fwdX, fwdZ, sideX, sideZ, {
+        want: CAM_DIST, min: OCCL_MIN, step: OCCL_STEP, clear: OCCL_CLEAR,
+        lookY: LOOK_HEIGHT, camY: CAM_HEIGHT, bound: occlBound,
+      })
+      : CAM_DIST;
+    // Fast in, damped out — clipping INTO a post is a wrong frame now,
+    // easing back out is taste. A snap frame takes the clear length whole.
+    boom = snapNext || clear < boom
+      ? clear
+      : Math.min(CAM_DIST, boom + (clear - boom) * Math.min(1, dt * 3));
+    const bk = boom / CAM_DIST;
+
+    camera.position.x += (ctx.focus.x - fwdX * boom + sideX * bk - camera.position.x) * damp;
+    camera.position.z += (ctx.focus.z - fwdZ * boom + sideZ * bk - camera.position.z) * damp;
+    camera.position.y += (LOOK_HEIGHT + (CAM_HEIGHT - LOOK_HEIGHT) * bk + bob - camera.position.y) * (snapNext ? 1 : Math.min(1, dt * 10));
     aimAt(
       ctx.focus.x + fwdX * LOOK_AHEAD,
       LOOK_HEIGHT + bob * 0.7,
@@ -597,6 +643,12 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
 
     shake(intensity) {
       shakeAmount = Math.max(shakeAmount, intensity);
+    },
+
+    setOccluders(solids, bound) {
+      occluders = solids;
+      occlBound = Number.isFinite(bound) ? (bound as number) : Infinity;
+      boom = CAM_DIST;
     },
 
     setViewport(width, height) {

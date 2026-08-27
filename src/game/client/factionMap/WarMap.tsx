@@ -208,8 +208,12 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             </span>
           </p>
         )}
+        {/* role="group", NOT "img": an img is atomic to assistive tech, and
+            this svg holds a focusable button per territory — a picture that
+            contains buttons is lying to the screen reader about both. The
+            summary stays on the group's own label. */}
         <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="warmap-svg"
-             role="img" aria-label={mapSummary(data)}>
+             role="group" aria-label={mapSummary(data)}>
           <defs>
             <clipPath id="warmap-land"><path d={LAND} /></clipPath>
             {/* THE NIELLO CUT — `docs/DESIGN-SYSTEM.md` §1: ornament is dark

@@ -65,7 +65,7 @@ import { SAXON_VILLAGE, PICT_MOOR, seeded, noise2, ROMAN_FORT, DANELAW_CAMP } fr
 // it does not know about. See the note on claim 12.
 import { makeEngine } from "../src/game/engine.mjs";
 import {
-  resolveSolids, steerAroundSolids, clearanceAt, isClear,
+  resolveSolids, steerAroundSolids, clearanceAt, isClear, playBound,
   solid, passable, solidDistance, rick, raisedStone, footprintEncloses, SOLID_TOLERANCE,
 } from "../src/game/solidground.mjs";
 
@@ -1045,6 +1045,48 @@ console.log(`  fastest legs ${TOP_SPRINT} u/s, longest roll ${TOP_ROLL} m\n`);
     `${RUNS} runs of ${TICKS} ticks, eight bodies jammed around the rick: ${insideTicks} of ${manTicks} man-ticks ended inside a prop, deepest ${(deepest * 1000).toFixed(1)} mm. `
     + `CONTROL, the same measurement on an undisturbed duel: ${duelInside} of ${duelManTicks}. `
     + `This runs engine.mjs itself — its bots, its movement step, its separation pass, its resolve, in its order — not the driver the claims above use.`);
+}
+
+// ---------------------------------------------------------------------------
+// §13 THE CAMERA BOOM (8.7). What blocks a stride blocks the lens: the jank
+// strip photographed the follow camera inside a palisade post, and the fix
+// is `boom.mjs` — the march the rig runs each frame, held here because it is
+// built ON this module's own solids and its claims belong beside them.
+{
+  const { clearBoom } = await import("../src/game/boom.mjs");
+  const OPTS = { want: 4.4, min: 0.9, step: 0.25, clear: 0.32, lookY: 1.3, camY: 2.05 };
+
+  // A tall post directly behind the man, square on the boom line.
+  const post = solid({ id: "boompost", x: 0, z: -2.5, halfX: 0.18, halfZ: 0.18, pad: 0.05, height: 2.4, why: "a fence post the lens must respect" });
+  const open = clearBoom([], 0, 0, 0, 1, 0, 0, OPTS);
+  const pulled = clearBoom([post], 0, 0, 0, 1, 0, 0, OPTS);
+  check("open turf runs the boom full; a post behind the man pulls it short of the post",
+    open === OPTS.want && pulled < 2.5 && pulled >= OPTS.min,
+    `open ${open.toFixed(2)} m, against the post ${pulled.toFixed(2)} m (the post stands at 2.5)`);
+
+  // A knee-high solid does not block: the camera films OVER a wood pile.
+  const pile = solid({ id: "boompile", x: 0, z: -2.5, halfX: 0.5, halfZ: 0.5, pad: 0.1, height: 0.8, why: "a wood pile the lens sees over" });
+  check("a solid below the sample's height never pulls the boom — the lens films over the woodpile",
+    clearBoom([pile], 0, 0, 0, 1, 0, 0, OPTS) === OPTS.want);
+
+  // A passable is furniture to the lens exactly as it is to the feet.
+  check("a passable never pulls the boom — one law for the feet and the lens",
+    clearBoom([passable("boomdeco", "a sword in the ground")], 0, 0, 0, 1, 0, 0, OPTS) === OPTS.want);
+
+  // And the real village. THE FIRST CUT OF THIS CLAIM FAILED AND TAUGHT THE
+  // FEATURE ITS SECOND HALF: it aimed the boom "through the palisade" using
+  // only the obstacle table, and the boom ran full — because the palisade
+  // is not an obstacle row at all, it is the PLAY BOUND, the separate ring
+  // `resolveSolids` clamps first. The strip's post was the bound's own
+  // fence. So the boom takes the ring first and the solids last, the
+  // resolver's own order, and this claim holds it on the village's real
+  // numbers: a man a stride inside the bound, looking inward, would put
+  // the full boom outside the pen.
+  const bound = playBound(SAXON_VILLAGE);
+  const throughFence = clearBoom(SAXON_VILLAGE.obstacles, 0, bound - 1.2, 0, -1, 0, 0, { ...OPTS, bound });
+  check("the village's own bound pulls the boom — the strip's defect, refought on real ground",
+    Number.isFinite(bound) && throughFence < 1.5,
+    `play bound ${Number.isFinite(bound) ? bound.toFixed(1) : bound} m; boom through the fence line held to ${throughFence.toFixed(2)} m of ${OPTS.want}`);
 }
 
 // ---------------------------------------------------------------------------

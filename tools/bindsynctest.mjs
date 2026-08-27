@@ -473,7 +473,7 @@ async function main() {
     return {
       violations: b.ruleViolations,
       defaults: b.defaults,
-      table: JSON.parse(JSON.stringify(b.table)),
+      table: structuredClone(b.table),
       ctrl: b.why("ControlLeft"),
       alt: b.why("AltLeft"),
       meta: b.why("MetaLeft"),

@@ -1384,7 +1384,12 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
       // Not a claim about the substance — the ior above is the claim, and it is
       // right. This is compensation for an environment deliberately graded down
       // for matte surfaces, applied at the one surface whose read depends on it.
-      specularIntensity: 1.6,
+      // It rides envMapIntensity now, NOT specularIntensity 1.6: the spec is
+      // graded-down ENVIRONMENT light, so the environment knob is the honest
+      // one — and specularIntensity is a [0,1] property, which react-doctor
+      // rightly flagged (the same brightening, said on the wrong dial).
+      specularIntensity: 1.0,
+      envMapIntensity: 1.6,
       clearcoat: 1,
       clearcoatRoughness: 0.02,
     });

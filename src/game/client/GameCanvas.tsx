@@ -44,6 +44,11 @@ import "@/game/client/render/moor";
 import "@/game/client/render/fort";
 import "@/game/client/render/camp";
 import "@/game/client/render/dyke";
+// The camera obeys the same solid law the feet do (8.7): the ground's own
+// obstacle table — the one `resolveSolids` walks for movement — is handed to
+// the rig so the boom pulls in at a post instead of clipping through it.
+import { GROUNDS } from "@/game/grounds.mjs";
+import { solidsOf, playBound } from "@/game/solidground.mjs";
 
 /**
  * How far the build has got. `done` is the weight of the stages that have
@@ -691,6 +696,14 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             holder: room?.territory?.holder,
           });
           disposers.push(() => world.dispose());
+          // The jank strip photographed the follow camera inside a palisade
+          // post (8.7). The rig gets this ground's solids AND its play bound
+          // — the same table and the same ring the engine's movement
+          // resolves against (the palisade is the BOUND, not an obstacle
+          // row), so what blocks a stride blocks the lens and there is one
+          // opinion about what is solid.
+          const groundSpec = GROUNDS[room?.arena ?? ""];
+          rig.setOccluders(solidsOf(groundSpec), playBound(groundSpec));
         },
       },
       {
