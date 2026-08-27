@@ -660,6 +660,37 @@ export const KNOCKDOWN = {
   balanceOnRise: 0.34,
 };
 
+// ---- the execution (backlog 7.7a) ----
+//
+// A committed heavy over a downed man who is low enough to be finished takes
+// ALL of him — one stroke, whatever it would have counted. Both gates are
+// load-bearing and neither is enough alone:
+//
+//   DOWNED, because helplessness is the licence. A standing man at 5 hp can
+//   still roll, parry, and win; a floored one cannot answer steel, and a
+//   "finisher" you can walk away from mid-swing is just a damage number.
+//
+//   LOW, because a knockdown must not be a death sentence from full health.
+//   Poise breaks are common — a berserker chains them — and if every floor
+//   were an execution floor, `balance` would simply be a second health bar
+//   with none of its own reading. 0.35 is BELOW the fraction where a heavy
+//   usually kills a downed man arithmetically anyway; what the rule adds is
+//   the CERTAINTY (no zone roll, no shrug at 2 hp) and the naming — the
+//   deathcam already stages the drama, `deathCause: "execution"` is what
+//   lets every screen say what happened.
+//
+// The window is real but earned: KNOCKDOWN.down + rise is 1.3 s, and every
+// class's heavy reaches contact inside it from a standing start — but only
+// if the man is already stood over him with the stamina (30) to spend.
+// Mirrored in types.ts EXECUTION for the HUD's FINISH prompt, the same
+// arrangement WARRIOR_STATS has.
+export const EXECUTION = {
+  healthFrac: 0.35,
+  // On top of the kill's own hundred: the flourish is worth naming in the
+  // ledger, not just the feed.
+  score: 50,
+};
+
 // ---- the parry, the window it opens, and the riposte ----
 //
 // The owner, and this is the ask verbatim: *"there needs to be a window to
@@ -3544,6 +3575,16 @@ export function makeEngine(options = {}) {
         target.staggerTimer = Math.max(target.staggerTimer, HEAVY_CLEAN_STAGGER);
         target.state = "staggered";
       }
+      // THE EXECUTION (7.7a): the two gates are the whole rule — see the
+      // EXECUTION constant. The damage handed down is the man's whole
+      // remaining health, so the same applyDamage path that resolves every
+      // other blow resolves this one; `execution` in the weight is what
+      // names the death and pays the flourish.
+      if (isHeavy && isDown(target) && target.health <= target.maxHealth * EXECUTION.healthFrac) {
+        applyDamage(room, attacker, target, Math.ceil(target.health), "heavy", hitZone,
+          { offGuard, riposte: isRiposte, execution: true });
+        return;
+      }
       applyDamage(room, attacker, target, zoned, isHeavy ? "heavy" : "light", hitZone, { offGuard, riposte: isRiposte });
     });
   }
@@ -3632,15 +3673,17 @@ export function makeEngine(options = {}) {
       // later rebuilds the same one-armed corpse the room watched drop.
       target.deathZone = hitZone; target.deathDir = attacker.attackDir; target.deathHeavy = heavy;
       // `deathCause` is what a renderer, a spectator and a late joiner all
-      // rebuild the body from. Steel is "blow" and the fire is "fire"; the
-      // third value, "finish", could only be produced by a man swung at while
-      // he lay inside a mercy window, so it died with the window.
-      target.deathCause = "blow";
+      // rebuild the body from. Steel is "blow", the fire is "fire", and the
+      // FINISH over a downed man is "execution" (7.7a) — which takes the
+      // blow's own path through every renderer (severance, run-up, fall),
+      // because an execution IS a swing; only the naming and the flourish
+      // differ. The old third value, "finish", died with the mercy window.
+      target.deathCause = weight.execution ? "execution" : "blow";
       target.hitstop = 0;    // ...and the dead are not held still, they are still
       endSwing(target);      // ...and a corpse is not mid-swing
       clearMotion(target);   // the dead stop running
-      attacker.kills++; attacker.score += 100;
-      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: wallNow(), hitZone });
+      attacker.kills++; attacker.score += 100 + (weight.execution ? EXECUTION.score : 0);
+      room.killFeed.push({ killer: attacker.id, victim: target.id, killerName: attacker.name, victimName: target.name, timestamp: wallNow(), hitZone, cause: target.deathCause });
       broadcast(room, { type: "kill", data: { killerId: attacker.id, killerName: attacker.name, victimId: target.id, victimName: target.name, hitZone, direction: attacker.attackDir, heavy, cause: target.deathCause } });
       if (room.mode !== "solo") checkRoundEnd(room);
     }
@@ -3734,6 +3777,7 @@ export function makeEngine(options = {}) {
     room.killFeed.push({
       killer: credited ? credited.id : "", victim: victim.id,
       killerName, victimName: victim.name, timestamp: wallNow(), hitZone: null,
+      cause: "fire",
     });
     broadcast(room, { type: "kill", data: {
       killerId: credited ? credited.id : "", killerName,

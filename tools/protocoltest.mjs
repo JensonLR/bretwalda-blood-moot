@@ -478,7 +478,14 @@ async function scenarioMelee() {
   // fail is not an assertion. Both halves were re-run before this line: strict,
   // protocoltest is 76/76; the empty-string case the `fire` check above relies
   // on is a different cause and is unaffected.
-  const steel = c.got("kill").filter((k) => k.cause === "blow");
+  // STEEL HAS TWO CAUSES NOW (7.7a): "blow", and "execution" — the finish
+  // over a downed man low enough to be taken in one committed stroke. This
+  // filter learned it from its own fixture: an idle man beaten to the floor
+  // by seven jarls and finished there IS an execution, and the run that
+  // landed the feature found 0 "blow" deaths because his one death was the
+  // new cause working. The property is unchanged and spans both: a death by
+  // steel always says where it landed and what stroke took him.
+  const steel = c.got("kill").filter((k) => k.cause === "blow" || k.cause === "execution");
   check("a killing blow says which limb and which stroke took him",
     steel.length > 0 && steel.every((k) => HIT_ZONES.includes(k.hitZone) &&
       typeof k.direction === "string" && typeof k.heavy === "boolean" &&
@@ -486,7 +493,7 @@ async function scenarioMelee() {
     `${steel.length} weapon death(s), causes: ${[...new Set(steel.map((k) => k.cause))].join("/")}`);
   check("the corpse carries its own death on every later snapshot",
     c.got("game_state").some((d) => d.players[me] && d.players[me].state === "dead" &&
-      d.players[me].deathCause === "blow" &&
+      (d.players[me].deathCause === "blow" || d.players[me].deathCause === "execution") &&
       HIT_ZONES.includes(d.players[me].deathZone)),
     "a spectator arriving late rebuilds the same body");
   check("the kill feed is on the snapshot and is capped at ten",

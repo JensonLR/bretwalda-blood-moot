@@ -123,7 +123,11 @@ const STATES = ["idle", "walking", "running", "sprinting", "attacking", "blockin
   "dodging", "rolling", "staggered", "knocked", "rising", "dead", "ability", "shoving"];
 const DIRS = ["left", "right", "overhead", "stab"];
 const ZONES = ["head", "neck", "armL", "armR", "legL", "legR", "torso", "waist"];
-const CAUSES = ["blow", "fire"];
+// "execution" appended, never inserted: the order IS the wire format, and
+// appending is the one edit that leaves every recorded frame meaning what
+// it meant. An execution replays with the blow's own run-up — the finish
+// is a swing, and `runUpOf` treats every non-fire cause as one.
+const CAUSES = ["blow", "fire", "execution"];
 const idx = (list, v) => { const i = list.indexOf(v); return i < 0 ? 255 : i; };
 const val = (list, i) => (i === 255 ? null : list[i] ?? null);
 

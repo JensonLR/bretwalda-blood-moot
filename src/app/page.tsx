@@ -75,7 +75,7 @@ interface RoomState {
   code: string; mode: string; state: string; arena: string;
   players: Record<string, GamePlayer>; hostId: string;
   countdown: number; matchTimer: number;
-  killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
+  killFeed: Array<{ killerName: string; victimName: string; timestamp: number; cause?: string }>;
   lastStandTriggered: boolean;
   // The round state rides on every snapshot, so the screens never keep their
   // own copy of the score — the server is the only thing that knows it.

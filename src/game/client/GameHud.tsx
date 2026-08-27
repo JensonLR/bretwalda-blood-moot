@@ -18,7 +18,7 @@ import type { AttackDirection, GamePlayer } from "../types";
 // Types only — erased at compile time. The values come through `loadQualityApi`
 // below, and the comment there is the whole reason this line says `type`.
 import type { QualityChoice, QualityStatus, QualityTier } from "./render/quality";
-import { WARRIOR_STATS, RIPOSTE } from "../types";
+import { WARRIOR_STATS, RIPOSTE, EXECUTION } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
@@ -60,7 +60,7 @@ interface HudRoomState {
   players: Record<string, GamePlayer>;
   countdown: number;
   matchTimer: number;
-  killFeed: Array<{ killerName: string; victimName: string; timestamp: number }>;
+  killFeed: Array<{ killerName: string; victimName: string; timestamp: number; cause?: string }>;
   lastStandTriggered: boolean;
   /** The Burh's standing wave (7.4). 0 or absent everywhere else. */
   wave?: number;
@@ -669,6 +669,14 @@ export default function GameHud({
   const marked = lockedId ? roomState?.players[lockedId] : undefined;
   const riposteLeft = marked && marked.vulnerableTo === playerId ? (marked.vulnerableTimer ?? 0) : 0;
   const riposteOn = riposteLeft > 0;
+  // THE FINISH (7.7a): the man the lock holds is DOWN and LOW — the engine's
+  // two execution gates, read off the same replicated fields it reads — so a
+  // heavy takes all of him. Said on the mark the player is already looking
+  // at, the riposte's own principle: the man carries the information.
+  const finishOpen = Boolean(marked
+    && (marked.state === "knocked" || marked.state === "rising")
+    && marked.health > 0
+    && marked.health <= marked.maxHealth * EXECUTION.healthFrac);
   // Closed fraction, 0 the instant it opens and 1 as it expires. Recomputed
   // from the wire every snapshot rather than run off a local timer, so a
   // dropped packet cannot leave a window drawn open after the server shut it.
@@ -951,6 +959,21 @@ export default function GameHud({
                   transform={riposteOn ? `scale(${(1 - ripClose * 0.42).toFixed(3)})` : undefined} />
               ))}
             </svg>
+            {/* THE FINISH PROMPT (7.7a), inside the reticle so it rides the
+                same camera transform and the same fade — no second element
+                to aim, no second thing to keep honest. Blood-warm like the
+                riposte jaws: it is the same message, "he is open". */}
+            {finishOpen && (
+              <div data-finish className="absolute left-1/2 top-[20px] -translate-x-1/2 whitespace-nowrap text-center">
+                <div className="text-[10px] font-bold tracking-[0.3em] text-red-400"
+                  style={{ textShadow: "0 1px 4px black, 0 0 14px rgba(224,84,52,0.45)" }}>
+                  FINISH HIM
+                </div>
+                <div className="text-[8px] font-bold tracking-[0.25em] text-amber-200/80" style={{ textShadow: "0 1px 4px black" }}>
+                  HEAVY BLOW
+                </div>
+              </div>
+            )}
           </div>
 
           {/* The ground he is standing on, marked separately because it has its
@@ -1110,7 +1133,7 @@ export default function GameHud({
             {roomState.killFeed.slice(-5).map((k, i) => (
               <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
                 <span className="text-amber-300 font-bold">{k.killerName}</span>
-                <span className="text-[#a89a7c]"> slew </span>
+                <span className="text-[#a89a7c]">{k.cause === "execution" ? " executed " : " slew "}</span>
                 <span className="text-red-300 font-bold">{k.victimName}</span>
               </div>
             ))}
@@ -1202,7 +1225,7 @@ export default function GameHud({
           {roomState.killFeed.slice(-5).map((k, i) => (
             <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
               <span className="text-amber-300 font-bold">{k.killerName}</span>
-              <span className="text-[#a89a7c]"> slew </span>
+              <span className="text-[#a89a7c]">{k.cause === "execution" ? " executed " : " slew "}</span>
               <span className="text-red-300 font-bold">{k.victimName}</span>
             </div>
           ))}

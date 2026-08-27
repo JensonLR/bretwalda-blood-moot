@@ -67,6 +67,7 @@
     "benchseen": "node tools/benchseen.mjs",
     "tourneytest": "node tools/tourneytest.mjs",
     "tourneyseen": "node tools/tourneyseen.mjs",
+    "fighttest": "node tools/fighttest.mjs",
     "clipseen": "node tools/clipseen.mjs"
   },
   "dependencies": {

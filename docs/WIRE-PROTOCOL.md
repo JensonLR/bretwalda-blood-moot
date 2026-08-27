@@ -350,18 +350,30 @@ A native client must not assume `hitZone` is present. `hitstop` is `0.06` light
 
 `{killerId, killerName, victimId, victimName, hitZone, direction, heavy, cause}`
 
-`cause` is `"blow"` or `"fire"`. A fire death has `hitZone:null`,
-`direction:null`, `heavy:false`, and `killerId:""` **unless** a blow inside
-`BURN_CREDIT_WINDOW` (5 s) drove the man in — then it is that man's kill and
-`killerName` is his. Otherwise `killerName` is the literal string `"The Fire"`,
-which a feed may print verbatim.
+`cause` is `"blow"`, `"fire"`, or `"execution"`. A fire death has
+`hitZone:null`, `direction:null`, `heavy:false`, and `killerId:""` **unless**
+a blow inside `BURN_CREDIT_WINDOW` (5 s) drove the man in — then it is that
+man's kill and `killerName` is his. Otherwise `killerName` is the literal
+string `"The Fire"`, which a feed may print verbatim.
 
-There was a third cause, `"finish"` — a man killed while he lay inside a mercy
-window. MERCY OR FINISH was removed (`docs/MERCY-REMOVED.md`), so the server
-cannot produce it, and the `DeathCause` union in `types.ts` and the `causeOf`
-branch in `anim.ts` were narrowed with it. **A client written against the old
-protocol must not treat `"finish"` as reachable**: every death by steel is
-`"blow"` again.
+`"execution"` (backlog 7.7a) is a death by steel with the finish's name: a
+committed HEAVY landing on a DOWNED man (`knocked`/`rising`) at or below
+`EXECUTION.healthFrac` (0.35) of his health takes ALL of him in one stroke.
+It carries everything a `"blow"` carries — `hitZone`, `direction`,
+`heavy:true` — and every renderer takes the blow's own path through it
+(severance, replay run-up, fall); only the naming and the flourish differ.
+The killer is paid `EXECUTION.score` (50) on top of the kill's hundred, and
+the kill-feed rows carry `cause` so a feed can say "executed". A client that
+does not know the value may safely treat it as `"blow"`.
+
+There was another cause once, `"finish"` — a man killed while he lay inside a
+mercy window. MERCY OR FINISH was removed (`docs/MERCY-REMOVED.md`), so the
+server cannot produce it, and the `DeathCause` union in `types.ts` and the
+`causeOf` branch in `anim.ts` were narrowed with it. **A client written
+against the old protocol must not treat `"finish"` as reachable.** The
+execution is not the mercy window returned: there is no parked state, no
+2.5 s of a man neither alive nor dead — a lethal blow is still a death on
+the tick it lands, and the execution only names which blow it was.
 
 ### `downed` and `spared` — REMOVED
 

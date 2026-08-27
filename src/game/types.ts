@@ -60,7 +60,15 @@ export type HitZone = "head" | "neck" | "armL" | "armR" | "legL" | "legR" | "tor
  * union that admits an impossible case is the same defect as one that excludes
  * a real one, and this file has now made both mistakes about the same name.
  */
-export type DeathCause = "blow" | "fire";
+export type DeathCause = "blow" | "fire" | "execution";
+
+/**
+ * THE EXECUTION (7.7a), mirrored from engine.mjs's own EXECUTION constant —
+ * the same arrangement WARRIOR_STATS has: the engine owns the law, this
+ * copy feeds the HUD's FINISH prompt. A committed heavy over a DOWNED man
+ * at or below `healthFrac` of his health takes all of him in one stroke.
+ */
+export const EXECUTION = { healthFrac: 0.35, score: 50 } as const;
 /**
  * What a warrior's body is doing. The server owns every one of these and a
  * client may present them but never decide them.
@@ -663,6 +671,9 @@ export interface KillFeedEntry {
   timestamp: number;
   /** Null on a burn death: no blow, so nowhere for it to have landed. */
   hitZone: HitZone | null;
+  /** How he went (7.7a): "execution" lets the feed say so. Optional because
+   *  rows written before this field simply read as blows. */
+  cause?: DeathCause;
 }
 
 /**
