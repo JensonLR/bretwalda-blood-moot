@@ -329,7 +329,7 @@ const FINISH_KIT: Record<number, FinishKit> = {
   0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
   // Polished Steel — everything on him goes cool and a shade brighter. Slate
   // wool, bleached wraps, tinned-bronze fittings that match the shirt.
-  0x8a97a5: { mail: 0x8a97a5, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
   // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
   // fittings go to dark iron; brass buttons would undo the whole finish.
   0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },

@@ -8700,3 +8700,49 @@ Choosing a number by arithmetic and hoping is how a tuning round becomes
 four of them. What is needed first is a way to render that single frame:
 §6 costs ~43 s a capture, so a targeted flag turns this from hours into
 one minute. That flag is the next piece of work, not a nudged constant.
+
+---
+
+## THE CLIP SINGLETON, FIXED — AND THE FIRST TWO LEVERS WERE INERT — 28 Aug 2026
+
+`factionread` grew a PROBE DOOR first, because the reason this defect sat
+open for two walks was never that the lever was hard to find — it was
+that the ruler took 110 minutes to answer once, and could not be asked
+for one frame. `--people/--cls/--finish/--turn` narrow §6's sweep; §0-§5
+still run (albedo, ~8 min) and the CONTROL still runs whole because it
+sets the bar. **One frame now answers in eight minutes instead of one
+hundred and ten.** A narrowed run refuses to be a verdict: it prints its
+readings, says PROBE NOT A SHEET, and exits before §7 rather than
+publishing a number anyone could quote.
+
+Then the levers, in the order they were pulled — and the first two moved
+NOTHING, which is the whole reason the door had to exist:
+
+1. **The norse metal dye row.** Where the item's own name pointed. NOT
+   PULLED, because resolving the kit through the client's vat showed
+   `fitting` is byte-identical under all four peoples — no vat reaches
+   it. Cutting a Danelaw row would have dimmed the Vikings for nothing.
+2. **The fitting, 0xc3c9d0 -> 0xaeb3ba** (luminance 0.785 -> 0.700), on
+   the argument that the shop's brightest fitting outshone the 160-gold
+   crown's. Built, rendered, measured: **7.66%, hottest #f8f8f0 —
+   IDENTICAL. Completely inert.** Reverted. A good argument and a real
+   ladder inversion, and simply not this defect.
+3. **The MAIL.** Forced to Blackened's hex as a diagnostic: **7.66% ->
+   0.00%.** That is the surface, proven rather than reasoned.
+
+**THE FIX: Polished Steel's mail 0x8a97a5 -> 0x7a8591**, luminance
+0.590 -> 0.516. It clips **0.00% against the 5.99% bar** with real
+headroom rather than sitting on the cliff the old value sat on — and it
+is still the BRIGHTEST MAIL IN THE SHOP (0.516 against Bretwalda Gold's
+0.480), so "Polished" is still what it says. The FINISH_KIT key stays
+0x8a97a5, so no saved profile loses its finish.
+
+Photographed before believed: the man still reads as bright cool polished
+mail, and against Rough Iron beside him the two are plainly different
+metals (`art/look/steelfix/`). cosmetictest CPU tier 16/16 — no finish
+pair collapsed.
+
+**The lesson is the one this file keeps writing:** two defensible
+arguments, one of them about a real ladder inversion, both inert. The
+difference between a tuning round and four of them is a ruler you can
+afford to ask twice.

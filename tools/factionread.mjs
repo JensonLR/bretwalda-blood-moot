@@ -1537,10 +1537,50 @@ const SHOP_CLASS = "huscarl";
 const ISSUED_HEX = defaultAppearance(SHOP_CLASS).armorColor;
 const ISSUED = FINISHES.find((f) => f.value === Number(ISSUED_HEX));
 if (!ISSUED) die(`defaultAppearance's armorColor ${ISSUED_HEX} is not one of the armoury's ${FINISHES.length} finishes`);
-const PLAN = [
+const FULL_PLAN = [
   ...CLASSES.map((cls) => ({ cls, finish: ISSUED })),
   ...FINISHES.filter((f) => f !== ISSUED).map((finish) => ({ cls: SHOP_CLASS, finish })),
 ];
+
+/**
+ * THE PROBE DOOR — narrow §6 to the frames you are actually chasing.
+ *
+ * WHY THIS EXISTS. §6's sweep is 120 lit captures at ~45 s each, which is 90
+ * of this run's 110 minutes, and it could not be asked for one frame. When
+ * §6.1's clip singleton finally replicated (28 Aug 2026) the fix needed a
+ * number tuned against a CLIPPED PIXEL COUNT in a lit, graded render — and
+ * the only instrument that measures it took two hours to answer once. That
+ * is how a tuning round becomes four of them: not because the lever is hard
+ * to find, but because the ruler is too slow to ask twice.
+ *
+ *   node tools/factionread.mjs --people=norse --cls=huscarl \
+ *        --finish=armor_steel --turn=160
+ *
+ * Any one of the four narrows the sweep; §0-§5 still run (they are albedo
+ * and cost about eight minutes), the CONTROL still runs in full because it
+ * is what sets the bar, and the whole thing answers in about eleven.
+ *
+ * IT REFUSES TO BE MISTAKEN FOR A VERDICT. A narrowed run cannot fail 6.1
+ * honestly — it has not looked at the other frames — so it prints its
+ * readings, says plainly that it is a PROBE and not a sheet, and exits
+ * before §7 rather than publishing a number anyone could quote.
+ */
+const pick = (n) => { const a = argv.find((x) => x.startsWith(`--${n}=`)); return a ? a.slice(n.length + 3) : null; };
+const ONLY_PEOPLE = pick("people");
+const ONLY_CLS = pick("cls");
+const ONLY_FINISH = pick("finish");
+const ONLY_TURN = pick("turn");
+const PROBE = !!(ONLY_PEOPLE || ONLY_CLS || ONLY_FINISH || ONLY_TURN);
+
+const PLAN = FULL_PLAN.filter((st) =>
+  (!ONLY_CLS || st.cls === ONLY_CLS)
+  && (!ONLY_FINISH || st.finish.id === ONLY_FINISH || st.finish.label === ONLY_FINISH));
+const CLIP_PEOPLES = PEOPLES.filter((p) => !ONLY_PEOPLE || p === ONLY_PEOPLE);
+if (PROBE && (!PLAN.length || !CLIP_PEOPLES.length)) {
+  die(`the probe narrowed §6 to nothing — cls=${ONLY_CLS} finish=${ONLY_FINISH} people=${ONLY_PEOPLE}. `
+    + `Finishes are ${FULL_PLAN.map((s) => s.finish.id).filter((v, i, a) => a.indexOf(v) === i).join(", ")}; `
+    + `classes are ${CLASSES.join(", ")}; peoples are ${PEOPLES.join(", ")}.`);
+}
 const hexOf = (v) => `0x${v.toString(16).padStart(6, "0")}`;
 /** One staged man, spelled the way `/shot` spells him. The finish is NAMED. */
 const stageQ = (cls, turn, people, finish) =>
@@ -1808,8 +1848,8 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     let worst = 0, worstAt = "";
     for (const st of PLAN) {
       const row = [];
-      for (const people of PEOPLES) {
-        for (const turn of CLIP_BEARINGS) {
+      for (const people of CLIP_PEOPLES) {
+        for (const turn of CLIP_BEARINGS.filter((t) => !ONLY_TURN || String(t) === ONLY_TURN)) {
           const { px, subject } = await capture(`${stageQ(st.cls, turn, OFF ? "none" : people, st.finish)}`);
           const mask = maskFor(st.cls, turn, subject);
           if (String(subject?.people) !== (OFF ? "none" : people)) die(`asked for people=${people}, got ${subject?.people}`);
@@ -1910,6 +1950,23 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     // and they read the floor however bright they get. The long note beside the
     // sweep below has the measurement that caught it.
     // ============================================================
+    // THE PROBE STOPS HERE, and it stops loudly. A narrowed run has not
+    // looked at the other frames, so it cannot honestly pass or fail 6.1 and
+    // must not publish a verdict anybody could quote back. §7 is skipped for
+    // the same reason and because its comparisons want the whole plan.
+    if (PROBE) {
+      console.log("");
+      note(`PROBE, NOT A SHEET — §6 was narrowed to ${PLAN.length} staged man/men x `
+        + `${CLIP_PEOPLES.length} people x ${CLIP_BEARINGS.filter((t) => !ONLY_TURN || String(t) === ONLY_TURN).length} bearing(s). `
+        + `The CONTROL above is the real bar; the readings above are real. `
+        + `Everything this run did NOT capture is simply unmeasured, and no verdict is published. `
+        + `Run the whole walk before believing anything about the sheet.`);
+      console.log(`\n[faction] PROBE — ${over.length} of the narrowed frames over the ${bar.toFixed(2)}% bar\n`);
+      if (browser) await browser.close().catch(() => {});
+      server.stop();
+      process.exit(0);
+    }
+
     console.log("\n[faction] === 7. THE LIT COLOUR READ (the same frames, asked what colour they are) ===\n");
     {
       const band = makeBand(FACTION_FIELD.norse);
