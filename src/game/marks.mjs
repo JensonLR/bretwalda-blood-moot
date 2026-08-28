@@ -18,7 +18,7 @@
 // a wrong one.
 
 /** What a rule may read. All of it is on the profile today. */
-export const MARK_FACTS = Object.freeze(["level", "wins", "matches", "sworn"]);
+export const MARK_FACTS = Object.freeze(["level", "wins", "matches", "sworn", "crowned"]);
 
 /**
  * The marks. `d` is one SVG path on a 24 x 24 grid, stroke-drawn in
@@ -76,6 +76,14 @@ export const MARKS = Object.freeze([
     source: "The hrafnsmerki taken from the host at Cynwit — the Chronicle, year 878.",
     d: "M6 3.5 L6 20.5 M6 5 L18.6 6.8 A10.4 10.4 0 0 1 6 15.5 Z M18 9.5 L19.8 10.6 M16.6 12.4 L18.1 13.9 M14.2 14.6 L15.2 16.4",
   },
+  {
+    // THE ONE MARK NO NUMBER UNLOCKS. `crowned` is stamped by `settleSeason`
+    // in exactly one place in the repository, which is what "cannot be
+    // bought and cannot be lost" means in code — see players.bretwaldaSeasons.
+    id: "crown", name: "The Crown", how: "crowned", need: 1,
+    source: "No crown of the period survives; a plain three-point circlet, ours, and labelled so.",
+    d: "M4.5 16.5 L5.2 9.2 L8.6 12.4 L12 5.2 L15.4 12.4 L18.8 9.2 L19.5 16.5 Z M6.5 19 L17.5 19",
+  },
 ]);
 
 /** The mark by id, or the unmarked default for anything unknown. */
@@ -94,6 +102,7 @@ export function markEarned(mark, facts = {}) {
     wins: Number(facts.wins) || 0,
     matches: Number(facts.matches) || 0,
     sworn: facts.sworn ? 1 : 0,
+    crowned: facts.crowned ? 1 : 0,
   };
   switch (mark.how) {
     case "free": return true;
@@ -101,6 +110,7 @@ export function markEarned(mark, facts = {}) {
     case "wins": return f.wins >= mark.need;
     case "matches": return f.matches >= mark.need;
     case "sworn": return f.sworn >= mark.need;
+    case "crowned": return f.crowned >= mark.need;
     default: return false;
   }
 }
@@ -128,6 +138,7 @@ export function markHint(mark) {
     case "wins": return `Win ${mark.need} match${mark.need === 1 ? "" : "es"}.`;
     case "matches": return `Fight ${mark.need} match${mark.need === 1 ? "" : "es"}.`;
     case "sworn": return "Swear to a kingdom.";
+    case "crowned": return "Be crowned Bretwalda of Britain.";
     default: return "";
   }
 }

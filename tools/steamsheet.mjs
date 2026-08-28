@@ -31,7 +31,8 @@ claim(new Set(names).size === names.length, "API names unique");
 //    that crosses every threshold in the table.
 const walks = [
   {}, { level: 5 }, { level: 15 }, { wins: 5 }, { wins: 25 },
-  { matches: 20 }, { sworn: true }, { level: 99, wins: 99, matches: 99, sworn: true },
+  { matches: 20 }, { sworn: true }, { crowned: true },
+  { level: 99, wins: 99, matches: 99, sworn: true, crowned: true },
 ];
 const agree = walks.every((f) => {
   const got = new Set(earnedAchievements(f));

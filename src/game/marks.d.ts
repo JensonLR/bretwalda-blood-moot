@@ -5,7 +5,7 @@ declare module "@/game/marks.mjs" {
   export interface Mark {
     id: string;
     name: string;
-    how: "free" | "level" | "wins" | "matches" | "sworn";
+    how: "free" | "level" | "wins" | "matches" | "sworn" | "crowned";
     need: number;
     /** The find it is drawn from, or the label calling it an invention. */
     source: string;
@@ -17,6 +17,8 @@ declare module "@/game/marks.mjs" {
     wins?: number;
     matches?: number;
     sworn?: boolean;
+    /** Ever crowned Bretwalda. Stamped by `settleSeason` and nowhere else. */
+    crowned?: boolean;
   }
   export const MARKS: readonly Mark[];
   export const MARK_FACTS: readonly string[];

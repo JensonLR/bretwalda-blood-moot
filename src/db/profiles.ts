@@ -70,6 +70,10 @@ export interface ProfileView {
   muted: boolean;
   /** Four words. Shown on the profile screen; it is the only way back in. */
   recoveryCode: string;
+  /** Seasons this man was crowned Bretwalda. Stamped by `settleSeason` and
+   *  nowhere else; carried here so the crown mark's fact travels with the
+   *  profile the way level and wins do. */
+  bretwaldaSeasons: number[];
   createdAt: string;
 }
 
@@ -99,7 +103,10 @@ function levelFor(xp: number): number {
  * the next device.
  */
 function factsOf(row: PlayerRow) {
-  return { level: row.level, wins: row.wins, matches: row.matches, sworn: !!row.allegiance };
+  return {
+    level: row.level, wins: row.wins, matches: row.matches, sworn: !!row.allegiance,
+    crowned: Array.isArray(row.bretwaldaSeasons) && row.bretwaldaSeasons.length > 0,
+  };
 }
 
 function view(row: PlayerRow): ProfileView {
@@ -121,6 +128,9 @@ function view(row: PlayerRow): ProfileView {
     bindings: bindingsView(row.bindings),
     muted: row.muted === true,
     recoveryCode: row.recoveryCode ?? "",
+    bretwaldaSeasons: Array.isArray(row.bretwaldaSeasons)
+      ? (row.bretwaldaSeasons as number[]).filter((n) => typeof n === "number")
+      : [],
     createdAt: row.createdAt.toISOString(),
   };
 }

@@ -33,6 +33,8 @@ export interface ServerProfile {
   muted: boolean;
   /** Four words. The only way back in on another device. */
   recoveryCode: string;
+  /** Seasons this man was crowned Bretwalda. Server-stamped, never client-set. */
+  bretwaldaSeasons: number[];
   createdAt: string;
 }
 

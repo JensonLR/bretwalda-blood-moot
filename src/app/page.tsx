@@ -127,6 +127,9 @@ interface ProfileData {
   unlocked: string[]; appearance: Appearance;
   /** Four words, only ever set by the server. Absent means "kept on this device". */
   recoveryCode?: string;
+  /** Seasons crowned Bretwalda. Only ever set by the server; absent under-claims,
+   *  which is the marks' own narrowing posture. */
+  bretwaldaSeasons?: number[];
 }
 
 // Where this player's hoard actually lives. "reaching" is the second or two
@@ -578,6 +581,7 @@ export default function Page() {
       kills: p.kills, deaths: p.deaths, wins: p.wins, matches: p.matches,
       unlocked: p.unlocked, appearance: migrateAppearance(p.appearance),
       recoveryCode: p.recoveryCode,
+      bretwaldaSeasons: p.bretwaldaSeasons ?? [],
     });
   }, [saveProfile]);
 
@@ -624,6 +628,7 @@ export default function Page() {
   const markFacts: MarkFacts = {
     level: profile.level, wins: profile.wins, matches: profile.matches,
     sworn: peopleOf(profile.appearance) !== "none",
+    crowned: (profile.bretwaldaSeasons?.length ?? 0) > 0,
   };
   // Narrowed on OUR OWN view: a hand-edited localStorage draws the bare shield.
   const myMark = earnedMark(profile.appearance.mark, markFacts).id;
@@ -634,6 +639,7 @@ export default function Page() {
       level: profileRef.current.level, wins: profileRef.current.wins,
       matches: profileRef.current.matches,
       sworn: peopleOf(profileRef.current.appearance) !== "none",
+      crowned: (profileRef.current.bretwaldaSeasons?.length ?? 0) > 0,
     }).id !== id) return;
     const ap = { ...profileRef.current.appearance, mark: id };
     saveProfile({ appearance: ap });

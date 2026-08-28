@@ -19,17 +19,18 @@ const check = (name, ok, detail = "") => {
 console.log("[mark] the devices, headless\n");
 
 // ---- the set itself ----
-check("ten marks, unmarked first", MARKS.length === 10 && MARKS[0].id === "none",
+check("eleven marks, unmarked first", MARKS.length === 11 && MARKS[0].id === "none",
   MARKS.map((m) => m.id).join(","));
 check("ids are unique", new Set(MARKS.map((m) => m.id)).size === MARKS.length);
 check("every mark is sourced or confessed",
   MARKS.every((m) => m.source.length > 20),
   "the design system's own law: a real find, or labelled an invention");
-check("the one invented device says so out loud",
-  MARKS.filter((m) => /invention/i.test(m.source)).length === 1
+check("the invented devices say so out loud",
+  MARKS.filter((m) => /invention|ours/i.test(m.source)).length === 2
     && /invention/i.test(markOf("wyrmknot").source)
-    && MARKS.every((m) => /invention|find|stone|chronicle|grave|amulet|knife|kells|metalwork|county|york|shield|bracteate|forth/i.test(m.source)),
-  "the wyrm-knot; all nine others name a find");
+    && /ours/i.test(markOf("crown").source)
+    && MARKS.every((m) => /invention|ours|find|stone|chronicle|grave|amulet|knife|kells|metalwork|county|york|shield|bracteate|forth/i.test(m.source)),
+  "the wyrm-knot and the crown; all nine others name a find");
 check("every drawn mark has a path, only NONE has none",
   MARKS.every((m) => (m.id === "none") === (m.d === "")));
 
@@ -68,9 +69,9 @@ check("undefined and null are the unmarked shield",
 
 // ---- the unlock rules, each fact pulled once ----
 const fresh = { level: 1, wins: 0, matches: 0, sworn: false };
-const veteran = { level: 20, wins: 30, matches: 60, sworn: true };
-check("the facts a rule may read are the four the profile has",
-  MARK_FACTS.join(",") === "level,wins,matches,sworn");
+const veteran = { level: 20, wins: 30, matches: 60, sworn: true, crowned: true };
+check("the facts a rule may read are the five the profile has",
+  MARK_FACTS.join(",") === "level,wins,matches,sworn,crowned");
 check("every rule reads a real fact",
   MARKS.every((m) => m.how === "free" || MARK_FACTS.includes(m.how)));
 check("a fresh warrior owns exactly the free marks",
@@ -101,7 +102,9 @@ check("choosing no mark is always allowed", earnedMark("none", fresh).id === "no
 // ---- what a locked tile says ----
 check("every gated mark has a hint that names its bar",
   MARKS.filter((m) => m.how !== "free").every((m) =>
-    m.how === "sworn" ? /kingdom/i.test(markHint(m)) : markHint(m).includes(String(m.need))));
+    m.how === "sworn" ? /kingdom/i.test(markHint(m))
+      : m.how === "crowned" ? /bretwalda/i.test(markHint(m))
+        : markHint(m).includes(String(m.need))));
 check("free marks claim themselves", MARKS.filter((m) => m.how === "free").every((m) => /yours/i.test(markHint(m))));
 
 // ---- the migration promise: characters.ts backfills what this narrows ----

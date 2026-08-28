@@ -515,7 +515,9 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
                 <li key={c.seasonIndex}>
                   <span className="cabochon" />
                   <span><strong>{c.name || "unclaimed"}</strong> of the {PEOPLE_NAME(c.people)}</span>
-                  <em>season {c.seasonIndex}</em>
+                  {/* The season by its NAME — 7.6's ruling reaches the roll of
+                      champions too; the index alone is a database's word. */}
+                  <em>{seasonName(c.seasonIndex)}, s{c.seasonIndex}</em>
                 </li>
               ))}
             </ul>
