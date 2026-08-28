@@ -12,9 +12,18 @@
 
 ## THE MASTER LIST — 12 Aug 2026
 
-The owner delivered ~40 items during the usage outage. **Nine of them were
-already raised** and are marked `[ALREADY RAISED]` with where; they stay on the
-list because they are still open and still relevant. The rest are new.
+The owner delivered ~40 items during the usage outage. Nine of them were
+already raised elsewhere and were tagged `[ALREADY RAISED]` with where.
+
+**THAT SENTENCE WENT STALE AND IS CORRECTED HERE RATHER THAN LEFT TO MISLEAD
+(28 Aug 2026).** Eight of the nine have since been closed and their rows now
+carry their verdicts, so the tag no longer means what the count says. What
+actually survives in this file today is **one** `[ALREADY RAISED]` row — 6.4,
+the exposed Neon password, which is the owner's to close at the provider — and
+**three** `[PARTLY RAISED]` rows (5.1, 5.3, 5.7; 5.7's scope is superseded by
+5.7b). Grep the tags rather than trusting a count in a preamble: a headline
+number that drifts from its own body is how a reader concludes there are eight
+hidden open items and goes looking for work that is already done.
 
 Sequencing principle, from `WHAT-THIS-GAME-IS.md` §5: *the fight has to feel
 heavy before a war fought with it means anything.* So broken-illusion defects
