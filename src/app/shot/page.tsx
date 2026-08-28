@@ -886,6 +886,53 @@ const subjectOf = (ap: Appearance, cls: WarriorClass, turn: number) => ({
   people: String((ap as unknown as Record<string, unknown>).people ?? "none"),
 });
 
+/**
+ * THE QUERY, RESOLVED ONCE — and the page's globals published with it.
+ *
+ * Module scope so the object identity is stable for `useSyncExternalStore`
+ * (see the note at its call site), and so the globals below are set exactly
+ * once per load however many times React asks for a snapshot.
+ */
+let shotParamsMemo: URLSearchParams | null = null;
+let shotParamsDone = false;
+const SHOT_SUBSCRIBE = () => () => {};
+const shotServerParams = (): URLSearchParams | null => null;
+function shotParams(): URLSearchParams | null {
+  if (shotParamsDone) return shotParamsMemo;
+  shotParamsDone = true;
+  if (typeof window === "undefined") return null;
+  const search = readSearchOnce();
+
+  const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
+  const camOverride = search.get("cam");
+  const globals = window as unknown as Record<string, unknown>;
+  globals.__photoCam = camOverride !== null ? parseFloat(camOverride) : chosen.cam;
+  // Deleted rather than left stale: a framing carried over would silently
+  // pin the camera in a shot that meant to follow the warrior.
+  const turn = chosen.parametric ? parseFloat(search.get("turn") ?? "0") : 0;
+  const framing = chosen.card && Number.isFinite(turn)
+    ? cardFraming(CARDS[chosen.card], turn)
+    : chosen.framing;
+  if (framing) globals.__photoFraming = framing;
+  else delete globals.__photoFraming;
+  // The shop, published for the capture tool — see `__shotRoster` in the
+  // header contract. A tool holding its own copy of the ladder audits the
+  // shop it was written against.
+  if (search.get("roster") === "1") {
+    globals.__shotRoster = {
+      slots: ARMOURY.map((s) => ({
+        slot: s.slot, label: s.label,
+        options: s.options.map((o) => ({ id: o.id, label: o.label, cost: o.cost, value: spell(o.value) })),
+      })),
+      cards: Object.fromEntries(Object.entries(CARDS).map(([k, c]) => [k, { w: c.w, h: c.h, note: c.note }])),
+      dress: DRESS_IDS,
+      unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
+    };
+  }
+  shotParamsMemo = search;
+  return shotParamsMemo;
+}
+
 export default function ShotPage() {
   // The query string, resolved in a LAZY INITIALIZER so the very first client
   // render is already the staged one — the same ruling the `arena` field
@@ -921,37 +968,30 @@ export default function ShotPage() {
   // impure-looking write in an initializer is the honest price of a child
   // that reads window state from its mount effect; the alternative shapes
   // are the two bugs above.
-  const [params] = useState<URLSearchParams | null>(() => {
-    if (typeof window === "undefined") return null;
-    const search = readSearchOnce();
-    const chosen = PRESETS[search.get("preset") ?? "duel"] ?? PRESETS.duel;
-    const camOverride = search.get("cam");
-    const globals = window as unknown as Record<string, unknown>;
-    globals.__photoCam = camOverride !== null ? parseFloat(camOverride) : chosen.cam;
-    // Deleted rather than left stale: a framing carried over would silently
-    // pin the camera in a shot that meant to follow the warrior.
-    const turn = chosen.parametric ? parseFloat(search.get("turn") ?? "0") : 0;
-    const framing = chosen.card && Number.isFinite(turn)
-      ? cardFraming(CARDS[chosen.card], turn)
-      : chosen.framing;
-    if (framing) globals.__photoFraming = framing;
-    else delete globals.__photoFraming;
-    // The shop, published for the capture tool — see `__shotRoster` in the
-    // header contract. A tool holding its own copy of the ladder audits the
-    // shop it was written against.
-    if (search.get("roster") === "1") {
-      globals.__shotRoster = {
-        slots: ARMOURY.map((s) => ({
-          slot: s.slot, label: s.label,
-          options: s.options.map((o) => ({ id: o.id, label: o.label, cost: o.cost, value: spell(o.value) })),
-        })),
-        cards: Object.fromEntries(Object.entries(CARDS).map(([k, c]) => [k, { w: c.w, h: c.h, note: c.note }])),
-        dress: DRESS_IDS,
-        unmapped: ARMOURY.filter((s) => !(s.slot in SLOT_FIELD)).map((s) => s.slot),
-      };
-    }
-    return search;
-  });
+  //
+  // HYDRATION: `useSyncExternalStore`, NOT a lazy `useState` initialiser.
+  //
+  // The initialiser returned `null` on the server and the real params in the
+  // browser, so the server sent `<div class="w-screen h-screen bg-black">` and
+  // the client's FIRST render returned the whole canvas tree. React compared
+  // the two and logged **Minified React error #418** on every production load
+  // of this page (ledgered 27 Aug 2026). Captures were unaffected — the page
+  // still forged and `__shotReady` still landed — but a hydration mismatch is
+  // React being told the server lied, and it is one behaviour change away from
+  // costing a capture run.
+  //
+  // This hook exists for exactly this shape: React renders `getServerSnapshot`
+  // during hydration, so the HTML matches, then re-renders with the client
+  // snapshot. The canvas mounts one render later, which costs nothing here —
+  // every consumer already gates on `params`, and the harness waits on
+  // `__shotReady` rather than on a frame count from mount.
+  //
+  // The snapshot is MEMOISED AT MODULE SCOPE and returns the same object every
+  // call: `useSyncExternalStore` compares snapshots by identity, and a fresh
+  // `URLSearchParams` per call would re-render forever. That memo is also
+  // where the page's globals are published, so they are still set exactly once
+  // and still before anything reads them.
+  const params = useSyncExternalStore(SHOT_SUBSCRIBE, shotParams, shotServerParams);
 
   // 0 is the preset as authored. 1 is the same room after `?revive=1` has put
   // every dead warrior back on his feet, so a capture can show what the body
