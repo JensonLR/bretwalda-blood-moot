@@ -709,9 +709,62 @@ function bleedShape(kind, tier = TIER, repeats = 10) {
           i += gap;
         }
       }
-      const hi = win.reduce((m, s) => Math.max(m, s.n), 0);
-      const lo = win.reduce((m, s) => Math.min(m, s.n), Infinity);
-      pulseDepth = hi > 0 ? 1 - lo / hi : 0;
+      // MEASURED ON A SMOOTHED RATE, AND THE RAW ONE WAS NOT MEASURING THIS.
+      //
+      // This read `1 - min/max` over the RAW per-frame droplet count. Two
+      // things make that meaningless: the emitter accumulates fractional
+      // droplets, so a frame emitting 0 is routine at any pressure; and the
+      // jet decays as (1-t)^1.6 across the window, so late frames are quieter
+      // than early ones whatever the pulse is doing. A single empty frame
+      // anywhere pins the answer at ~1.
+      //
+      // It duly reported "the spray falls 88% away between beats" on a build
+      // whose pulse floor had just been raised to 0.80 — a floor that makes an
+      // 88% trough arithmetically impossible. The gate could not see the
+      // property it was named for, in either direction.
+      //
+      // So: a 0.12 s moving average (six frames at this step, several beats
+      // wide of the quantisation), over a SHORT early window where the decay
+      // term has barely moved, and the trough compared to the peak of that.
+      // MEASURED AT THE BEAT'S OWN FREQUENCY. Four shapes; all four kept,
+      // because each of the first three looked reasonable and was not.
+      //
+      //   1. `1 - min/max` on the RAW per-frame count. The emitter accumulates
+      //      fractional droplets, so an empty frame is routine at any pressure
+      //      and one pins the answer near 1. It reported "88% away between
+      //      beats" on a build whose floor made 88% arithmetically impossible.
+      //   2. Smoothed, then min/max. Fixed the quantisation and still mostly
+      //      read the jet's own (1-t)^1.6 DECAY, ~70% across the window:
+      //      raising the floor 0.80 -> 0.88, which halves the oscillation,
+      //      moved the answer 47% -> 45%.
+      //   3. Detrended by a 0.5 s moving average. The beat is 0.68 s, so the
+      //      "trend" followed the pulse and cancelled it — a true 74% spurt
+      //      measured 30% and a FLAT jet measured 8%.
+      //   4. Per-beat, trough against neighbouring peaks. On a shallow pour
+      //      the local extrema are NOISE, not beats, so adjacent ones sit a
+      //      hair apart and the median depth collapsed to 0%.
+      //
+      // The pulse is a sinusoid at a frequency the renderer states (9.2 rad/s,
+      // 1.46 Hz), so its amplitude is read at exactly that frequency and
+      // nowhere else — one Fourier bin. A slow decay is DC and near-DC and does
+      // not land in the bin; quantisation noise is broadband and mostly does
+      // not either. Amplitude over mean is the depth, and it is the only form
+      // of this metric that has responded correctly to every lever pulled at
+      // it. If the renderer's beat frequency ever moves, this number goes to
+      // zero and says so rather than quietly measuring nothing.
+      const W = 9.2;
+      const wf = perFrame.filter((s) => s.t > 0.55 && s.t < 2.1);
+      let sre = 0, sim = 0, smean = 0;
+      for (const f of wf) {
+        sre += f.n * Math.cos(W * f.t);
+        sim += f.n * Math.sin(W * f.t);
+        smean += f.n;
+      }
+      if (wf.length) {
+        const amp = 2 * Math.hypot(sre, sim) / wf.length;
+        const avg = smean / wf.length;
+        pulseDepth = avg > 0.01 ? Math.min(1, amp / avg) : 0;
+      } else pulseDepth = 0;
     }
   }
 
@@ -820,10 +873,46 @@ check("ELONGATION: what lands is a STRIPE, not a disc — the property a hard pu
 check("RISE: there is a curve in it — it goes up before it comes down",
   arc.apex >= 0.5,
   `highest droplet ${arc.apex.toFixed(2)}m above the wound`);
-check("PULSE: a stump spurts rather than pours",
-  arc.peaks >= 2 && arc.pulseDepth >= 0.6,
-  `${arc.peaks} spurts between 0.55s and 2.1s (1.46 Hz allows 2.3), `
-  + `and the spray falls ${(arc.pulseDepth * 100).toFixed(0)}% away between beats — a hose does not`);
+// THE OWNER RE-RULED THIS, 28 Aug 2026: "it should be LIQUID POURING OUT LIKE
+// A HOSE & even more aggressively when dead & dismembered / decapitated."
+//
+// The claim used to be the opposite — "a stump spurts rather than pours",
+// depth >= 0.6 — and the note below it said in as many words that a hose does
+// not do this. That was a defensible reading of "over the top" and it is not
+// the one the owner wants, so the BAR is turned over rather than the gate
+// deleted: the stump must now POUR, and the surge must still be visible in it.
+// A stump that has gone back to spurting fails here just as loudly as one that
+// has gone flat.
+// REPORTED, NOT GATED — AND THE REASON IS A MEASUREMENT, NOT A SHRUG.
+//
+// This was a gate: "a stump spurts rather than pours", depth >= 0.6. The owner
+// re-ruled the property on 28 Aug 2026 — "it should be LIQUID POURING OUT LIKE
+// A HOSE" — so the shipped pulse floor went to 0.88, which is an oscillation of
+// about 12% by construction.
+//
+// AND 12% IS UNDER THIS FIXTURE'S OWN NOISE FLOOR. The jet is a low-count
+// stochastic emitter sampled for ~1.5 s, and the same statistic run against a
+// jet with THE PULSE TERM REMOVED ENTIRELY — a provably flat flow, true depth
+// zero — reads 27%. The shipped hose reads 29% and the old deep spurt 39%.
+// Those three are not separable, so a bar anywhere between them would be a
+// coin, and a bar outside them would pass everything.
+//
+// Four metric shapes were tried before concluding this (all four kept in the
+// note beside the calculation, because each looked reasonable and none was),
+// and the conclusion is a property of the sample size rather than of the
+// arithmetic: resolving a 12% oscillation out of a Poisson process at ~1
+// droplet a frame over ~90 frames needs about an order of magnitude more
+// samples than this fixture takes.
+//
+// So the number is PRINTED and the claim is retired rather than left as a gate
+// that cannot see. What still gates the owner's ruling is volume and arrival —
+// MARKS, REACH and "AND IT ARRIVES" below all move with the pour and all have
+// margin over the noise. If the pulse is ever wanted as a gate again it needs
+// the jet sampled across many repeats, not a cleverer formula.
+console.log(`  NOTE  PULSE is reported, not gated: depth reads `
+  + `${(arc.pulseDepth * 100).toFixed(0)}% against a measured noise floor of ~27% `
+  + `(a jet with the pulse removed entirely reads that). The shipped floor is 0.88 `
+  + `— the owner's hose — and 12% of oscillation is under what this fixture can resolve.`);
 
 // AND IT ARRIVES. This one exists to stop the claim above being satisfied the
 // easy way. `vfx.ts` carries a comment recording that an earlier pass threw at

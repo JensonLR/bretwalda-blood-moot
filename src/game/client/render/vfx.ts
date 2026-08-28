@@ -3259,7 +3259,10 @@ export function createVfx(
     // is a fifth of this and looks it.
     const k = clamp01(o.damage / 45);
     const hot = arterial(o.zone);
-    const count = Math.max(2, Math.round((5 + 26 * k) * (hot ? 1.3 : 1) * settings.particleScale));
+    // 9 + 44k against 5 + 26k. A graze still reads as a graze (nine droplets),
+    // and a cleaving heavy now throws better than fifty — the owner's "very
+    // bloody" applied to the ordinary blow, not only to the death.
+    const count = Math.max(3, Math.round((9 + 44 * k) * (hot ? 1.35 : 1) * settings.particleScale));
     if (store.n + count > budget) return;
 
     let dx: number;
@@ -3296,7 +3299,8 @@ export function createVfx(
       // direction. The cone narrowing with damage is what makes the two read
       // differently at a glance even before the count registers.
       0.95 - 0.35 * k,
-      0.038 + 0.035 * k,
+      // Same argument as the jet's droplet size: bigger reads as liquid.
+      0.052 + 0.05 * k,
       // Deeper the harder it was hit: more of it, and less of it aerated.
       tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
     );
@@ -3312,8 +3316,12 @@ export function createVfx(
     // follow — the pool lands where he was standing, which for a man who folds
     // straight down is within half a metre of where he ends up.
     if (o.fatal) {
+      // "even more aggressively when dead": a kill that took nothing off still
+      // empties the man out. Power 1.05-1.65 against the old 0.5-0.85, and it
+      // runs half again as long — a death is the one moment in the game that
+      // is allowed to be the loudest thing on screen.
       startJet(null, o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
-        0.07, 0.5 + k * 0.35, JET_LIFE * 1.4, true);
+        0.085, 1.05 + k * 0.6, JET_LIFE * 2.1, true);
     }
   }
 
@@ -3341,7 +3349,11 @@ export function createVfx(
    * PULSE claim in `goretest` is what stops that turning back into a hose: the
    * spray still has to fall at least 60% away between beats.
    */
-  const JET_RATE = 84;
+  // 150, not 84 — the owner's hose. With the floor at 0.80 the quiet part of
+  // the beat now carries about 120 droplets a second where it used to carry
+  // twenty, which is the difference between a stump that spurts and one that
+  // empties.
+  const JET_RATE = 150;
 
   const jets: Jet[] = [];
   let jetSerial = 0;
@@ -3451,7 +3463,13 @@ export function createVfx(
     // A neck is 55 mm of artery and a thigh is a hand's breadth of meat: the
     // section is most of how hard it throws, and it is the one number the cut
     // measured for us.
-    const force = power * (hot ? 1.3 : 1) * (0.7 + radius * 3.2);
+    // "& even more aggressively when dead & dismembered / DECAPITATED." A neck
+    // or head cut is the loudest wound the game can make, so it is named here
+    // rather than left to `arterial`'s generic 1.3: a beheading throws half as
+    // much again on top of it. Everything else keeps the section-driven force
+    // the cut measured.
+    const beheaded = o.zone === "neck" || o.zone === "head";
+    const force = power * (hot ? 1.3 : 1) * (beheaded ? 1.5 : 1) * (0.7 + radius * 3.2);
 
     const count = Math.round(34 * force * settings.particleScale);
     if (store.n + count <= budget) {
@@ -3578,7 +3596,22 @@ export function createVfx(
       // heart. 9.2 rad/s is 88 beats a minute and stays; what changed is the
       // DEPTH, here and in the speed below, because the pulse is only legible
       // if diastole nearly stops.
-      const pulse = 0.26 + 0.74 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
+      // THE OWNER'S RULING, 28 Aug 2026, and it REVERSES the intent above:
+      // "blood should be over dramatic the game is very bloody, it should be
+      // LIQUID POURING OUT LIKE A HOSE & even more aggressively when dead &
+      // dismembered / decapitated."
+      //
+      // The floor was 0.26, which is a stump that genuinely stops between
+      // beats — the note above argued for it as what a real artery does, and
+      // `goretest`'s PULSE claim held it there by demanding the spray fall 60%
+      // away. That was a defensible reading of "over the top" and it is not
+      // the one the owner wants. The floor is 0.80: the surge is still there
+      // and still legible (a fifth of the flow rides the sine), but the stump
+      // never stops pouring (0.88 after measuring 0.80 at a 47% trough —
+      // see the PULSE claim, whose metric had to be repaired before it could
+      // see this number at all). The gate is re-ruled to match rather than
+      // deleted — see PULSE in `goretest`, which now holds the pour.
+      const pulse = 0.88 + 0.12 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
       j.acc += JET_RATE * j.power * Math.pow(1 - t, 1.6) * pulse * settings.particleScale * headroom * crowd * dt;
       if (j.acc < 1) continue;
       const n = Math.min(6, Math.floor(j.acc));
@@ -3601,7 +3634,10 @@ export function createVfx(
         // STREAM. One cone for both was why the running spray read as more of
         // the same rather than as the thing left behind.
         0.30,
-        0.035 + j.radius * 0.3,
+        // 0.055 + r*0.55, against 0.035 + r*0.3. SIZE is what separates a
+        // liquid from a mist at any distance, and the owner asked for liquid:
+        // more droplets alone read as spray, bigger ones read as a pour.
+        0.055 + j.radius * 0.55,
         tmpColor.copy(PALETTE.bloodArterial).lerp(PALETTE.bloodFresh, t),
         ivx, ivy, ivz,
       );

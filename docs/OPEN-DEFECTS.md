@@ -9043,3 +9043,74 @@ and reports the state it ended in. **Five consecutive 12/12**, and shown
 still able to fail: with the rejoined man's stamina forced to zero it
 goes red on the same line (`state=knocked, attackTimer=0.00`), so the
 window did not turn a real dead input into a pass.
+
+---
+
+## THE THIRD PLAY REPORT — BLOOD: IT WAS FLOATING, AND NOW IT POURS — 28 Aug 2026
+
+**"Blood visuals are currently floating off players bodies when damaged
+looks very poor visually."** It was, and the cause was two constants in
+`GameCanvas`: every wound was spawned at `{ x: at.x, y: 1.4, z: at.z }` —
+the WIRE's ground position at a HARD-CODED CHEST HEIGHT — whatever had
+been hit and whatever the body was doing. A man knocked down, mid-fall or
+already on the floor bled from a point 1.4 m in the air above himself,
+and a leg wound sprayed from his chest. Blood hanging in space beside a
+warrior is exactly what that code asks for.
+
+The rig already knew better: `pivots` carries the real bones, posed this
+frame, under the body's own transform. A wound is now taken from the bone
+the server named — head/neck to the head, armL/armR and legL/legR to
+their limbs, torso and waist to the chest — via `getWorldPosition`, so it
+follows him wherever the pose has put him. A man on his back bleeds from
+his back. Falls back to the chest, then to the old point, so an unposed
+rig still bleeds somewhere sane.
+
+**"It should be liquid pouring out like a hose & even more aggressively
+when dead & dismembered / decapitated."** Turned up on every axis:
+
+- the ordinary wound throws `9 + 44k` droplets against `5 + 26k`
+- the jet's floor goes 0.26 -> **0.88** — it never stops pouring — and
+  its rate 84 -> 150/s
+- a death's jet: power 1.05-1.65 against 0.5-0.85, running 2.1x the base
+  life against 1.4x
+- **decapitation is named**: a `neck` or `head` cut throws half as much
+  again on top of `arterial`'s 1.3
+- droplet SIZE 0.035+r·0.3 -> 0.055+r·0.55, which is the lever between a
+  mist and a liquid and the one the capture actually shows
+
+Photographed at the beheading preset: before, a scatter of dark specks;
+after, bright arterial droplets arcing off the neck with the head
+trailing blood behind it.
+
+### AND THE GATE THAT WAS WATCHING THIS COULD NOT SEE IT — FOUR TRIES
+
+`goretest`'s PULSE claim said "a stump spurts rather than pours", depth
+>= 0.6, with a note that "a hose does not". The owner has now ruled the
+other way, so the bar had to turn over — and on the way it emerged that
+**the metric had never been measuring the property at all.** All four
+shapes are kept in the file beside the calculation:
+
+1. `1 - min/max` on the RAW per-frame count. The emitter accumulates
+   fractional droplets, so an empty frame is routine at any pressure and
+   one pins the answer near 1. It reported **88% "away between beats" on
+   a build whose floor made 88% arithmetically impossible.**
+2. Smoothed. Fixed quantisation, still mostly read the jet's own
+   `(1-t)^1.6` decay (~70% across the window): the floor 0.80 -> 0.88,
+   which HALVES the oscillation, moved the answer 47% -> 45%.
+3. Detrended by a 0.5 s moving average — but the beat is 0.68 s, so the
+   "trend" followed the pulse and cancelled it: a true 74% spurt read
+   30% and a FLAT jet read 8%.
+4. Per-beat trough vs neighbouring peaks. On a shallow pour the local
+   extrema are noise, not beats, and the median depth collapsed to 0%.
+
+Read at the beat's own frequency (one Fourier bin) it is honest but
+**under this fixture's noise floor**: a jet with the pulse term REMOVED
+ENTIRELY — true depth zero — reads **27%**, the shipped hose 29%, the old
+deep spurt 39%. Three values that are not separable, so any bar between
+them is a coin.
+
+So the claim is **retired to a printed number with the reason measured**,
+not deleted and not left as a gate that cannot see. What still holds the
+owner's ruling is volume and arrival — MARKS, REACH and "AND IT ARRIVES"
+all move with the pour and all have margin over the noise. goretest
+35/35.

@@ -261,6 +261,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   const stageRef = useRef<Stage | null>(null);
   const warriorsRef = useRef<Map<string, WarriorSlot>>(new Map());
   const focusRef = useRef(new THREE.Vector3());
+  /** Scratch for `woundAt` — one vector, reused, never allocated in the loop. */
+  const woundPointRef = useRef(new THREE.Vector3());
   // Set once at init when a capture has aimed the camera; keeps the per-frame
   // mode selection from stamping "follow" back over it every frame.
   const photoFramedRef = useRef(false);
@@ -1799,6 +1801,43 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           slot.stepTick = 0;
         }
 
+        // ---- WHERE A WOUND ACTUALLY IS ----------------------------------
+        //
+        // THE OWNER'S REPORT: "Blood visuals are currently floating off players
+        // bodies when damaged." They were, and it was written down here as two
+        // constants: every wound was spawned at `{ x: at.x, y: 1.4, z: at.z }`
+        // — the WIRE's ground position, at a hard-coded chest height — whatever
+        // had actually been hit and whatever the body was doing.
+        //
+        // So a man knocked down, mid-fall, staggering back or already on the
+        // floor bled from a point 1.4 m in the AIR above him, and a leg wound
+        // sprayed from his chest. It reads as blood hanging in space beside a
+        // warrior because that is exactly what it was.
+        //
+        // The rig already knows better. `pivots` carries the real bones, posed
+        // this frame, under the body's own transform — so the wound is taken
+        // from the bone the server named and follows him wherever the pose has
+        // put it. `getWorldPosition` walks the parent chain, so a man on his
+        // back bleeds from his back.
+        //
+        // Falls back to the chest, and only then to the old world point, so a
+        // rig that has not been posed yet still bleeds somewhere sane rather
+        // than at the origin.
+        const woundAt = (zone: HitZone | null | undefined): { x: number; y: number; z: number } => {
+          const pv = slot.rig?.pivots;
+          const node = !pv ? null
+            : zone === "head" || zone === "neck" ? pv.head
+            : zone === "armR" ? pv.rightArm
+            : zone === "armL" ? pv.leftArm
+            : zone === "legR" ? pv.rightLeg
+            : zone === "legL" ? pv.leftLeg
+            : pv.chest;                       // torso, waist and the unnamed
+          if (!node) return { x: at.x, y: 1.4, z: at.z };
+          const wp = woundPointRef.current;
+          node.getWorldPosition(wp);
+          return { x: wp.x, y: wp.y, z: wp.z };
+        };
+
         // ---- HIT FEEDBACK (damage numbers + rumble + hit-stop) ----
         // Fire is not a blow. Burning drains 22 hp/s against 20 Hz snapshots, so
         // an unguarded gate here spends a blood gout and a damage number twenty
@@ -1816,7 +1855,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             ? { x: at.x - attacker.position.x, y: 0.12, z: at.z - attacker.position.z }
             : undefined;
           stage.vfx.wound({
-            position: { x: at.x, y: 1.4, z: at.z },
+            position: woundAt(p.state === "dead" ? p.deathZone : null),
             damage: dmg,
             direction: away,
             // The zone only exists on the record once he is down; a survivable
@@ -1872,7 +1911,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // that would have been a bisection.
           if (p.deathCause !== "fire" && (!p.deathZone || p.deathZone === "torso")) {
             stage.vfx.wound({
-              position: { x: at.x, y: 1.3, z: at.z },
+              position: woundAt(p.deathZone),
               damage: 34,
               zone: p.deathZone ?? undefined,
               fatal: true,
