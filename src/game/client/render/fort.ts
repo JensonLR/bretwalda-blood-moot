@@ -482,6 +482,53 @@ function buildFort(ctx: GroundBuildContext): void {
     root.add(fire);
   }
 
+  // ---- the court's own litter ----
+  //
+  // The screenshot round's finding (28 Aug 2026, ledgered): from the duel
+  // mark every surface inside 12 m was bare flag, and the ruin read as an
+  // empty plaza at exactly the lens the game is played at. The walls cannot
+  // come closer — they are the router's tuned solids — so the RUIN comes to
+  // the court as decoration: slab shards lifted at the opened joints,
+  // dressed blocks dropped where the stone-robbers gave up carrying them,
+  // and two drums rolled clean away from the colonnade. All of it scatter:
+  // the sim never learns where any of it went, and none of it stands higher
+  // than a man's shin.
+  {
+    const shards: THREE.Matrix4[] = [];
+    const drops: THREE.Matrix4[] = [];
+    const n = scatter(84);
+    for (let i = 0; i < n; i++) {
+      const a = rng() * Math.PI * 2;
+      // Inside the wall ring, outside the fire's kerb; front-loaded toward
+      // the middle radii where the duel and brawl lenses actually look.
+      const d = 4.4 + rng() * 7.6;
+      const x = Math.cos(a) * d;
+      const z = Math.sin(a) * d;
+      const y = footing(x, z, 0.3);
+      if (rng() < 0.64) {
+        // A paving slab sheared and lifted at one lip — flat, wide, a
+        // centimetre proud, so the floor reads BROKEN rather than cluttered.
+        shards.push(place(x, y + 0.012, z, rng() * Math.PI, 0.55 + rng() * 0.5));
+      } else {
+        drops.push(place(x, y - 0.07 + rng() * 0.04, z, rng() * Math.PI, 0.15 + rng() * 0.22));
+      }
+    }
+    field(own(new THREE.BoxGeometry(0.95, 0.07, 0.72)), stoneMat, shards, null, true);
+    field(own(new THREE.BoxGeometry(0.8, 0.5, 0.62)), stoneMat, drops, null, true);
+    // The two strays: drums that rolled from the colonnade to the fight's
+    // own radius, the story of the piers told where the camera lives.
+    const stray: THREE.Matrix4[] = [];
+    for (const [sx, sz] of [[5.6, -3.1], [-4.2, 6.3]] as const) {
+      const m = new THREE.Matrix4();
+      const roll = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
+      const spin = new THREE.Matrix4().makeRotationY(rng() * Math.PI * 2);
+      const move = new THREE.Matrix4().makeTranslation(sx, footing(sx, sz, 0.3) + 0.34, sz);
+      m.multiply(move).multiply(spin).multiply(roll);
+      stray.push(m);
+    }
+    field(own(new THREE.CylinderGeometry(0.34, 0.34, 0.86, 10)), materials.get("runestone"), stray);
+  }
+
   // ---- rubble, moss and the cold grass beyond ----
   //
   // Drawn from the same prop stream in build order, so a capture here is as
