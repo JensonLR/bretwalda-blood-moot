@@ -1584,7 +1584,36 @@ if (PROBE && (!PLAN.length || !CLIP_PEOPLES.length)) {
 const hexOf = (v) => `0x${v.toString(16).padStart(6, "0")}`;
 /** One staged man, spelled the way `/shot` spells him. The finish is NAMED. */
 const stageQ = (cls, turn, people, finish) =>
-  `preset=fightcard&clean=1&settle=16&turn=${turn}&cls=${cls}&people=${people}&armor=${finish.id}`;
+  `preset=fightcard&clean=1&settle=16&quality=high&turn=${turn}&cls=${cls}&people=${people}&armor=${finish.id}`;
+
+/**
+ * `quality=high`, PINNED — AND IT WAS MISSING FROM THIS FILE ENTIRELY.
+ *
+ * `render/quality.ts` states the hazard in its own words: "The governor only
+ * ever runs against a tier nobody pinned. Under `?quality=` the whole point is
+ * that the tier stays put — A CAPTURE HARNESS THAT GOT SILENTLY DEMOTED
+ * MID-RUN WOULD BE MEASURING A BUILD NOBODY SHIPS." `cosmetictest` pins it on
+ * every URL and its comment records that the demotion "took a day to catch".
+ * This harness pinned nothing, and it takes 126 captures in one page.
+ *
+ * WHAT THAT COST, MEASURED: §6.1 has carried a singleton — norse / huscarl /
+ * Polished Steel at 160 degrees, 7.66% of the man, 1.3x the 400g gold cloak —
+ * that reproduced EXACTLY across two full walks, which is why it was believed.
+ * Asked for on its own with `--cls=huscarl --finish=armor_steel --turn=160`,
+ * the same frame on the same tree reads **0.00%**, all four peoples under
+ * 0.01%, while the CONTROL in the same probe reads 5.99% — the identical
+ * number the full walk gives it.
+ *
+ * A frame that blows only when 120 captures precede it, on a page whose tier
+ * nobody held, is not a fact about the subject. The control is stable because
+ * it is captured EARLY; the sweep drifts because it is captured late. So the
+ * quantity §6.1 was reporting was the subject PLUS whatever tier the renderer
+ * had fallen to, and the ledger's "the 160 degree bearing is the noisy one"
+ * was reading this and calling it noise.
+ *
+ * Pinned here and on the CONTROL below — the two places this file opens a
+ * page. docs/PROCESS.md R4: the ruler must measure the right question.
+ */
 
 console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the fire in it) ===\n");
 {
@@ -1833,7 +1862,7 @@ console.log("\n[faction] === 6. NO SURFACE CLIPS A CHANNEL (the render, with the
     console.log("");
     let bar = 0, barAt = "";
     for (const turn of CLIP_BEARINGS) {
-      const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&turn=${turn}&cls=huscarl&people=none&cloak=cloak_gold&armor=armor_gold`);
+      const { px, subject } = await capture(`preset=fightcard&clean=1&settle=16&quality=high&turn=${turn}&cls=huscarl&people=none&cloak=cloak_gold&armor=armor_gold`);
       const mask = maskFor("huscarl", turn, subject);
       if (String(subject?.cloak) !== "gold" || String(subject?.people) !== "none") die(`the control staged wrong: cloak=${subject?.cloak} people=${subject?.people}`);
       const r = clipShare(Uint8ClampedArray.from(px.data), mask, px.w);

@@ -605,7 +605,7 @@ or staggered mess & 100% passage via react doctor etc."*
 | 6.1 | **Redundant code sweep**, when deemed necessary and verified | NEW |
 | 6.2 | **Agent graph architecture** — build the agents properly with graphs and loops, documented, reusable across projects | NEW |
 | 6.3 | **Orchestrator stays under 50% context** | NEW — now `docs/PROCESS.md` E2 |
-| 6.4 | Rotate the exposed Neon password; delete the old Render Postgres | [ALREADY RAISED], still open, still a credential |
+| 6.4 | Rotate the exposed Neon password; delete the old Render Postgres | **OWNER-ONLY, STILL OPEN — and the repo's own half is now done (28 Aug 2026).** The tree was audited for committed credentials: `drizzle.config.json` and `docs/JUDGEMENT-2026-08-06.md` both hold `127.0.0.1` PLACEHOLDERS and are fine (`db/README.md`'s claim about the former verified rather than trusted). The one real exposure was `docs/HANDOVER.md`, which printed the live Neon password verbatim *inside the instruction telling the reader to rotate it* — so the security note was handing the secret to every reader, clone and fork. Redacted; no `npg_` token remains anywhere in the tracked tree. **Redaction is not the remedy and does not close this row**: git history still carries the value, which is precisely why rotation at the provider is the only fix. Only the owner can do it (Neon console, then delete the old Render Postgres). |
 
 ---
 

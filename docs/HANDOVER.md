@@ -18,8 +18,16 @@ continue from this file alone. Read it, then `docs/BACKLOG.md` (waves 7–8),
 - **Full autonomy; don't stop until everything is complete & merged.**
 - **SECURITY (verbatim, preserve):** Database connection strings are
   credentials — never commit them, never put them in `drizzle.config.json`,
-  keep them in the deployment environment only. The Neon password
-  `npg_mfd8e2OJkSnR` was exposed in chat and **should be rotated again**.
+  keep them in the deployment environment only. **The Neon password was
+  exposed in chat and MUST STILL BE ROTATED** — it is the one item on this
+  page only the owner can close (Neon console; then delete the old Render
+  Postgres). `docs/BACKLOG.md` 6.4 is the row.
+  THE VALUE IS DELIBERATELY NOT REPRINTED HERE. It used to be, inside this
+  very instruction — so the note telling everyone to rotate the secret was
+  handing the secret to every reader of the repository, and to every clone
+  and fork of it. A credential does not need to be quoted to be rotated.
+  (Redacting it here does NOT un-expose it: git history still holds it,
+  which is exactly why rotation, not redaction, is the remedy.)
   Also: **"Don't use a connector"** (direct user instruction).
 - Every GitHub comment/PR body ends with the Claude Code attribution footer;
   **no model identifiers** in commits/PRs (use
