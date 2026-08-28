@@ -23,9 +23,18 @@ with steel.**
 
 BRETWALDA: BLOOD MOOT is a fast directional-melee brawler. Read your foe's
 swing, block on the true side, dodge what cannot be blocked, and answer
-with your own edge. Five warrior classes — Huscarl, Berserker, Warden,
-Runekeeper, Burhweard — each with real weight, real reach and one power
-worth timing.
+with your own edge. Four warriors, each with real weight, real reach and one
+power worth timing:
+
+- **HUSCARL** — shield and sword. Unbreakable.
+- **WEARD** — balanced blade. Reliable.
+- **WRECCA** — twin seaxes. The exile's speed.
+- **BERSERKER** — Danish axe. Pure rage.
+
+And every one of them chooses his arms before the bell: sword and board
+or the dane axe, the gar or sword-and-seax, twin seaxes or hand axes,
+the great axe or twin bearded axes. Each trade is real — reach against
+tempo, guard against sweep — and none of them is an upgrade.
 
 **Fight the modes the period actually had.** The Blood Moot free-for-all.
 The tournament bracket, crowned round by round. The Burh — hold the walls
@@ -60,7 +69,12 @@ Free to Play (if that is the pricing ruling), Indie, Wargame
 ## System requirements (draft)
 
 - Minimum: any machine with a WebGL2 browser from the last five years;
-  the desktop build is the same engine in a native window (Tauri 2,
-  ~10 MB installer).
+  the desktop build is the same engine in a native window (Tauri 2).
 - The game runs its own graded quality ladder and measures the device
   rather than asking it questions.
+
+Installer sizes are MEASURED, off the desktop CI's own artifacts
+(run 2, 28 Aug 2026) — not estimated: **Windows 4.0 MB, macOS 2.3 MB,
+Linux 74.7 MB** (the Linux number is the AppImage carrying its own
+runtime; the .deb beside it is a fraction of it). Re-measure before the
+page goes up — a size on a store page is a promise.

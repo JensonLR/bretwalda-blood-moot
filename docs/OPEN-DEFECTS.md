@@ -8432,3 +8432,42 @@ asserts the flip watermark stays null across those same fresh-season
 visits, side by side, so the reason the second key exists is a
 measurement rather than a comment. Private-mode throws and an empty
 crowns list are covered. No database, no browser, no server.
+
+---
+
+## THE STORE PAGE HAD FOUR FALSE CLAIMS, AND NOTHING WOULD HAVE CAUGHT THEM — 28 Aug 2026
+
+Found while re-reading the Steam copy this same session had written.
+`store/steam/copy.md` claimed **five warrior classes and named a
+"Burhweard"** — there are four, and no Burhweard has ever existed in this
+repository — and called two of them **"Warden" and "Runekeeper"**, which
+are the internal ids. The shipped names are WEARD and WRECCA, and
+`render/vfx.ts` records exactly why the second was retired: it "was also
+a class in somebody else's fantasy game, which is the one thing this
+project has a standing rule against". A fourth claim, "~10 MB installer",
+was a guess; the desktop CI's own artifacts measure **Windows 4.0 MB,
+macOS 2.3 MB, Linux 74.7 MB** — the last one an order of magnitude out.
+
+Every one of those would have been permanent. A store page is indexed,
+quoted, and read by people deciding whether to trust the rest of the
+claims — and NOTHING in this repository compared marketing copy to
+anything. This is `docs/PROCESS.md` failure mode 3 (a mirrored constant)
+with a wider blast radius.
+
+**`tools/storeclaims.mjs` (25/25, `npm run storeclaims`)** now treats the
+copy as code: it reads the page and asks the module that owns each noun —
+the roster AND ITS COUNT off `WARRIOR_STATS`, the display names off the
+shipped `WARRIOR_INFO`, the arms off `ARMS`, the peoples off `PEOPLES`,
+the grounds off `GROUNDS` — refuses the retired and invented names by
+name, and guards the honesty fence itself, since deleting that section
+silently frees the page to promise Steam relay play and achievement sync,
+neither of which exists. Shown RED first against the original draft: it
+failed exactly four claims — the count (5 against 4), and the three
+forbidden names — and nothing else.
+
+It states in its own output what it cannot see: prose, tone, pricing,
+character counts, taste. A green sheet here is not a proof-read.
+
+The copy is corrected: four warriors under their shipped names, the
+eight arms named as the real trades they are, and measured installer
+sizes with a note to re-measure before the page goes up.
