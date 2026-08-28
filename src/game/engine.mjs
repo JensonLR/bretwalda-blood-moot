@@ -294,6 +294,16 @@ const DEFAULT_ATTACK_RANGE = WEAPON_REACH.huscarl + BODY_REACH;
 // lowest on purpose and is answering with the roster's best damage rate and
 // best mobility; if it turns out to be answering with too little, this table
 // is the lever, not `WARRIOR_STATS` — see the note on that table.
+//
+// IT IS NOT ANSWERING WITH TOO LITTLE, and the conditional above is now
+// settled by measurement rather than left standing. `classmatrix` at the full
+// default (28 Aug 2026, after its field rate was repaired to pool both
+// orderings — it had been reading half its own sample and that alone made the
+// runekeeper look weak at 43.9% with an interval under the 40% floor) reads
+// him at 48.2% [47.0-49.5] against the field, inside the band, on a sheet
+// where six of six matchups are decisive. The smallest footprint on the
+// roster is being paid for. No lever pulled; the note stays because the
+// argument is still the right one if the numbers ever move.
 export const SWING_ARC = {
   huscarl: Math.PI * 0.50,     // sword and shield: compact, worked in close
   warden: Math.PI * 0.38,      // spear: a line, not a sweep
