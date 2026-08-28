@@ -1436,15 +1436,25 @@ actually has, since the territories are real places with real ground:
 
 | archetype | territories | what it is |
 |---|---|---|
-| fen and causeway | East Anglia, Lindsey | flat water, reed, a raised timber road that funnels a fight |
+| fen and causeway | East Anglia | flat water, reed, a raised timber road that funnels a fight |
 | downland | Wessex, Kent | chalk, sheep-cropped turf, a long open sightline |
 | dyke and march | Mercia, Gwynedd, Dyfed | Offa's earthwork — a bank and ditch is a shield wall in landscape form |
 | moor and dale | Deira, Bernicia, the Five Boroughs | heather, gritstone, a beck cutting the floor |
 | sea-cliff | Kernow, Cait, Ystrad Clud | turf to a drop, standing crosses, wind |
 | firth and broch | Fib, Circinn, Fortriu | drystone tower, birch scrub, a tidal edge |
-| isles | Sudreyjar, Mann | machair, a beached keel, salt grass |
+| isles | Sudreyjar | machair, a beached keel, salt grass |
 
-Six archetypes cover sixteen territories. Each territory then earns ONE authored
+Six archetypes cover the sixteen territories. **The table named LINDSEY and
+MANN until 28 Aug 2026 and neither is a territory this game has** — `war.mjs`
+carries exactly sixteen ids (mierce, wessex, deira, bernicia, five_boroughs,
+east_anglia, kent, ystrad_clud, dyfed, gwynedd, kernow, fib, circinn, fortriu,
+cait, sudreyjar) and those two were never among them. Rows cut against a name
+that does not exist are rows that cannot be built, so they are removed rather
+than left to be discovered by whoever tries. `tools/warsay.mjs` now refuses a
+`GROUND_BY_TERRITORY` row naming a territory the war does not have, so the code
+half of this mistake can no longer be made silently.
+
+Each territory then earns ONE authored
 feature that is only its own — Offa's Dyke, a Pictish symbol stone, a fen
 causeway, a beached ship — so no two grounds read the same even where the
 landscape does.

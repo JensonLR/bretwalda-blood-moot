@@ -233,7 +233,7 @@ check("the outcome shape has room for a flip, and it is optional",
 // silent fallback nobody noticed. So the fallback is not what is tested: the
 // LOOKUP is.
 {
-  const { GROUNDS, GROUND_BY_PEOPLE, groundForPeople } =
+  const { GROUNDS, GROUND_BY_PEOPLE, GROUND_BY_TERRITORY, groundForPeople, groundForTerritory } =
     await import(pathToFileURL(resolve(ROOT, "src/game/grounds.mjs")).href);
   const peoples = [...new Set(TERRITORIES.map((t) => t.people))];
   const missing = peoples.filter((pp) => !GROUND_BY_PEOPLE[pp]);
@@ -246,9 +246,37 @@ check("the outcome shape has room for a flip, and it is optional",
     unbuilt.length ? `${unbuilt.map(([pp, id]) => `${pp}->${id}`).join(", ")} would silently fall back to the village`
       : `${Object.keys(GROUNDS).length} ground(s): ${Object.keys(GROUNDS).join(", ")}`);
 
-  const unresolved = TERRITORIES.filter((t) => !GROUNDS[groundForPeople(t.people)]);
+  // AND THE PER-TERRITORY TABLE, WHICH THIS CHECK USED TO WALK STRAIGHT PAST.
+  //
+  // `GROUND_BY_TERRITORY` is the archetype table (5.7b) — today mierce,
+  // gwynedd and dyfed to `offa_dyke` — and `groundForTerritory` is what the
+  // engine actually calls (engine.mjs's deal). The sixteen-territory claim
+  // below resolved through `groundForPeople` instead, so a typo'd or forgotten
+  // id in the territory table fell back to the people's ground and EVERY
+  // CLAIM HERE STILL PASSED. That is precisely the silent fallback the note
+  // at the top of this block says it exists to prevent — the check was written
+  // against the table that existed when it was written, and the newer table
+  // was added beside it without anybody re-pointing the ruler.
+  const unbuiltT = Object.entries(GROUND_BY_TERRITORY).filter(([, id]) => !GROUNDS[id]);
+  check("...and every id in the PER-TERRITORY table is a ground this build has",
+    unbuiltT.length === 0,
+    unbuiltT.length
+      ? `${unbuiltT.map(([t, id]) => `${t}->${id}`).join(", ")} would silently fall back to the people's ground`
+      : `${Object.keys(GROUND_BY_TERRITORY).length} territory row(s): ${[...new Set(Object.values(GROUND_BY_TERRITORY))].join(", ")}`);
+
+  const knownIds = new Set(TERRITORIES.map((t) => t.id));
+  const strays = Object.keys(GROUND_BY_TERRITORY).filter((id) => !knownIds.has(id));
+  check("...and every territory it names is a territory the war actually has",
+    strays.length === 0,
+    strays.length ? `${strays.join(", ")} — named here, in no TERRITORIES row: dead rows, and nothing would have said so`
+      : `${Object.keys(GROUND_BY_TERRITORY).length} named, all real`);
+
+  // Resolved the way the ENGINE resolves it, not the way the older table does.
+  const unresolved = TERRITORIES.filter((t) => !GROUNDS[groundForTerritory(t.id, t.people)]);
   check("...so all sixteen territories resolve to something drawable",
-    unresolved.length === 0, `${TERRITORIES.length - unresolved.length}/${TERRITORIES.length}`);
+    unresolved.length === 0,
+    unresolved.length ? `${unresolved.map((t) => t.id).join(", ")} resolve to nothing`
+      : `${TERRITORIES.length}/${TERRITORIES.length} through groundForTerritory`);
 
   // AND THE CLIENT MUST ACTUALLY IMPORT EVERY ONE OF THEM.
   //
