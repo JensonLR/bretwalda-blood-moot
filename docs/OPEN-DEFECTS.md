@@ -8167,3 +8167,38 @@ his buff family reads at or under its unsworn floor on every bearing.
 
 Iteration cost, measured twice: the full walk is ~101 min on this box.
 `stdbuf -oL` or it is silent (see the silent-pipe entry).
+
+---
+
+## THE SECOND PLAY REPORT — six items, five closed on their own portraits — 28 Aug 2026
+
+The owner played and reported. Each item was photographed AS REPORTED
+before a constant moved, and re-photographed after (all in .armshot/):
+
+1. **Tournament pacing + bracket design** — TOURNEY_BREAK 12 s on the
+   round clocks, the verdict-only beat skipped, the wire PROMISES ten
+   readable seconds (tourneytest claim), and the bracket card is a real
+   staged tree: a column per stage, crowns, struck losers, NEXT burning
+   amber, "to come" never miscalled "bye". tourneyseen photographs it.
+2. **The Burh's sustain** — the respite mends: living defenders take back
+   40% of their bar and a full stamina draw at every held wave; the
+   fallen keep their 62% rise. burhtest 20/20.
+3. **Mane × Shadow Hood** — `hoodSquash`, the coif squash's counterpart
+   on cloth, BOTH spans (the first cut clamped only the cowl and the
+   re-photograph showed the same proud slab — the bulk lay over the
+   MANTLE, in the span the early bail skipped). The rear portrait now
+   shows a gathered tail inside the hood's own line.
+4. **Cape through the arm** — the wings REST ON the arms: outward hold at
+   stillness instead of the gather, inward travel hard-bounded on target
+   and spring alike. 90° and 135° portraits clear.
+5. **Ringed Braid** — was a full-width curtain wearing a braid's profile,
+   its ring swells invisible ridges on a slab. Narrowed to the rope the
+   header promised (mass dies by 0.34 rad), more forward carry; the
+   portrait shows a segmented rope resting ON the chest.
+
+Gated: wearmeasure PASS (standing deferrals unchanged), cosmetictest
+PASS, playtest 38/38, touchtest 32/32, burhtest 20/20, tourneytest
+39/39, hoodfall 120/120 pairs.
+
+6. **More war paints + weapon finish upgrades** — OPEN, the content half
+   of the report; capture sheets to the owner's eye when built.
