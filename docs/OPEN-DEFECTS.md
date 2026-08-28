@@ -8644,3 +8644,59 @@ wears. The rows are worth having and are not worth blocking on.
 
 Cost note for whoever runs it next: sections 0-5 land inside the first
 twenty minutes; §6 is the long tail. `stdbuf -oL` or it is silent.
+
+---
+
+## THE CLIP SINGLETON RODE THE NEXT WALK — AND IT IS NOT A LIVERY DEFECT — 28 Aug 2026
+
+The rose-settlement entry left this standing law about §6's one red frame:
+
+> "6.1 CLIP: a NEW singleton — 1 of 120 frames at 7.66% (norse/Polished@160).
+> Seen ONCE, unreplicated; §6's 160° bearing is the noisy one. **The law: it
+> rides the next walk before anybody believes it.**"
+
+**It rode the next walk and came back identical.** `norse/huscarl/Polished
+Steel 60g at 160° clips 7.66% of the man — 1.3x the 400g gold cloak's
+5.99%, hottest #f8f8f0`. Same frame, same number, a different day and a
+different tree. It is no longer noise and it is now believed. (The walk
+otherwise reads **26/34**, the ledgered baseline, failure for failure.)
+
+**AND THE DIAGNOSIS OVERTURNS THE NAME IT HAS BEEN CARRYING.** It is
+filed under "norse", which points at the Danelaw's dye rows — and this
+unit went to those rows first and was about to cut the metal ceiling.
+That would have been wrong. Resolved through the client's own vat:
+
+```
+                    fitting resolved for none / norse / saxon
+Polished Steel 60g   #c3c9d0   #c3c9d0   #c3c9d0     ALL IDENTICAL
+Bretwalda Gold 160g  #dcc164   #dcc164   #dcc164     ALL IDENTICAL
+```
+
+**`fitting` is untouched by every livery.** No vat reaches it, so the
+norse dye rows cannot be the cause and cutting them would have dimmed the
+Danelaw for nothing. The brightness ladder of the shop's own fittings is:
+
+```
+Rough Iron        0g   0.640      Crimson Warplate 130g   0.640
+Polished Steel   60g   0.785  <-- Sea Queen's Gift 130g   0.712
+Blackened Steel 110g   0.512      Bretwalda Gold   160g   0.753
+Bronze Scales   110g   0.619
+```
+
+**The 60-gold finish carries the brightest fittings in the shop — brighter
+than the 160-gold crown** — and §6.1's bar is, by its own words, "the
+shop's own dearest gold". The livery is not the fault; it is the
+REVEALER. The Danelaw wears the darkest wools in the game (tunic 0.23,
+wrap 0.27, hide 0.18 against Polished Steel's near-neutral 0.785
+fitting), so at the fire-lit rear bearing that one surface is the only
+thing catching light, and it blows.
+
+**NOT FIXED HERE, AND DELIBERATELY.** The lever is `FINISH_KIT`'s
+`polished` fitting, and the target is a peak channel under what the gold
+sustains — but the quantity that must land under the bar is a CLIPPED
+PIXEL COUNT in a lit, graded render, and the only instrument that
+measures it is a 110-minute walk with no way to ask for one frame.
+Choosing a number by arithmetic and hoping is how a tuning round becomes
+four of them. What is needed first is a way to render that single frame:
+§6 costs ~43 s a capture, so a targeted flag turns this from hours into
+one minute. That flag is the next piece of work, not a nudged constant.
