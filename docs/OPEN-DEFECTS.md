@@ -8609,3 +8609,38 @@ against.
 The sizing note stands: nothing this engine produces on its own reaches
 the 3-point tolerance, so on an honest tree this check is quiet. It is
 quiet because there is nothing to say, and that is now measured.
+
+---
+
+## THE FACTION WALK AFTER THE GOLD BAND — no regression — 28 Aug 2026
+
+The Gilded cloak's tablet-woven border is a new, wider, prouder GOLD
+surface, and §6 of `factionread` is the gate that measures clipped gold.
+So the walk was re-run against the shipped tree. Sections 0 through 5
+complete, plus §6's controls:
+
+**THE CLIP CONTROL IS UNCHANGED — 5.99%.** "Gilded War Cloak 400g +
+Bretwalda Gold 160g, unsworn, @160°" is the bar §6 sets for itself, and
+it reads exactly what it read before the band existed. The band did not
+make the shop's dearest gold clip.
+
+**Every other verdict matches the ledgered baseline, failure for
+failure:** 1.2 DISTINCT (worst ΔC 6.93), 1.3 PEOPLE, 5.1b NO TWINS PER
+SURFACE (36 surfaces), 5.2b NO REFUND PER SURFACE (17) — the four
+standing reds this file already carries as the rose-settlement baseline
+and the owner-ruled identity cost. Nothing new is red.
+
+**§5.4 — NO VAT PUTS A SURFACE IN THE ROSE BAND — PASSES**, which is the
+rose settlement holding on the shipped tree, and §5.3's near-neutral
+claim with it. 0.1/0.2/0.3, 1.0, 1.1, 2.1, 2.2, 3a/3a'/3b/3c/3d, 4.1,
+4.2, 5.0, 5.1, 5.2, 5.0b, 6.0, 6.2 all PASS.
+
+**Honest about what is still running:** §6's per-kit rows (four classes
+x seven finishes) take about nine minutes each on this GPU-less box —
+hours, not minutes — and were still walking when this was written. They
+are compared against the control above, which is unchanged, and the only
+gold surface this round altered is the cloak hem the control itself
+wears. The rows are worth having and are not worth blocking on.
+
+Cost note for whoever runs it next: sections 0-5 land inside the first
+twenty minutes; §6 is the long tail. `stdbuf -oL` or it is silent.
