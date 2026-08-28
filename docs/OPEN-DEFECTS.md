@@ -8746,3 +8746,40 @@ pair collapsed.
 arguments, one of them about a real ladder inversion, both inert. The
 difference between a tuning round and four of them is a ruler you can
 afford to ask twice.
+
+---
+
+## THE GLYPH SET IS COMPLETE — 24 marks, and the sheet caught two — 28 Aug 2026
+
+`docs/DESIGN-SYSTEM.md` specifies **24 marks on a 24 px grid in one flat
+colour**, devices "sourceable to a find, or labelled an invention". The
+set shipped at 11. The remaining thirteen land now, and every one names a
+real object: the bone comb and the spear (the two commonest finds in any
+grave — free, because every man owned them), the Ing rune of the futhorc,
+the triskele off British hanging-bowl metalwork, the Borre ring-chain out
+of York, the Benty Grange boar, the Coppergate helm, the Sutton Hoo
+drinking horn and the stag from its sceptre, a Norse woman's keys, the
+Pictish beast and the double disc and Z-rod, and the Gotland longship.
+
+**THE CONTACT SHEET CAUGHT TWO, AND NEITHER WAS VISIBLE IN THE CODE.**
+The paths were rendered together at size before any of it was believed
+(`art/look/glyphs/sheet.png`):
+
+1. **The Thorn Rune was the Raven Banner.** A vertical stave with a
+   triangle on it is precisely the banner's silhouette, and at this size
+   the two read as one device — in a set whose entire purpose is devices
+   you can tell apart. Replaced with **Ing**, the futhorc's lozenge: the
+   only lozenge in the set, so it cannot be confused with anything, and
+   the Old English Rune Poem is the better source anyway.
+2. **The Stag read as a box on table legs.** Redrawn with a curved back
+   and a real antler rack.
+
+`marktest` moved to the grown truth and is 25/25 — five free marks now
+(the shield boss, the seax, the comb and the spear beside the unmarked
+shield), two confessed inventions still (the wyrm-knot and the crown),
+and a "veteran" fixture raised to 45 wins because the longship asks 40
+and a veteran who owns everything must actually clear every top rung.
+
+The nineteen paid rungs became nineteen Steam achievements with **no new
+code** — `achievements.mjs` derives them from the marks, which is what
+that seam was built for. `steamsheet` 5/5.

@@ -76,6 +76,77 @@ export const MARKS = Object.freeze([
     source: "The hrafnsmerki taken from the host at Cynwit — the Chronicle, year 878.",
     d: "M6 3.5 L6 20.5 M6 5 L18.6 6.8 A10.4 10.4 0 0 1 6 15.5 Z M18 9.5 L19.8 10.6 M16.6 12.4 L18.1 13.9 M14.2 14.6 L15.2 16.4",
   },
+  // ---- THE EVERYDAY THINGS A MAN OWNS — free, because he owns them ----
+  {
+    id: "comb", name: "Bone Comb", how: "free", need: 0,
+    source: "The commonest small find of the age: antler combs out of every grave and every town layer.",
+    d: "M4.5 8.5 L19.5 8.5 L19.5 12 L4.5 12 Z M6 12 L6 18 M8.4 12 L8.4 18.5 M10.8 12 L10.8 18.5 M13.2 12 L13.2 18.5 M15.6 12 L15.6 18.5 M18 12 L18 18",
+  },
+  {
+    id: "spear", name: "The Spear", how: "free", need: 0,
+    source: "The spear is the commonest weapon in an Anglo-Saxon grave — far commoner than the sword.",
+    d: "M12 2.5 L14.6 8 C13.8 9.4 10.2 9.4 9.4 8 Z M12 8.6 L12 21.5 M9.6 11.4 L14.4 11.4",
+  },
+  // ---- THE LADDER: things earned ----
+  {
+    // NOT THORN, and the contact sheet is why: a stave with a triangle on it
+    // is the Raven Banner's silhouette, and at 24 px the two read as one
+    // device. Ing is a lozenge — the only one in the set — so it cannot be
+    // mistaken for anything here, and its source is the better one.
+    id: "ing", name: "The Ing Rune", how: "level", need: 3,
+    source: "Ing, the lozenge stave of the futhorc, named in the Old English Rune Poem and cut on English metalwork.",
+    d: "M12 4.2 L19 12 L12 19.8 L5 12 Z M12 8.4 L15.8 12 L12 15.6 L8.2 12 Z",
+  },
+  {
+    id: "triskele", name: "Triskele", how: "matches", need: 10,
+    source: "The three-legged spiral on British hanging-bowl metalwork, the escutcheons of the west.",
+    d: "M12 12 C12 8 15.5 6.4 17.4 8.6 C18.9 10.3 17.2 12.6 14.6 12 M12 12 C8.6 13.9 8.6 17.8 11.4 18.6 C13.6 19.2 15 16.9 13.6 14.6 M12 12 C9.6 9.2 6.2 10.4 5.9 13.2 C5.7 15.5 8.4 16.4 10 14.4",
+  },
+  {
+    id: "ringchain", name: "Ring-Chain", how: "level", need: 8,
+    source: "The Borre ring-chain, the Danelaw's own ornament, on strap-ends and brooches out of York.",
+    d: "M6 12 A3 3 0 1 1 5.99 12 M18 12 A3 3 0 1 1 17.99 12 M12 8 A3 3 0 1 1 11.99 8 M12 16 A3 3 0 1 1 11.99 16",
+  },
+  {
+    id: "boar", name: "The Boar Crest", how: "wins", need: 10,
+    source: "The boar standing on the Benty Grange helmet, Derbyshire — a helmet crest that is a real find.",
+    d: "M3.5 15.5 C4.5 11.5 8 10 12 10 C16 10 19 11.5 20.5 14 L19 15.5 L20 17.5 L17.5 17 M6 12.2 L7 9.6 M9 11 L10 8.6 M4.6 16.6 L5.2 19.5 M9 17 L9.4 19.5 M15 16.6 L15.6 19.5 M18.4 16.2 L19 19",
+  },
+  {
+    id: "helm", name: "The Helm", how: "wins", need: 15,
+    source: "The Coppergate helmet, dug out of York: iron bowl, brass brow band, hanging mail.",
+    d: "M5 15 C5 8.4 8.4 5 12 5 C15.6 5 19 8.4 19 15 M5 15 L19 15 M12 5 L12 15 M11 15 L11 20 L13 20 L13 15 M6.4 15 L6.4 19.5 M17.6 15 L17.6 19.5",
+  },
+  {
+    id: "horn", name: "The Drinking Horn", how: "level", need: 12,
+    source: "The aurochs-horn vessels from the Sutton Hoo grave, mounted in gilt bronze at rim and tip.",
+    d: "M4.5 6.5 C10.5 6 16.5 8.5 19.5 15.5 C20 17 18.6 18.4 17.4 17.6 C12 14 8 10.4 4.5 9.6 Z M4.5 6.5 L4.5 9.6 M17.2 16 L19 15.2",
+  },
+  {
+    id: "stag", name: "The Stag", how: "level", need: 20,
+    source: "The bronze stag standing on the Sutton Hoo whetstone sceptre, Mound 1.",
+    d: "M7.4 19.6 C7.4 15 8.2 12.6 11 11.9 C13.6 11.2 16 12 17.2 14 C18 15.4 17.8 17.8 17.4 19.6 M11 11.9 L9.4 9.6 L8.6 6.4 M8.6 6.4 L6.4 4.8 M8.6 7.8 L6.2 7.4 M10.6 7.2 L10.4 4.9 M10.2 19.6 L10.4 16 M14.8 19.6 L14.6 16.2",
+  },
+  {
+    id: "keys", name: "The Keys", how: "matches", need: 50,
+    source: "The keys at a Norse woman's belt, a grave-good that says who kept the hall's stores.",
+    d: "M9 5.5 A2.6 2.6 0 1 1 8.99 5.5 M9 8.1 L9 19 M9 14.5 L12.4 14.5 M9 17.5 L11.8 17.5 M16 7.5 A2.2 2.2 0 1 1 15.99 7.5 M16 9.7 L16 19 M16 15 L18.6 15",
+  },
+  {
+    id: "beast", name: "The Pictish Beast", how: "matches", need: 30,
+    source: "The beast of the symbol stones, north of the Forth — the commonest device after the crescent.",
+    d: "M4 15.5 C5.5 11 9 9.5 12.5 10.5 C15 11.2 15.6 13.6 14 14.6 C12.8 15.4 11.4 14.4 12 13.2 M12.5 10.5 C15.5 8 19 9 20 12 C20.8 14.4 19.4 17 17 17.4 M4 15.5 C4.6 18 6.6 19.4 8.6 19 M17 17.4 L18.4 19.6 M6.6 8.6 L8.4 10.6",
+  },
+  {
+    id: "doubledisc", name: "Double Disc and Z-Rod", how: "sworn", need: 1,
+    source: "The double disc crossed by a Z-rod, cut on Pictish symbol stones beside the crescent.",
+    d: "M7 12 A3.4 3.4 0 1 1 6.99 12 M17 12 A3.4 3.4 0 1 1 16.99 12 M10.4 12 L13.6 12 M4 8.4 L11.5 8.4 L12.5 15.6 L20 15.6 M4 8.4 L6 6.4 M20 15.6 L18 17.6",
+  },
+  {
+    id: "longship", name: "The Longship", how: "wins", need: 40,
+    source: "The ships cut on the Gotland picture stones, sail set and shield-rail manned.",
+    d: "M3 15.5 C6.5 18.6 17.5 18.6 21 15.5 M3 15.5 C4.6 15.5 5 14 4.6 12.6 M21 15.5 C19.4 15.5 19 14 19.4 12.6 M4.6 12.6 L19.4 12.6 M12 12.6 L12 3.5 M7.6 5.5 L16.4 5.5 L16.4 10 L7.6 10 Z",
+  },
   {
     // THE ONE MARK NO NUMBER UNLOCKS. `crowned` is stamped by `settleSeason`
     // in exactly one place in the repository, which is what "cannot be

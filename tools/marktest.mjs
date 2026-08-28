@@ -19,7 +19,7 @@ const check = (name, ok, detail = "") => {
 console.log("[mark] the devices, headless\n");
 
 // ---- the set itself ----
-check("eleven marks, unmarked first", MARKS.length === 11 && MARKS[0].id === "none",
+check("the design system's full glyph set — 24 marks, unmarked first", MARKS.length === 24 && MARKS[0].id === "none",
   MARKS.map((m) => m.id).join(","));
 check("ids are unique", new Set(MARKS.map((m) => m.id)).size === MARKS.length);
 check("every mark is sourced or confessed",
@@ -30,7 +30,7 @@ check("the invented devices say so out loud",
     && /invention/i.test(markOf("wyrmknot").source)
     && /ours/i.test(markOf("crown").source)
     && MARKS.every((m) => /invention|ours|find|stone|chronicle|grave|amulet|knife|kells|metalwork|county|york|shield|bracteate|forth/i.test(m.source)),
-  "the wyrm-knot and the crown; all nine others name a find");
+  "the wyrm-knot and the crown; all twenty-two others name a find");
 check("every drawn mark has a path, only NONE has none",
   MARKS.every((m) => (m.id === "none") === (m.d === "")));
 
@@ -69,15 +69,17 @@ check("undefined and null are the unmarked shield",
 
 // ---- the unlock rules, each fact pulled once ----
 const fresh = { level: 1, wins: 0, matches: 0, sworn: false };
-const veteran = { level: 20, wins: 30, matches: 60, sworn: true, crowned: true };
+// Raised with the set: the longship asks 40 wins, and a "veteran" who owns
+// everything has to actually clear the top rung of every ladder.
+const veteran = { level: 25, wins: 45, matches: 60, sworn: true, crowned: true };
 check("the facts a rule may read are the five the profile has",
   MARK_FACTS.join(",") === "level,wins,matches,sworn,crowned");
 check("every rule reads a real fact",
   MARKS.every((m) => m.how === "free" || MARK_FACTS.includes(m.how)));
 check("a fresh warrior owns exactly the free marks",
   MARKS.filter((m) => markEarned(m, fresh)).every((m) => m.how === "free")
-    && MARKS.filter((m) => m.how === "free").length === 3,
-  "none, boss, seax");
+    && MARKS.filter((m) => m.how === "free").length === 5,
+  "none, boss, seax, comb, spear — the shield boss, the knife that names the people, and the two things every man owned");
 check("a veteran owns the lot", MARKS.every((m) => markEarned(m, veteran)));
 check("each gated mark opens exactly at its bar",
   MARKS.filter((m) => m.how !== "free").every((m) => {
