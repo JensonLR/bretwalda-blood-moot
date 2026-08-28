@@ -1,0 +1,21 @@
+# The desktop wrapper (PLATFORM-PATH.md §8; the owner's CI ruling, 28 Aug
+# 2026). THIN CLIENT, deliberately: the window loads the live deployment,
+# the same origin every browser player uses, so the account doors (§8.2)
+# and the wire are byte-identical across platforms. Bundling a local server
+# is step-after-next and waits for the Steam app id, exactly as §8.3
+# sequenced — this crate exists so CI can BUILD and thereby JUDGE the
+# wrapper, which the dev container never could.
+[package]
+name = "bretwalda-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+strip = true
+lto = true

@@ -361,12 +361,19 @@ Steam client with no binding mints a profile exactly as a browser does, then
 binds. The recovery words keep working from every door, so the account walks
 across platforms in either direction.
 
-### 8.3 What deliberately did NOT land here, and why
+### 8.3 What deliberately did NOT land at first, and how it landed after
 
-The Tauri build itself. This container cannot compile or run a webview
-wrapper, and a `desktop/` directory of unbuilt config would be the exact
-"asserted, never judged" artifact this repository keeps writing defects
-about. The wrapper is step 6 of §7's sequence, it needs a machine that can
-run it (the owner's, or CI), and the seam it depends on — §2, the headless
-sim — is DONE and now gated so it stays done. When the wrapper is built,
-`platformcheck` is the list of promises it can rely on.
+The Tauri build itself waited: this container cannot compile or run a
+webview wrapper, and a `desktop/` directory of unbuilt config would be the
+exact "asserted, never judged" artifact this repository keeps writing
+defects about. **The owner ruled the judge into existence (28 Aug 2026):
+CI.** `.github/workflows/desktop.yml` builds Windows/macOS/Linux installers
+on any `desktop-v*` tag or by hand from the Actions tab — the workflow's
+own green IS the judgment the container could not make — and `desktop/`
+now holds the minimal scaffold it builds: a THIN CLIENT, one window on the
+live deployment, no IPC surface, no grants, so the account doors (§8.2)
+and the wire are byte-identical across platforms. Icons come from the same
+forged `public/icon-512.png` the PWA ships (`tauri icon` at build). Bundling
+a local server is the step after the Steam app id exists, exactly as
+sequenced; `platformcheck` (6/6 over the scaffold) is the list of promises
+the wrapper relies on.

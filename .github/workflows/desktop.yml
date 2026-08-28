@@ -1,0 +1,73 @@
+# THE DESKTOP BUILDS (PLATFORM-PATH.md §8; the owner's ruling: "CI
+# workflow"). This workflow IS the judgment the dev container cannot make:
+# §8.3 refused to land an unbuilt desktop/ directory, and what unblocks it
+# is a machine that builds it — this one. Three installers per run, from
+# the Actions tab, no local toolchain anywhere.
+#
+# Fires on any tag starting `desktop-v`, or by hand from the Actions tab
+# (workflow_dispatch). The icons are generated from the same forged
+# public/icon-512.png the PWA shell ships — one mark, every platform.
+name: desktop
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-latest
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux webview deps
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      # The thin client has no local frontend — the window loads the live
+      # deployment — but the bundler wants a dist directory to exist.
+      - name: Empty frontend dist
+        shell: bash
+        run: mkdir -p desktop/dist
+
+      - name: Icons from the forged mark
+        shell: bash
+        working-directory: desktop
+        run: tauri icon ../public/icon-512.png
+
+      - name: Build
+        working-directory: desktop
+        run: tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: bretwalda-desktop-${{ matrix.name }}
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.msi
+            desktop/src-tauri/target/release/bundle/**/*.exe
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
+            desktop/src-tauri/target/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/release/bundle/**/*.deb
+          if-no-files-found: warn
