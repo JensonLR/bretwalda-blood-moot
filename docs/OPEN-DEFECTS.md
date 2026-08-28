@@ -8202,3 +8202,44 @@ PASS, playtest 38/38, touchtest 32/32, burhtest 20/20, tourneytest
 
 6. **More war paints + weapon finish upgrades** — OPEN, the content half
    of the report; capture sheets to the owner's eye when built.
+
+---
+
+## THE TWO CAPTURE SHEETS AND THE COLOUR-BLIND DOOR — 28 Aug 2026
+
+The five rulings are all serviced. THE BURH keeps its name (confirmed,
+no change); the desktop wrapper judges itself in CI (`desktop-v*` tags);
+and the three art items closed this way:
+
+**The colour-blind toggle SHIPPED** per the ruling: TEAM COLOURS in THE
+FEEL (CLASSIC / HIGH CONTRAST), `teamContrast` persisted beside
+sensitivity and shake, palettes split as TEAM_FIELDS_DEFAULT /
+TEAM_FIELDS_CONTRAST behind a module-level `setTeamContrast` so the node
+probes keep measuring the shipped pair. Both forges set it from THE FEEL
+(GameCanvas at pigment-grinding, armouryStage at its texture build), and
+`getFeel` now loads the store on first ask — the old first-subscribe load
+made "is the saved choice honoured at the forge" a mount-order race.
+Photographed through the real door (`?teams=1` on /shot, localStorage
+seeded before page scripts) and pushed through a Viénot deuteranopia
+projection: classic red collapses into the ground's olive-mud, contrast
+gold stays luminous. cameratest 13/13, playtest 38/38, touchtest 32/32.
+
+**The Pict palette sheet** is with the owner (artifact "The Owner's
+Eye"): shipped identity vs "Dark Fortriu" (wraps+linen to the Danelaw's
+dark shape — bars cleared, shin band spent) vs "linen keeps the light"
+(photographs as Dark Fortriu; the linen barely shows at the fight lens).
+Recommendation on the sheet: keep the shipped shin band, ledger the
+three rose readings as the price of a people. `?teams=1`'s sibling
+levers were pulled for real and reverted; the tree ships unchanged.
+
+**The Gilded cloak rear sheet** is on the same page: as-shipped calm
+field vs a widened tablet-woven hem band (the existing 0.93 brass strip
+deepened to 0.86 — the direction that actually changes the rear read;
+gold brocade tablet-weave attested at Taplow and Sutton Hoo) vs a
+centre-back gather. The gather was pulled twice and the first pull is a
+lesson: a Gaussian at seam width (σ 0.055 rad) fell BETWEEN the shell's
+vertex columns (~0.26 rad apart) and vanished — a lever narrower than
+the mesh that carries it is not a lever. At resolvable width it reads as
+"more cape", which is what the 8.1 sweep predicted amplitude would do.
+Recommendation on the sheet: the band, tuned narrower; the gather left
+unbuilt. Both levers reverted; nothing shipped ahead of the ruling.
