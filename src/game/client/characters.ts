@@ -21080,10 +21080,21 @@ export function buildCharacter(
         inner: (u, v, out) => surf(u, v * cut.collar, 0.015, out),
       }), cloakMat);
       if (lod.trim) {
+        // THE TABLET-WOVEN BORDER — the owner's ruling, 28 Aug 2026. The
+        // Gilded cloak's rear 180 wanted DESIGN rather than amplitude (the
+        // 8.1 sweep's own prediction, proven when a resolvable centre-back
+        // gather still read as "more cape"), and the design is the band:
+        // gold brocade tablet-weave, the attested premium border (Taplow,
+        // Sutton Hoo). Deepened from 0.93 to 0.89 of the drop — the ruled
+        // "shade narrower" than the 0.86 capture the decision was made on —
+        // and a millimetre prouder so the edge takes its own light. The
+        // other three cloaks keep their narrow hide selvedge untouched: the
+        // ruling was the premium rear, not every hem in the shop.
+        const v0 = ap.cloak === "gold" ? 0.89 : 0.93;
         p.add(patch({
           nu: Math.max(11, lod.shellU + 2), nv: 1,
-          outer: (u, v, out) => surf(u, mix(0.93, 1.0, v), -0.004, out),
-          inner: (u, v, out) => surf(u, mix(0.93, 1.0, v), 0.018, out),
+          outer: (u, v, out) => surf(u, mix(v0, 1.0, v), ap.cloak === "gold" ? -0.005 : -0.004, out),
+          inner: (u, v, out) => surf(u, mix(v0, 1.0, v), 0.018, out),
         }), ap.cloak === "gold" ? brass : hide);
       }
       return p;

@@ -8320,3 +8320,27 @@ Bretwaldas names its seasons ("the Season of the Long Frost, s3") per
 marktest extended to the grown truth (eleven marks, five facts, two
 confessed inventions) — 25/25. wartest 82/82, moottest 25/25, playtest
 38/38, touchtest 32/32, tsc, lint, build all green.
+
+---
+
+## THE TWO SHEET RULINGS, RETURNED AND EXECUTED — 28 Aug 2026
+
+The owner ruled on "The Owner's Eye" (both recommendations approved):
+
+**THE PICT KEEPS HIS PALE LIMBS — FINAL.** The shipped two-value
+lightening stands as the people's identity, and the three standing rose
+readings (7.1 pict/Blackened +3.590, 7.1b pict WRAP +19.50, 7.1c Sea
+Queen's TUNIC +30.1 L*) are hereby the LEDGERED IDENTITY COST, not open
+defects. factionread's ~26-27/34 with these leaders IS the settled
+baseline; any future reading that worsens past them is a regression,
+but the leaders themselves are the price of a people and closed. The
+"Dark Fortriu" and "linen keeps the light" variants are rejected and
+must not be re-proposed without a new owner conversation.
+
+**THE GILDED CLOAK WEARS ITS BAND — SHIPPED.** The tablet-woven gold
+border at 0.89 of the drop (the ruled "shade narrower" than the 0.86
+capture), a millimetre prouder so the edge takes its own light; gold
+cloak only — the other three keep their hide selvedge. The centre-back
+gather stays unbuilt, as ruled. wearmeasure PASS on every section with
+the standing deferrals unchanged; the rear portrait shows the design
+event the 8.1 sweep said amplitude could never buy.
