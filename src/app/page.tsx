@@ -1700,8 +1700,13 @@ export default function Page() {
             // stage had laid down got his flourish row back, three buttons the
             // stage then refused. Two sources of truth for one question, with
             // "vetoed" and "broken" identical to the man pressing them.
-            // `canEmote` is the stage's own answer.
-            onEmote={canEmote && roomState.players[playerId]?.state !== "dead" ? sendEmote : undefined}
+            // `canEmote` is now the WHOLE answer, pushed by GameCanvas: the
+            // stage's `canPerform` once a stage exists, the fight's own
+            // dead-man rule before it. This line used to AND the wire's
+            // `state !== "dead"` on top, which quietly re-created the two
+            // sources of truth the note above is about — and refused a man
+            // the podium had stood up, because the wire still called him dead.
+            onEmote={canEmote ? sendEmote : undefined}
             onFightAgain={() => {
               if (roomState.state === "lobby") {
                 if (!roomState.players[playerId]?.ready) sendMsg("ready");

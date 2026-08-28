@@ -8860,8 +8860,37 @@ its deadline only after a falsy `cond`, so an evaluate blocked by the
 documented 8-25 s main-thread jam can return true from the far side of
 the deadline and report success on a window that has closed.
 
-**HONEST STATE: syntax-checked and linted, NOT yet run.** `summaryflow`
+**RUN AND GREEN (the state below is superseded, kept for the record).** `summaryflow`
 is a browser harness and the browser is held by a full `factionread`
 walk; running two browser suites at once is the one thing this repository
 forbids outright. The run is queued behind it and the result belongs on
 this entry.
+
+**THE RUN, AND IT FOUND A THIRD THING — A REAL ONE, IN THE PRODUCT.**
+`summaryflow` came back **16/17** with a failure in `emoteCheck`, which
+neither fix had touched: `free-for-all: the flourish is offered exactly
+to the man left standing — localStanding=true emoteButtons=0
+wire=dead/finished`. The stage had stood him up and the row was absent.
+
+`render/summary.ts`'s `canPerform` states the law: *"Before the stage
+exists nobody has been judged yet, and the fight's own rule — the server
+refuses a dead man's emote — is the right one to fall back to. AFTER IT,
+STANDING IS THE PERMISSION."* Only the first half was ever pushed to the
+page. `page.tsx` supplied the second itself, ANDing the wire's own
+`state !== "dead"` onto the button — correct during a fight, and wrong
+the instant the stage exists, because **the podium deliberately stands
+the honoured few up while the wire still calls the fallen ones dead.**
+
+So a man who placed TOP THREE and stands on the podium was refused his
+flourish. The note directly above that line already warned about "two
+sources of truth for one question" and the line underneath it had
+quietly become the second one.
+
+Fixed where both halves are in scope: `GameCanvas` now pushes the WHOLE
+answer — the stage's `canPerform` once a stage exists, the fight's own
+dead-man rule before it — and the page renders what it is told. One
+question, one owner.
+
+**summaryflow 17/17, exit 0** (from 16/17), playtest 38/38, touchtest
+32/32, tsc clean, lint 0/0, build green.
+

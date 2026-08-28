@@ -1467,6 +1467,26 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       }
       summaryRef.current?.reset();
       stage.hud.setSuppressed(false);
+      // ...AND OFF THE STAGE, THE FIGHT'S OWN RULE, PUSHED FROM THE SAME PLACE.
+      //
+      // `summary.ts`'s `canPerform` states the law: "Before the stage exists
+      // nobody has been judged yet, and the fight's own rule — the server
+      // refuses a dead man's emote — is the right one to fall back to. AFTER
+      // IT, STANDING IS THE PERMISSION." Only the first half was ever pushed
+      // up. `page.tsx` supplied the second by ANDing the wire's own
+      // `state !== "dead"` onto the button — which is right during a fight and
+      // wrong the moment the stage exists, because the podium deliberately
+      // stands the honoured few up and the wire still calls the fallen ones
+      // dead. A man who placed top three and is standing on the podium was
+      // refused his flourish, and `summaryflow` caught it as
+      // `localStanding=true wire=dead emoteButtons=0`.
+      //
+      // So the whole answer is decided HERE, where both halves are in scope,
+      // and the page renders what it is told. One question, one owner.
+      {
+        const alive = roomState.players[playerId]?.state !== "dead";
+        if (alive !== canEmoteRef.current) { canEmoteRef.current = alive; onCanEmoteRef.current?.(alive); }
+      }
 
       // Between matches the camera takes the slow establishing orbit and
       // nothing else runs — no input, no sim, no feedback.
