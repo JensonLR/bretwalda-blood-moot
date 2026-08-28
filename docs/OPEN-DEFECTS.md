@@ -8525,3 +8525,50 @@ constant to nudge in the dark.
 Gated: burhtest 24/24, wartest 82/82, moottest 25/25, tourneytest 39/39,
 benchtest 23/23, protocoltest 81/81, fighttest 23/23, rejointest 12/12,
 solidtest 16/16 (standing deferral), tsc clean, lint 0/0.
+
+---
+
+## THE SHIELD WAS WORTH WHATEVER IT LIKED — `guardprobe` — 28 Aug 2026
+
+`blockReduction` is a headline column of `WARRIOR_STATS` and the huscarl's
+whole identity ("Shield & sword. Unbreakable."). **Nothing in this
+repository held it to a number.**
+
+- `classmatrix` cannot see it and says so on its own verdict line: only
+  ~6% of the damage in its duels ever meets a raised guard. BACKLOG has
+  the proof — the huscarl's guard from 0.80 to **0.00**, the best shield
+  in the game to none at all, moved `huscarl vs warden` 69% → 69%.
+- `fighttest` §3 does drive real held guards and its claims are the right
+  ones — but every one is ORDINAL: a haft leaks more than a board, a
+  wrong-way guard more than a matched one, SHIELD WALL least. **Ordering
+  survives any magnitude.**
+
+`tools/guardprobe.mjs` (19/19, `npm run guardprobe`) swings ONE identical
+blow twice — at a bare man and at the same man holding a guard — and
+requires the ratio to be `1 - eff` off the engine's own line. Everything
+else is held fixed, so the ratio can only be measuring the guard. Read
+off the wire; nothing recomputed. Measured: huscarl 20.0% through against
+20.0% expected, warden 35.0/36.0, runekeeper 65.0/65.0, berserker
+70.0/72.0; the wrong-way guard per class; the dane axe's 0.80−0.50 as a
+SIZE and not merely "less"; SHIELD WALL at the 0.95 clamp ceiling. Its
+own control: the same blow twice is the same damage twice.
+
+**THE DEMONSTRATION, because a new gate is worth exactly what it catches
+that the old ones miss.** `GUARD.mismatch` drifted 0.5 → 0.9 — every
+ordering preserved, so a wrong-way guard still leaks more than a matched
+one and less than a bare man:
+
+```
+fighttest    23/23   GREEN     (blind)
+classmatrix  PASS              (blind)
+guardprobe   4 FAILURES, naming the quantity and the expected value
+```
+
+**AND WHAT IT CANNOT SEE, tried rather than assumed.** It compares the
+engine's behaviour to the engine's OWN sheet, so a changed sheet VALUE is
+invisible to it: the berserker's guard set to 0.90 leaves it 19/19,
+because the guard then honestly is worth 0.90. That is not a gap — it is
+`classmatrix`'s job and `classmatrix` does it, failing that same edit at
+once with "the two sheets disagree on 1 value(s)". **Values are guarded by
+the two-sheet mirror; the mechanism was guarded by nothing.** Both halves
+are now covered, and the division of labour is written in both files.

@@ -62,6 +62,7 @@
     "marktest": "node tools/marktest.mjs",
     "crownnews": "node tools/crownnews.mjs",
     "storeclaims": "node tools/storeclaims.mjs",
+    "guardprobe": "node tools/guardprobe.mjs",
     "scoretest": "node tools/scoretest.mjs",
     "platformcheck": "node tools/platformcheck.mjs",
     "burhtest": "node tools/burhtest.mjs",
