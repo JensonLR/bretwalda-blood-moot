@@ -71,7 +71,16 @@ try {
     return el ? { next: el.textContent?.includes("NEXT") ?? false } : null;
   }, null, { timeout: 240000 }).then((h) => h.jsonValue()).catch(() => null);
   (tree ? good : bad)("the round break draws the TREE — [data-bracket] stood");
-  if (tree) (tree.next ? good : bad)("the tree marks the NEXT duel");
+  if (tree) {
+    (tree.next ? good : bad)("the tree marks the NEXT duel");
+    // The redesigned card's portrait, KEPT (the capture-harness law) —
+    // the owner called the first design poor, so every redesign gets
+    // photographed where he would see it.
+    const { mkdirSync } = await import("fs");
+    mkdirSync(resolve(ROOT, ".armshot"), { recursive: true });
+    await page.screenshot({ path: resolve(ROOT, ".armshot", "bracket-break.png") });
+    good("the break's portrait is in .armshot/bracket-break.png — LOOK AT IT");
+  }
 
   // Sooner or later the idle host's duel comes and he falls; from then on
   // his seat is the bench and it must say his moot is run. Watch for either

@@ -3568,12 +3568,17 @@ function BracketCard({ stages, names }: { stages: BracketMatch[][]; names: Recor
                 const n = nameOf(id);
                 const winner = m.done && m.winner != null && m.winner === id;
                 const beaten = m.done && m.winner != null && id != null && m.winner !== id;
+                // A null side means two different things and the card must
+                // not conflate them: in the FIRST round it is a bye (the
+                // field was smaller than the tree); in any later round it
+                // is a man still to be DECIDED by the feeder duel below.
+                const empty = s === 0 ? "bye" : "to come";
                 return (
                   <div className={`flex min-w-0 items-center gap-1.5 px-2 py-1 text-[12px] leading-tight sm:text-[13px] ${
                     winner ? "font-bold text-amber-300" : beaten ? "text-[#7d7057]" : n === null ? "italic text-[#7d7057]" : "text-[#d9cdb2]"
                   }`}>
                     {winner && <Crown size={11} className="shrink-0 text-amber-400" />}
-                    <span className={`truncate ${beaten ? "line-through decoration-[#7d7057]/60" : ""}`}>{n ?? "bye"}</span>
+                    <span className={`truncate ${beaten ? "line-through decoration-[#7d7057]/60" : ""}`}>{n ?? empty}</span>
                   </div>
                 );
               };
