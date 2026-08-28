@@ -7025,11 +7025,20 @@ export function helmFitProbe(cls: WarriorClass, seed: number, helm: string): Hel
 // ============================================================
 // WHERE THE HEAD'S VERTICES GO
 //
-// The head is 40 columns and 44 rows on every tier, and that row count is a
-// *correctness* number rather than a quality one — see the LOD table. What
-// nobody had asked is where those rows and columns are SPENT, and the answer was
-// "uniformly", which on a head means most of them are on the back of a smooth
-// dome.
+// The head is 40 columns and 44 rows on `high` and `medium`, and 30 x 30 on
+// `low` — and that row count is a *correctness* number rather than a quality
+// one, which is why the LOW row is the one the LOD table itself flags as
+// "under the Nyquist limit for the tightest creases". THIS COMMENT SAID
+// "40 x 44 ON EVERY TIER" until 28 Aug 2026, which the table three thousand
+// lines up has never agreed with; comment-over-code, corrected here rather
+// than left to be believed. What nobody had asked is where those rows and
+// columns are SPENT, and the answer was "uniformly", which on a head means
+// most of them are on the back of a smooth dome.
+//
+// The spend is tier-independent (`U_PULL` and `V_MAP` below apply on every
+// tier), so `low` now concentrates its 30 x 30 on the face rather than
+// scattering it — a real improvement, and NOT the same thing as having the
+// count. The low-tier head is still a named open item.
 //
 // Uniform in azimuth puts a column every 0.157 rad. Near the midline that is
 // 15 mm of face, so a nose 40 mm wide gets three vertices across it and a
