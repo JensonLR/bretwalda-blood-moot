@@ -35,6 +35,16 @@ arithmetic.
 **INNER — every change, ~90 seconds, no browser.**
 `npx tsc --noEmit`, `node tools/headmeasure.mjs`, `node tools/wearmeasure.mjs`,
 `npm run cosmetictest -- --no-render`.
+
+Four more belong here, all CPU, all seconds, added 28 Aug 2026 — and each
+exists because something was shipping unmeasured:
+
+| ruler | answers |
+|---|---|
+| `npm run guardprobe` | what a shield is actually WORTH, in damage, per class. `blockReduction` is the huscarl's whole identity and nothing held it to a number: `classmatrix` cannot see it (~6% of its duel damage ever meets a raised guard) and `fighttest`'s guard claims are ordinal, which any magnitude survives |
+| `npm run crownnews` | the crowning latch, over two simulated visits. A one-render assertion cannot see "the visit that shows you the news is the visit after which it stops being news" |
+| `npm run storeclaims` | the Steam page's nouns, against the modules that own them. It was written after the copy claimed five warrior classes and named a Burhweard |
+| `npm run marktest` | the 24-glyph set: sourcing, unlock ladder, and that the server narrows a stored mark against the row's own record |
 This is the loop. Iterate here. It catches type errors, geometry punching
 through skin, silhouette failures, and cosmetics that do not differ.
 
@@ -85,6 +95,23 @@ these files gates one rung of that ladder at the distance a player fights.
 | `node tools/factionread.mjs` | ~3.5 min for §0–§5, then ~55 min for §6/§7 (165 captures at ~19 s on a GPU-less box at load 5) | are the four peoples four men at 6.8 m; does any of them cost a point of anything; is the paid ladder still a ladder after a man swears — **on the kit mean AND on every surface one at a time**; does anything a livery makes blow a channel under the fire; and what COLOUR is each of his surfaces on a graded frame |
 | `node tools/factionread.mjs --off` | same | the control. All four peoples as the unsworn. **Must fail** |
 | either, `--sheet` | +seconds | the flat-albedo contact sheet in `art/look/`, which is the thing to actually LOOK at |
+| `factionread --people= --cls= --finish= --turn=` | **~8 min** | THE PROBE DOOR. Narrows §6's sweep to the frames you are chasing; §0–§5 and the CONTROL still run whole, because the control is what sets the bar |
+
+**THE PROBE DOOR IS THE ONE THAT CHANGES HOW THIS FILE'S ADVICE WORKS.**
+§6's sweep is 120 lit captures and about 90 of the walk's 110 minutes, and
+until 28 Aug 2026 it could not be asked for a single frame. That is why the
+§6.1 clip singleton sat open across two full walks: not because the lever was
+hard to find, but because **the ruler could not be asked twice in an
+afternoon.** With the door, one frame answers in eight minutes — and the fix
+that followed took three pulls, of which THE FIRST TWO WERE INERT (the norse
+dye rows, then the shop's brightest fitting; both defensible, both moved the
+reading by exactly nothing). At 110 minutes an iteration that is a whole
+afternoon; at 8 it is a coffee. A narrowed run refuses to be a verdict — it
+prints PROBE, NOT A SHEET and exits before §7.
+
+**The rule this generalises to:** when a gate is slow AND the fix needs
+iteration, the first work is not the fix. It is making the gate answer the
+narrow question.
 
 **They share a rasteriser and a verdict quantity on purpose.** A warrior's
 signature is his area-weighted mean albedo over the pixels he covers at the play
