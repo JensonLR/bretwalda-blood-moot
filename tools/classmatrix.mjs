@@ -567,9 +567,29 @@ const FIELD_BAND = { lo: 0.40, hi: 0.60 };
 //        often than it could ever have fired on the thing it was built for. It
 //        was not a strict gate; it was a coin with an opinion.
 //
-//   SO THIS IS A DECLARED DEFERRAL, not a proven catch: v3 asks the right
-//   question and has NOT been seen red on this engine, because nothing on this
-//   engine currently produces a side bias big enough to answer it. It is kept
+//   THE DEFERRAL IS DISCHARGED — 28 Aug 2026. v3 HAS now been seen red, and
+//   both halves of the pair were run rather than argued:
+//
+//     A real side bias was injected into the engine — the first BOT inserted
+//     into a room hits 25% harder, so a mirror has one strong side by
+//     construction — and the harness was run twice at 200 bouts a cell,
+//     seed 4242, changing nothing but `--no-swap`.
+//
+//       --no-swap   mirrors 74.0 / 74.0 / 72.5 / 58.5%. THREE mirror findings
+//                   ("an interval lying ENTIRELY outside the 47-53%"), three
+//                   order-bias findings, 9 findings, FAIL.
+//       shipped     mirrors 53.0 / 50.0 / 51.5 / 46.5%. ZERO findings.
+//
+//     So the check catches a bias this size, and `swapSides` absorbs one this
+//     size — which is the second claim the note below makes and had only ever
+//     asserted. (The first attempt at this proof was itself instructive and is
+//     kept: it biased `room.players`' first key, which is the HOST session and
+//     not a fighter, and was therefore inert — the mirrors read 46.7% and
+//     nothing fired. A proof that does not move the quantity it claims to move
+//     proves nothing.)
+//
+//   What remains true is the sizing: nothing this engine produces on its own
+//   reaches the tolerance, so on an honest tree this check is quiet. It is kept
 //   because a regression could be large, `--no-swap` is kept so the next person
 //   can re-measure the bias in one command, and the point estimate of every
 //   mirror is printed on every run so drift is visible long before any rule

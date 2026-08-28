@@ -8572,3 +8572,40 @@ because the guard then honestly is worth 0.90. That is not a gap — it is
 once with "the two sheets disagree on 1 value(s)". **Values are guarded by
 the two-sheet mirror; the mechanism was guarded by nothing.** Both halves
 are now covered, and the division of labour is written in both files.
+
+---
+
+## THE MIRROR CHECK HAD NEVER BEEN SEEN RED — DISCHARGED — 28 Aug 2026
+
+`classmatrix`'s mirror diagonal is the harness's own control: a class
+fought against itself is 50% by construction, so a mirror off 50% is the
+RULER reporting its own bias. The file recorded it honestly as **"a
+declared deferral, not a proven catch: v3 asks the right question and has
+NOT been seen red on this engine"** — R2 outstanding, and a gate nobody
+has seen fire is a gate nobody knows works.
+
+Discharged by injecting a real side bias — the first BOT inserted into a
+room hits 25% harder, so a mirror has a strong side by construction — and
+running 200 bouts a cell, seed 4242, changing nothing but `--no-swap`:
+
+```
+--no-swap   mirrors 74.0 / 74.0 / 72.5 / 58.5%   3 mirror findings,
+                                                 3 order-bias findings, FAIL
+shipped     mirrors 53.0 / 50.0 / 51.5 / 46.5%   0 findings
+```
+
+Both halves matter. The left column proves the check FIRES on a bias this
+size. The right column proves `swapSides` ABSORBS one this size — which
+the file had asserted and never demonstrated.
+
+**The first attempt was inert and is kept as the lesson.** It biased the
+first key of `room.players`, which is the HOST SESSION and not a fighter,
+so no fight changed: mirrors read 46.7% and nothing fired. A proof that
+does not move the quantity it claims to move proves nothing — and it
+would have been very easy to read that quiet run as "the gate cannot
+fire" and go tuning the tolerance, which the file explicitly warns
+against.
+
+The sizing note stands: nothing this engine produces on its own reaches
+the 3-point tolerance, so on an honest tree this check is quiet. It is
+quiet because there is nothing to say, and that is now measured.
