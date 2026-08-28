@@ -79,12 +79,38 @@ console.log("[rejoin] the way back in, headless\n");
   check("the key walks a fresh session back into the SAME body",
     !!j && j.playerId === f.gid && j.reconnectKey === f.gkey);
   const body = f.room.players.get(f.gid);
-  check("the body is his again — awol cleared, and his input moves it",
-    body.awol === 0 && (() => {
+  // PRESSED ACROSS A WINDOW, NOT ON ONE TICK — and the one tick was a coin.
+  //
+  // This sent a single attack and looked 0.3 s later, and it failed about half
+  // the time. Instrumented rather than guessed at: on every failing run the
+  // body was `idle`, `attackTimer` 0 and stamina UNTOUCHED at its maximum, so
+  // the press had not been refused on its merits — it had never been acted on
+  // at all. The difference between the runs was one field: `hitstop` read
+  // 0.060 on every failure and 0.000 on every pass.
+  //
+  // That is `processInput`'s first guard — "Frozen on contact: he is not
+  // turning, striking, guarding or rolling" — doing exactly its job. The
+  // fixture drops a man back into a LIVE fight with someone hitting him, so
+  // whether he is inside a 60 ms freeze at the instant of the press is a
+  // property of the bot's timing, not of the rejoin.
+  //
+  // So this is a HARNESS fault and not a product one, and the distinction
+  // matters: read naively, the red says "a rejoined player loses his first
+  // input", which would send the next reader hunting a defect that is not
+  // there. What the claim means is that a man who has come back can ACT, so it
+  // presses like a player does — every tick until it takes — and still fails
+  // if he can never act at all.
+  const pressLands = () => {
+    for (let i = 0; i < 16; i++) {   // 0.8 s, well past HITSTOP's 60 ms
       back.send("input", { moveX: 0, moveZ: 0, rotationY: 1.5, attackDir: "overhead", attack: true });
-      stepSeconds(eng, 0.3);
-      return body.attackTimer > 0 || body.state === "attacking";
-    })());
+      stepSeconds(eng, 0.05);
+      if (body.attackTimer > 0 || body.state === "attacking") return true;
+    }
+    return false;
+  };
+  check("the body is his again — awol cleared, and his input moves it",
+    body.awol === 0 && pressLands(),
+    `awol=${body.awol}, state=${body.state}, attackTimer=${body.attackTimer.toFixed(2)}`);
 
   // A LIVE man's key must not let a second tab hijack him.
   const hijack = open(eng);

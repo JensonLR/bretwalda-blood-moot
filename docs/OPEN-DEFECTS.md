@@ -9002,3 +9002,44 @@ above had already re-read.
 reds remain the ledgered rose-settlement and owner-ruled identity costs,
 and the control's own bar moved 5.99% -> 6.26%, so **no §6 or §7 figure
 quoted anywhere before today is comparable with one taken after it.**
+
+---
+
+## `rejointest` WAS A COIN FLIP, AND THE RED WAS NOT WHAT IT SAID — 28 Aug 2026
+
+Found by running the whole battery after the day's merges: `rejointest`
+alternated **12/12 and 11/12 on the same tree**, the failure always on
+"the body is his again — awol cleared, and his input moves it".
+
+**A flaky gate is worse than a missing one** — it teaches everybody to
+re-run a red instead of reading it — so it was instrumented rather than
+re-run. On every failing run the body was `idle`, `attackTimer` 0 and
+stamina **untouched at its maximum**: the press had not been refused on
+its merits, it had never been acted on at all. Sending a SECOND press
+always landed (`first=false second=true`), which reads exactly like the
+product defect "a rejoined man loses his first input".
+
+**It is not that.** One field separated the runs:
+
+```
+HITSTOP=0.060  ->  the press is swallowed      (every failure)
+HITSTOP=0.000  ->  the press lands             (every pass)
+```
+
+That is `processInput`'s first guard — *"Frozen on contact: he is not
+turning, striking, guarding or rolling"* — doing precisely its job. The
+fixture drops a man back into a LIVE fight with someone hitting him, so
+whether he is inside a 60 ms freeze at the instant of one press is a
+property of the bot's timing and nothing to do with rejoining.
+
+So the fault is the HARNESS's, and the distinction is the whole value of
+the entry: read naively the red says a rejoined player loses his first
+swing, and the next reader spends a day in the reconnect path looking for
+something that was never there.
+
+The claim means *a man who has come back can act*, so it now presses the
+way a player does — every tick for 0.8 s, well past the 60 ms freeze —
+and reports the state it ended in. **Five consecutive 12/12**, and shown
+still able to fail: with the rejoined man's stamina forced to zero it
+goes red on the same line (`state=knocked, attackTimer=0.00`), so the
+window did not turn a real dead input into a pass.
