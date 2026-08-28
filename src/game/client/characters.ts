@@ -20449,10 +20449,24 @@ export function buildCharacter(
         // the highlight that runs along it, and along the slopes — where a crest
         // is read against the head rather than against the sky — it keeps all of
         // its height.
-        const ridgeAt = (v: number, front: boolean) => {
-          const run = front
-            ? mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v))
-            : smooth(bandLo - 0.44, bandLo - 0.02, v);
+        // THE REAR TAIL USED TO RUN 0.44 rad BELOW THE BAND, AND IT TORE.
+        //
+        // `helmclash` §6 SEAM, huscarl/suttonhoo: `d9b45f (276 tri) proud of
+        // 9aa6ae (308 tri) [az 180deg, y 205.7 mm]` — 1114.7 mm2 torn, 30.3% of
+        // the pairs, 5.8 mm deep. That is the GILT crest coming out through the
+        // SILVER nape guard at the back of the head, in bites, on the 2400-gold
+        // helmet. Sutton Hoo always carries the guard (`nape: "guard"`, and it
+        // is not optional on this style), so everything the tail did below the
+        // band was either hidden by the guard or poking through it — it was
+        // never a shape anybody could see, only a shape that could tear.
+        //
+        // So the crest is now what it says it is: a fore-and-aft ridge ON THE
+        // BOWL, symmetric, ending at the band's lower rim front and back, where
+        // the guard takes over. Same easing both ways, so the rear no longer
+        // starts at full height against the rim the way a re-based `smooth`
+        // would have left it.
+        const ridgeAt = (v: number, _front: boolean) => {
+          const run = mix(0.72, 1, smooth(bandLo, bandLo + 0.38, v));
           return 0.0132 * run * (1 - 0.40 * smooth(crownTop - 0.34, crownTop, v));
         };
         /** `du` is the signed offset from the crest's own centreline, in radians. */
@@ -20462,7 +20476,7 @@ export function buildCharacter(
         };
         for (const u of [0, Math.PI]) {
           const front = u === 0;
-          const v0 = front ? bandLo : bandLo - 0.44;
+          const v0 = bandLo;   // both halves start at the band — see `ridgeAt`
           p.add(helmWear(K, {
             tag: "sutton crest",
             u0: u - crestHalf, u1: u + crestHalf,

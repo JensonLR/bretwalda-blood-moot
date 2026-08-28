@@ -8894,3 +8894,59 @@ question, one owner.
 **summaryflow 17/17, exit 0** (from 16/17), playtest 38/38, touchtest
 32/32, tsc clean, lint 0/0, build green.
 
+
+---
+
+## THE SUTTON HOO CREST TORE ITS OWN NAPE GUARD — CLOSED — 28 Aug 2026
+
+`helmclash` §6 SEAM, huscarl/suttonhoo: **`d9b45f (276 tri) proud of
+9aa6ae (308 tri) [az 180deg, y 205.7 mm]` — 1114.7 mm2 torn, 30.3% of
+pairs, 5.8 mm deep.** The GILT crest coming out through the SILVER nape
+guard at the back of the head, in bites, on the 2400-gold helmet.
+
+The cause is one line. The crest's rear half started at `bandLo - 0.44` —
+0.44 rad BELOW the band's lower rim — while the front half started at
+`bandLo`. Sutton Hoo always carries a nape guard (`nape: "guard"`, not
+optional on this style), so everything the rear tail did below the band
+was either hidden behind the guard or poking through it. **It was never a
+shape anyone could see, only a shape that could tear.**
+
+The crest is now what its own comment calls it — a fore-and-aft ridge ON
+THE BOWL — symmetric, ending at the band front and back where the guard
+takes over, with the same easing both ways so the rear does not start at
+full height against the rim. **599.4 mm2 / 1.5% / under the 800 bar:
+huscarl/suttonhoo PASSES.** §6 as a whole goes 13 red kits to 11.
+
+Photographed before and after at 180, 145 and 90 degrees
+(`art/look/crest/`): the gilt now meets the band and the silver guard
+takes over, and the crown reads as three ribs converging — no tearing at
+any bearing. wearmeasure PASS on every section, cosmetictest 16/16 CPU.
+
+### THE CROWNED HELM'S EIGHT: DIAGNOSED, NOT FIXED, AND THE EXPERIMENT IS RECORDED
+
+Eight of the remaining eleven are ONE pair on the Jarl's Crowned helm,
+failing identically on all four classes: `6e767f (128 tri) proud of
+bfa25c (200 tri)`, 1888-2660 mm2, 2.1-2.8 mm deep, at az **109, 238, 310
+and 326** degrees.
+
+**Every one of those azimuths is off-axis, and that is a signature.** The
+hoop is swept as a circle of radius `R.x + 34 mm` and then SCALED in z to
+depth `R.z + 34 mm`. An ellipse with semi-axes `(a+d, b+d)` is NOT the
+offset curve of an ellipse with semi-axes `(a, b)`: the two agree on the
+axes and PINCH everywhere between, so the true clearance off-axis is less
+than the 34 mm written down — by more, the less round the head is. The
+file's own note ("the hoop stands 10 mm further out than any plate behind
+it") is true of the number and false of the geometry.
+
+**The experiment, so the next round does not repeat it:** taking the
+standoff to 40 mm moves it materially and does not close it — depths
+2.8→2.6, 2.1→1.6, 2.7→2.0, area down ~15% — every cell still over the
+bar. So the pinch is CONTRIBUTORY AND NOT SUFFICIENT; a second cause is
+in there, and the 128-triangle steel piece has not been identified (it is
+not the brow plate, which is frontal, and the flange's top ring is
+clamped BELOW the circlet). **The 6 mm was reverted rather than shipped**
+— a constant that moves a number without closing the case, on a piece the
+player can see, is tuning in the dark, which is the one thing this file
+keeps recording as the cause of its own worst rounds. Identify the piece
+first; `helmclash` does not print tags and teaching it to would be the
+cheapest next step.
