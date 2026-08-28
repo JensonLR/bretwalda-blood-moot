@@ -2876,7 +2876,7 @@ export function makeEngine(options = {}) {
     // waves. Everywhere else the human cap is the room's own. The BENCH
     // counts against it too — every watcher is a fighter the next match owes
     // a place, so a room may never promise more places than it has.
-    const humanCap = room.mode === "the_burh" ? 4 : room.maxPlayers;
+    const humanCap = room.mode === "the_burh" ? BURH_DEFENDERS : room.maxPlayers;
     if (humanCount(room) + benchCount(room) >= humanCap) return sendSession(sid, { type: "error", data: { message: "Room is full." } });
     if (room.state !== "lobby") {
       // THE MEAD-BENCH (7.9b). This used to be "Battle already in progress."
@@ -3073,6 +3073,13 @@ export function makeEngine(options = {}) {
   const WAVE_RESPITE = 5;
   /** What the respite mends of a living defender's health (see spawnWave). */
   const BURH_MEND = 0.40;
+  /**
+   * How many defenders the burh seats. The other places in the room belong
+   * to the here — and that is a statement about the HERE'S SIZE as much as
+   * about the door, which is why `spawnWave` reads this constant and not the
+   * live head count. See the note there.
+   */
+  const BURH_DEFENDERS = 4;
 
   /**
    * THE NEXT WAVE OF THE HERE (backlog 7.4). Fallen defenders rise for it —
@@ -3106,7 +3113,30 @@ export function makeEngine(options = {}) {
         p.stamina = p.maxStamina;
       }
     });
-    const count = Math.max(1, Math.min(1 + room.wave, room.maxPlayers - humanCount(room)));
+    // THE HERE IS SIZED AGAINST THE BURH'S SEATS, NOT AGAINST WHO TURNED UP.
+    //
+    // This read `room.maxPlayers - humanCount(room)` — FREE SEATS, a capacity
+    // fact — and free seats were doing the work of difficulty scaling. The
+    // room seats eight and the burh admits four defenders, so a full party
+    // left four places and A LONE MAN LEFT SEVEN. The lone defender was
+    // therefore handed the LARGER here at every wave past the third, and the
+    // gap widened as it climbed: measured at wave five, alone against SIX
+    // jarls where a party of four faced four. Six raiders per defender
+    // against one, and the fewer friends you brought the worse it got.
+    //
+    // That is the second half of the owner's report — "hard to hit multiple
+    // rounds especially SOLO" (27 Aug 2026) — and the respite mend could not
+    // reach it, because no amount of health answers being outnumbered by a
+    // constant that was never about difficulty.
+    //
+    // `BURH_DEFENDERS`, not `humanCount`: the here is the same here whoever
+    // stands, so its size cannot invert with the party's. Being alone is
+    // still harder — you have no shield-brothers — but by the honest margin
+    // of standing alone rather than by a capacity accident. The full party's
+    // experience is untouched by construction (it always left exactly this
+    // many seats), and `burhtest` holds the law that the count may never
+    // fall as defenders are added.
+    const count = Math.max(1, Math.min(1 + room.wave, room.maxPlayers - BURH_DEFENDERS));
     const difficulty = room.wave <= 2 ? "recruit" : room.wave <= 4 ? "warrior" : "jarl";
     room.difficulty = difficulty;
     for (let i = 0; i < count; i++) {

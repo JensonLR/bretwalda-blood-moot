@@ -8471,3 +8471,57 @@ character counts, taste. A green sheet here is not a proof-read.
 The copy is corrected: four warriors under their shipped names, the
 eight arms named as the real trades they are, and measured installer
 sizes with a note to re-measure before the page goes up.
+
+---
+
+## THE BURH'S SECOND HALF: FREE SEATS WERE DOING DIFFICULTY'S JOB — 28 Aug 2026
+
+The owner's report was two claims in one sentence — *"the BURH needs a
+look into as its hard to hit multiple rounds especially SOLO with no sort
+of health regen or anything else"*. The respite mend answered the
+sustain. This is the half the mend could never reach, and it was an
+INVERSION rather than a difficulty:
+
+```
+count = min(1 + wave, room.maxPlayers - humanCount(room))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ free seats
+```
+
+Free seats are a CAPACITY fact and they were sizing the here. The room
+seats eight and the burh admits four defenders, so a full party left four
+places and **a lone man left seven** — the lone defender was handed the
+LARGER here at every wave past the third, and the gap widened as it
+climbed. Measured, not reasoned: at wave five **a lone defender faced SIX
+jarls where a party of four faced FOUR**. Six raiders per defender
+against one, and the fewer friends you brought the worse it got.
+
+The fix is one constant: `BURH_DEFENDERS` (4) instead of the live head
+count, so the here is the same here whoever stands and its size cannot
+invert with the party's. Standing alone is still harder — no
+shield-brothers — but by the honest margin of standing alone. **The full
+party's experience is byte-identical by construction** (it always left
+exactly this many seats), and the lone defender's wave-5 here falls from
+six to four while the early ramp (2 at wave one, 4 by wave five) is
+untouched.
+
+`burhtest` gained the law and was SHOWN RED FIRST — and the first cut of
+the new fixture is itself a lesson: it sent `ready` where the engine
+answers `start`, no room ever left the lobby, and two of the new claims
+went green on `0 <= 0`. **A gate green because the case is absent.** The
+"all three fixtures actually reached the wave under test" claim exists so
+that cannot happen twice. With the fixture repaired the claims read the
+defect exactly (`1 defender faces 6, 4 face 4`) and now read
+`1 faces 4, 2 face 4, 4 face 4`. burhtest 24/24.
+
+**DECLARED, NOT FIXED, AND PRE-EXISTING:** past the fifth wave the burh
+neither grows (the seat ceiling) nor hardens (the difficulty ladder tops
+out at jarl) — for a lone man and a full party alike. The late burh is
+an attrition stand with the respite mend as its only dial. That is the
+mode's shape today, it is not something this fix introduced, and
+`burhtest` prints it as a NOTE on every run rather than leaving the
+silence to read as a promise. An owner-level design question, not a
+constant to nudge in the dark.
+
+Gated: burhtest 24/24, wartest 82/82, moottest 25/25, tourneytest 39/39,
+benchtest 23/23, protocoltest 81/81, fighttest 23/23, rejointest 12/12,
+solidtest 16/16 (standing deferral), tsc clean, lint 0/0.

@@ -157,5 +157,97 @@ console.log("[burh] the stand against the here, headless\n");
   check("the here wins nothing by name", end?.winnerKind === "none");
 }
 
+// ============================================================
+// THE STAND IS A STAND AT ANY PARTY SIZE — the owner's report, second half
+// ============================================================
+//
+// "the BURH needs a look into as its hard to hit multiple rounds especially
+// SOLO" (27 Aug 2026). The respite mend answered the sustain half. This
+// section is the half the mend could not reach, and it was an inversion
+// rather than a difficulty:
+//
+//   `count` was `min(1 + wave, maxPlayers - humanCount)`. The second term is
+//   FREE SEATS — a capacity fact — and it was doing the work of difficulty
+//   scaling. A room seats eight and the burh admits four defenders, so a
+//   party of four leaves four seats and a lone man leaves SEVEN. The lone
+//   defender was therefore handed the larger here at every wave past the
+//   third, and the gap widened as it climbed: at wave five he faced six
+//   jarls where the full party faced four, and per defender that is six
+//   against one.
+//
+// This drives two real rooms — one man, and a full four — to the same wave
+// and compares them. It is written as the owner's own sentence: a man
+// standing alone must never face MORE than the party does.
+{
+  const waveOf = (defenders, toWave) => {
+    const eng = makeEngine({ autoTick: false });
+    const host = open(eng);
+    host.send("create", { name: "Alone", mode: "the_burh", awaitLoad: false });
+    const j = host.last("join");
+    const room = eng._rooms.get(j.code);
+    for (let i = 1; i < defenders; i++) {
+      const g = open(eng);
+      g.send("join", { code: j.code, name: `D${i}`, awaitLoad: false });
+    }
+    // `start`, not `ready` — the idiom the stand fixture above uses and the
+    // one the engine actually answers. The first cut of this helper sent
+    // `ready`, no room ever left the lobby, and TWO of the claims below went
+    // green on 0 <= 0: a gate green because the case is absent. The
+    // "both fixtures actually reached the wave" claim exists to make that
+    // impossible to repeat.
+    host.send("start", {});
+    stepSeconds(eng, 7);
+    // Sterner stuff, the same way the stand fixture stages its holds: these
+    // claims are about the WAVE ARITHMETIC, and a fixture whose defender
+    // dies at wave four measures his frailty instead.
+    humans(room).forEach((p) => { p.maxHealth = 100000; p.health = 100000; });
+    while (room.wave < toWave) {
+      for (const b of bots(room)) intoTheFire(b, 1);
+      humans(room).forEach((p) => { p.health = p.maxHealth; });
+      const target = room.wave + 1;
+      let guard = 0;
+      while (room.wave < target && guard++ < 20 * RATE) eng.step();
+      if (guard >= 20 * RATE) break;
+    }
+    return { wave: room.wave, raiders: bots(room).length, defenders: humans(room).length };
+  };
+
+  const W = 5;
+  const one = waveOf(1, W);
+  const two = waveOf(2, W);
+  const four = waveOf(4, W);
+  check("all three fixtures actually reached the wave under test",
+    one.wave === W && two.wave === W && four.wave === W,
+    `waves ${one.wave}/${two.wave}/${four.wave} with ${one.defenders}/${two.defenders}/${four.defenders} defenders`);
+
+  // THE LAW, and it is the defect stated as one: bringing a friend must
+  // never SUMMON another enemy, and standing alone must never conjure two.
+  check("the here never shrinks as defenders are added — no inversion",
+    one.raiders <= two.raiders && two.raiders <= four.raiders,
+    `wave ${W}: 1 defender faces ${one.raiders}, 2 face ${two.raiders}, 4 face ${four.raiders}`);
+  check("a man standing ALONE never faces a larger here than a full party does",
+    one.raiders <= four.raiders,
+    `alone ${one.raiders}, party of ${four.defenders} ${four.raiders}`);
+
+  // And the fix must not be "make it easy" wearing a defect's name: the here
+  // still has to grow for the lone defender as the waves climb.
+  const early = waveOf(1, 1);
+  check("the here still grows for the lone defender as the waves climb",
+    early.wave === 1 && one.raiders > early.raiders,
+    `wave 1: ${early.raiders} raiders; wave ${W}: ${one.raiders}`);
+
+  // WHAT THIS SECTION DELIBERATELY DOES NOT CLAIM, said out loud because a
+  // silence here would read as a promise: past the fifth wave the here
+  // neither grows (the seat ceiling) nor hardens (the difficulty ladder tops
+  // out at jarl), for a lone man and for a full party alike. That is the
+  // burh's shape today — an attrition stand, with the respite mend as the
+  // only dial — and it is PRE-EXISTING, not something this fix introduced.
+  // Recorded in docs/OPEN-DEFECTS.md for the owner rather than quietly
+  // changed here.
+  const late = waveOf(1, 12);
+  console.log(`  NOTE  past the fifth wave nothing escalates: wave ${W} = ${one.raiders} raiders, `
+    + `wave ${late.wave} = ${late.raiders}, both jarls — attrition is the whole late game`);
+}
+
 console.log(`\n[burh] ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
