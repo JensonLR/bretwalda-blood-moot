@@ -8950,3 +8950,55 @@ player can see, is tuning in the dark, which is the one thing this file
 keeps recording as the cause of its own worst rounds. Identify the piece
 first; `helmclash` does not print tags and teaching it to would be the
 cheapest next step.
+
+---
+
+## THE PIN CLOSES THE CLIP SINGLETON — CONFIRMED — 28 Aug 2026
+
+The entry above pinned `quality=high` on `factionread`'s two capture
+paths and said plainly what was NOT yet proven: that the pin closes
+§6.1's singleton, since the singleton only ever appeared in a LONG run.
+
+**It is proven now.** A full pinned walk, at the fifth sweep row — about
+eighty captures deep, which is the depth the frame used to blow at:
+
+```
+                                        unpinned          pinned
+CONTROL @160                            5.99%             6.26%
+norse / huscarl / Polished Steel @160   7.66%  (x2 walks)  0.00%
+```
+
+Not reduced — **gone**, to two decimal places, on the frame that had
+reproduced exactly across two consecutive walks and was believed on that
+evidence. The whole row is quiet: sax 0.00/0.09/0.01, nor 0.01/0.11/0.00,
+bri 0.00/0.09/0.00. The singleton was the renderer's tier drifting under
+a harness that held nothing, exactly as diagnosed, and the fitting-ladder
+observation — true in itself — was never its cause.
+
+### THE PIN'S PRICE, MEASURED, BECAUSE A GATE NOBODY CAN AFFORD STOPS BEING RUN
+
+`docs/GATES.md` exists because "the browser is needed for one thing only:
+the final look" and everything expensive stops being run. So this is
+recorded rather than discovered later:
+
+**Pinning `high` makes the walk about five times slower.** §6's sweep ran
+at roughly 4 minutes a row unpinned and **19 minutes a row pinned** — 5
+rows in 1 h 26 m, against 28 rows in the sheet. The full walk goes from
+~110 minutes to an estimated **8-9 hours** on this GPU-less box. That is
+not a reason to unpin: an hour-long run of a drifting instrument is worth
+less than nothing, because it produces numbers that look reproducible and
+are not. It IS a reason to stop treating the whole sheet as a routine
+gate.
+
+**The way to work it, and it already exists:** `--people --cls --finish
+--turn` narrows §6 to a single frame and answers in about eleven minutes
+with the CONTROL still measured in full. That is the iteration path; the
+whole sheet is now an overnight job, and should be described as one
+wherever it is listed. This run was stopped after the decisive row rather
+than left to spend eight hours re-confirming a baseline the sections
+above had already re-read.
+
+**Also still true and unchanged by the pin:** the four standing §1/§5
+reds remain the ledgered rose-settlement and owner-ruled identity costs,
+and the control's own bar moved 5.99% -> 6.26%, so **no §6 or §7 figure
+quoted anywhere before today is comparable with one taken after it.**
