@@ -8827,3 +8827,41 @@ singleton only appears in a LONG run, so only a full walk can test it,
 and that walk is running. Until it answers, §6's historical numbers —
 including every clip figure this file has ever quoted — were taken at an
 unpinned tier and should not be compared across runs.
+
+---
+
+## TWO FALSE REDS IN `summaryflow`, BOTH THE HARNESS'S OWN — 28 Aug 2026
+
+Neither is a defect in the game. Both make the harness fail on builds
+where nothing is wrong, which is the most expensive kind of test: it
+teaches the next reader to distrust a red.
+
+**1. The corpse veto had no corpse.** `vetoCheck` asserts "a man lying
+dead does not perform", judged off the LOCAL man — either the row was
+never offered him (the stronger guarantee) or he pressed and the server
+refused. When his war band WINS he is standing, the row is correctly
+offered, and pressing it is correctly allowed: both halves go false and
+the check fails with nothing broken. That is this repository's own law
+seen from the other side — a gate green because the case is absent is not
+a gate, and a gate RED because the case is absent is not one either. It
+now takes `mine` (which `emoteCheck` already returns) and SKIPS by name
+when he is standing, exactly as `emoteCheck` and `ledgerCheck` do.
+
+**2. The FIGHT AGAIN press could spend the window it had to land in.**
+The press must arrive while `state === "finished"` — the server's
+ten-second park, timed from `t0`. The gate in front of it waited a FLAT
+8000 ms for the overlay to mount, on a clock unrelated to that window,
+and `t0` already trails the server's arm by the verdict wait. So the
+harness could spend eight seconds of a window with three left and then
+blame the button for a room that had correctly rolled back. The budget is
+now the window's actual remainder, and — the second half, which matters
+as much — the window is RE-READ after the wait, because `until()` checks
+its deadline only after a falsy `cond`, so an evaluate blocked by the
+documented 8-25 s main-thread jam can return true from the far side of
+the deadline and report success on a window that has closed.
+
+**HONEST STATE: syntax-checked and linted, NOT yet run.** `summaryflow`
+is a browser harness and the browser is held by a full `factionread`
+walk; running two browser suites at once is the one thing this repository
+forbids outright. The run is queued behind it and the result belongs on
+this entry.

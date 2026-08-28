@@ -388,7 +388,28 @@ async function emoteCheck(page, cast, where) {
  *
  * What is NOT relaxed: no corpse may be performing, on either route.
  */
-async function vetoCheck(page, where) {
+async function vetoCheck(page, mine, where) {
+  // THE PREMISE HAS TO HOLD, OR THIS IS A FALSE RED.
+  //
+  // The claim is "a man lying dead does not perform", and it is judged off the
+  // LOCAL man's row: either he was never offered it (the stronger guarantee) or
+  // he pressed and the server refused him. When the local man's band WINS he is
+  // standing, the row is correctly offered, and pressing it is correctly
+  // allowed — so `notOffered` is false and `refused` is false, and the check
+  // fails on a build where nothing is wrong. That is the mirror of this
+  // repository's own law: a gate green because the case is absent is not a
+  // gate, and a gate RED because the case is absent is not one either.
+  //
+  // Skipped by name rather than quietly passed, the way `emoteCheck` and
+  // `ledgerCheck` above already do it — the corpse guarantee simply cannot be
+  // read off a living man, and saying so is the honest answer.
+  if (mine?.standing) {
+    skipped.push(`${where}: a man lying dead does not perform`);
+    console.log(`[flow] SKIP ${where}: the local man is STANDING (his band won), so `
+      + `the corpse veto has no corpse to read — the row is offered to him correctly `
+      + `and pressing it is correctly allowed. NOT A PASS — counted as skipped.`);
+    return;
+  }
   const before = await page.evaluate(() => window.__summaryEmoteRefused ?? 0);
   const pressed = await tapNow(page, "RAISE");
   await sleep(2500);
@@ -543,7 +564,7 @@ async function teamPhase(browser) {
   await page.screenshot({ path: `${OUT}/summary-flow-team.png` });
   await levelOnRoundsPhase(page, verdict);
   await emoteAfterRollback(page, mine, "war band");
-  await vetoCheck(page, "war band");
+  await vetoCheck(page, mine, "war band");
   await ctx.close();
 }
 
@@ -633,11 +654,34 @@ async function duelPhase(browser) {
   // in time reports the pair NOT RUN, named — the same honesty the flourish
   // rows have always had — instead of failing an assertion about a race the
   // design never promised to win.
-  const mounted = await until(() => page.evaluate(() => window.__summaryUp === true),
-    "the summary overlay to mount", 8000).then(() => true).catch(() => false);
-  if (!mounted) {
+  // ...AND THE BUDGET IS THE WINDOW'S OWN REMAINDER, NOT A FIXED 8 s.
+  //
+  // The gate above waited a flat 8000 ms for the overlay while the thing it is
+  // buying time FOR — a press that must land while `state === "finished"` —
+  // lives inside the server's ten-second park, measured from `t0`. Those two
+  // clocks were unrelated: `t0` already trails the server's arm by the verdict
+  // wait, so 8 s of mounting could spend a window that had 3 s left, and the
+  // press then landed on a room that had correctly rolled back. The assertion
+  // blamed the button; the harness had spent the window.
+  //
+  // Two halves, and both are needed. The budget is now what is actually left,
+  // and the window is RE-READ after the wait — because `until` only checks its
+  // deadline after a falsy `cond`, so an evaluate blocked by the documented
+  // 8-25 s main-thread jam can return true from the far side of the deadline
+  // and report success on a window that has closed.
+  const PARK_MS = 9000;                       // under engine.mjs SUMMARY_HOLD * 1000
+  const leftMs = () => PARK_MS - (Date.now() - t0);
+  const mounted = leftMs() <= 0 ? false
+    : await until(() => page.evaluate(() => window.__summaryUp === true),
+      "the summary overlay to mount", leftMs()).then(() => true).catch(() => false);
+  const roomStillParked = mounted && leftMs() > 0
+    && (await page.evaluate(() => window.__probe?.latest?.state)) === "finished";
+  if (!mounted || !roomStillParked) {
     skipped.push("duel: pressed before the rollback, the intent parks (the overlay could not mount inside the park window on this box)");
     skipped.push("duel: the summary overlay stands over a live canvas (same stall)");
+    console.log(`[flow] SKIP duel: the park window closed before the press could be judged `
+      + `— mounted=${mounted}, ${leftMs()}ms of the ${PARK_MS}ms park left at the gate. `
+      + `NOT A PASS — counted as skipped.`);
   } else {
     const pressed = await tapNow(page, "FIGHT AGAIN");
     const stateNow = await page.evaluate(() => window.__probe?.latest?.state);
