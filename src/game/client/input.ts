@@ -651,40 +651,54 @@ export interface Feel {
   /** Camera shake on hits. Off is an accessibility door, not a nerf —
    *  nothing the shake conveys is information the HUD does not also say. */
   shake: boolean;
+  /** High-contrast team palette (colour-blind door): orange-gold vs deep
+   *  woad, separated on VALUE as well as hue. Forge-time — lands at the
+   *  next arena build; `characters.ts`'s `setTeamContrast` is the reader. */
+  teamContrast: boolean;
 }
 const FEEL_KEY = "bretwalda.feel";
-const DEFAULT_FEEL: Feel = { sensitivity: 1, shake: true };
+const DEFAULT_FEEL: Feel = { sensitivity: 1, shake: true, teamContrast: false };
 let feel: Feel = DEFAULT_FEEL;
 let feelLoaded = false;
 const feelListeners = new Set<() => void>();
 
+function ensureFeelLoaded(): void {
+  if (feelLoaded) return;
+  feelLoaded = true;
+  try {
+    const raw = window.localStorage.getItem(FEEL_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<Feel>;
+      feel = {
+        sensitivity: Math.min(2, Math.max(0.5, Number(p.sensitivity) || 1)),
+        shake: p.shake !== false,
+        teamContrast: p.teamContrast === true,
+      };
+    }
+  } catch { /* private mode (or node): the defaults */ }
+}
+
 export function subscribeFeel(onChange: () => void): () => void {
   feelListeners.add(onChange);
   if (!feelLoaded) {
-    feelLoaded = true;
-    try {
-      const raw = window.localStorage.getItem(FEEL_KEY);
-      if (raw) {
-        const p = JSON.parse(raw) as Partial<Feel>;
-        feel = {
-          sensitivity: Math.min(2, Math.max(0.5, Number(p.sensitivity) || 1)),
-          shake: p.shake !== false,
-        };
-      }
-    } catch { /* private mode: the defaults */ }
+    ensureFeelLoaded();
     if (feel !== DEFAULT_FEEL) for (const l of feelListeners) l();
   }
   return () => { feelListeners.delete(onChange); };
 }
 
-/** Snapshot. The object is replaced on every set, so identity is the version. */
-export function getFeel(): Feel { return feel; }
+/** Snapshot. The object is replaced on every set, so identity is the version.
+ *  Loads on first ask — the forges (`GameCanvas`, `armouryStage`) read this
+ *  at build time, and whether they beat the HUD's subscribe to it must not
+ *  decide whether a saved choice is honoured. */
+export function getFeel(): Feel { ensureFeelLoaded(); return feel; }
 export function getServerFeel(): Feel { return DEFAULT_FEEL; }
 
 export function setFeel(next: Partial<Feel>): void {
   feel = {
     sensitivity: Math.min(2, Math.max(0.5, Number(next.sensitivity ?? feel.sensitivity) || 1)),
     shake: next.shake ?? feel.shake,
+    teamContrast: next.teamContrast ?? feel.teamContrast,
   };
   feelLoaded = true;
   try { window.localStorage.setItem(FEEL_KEY, JSON.stringify(feel)); } catch { /* per-match only */ }

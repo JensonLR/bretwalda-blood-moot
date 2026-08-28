@@ -515,7 +515,7 @@ export const TEAM_FIELD: Readonly<Record<"red" | "blue", number>> = {
   blue: 0x24457e,
 };
 
-const TEAM_FIELDS: Record<"red" | "blue", TeamField> = {
+const TEAM_FIELDS_DEFAULT: Record<"red" | "blue", TeamField> = {
   // Madder. Hue 0.015 rather than 0.0 — true primary red has no warmth in it
   // and madder is an orange-leaning red, which is also what keeps it off the
   // garnet the UI uses for chrome.
@@ -527,6 +527,37 @@ const TEAM_FIELDS: Record<"red" | "blue", TeamField> = {
   blue: { hue: 0.585, clothSat: 0.52, leatherSat: 0.36, metalSat: 0.34, lo: 0.15, hi: 0.58,
     cloak: TEAM_FIELD.blue, board: TEAM_FIELD.blue },
 };
+
+/**
+ * THE HIGH-CONTRAST TEAM PALETTE (the owner's colour-blind ruling, 28 Aug
+ * 2026: "contrast toggle"). Red–blue is the classic deuteranopia trap when
+ * the red leans warm and the values meet; this pair separates on the axes
+ * every common vision type keeps: HUE pushed to orange-gold vs deep woad,
+ * and — the part hue-blindness cannot take away — VALUE, the gold side
+ * lifted (`lo` 0.24) and the blue side deepened (`hi` 0.44), so the two
+ * sides differ in brightness before colour is even consulted. Boards and
+ * cloaks take flat fields of the same pair.
+ */
+const TEAM_FIELDS_CONTRAST: Record<"red" | "blue", TeamField> = {
+  red: { hue: 0.085, clothSat: 0.62, leatherSat: 0.44, metalSat: 0.36, lo: 0.24, hi: 0.62,
+    cloak: 0xd08a2a, board: 0xd08a2a },
+  blue: { hue: 0.60, clothSat: 0.50, leatherSat: 0.36, metalSat: 0.34, lo: 0.10, hi: 0.44,
+    cloak: 0x223a6e, board: 0x223a6e },
+};
+
+/**
+ * Which palette the vats read. A module-level switch and not a store read,
+ * deliberately: this file is imported by node-side probes (`factionread`,
+ * `teamread`) that must keep measuring the SHIPPED palette — the default —
+ * and by the browser, where `GameCanvas` and the armoury stage set it from
+ * THE FEEL at build time. Materials are forge-time, so the toggle lands at
+ * the next arena build, which is the GraphicsPanel's own established
+ * "pending until the forge" language.
+ */
+let TEAM_FIELDS: Record<"red" | "blue", TeamField> = TEAM_FIELDS_DEFAULT;
+export function setTeamContrast(on: boolean): void {
+  TEAM_FIELDS = on ? TEAM_FIELDS_CONTRAST : TEAM_FIELDS_DEFAULT;
+}
 
 /**
  * One surface through the vat: the field's hue, the field's chroma for that

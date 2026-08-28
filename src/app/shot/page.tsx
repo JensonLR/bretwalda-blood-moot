@@ -766,7 +766,7 @@ const PRESETS: Record<string, {
  * a frame can settle, and the renderer reaches that path from a state change on
  * the player record and from nothing else.
  */
-function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
+function makePlayer(p: Pose, isLocal: boolean, revived = false, team: "red" | "blue" | "none" = "none"): GamePlayer {
   const stats = WARRIOR_STATS[p.cls];
   if (revived && p.state === "dead") p = { ...p, state: "idle", hp: 1, zone: undefined };
   const moving = p.state === "walking" || p.state === "running" || p.state === "sprinting";
@@ -775,7 +775,7 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false): GamePlayer {
     id: p.id,
     name: p.name,
     warriorClass: p.cls,
-    team: "none",
+    team,
     ready: true,
     position: { x: p.x, y: 0, z: p.z },
     rotation: p.rot,
@@ -1001,7 +1001,17 @@ export default function ShotPage() {
 
   const roomState = useMemo(() => {
     const players: Record<string, GamePlayer> = {};
-    preset.poses.forEach((p) => { players[p.id] = makePlayer(p, p.id === "me", phase === 1); });
+    // THE LIVERY, FROM THE QUERY, read imperatively for the reason `ground`
+    // is (see below). `?teams=1` dresses the cast red/blue by alternation —
+    // pose order, "me" first — which is the only way to photograph the team
+    // palettes at all: every authored preset is unsworn, and the colour-blind
+    // door (THE FEEL's TEAM COLOURS switch) is a claim about a picture.
+    const teams = (typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("teams")) === "1";
+    preset.poses.forEach((p, i) => {
+      players[p.id] = makePlayer(p, p.id === "me", phase === 1, teams ? (i % 2 === 0 ? "red" : "blue") : "none");
+    });
     return {
       code: "PHOTO01",
       mode: "blood_moot",

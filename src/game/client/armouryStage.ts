@@ -28,7 +28,8 @@
 // alongside `GameCanvas`'s own.
 import * as THREE from "three";
 import type { Appearance } from "./characters";
-import { buildCharacter, buildWeaponForClass, defaultAppearance } from "./characters";
+import { buildCharacter, buildWeaponForClass, defaultAppearance, setTeamContrast } from "./characters";
+import { getFeel } from "./input";
 import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
@@ -317,6 +318,9 @@ function buildForge(): Forge | null {
   renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
+  // Same door as GameCanvas: the palette is chosen before any dye is ground,
+  // so the shop shows the mannequin in the colours the arena will actually use.
+  setTeamContrast(getFeel().teamContrast);
   const textures = createTextureLibrary(renderer, quality);
   const materials = createMaterialLibrary(textures, quality);
   // Sky pushes its PMREM into the material library itself, on every rebake.

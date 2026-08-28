@@ -579,6 +579,23 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
               Off loses nothing the HUD does not also say.
             </span>
           </label>
+          {/* The colour-blind door (the owner's ruling): gold vs deep woad,
+              split on VALUE as well as hue, so the sides differ in
+              brightness before colour is consulted. Forge-time, like the
+              tiers — hence the honest "next fight" note. */}
+          <label className="mt-2 flex items-center gap-3">
+            <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">TEAM COLOURS</span>
+            <button role="switch" aria-checked={feelNow.teamContrast}
+              onClick={() => setFeel({ teamContrast: !feelNow.teamContrast })}
+              className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition ${
+                feelNow.teamContrast ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[#a89a7c]"
+              }`}>
+              {feelNow.teamContrast ? "HIGH CONTRAST" : "CLASSIC"}
+            </button>
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[#7d7057]">
+              Gold vs deep woad, split by brightness too. Takes hold at the next fight.
+            </span>
+          </label>
         </div>
 
         <div ref={list} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">

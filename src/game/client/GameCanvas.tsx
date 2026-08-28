@@ -7,7 +7,8 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone } from "../types";
 import GameHud from "./GameHud";
-import { sampleInput, useTouchControls, type MobileFlags } from "./input";
+import { getFeel, sampleInput, useTouchControls, type MobileFlags } from "./input";
+import { setTeamContrast } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
@@ -642,6 +643,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       },
       {
         label: "GRINDING PIGMENT AND DYE", weight: 3, run: () => {
+          // The team palette is chosen BEFORE any dye is ground (8.9's
+          // colour-blind ruling): THE FEEL's high-contrast switch lands at
+          // the forge, exactly like the tiers, and this is the forge.
+          setTeamContrast(getFeel().teamContrast);
           textures = createTextureLibrary(renderer, quality);
           // Every surface materials.ts asks for is generated on the next line,
           // which is why these are one stage and not two: splitting them would
