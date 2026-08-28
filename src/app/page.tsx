@@ -3550,27 +3550,48 @@ function BracketCard({ stages, names }: { stages: BracketMatch[][]; names: Recor
   // `settle` makes, minus the presence question the client cannot answer.
   let next: BracketMatch | null = null;
   for (const st of stages) { for (const m of st) { if (!m.done && m.a && m.b) { next = m; break; } } if (next) break; }
+  // REDRAWN ON THE OWNER'S PLAY REPORT ("the design of it is also poor"):
+  // a real staged bracket now — one COLUMN per stage, left to right, each
+  // column's matches spread with space-around so a feeder pair naturally
+  // brackets the match it feeds; the winner carries a crown, the beaten
+  // man is struck, the NEXT duel burns amber with its badge. The engine's
+  // TOURNEY_BREAK (12 s) is what buys the time to read it.
   return (
-    <div data-bracket className="flex w-full flex-col gap-2 text-left">
+    <div data-bracket className="flex w-full items-stretch gap-2 text-left sm:gap-3">
       {stages.map((st, s) => (
-        <div key={s}>
-          <div className="label-overline !text-[9px] text-[#a89a7c]">{label(s)}</div>
-          <div className="mt-0.5 flex flex-col gap-0.5">
+        <div key={s} className="flex min-w-0 flex-1 flex-col">
+          <div className="label-overline mb-1.5 text-center !text-[9px] text-[#a89a7c]">{label(s)}</div>
+          <div className="flex flex-1 flex-col justify-around gap-2">
             {st.map((m, i) => {
+              const isNext = m === next;
               const row = (id: string | null) => {
                 const n = nameOf(id);
                 const winner = m.done && m.winner != null && m.winner === id;
                 const beaten = m.done && m.winner != null && id != null && m.winner !== id;
-                return n === null
-                  ? <span className="text-[#7d7057] italic">bye</span>
-                  : <span className={winner ? "font-bold text-amber-300" : beaten ? "text-[#7d7057] line-through decoration-[#7d7057]/60" : "text-[#d9cdb2]"}>{n}</span>;
+                return (
+                  <div className={`flex min-w-0 items-center gap-1.5 px-2 py-1 text-[12px] leading-tight sm:text-[13px] ${
+                    winner ? "font-bold text-amber-300" : beaten ? "text-[#7d7057]" : n === null ? "italic text-[#7d7057]" : "text-[#d9cdb2]"
+                  }`}>
+                    {winner && <Crown size={11} className="shrink-0 text-amber-400" />}
+                    <span className={`truncate ${beaten ? "line-through decoration-[#7d7057]/60" : ""}`}>{n ?? "bye"}</span>
+                  </div>
+                );
               };
               return (
-                <div key={i} className={`flex items-baseline gap-1.5 rounded px-1.5 py-0.5 text-[12px] ${m === next ? "bg-amber-400/10" : ""}`}>
+                <div key={i}
+                  className={`overflow-hidden rounded-lg border transition ${
+                    isNext ? "border-amber-500/90 bg-amber-950/40 shadow-[0_0_18px_rgba(217,164,65,0.25)]"
+                    : m.done ? "border-stone-700/50 bg-stone-900/40 opacity-80"
+                    : "border-stone-700/70 bg-stone-900/60"
+                  }`}>
+                  {isNext && (
+                    <div className="animate-pulse bg-amber-500/15 px-2 py-0.5 text-center text-[9px] font-bold tracking-[0.3em] text-amber-300">
+                      NEXT
+                    </div>
+                  )}
                   {row(m.a)}
-                  <span className="text-[10px] text-[#7d7057]">v</span>
+                  <div className="mx-2 border-t border-stone-700/50" />
                   {row(m.b)}
-                  {m === next && <span className="ml-auto text-[9px] font-bold tracking-[0.2em] text-amber-400">NEXT</span>}
                 </div>
               );
             })}
@@ -3610,7 +3631,10 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
   // is what stops it outliving the break, so it has to leave the card the one
   // second `REPLAY.wall` held back rather than the two the old 2.95 s beat did.
   // A late joiner or a slow socket still gets the card immediately.
-  if (now - endedAt < ROUND_HOLD_MS && left > 1) {
+  // The tournament SKIPS the verdict-only beat (owner's report: the break
+  // was "a couple of seconds max" of readable tree): its card carries the
+  // verdict line anyway, and every second belongs to the bracket.
+  if (!tourney && now - endedAt < ROUND_HOLD_MS && left > 1) {
     return (
       /* `pt-[6.6rem]` clears the round tally the game screen keeps pinned at
          top-[4.6rem] — a `.round-hud` pill is about 1.4rem tall, so the verdict
@@ -3652,7 +3676,7 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
        for. Same arrangement as `data-ledger` on the summary rows. */
     <div data-break-card
       className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6">
-      <div className="card card-noble card-glow animate-fadeIn flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
+      <div className={`card card-noble card-glow animate-fadeIn flex w-full flex-col items-center gap-3 p-6 text-center ${tourney ? "max-w-2xl" : "max-w-sm"}`}>
         <div className="label-overline">{overline}</div>
         <div className="font-display text-2xl leading-tight text-amber-100" style={{ textShadow: "0 0 26px rgba(217,164,65,0.35)" }}>
           {verdict}

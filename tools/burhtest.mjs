@@ -112,6 +112,14 @@ console.log("[burh] the stand against the here, headless\n");
   for (const b of bots(room)) intoTheFire(b, 1);
   stepSeconds(eng, 3);
   check("the cleared wave announces itself", host.count("wave_cleared") >= 1);
+  // THE RESPITE MENDS (owner's play report, 27 Aug 2026: "no sort of
+  // health regen... just hit dodge & hope"). Wound the STANDING defender
+  // before the wave turns: the mend must hand back BURH_MEND of his bar
+  // and a full stamina draw — a breath, not a reset — while the fallen
+  // man's own rule (rise at 62%) stands untouched beside it.
+  const standing = humans(room).find((p) => p.state !== "dead");
+  standing.health = 20000;
+  standing.stamina = 5;
   for (let i = 0; i < 10 * RATE && room.wave < 2; i++) eng.step();
   check("wave two is larger and the fallen defender has risen",
     room.wave === 2 && bots(room).length === 3
@@ -120,6 +128,9 @@ console.log("[burh] the stand against the here, headless\n");
   check("the risen man pays for his fall",
     humans(room).some((p) => Math.abs(p.health - Math.round(p.maxHealth * 0.62)) <= 1),
     "62% of full on the risen");
+  check("the respite mends the standing man — two-fifths of his bar and a full stamina draw",
+    Math.abs(standing.health - 60000) <= 1 && standing.stamina === standing.maxStamina,
+    `health 20000 -> ${standing.health}, stamina ${standing.stamina}/${standing.maxStamina}`);
   check("last wave's corpses are cleared, not collected", men(room).length === humans(room).length + bots(room).length
     && bots(room).every((b) => b.state !== "dead"));
 

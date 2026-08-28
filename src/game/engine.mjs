@@ -187,6 +187,13 @@ const BOT_FIRE_LOOKAHEAD = 5.0;
 // has run out of rounds to change anyone's mind.
 const ROUND_OPTIONS = [1, 3, 5];
 const DEFAULT_BEST_OF = 3;
+// THE TOURNAMENT'S OWN BREATH (owner's play report, 27 Aug 2026): "jump
+// between rounds too quickly & can barely see the bracket screen... a
+// couple of seconds max." Five seconds is right for a rematch of the same
+// men; between DUELS the hall is reading a TREE — who advanced, who fights
+// next, when your own duel comes — and the two men dealt in must also see
+// it coming. Twelve seconds, on the same clocks ROUND_BREAK rides.
+const TOURNEY_BREAK = 12;
 const ROUND_BREAK = 5;          // seconds between rounds: long enough to read the
                                 // result off the screen, short enough that nobody
                                 // reaches for another tab
@@ -3064,6 +3071,8 @@ export function makeEngine(options = {}) {
   /** The Burh's respite between waves, seconds — long enough to breathe and
    *  loot a breath of stamina, short enough that a stand stays a stand. */
   const WAVE_RESPITE = 5;
+  /** What the respite mends of a living defender's health (see spawnWave). */
+  const BURH_MEND = 0.40;
 
   /**
    * THE NEXT WAVE OF THE HERE (backlog 7.4). Fallen defenders rise for it —
@@ -3082,6 +3091,19 @@ export function makeEngine(options = {}) {
       if (!p.bot && p.state === "dead") {
         dealLateSpawn(room, p);
         p.health = Math.round(p.maxHealth * 0.62);
+      } else if (!p.bot) {
+        // THE RESPITE MENDS (owner's play report, 27 Aug 2026): "hard to
+        // hit multiple rounds especially solo with no sort of health regen
+        // or anything else just hit dodge & hope." A held wave buys a real
+        // breath: the living mend BURH_MEND of their health and draw a full
+        // stamina bar. Wounds still accumulate across waves — the mend is a
+        // fraction, not a reset, so a stand still wears a party down — but
+        // the lone defender's ceiling stops being "one bad wave". The
+        // fallen keep their own rule (rise at 62%): rising must not beat
+        // standing, so the mend never lifts a survivor BELOW a risen man's
+        // floor — it has no floor at all, only the fraction.
+        p.health = Math.min(p.maxHealth, Math.round(p.health + p.maxHealth * BURH_MEND));
+        p.stamina = p.maxStamina;
       }
     });
     const count = Math.max(1, Math.min(1 + room.wave, room.maxPlayers - humanCount(room)));
@@ -4208,10 +4230,11 @@ export function makeEngine(options = {}) {
     // time, not the wall, so it now names the instant the sim will ACTUALLY
     // deal the round rather than an instant the sim has no opinion about, and a
     // replay reproduces it.
-    room.nextRoundAt = over ? 0 : wallNow() + ROUND_BREAK * 1000;
+    const breakSecs = room.mode === "tournament_moot" ? TOURNEY_BREAK : ROUND_BREAK;
+    room.nextRoundAt = over ? 0 : wallNow() + breakSecs * 1000;
     broadcast(room, { type: "round_end", data: { ...serializeRoom(room), ...room.lastRound, matchOver: over } });
     if (over) return endMatch(room);
-    room.phaseAt = simMs + ROUND_BREAK * 1000;
+    room.phaseAt = simMs + breakSecs * 1000;
   }
 
   // Paid ONCE, from the totals the whole match accumulated. Per-round payout

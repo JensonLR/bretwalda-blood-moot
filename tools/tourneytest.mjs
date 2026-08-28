@@ -159,9 +159,18 @@ console.log("[tourney] the moot of champions, headless\n");
   const semi1 = room.bracket.stages[0].find((m) => m.done);
   check("the verdict went into the tree", !!semi1 && semi1.winner === f1a,
     `winner ${semi1?.winner === f1a ? "is the man who stood" : semi1?.winner}`);
+  // The owner's own report, held as law: "can barely see the bracket
+  // screen... a couple of seconds max." The wire promises the hall at
+  // least ten readable seconds between duels.
+  const breathMs = (host.last("round_end")?.nextRoundAt ?? 0) - Date.now();
+  check("the hall gets a readable breath between duels — ten seconds or more on the wire",
+    breathMs >= 10000, `${(breathMs / 1000).toFixed(1)}s promised`);
 
-  // The break runs out; the OTHER pairing is dealt.
-  stepSeconds(eng, 7);
+  // The break runs out; the OTHER pairing is dealt. FOURTEEN seconds: the
+  // tournament's break is TOURNEY_BREAK (12 s) now — the owner could not
+  // read the tree in five ("a couple of seconds max") — and this file's
+  // budgets crossed breaks at seven. A wire claim below holds the length.
+  stepSeconds(eng, 14);
   const floor2 = floorOf(room);
   check("the next duel is the other pairing — neither of the first two fights twice in a row",
     room.state === "fighting" && !floor2.includes(f1a) && !floor2.includes(f1b));
@@ -171,7 +180,7 @@ console.log("[tourney] the moot of champions, headless\n");
   // Duel two: burn one. Then THE FINAL: the two winners, the losers watching.
   const [f2a, f2b] = floor2;
   intoTheFire(room.players.get(f2b), 1);
-  stepSeconds(eng, 10);
+  stepSeconds(eng, 17);
   const final = floorOf(room);
   check("the final seats the two winners", room.state === "fighting"
     && final.includes(f1a) && final.includes(f2a),
@@ -239,7 +248,7 @@ for (const leaveDuring of ["intermission", "countdown"]) {
   }
 
   // The other semi is settled by steel.
-  stepSeconds(eng, 7);
+  stepSeconds(eng, 14);
   const [sa, sb] = floorOf(room);
   intoTheFire(room.players.get(sb), 0.5);
   stepSeconds(eng, 3);
@@ -252,15 +261,15 @@ for (const leaveDuring of ["intermission", "countdown"]) {
     // startRound's own "the bracket finished itself" door.
     check("the break stands when he goes", room.state === "intermission", `state=${room.state}`);
     clients(fb).send("leave", {});
-    stepSeconds(eng, 8);
+    stepSeconds(eng, 15);
   } else {
     // DOOR TWO: the finalist leaves during the final's own 3-2-1. Only his
     // departure can end that round — nobody dies in an empty ring — and
     // checkRoundEnd's countdown gate is what answers it.
-    for (let guard = 0; guard < 200 && room.state !== "countdown"; guard++) eng.step();
+    for (let guard = 0; guard < 400 && room.state !== "countdown"; guard++) eng.step();
     check("the final's bell is counting when he goes", room.state === "countdown", `state=${room.state}`);
     clients(fb).send("leave", {});
-    stepSeconds(eng, 8);
+    stepSeconds(eng, 15);
   }
   // The verdict is read off the CHAMPION's client — he stays by
   // construction. It was read off the host's, and the host is one of the
@@ -269,9 +278,13 @@ for (const leaveDuring of ["intermission", "countdown"]) {
   // "winner undefined" against a match that had finished perfectly well.
   // The ruler was interrogating a witness who had left the building.
   const verdict = clients(sa).last("match_end");
+  // finished OR lobby: the grown tournament break means the post-leave
+  // budget can outlive the ten-second summary, and a room that crowned
+  // and then lobbied is the machinery WORKING, not a miss.
   check(`a finalist who leaves in the ${leaveDuring} crowns his opponent without a fight`,
-    room.state === "finished" && !!verdict && verdict.winnerId === sa && verdict.winnerBy === "bracket",
-    `winner ${verdict?.winnerId === sa ? "is the standing finalist" : verdict?.winnerId}`);
+    (room.state === "finished" || room.state === "lobby")
+    && !!verdict && verdict.winnerId === sa && verdict.winnerBy === "bracket",
+    `winner ${verdict?.winnerId === sa ? "is the standing finalist" : verdict?.winnerId}, state=${room.state}`);
 }
 
 // ---- §5 a visitor is not a duellist ----
@@ -294,7 +307,7 @@ for (const leaveDuring of ["intermission", "countdown"]) {
   // racing a long bot duel, and a patience constant is not a claim.
   for (let guard = 0; guard < 14 && room.state !== "finished"; guard++) {
     if (room.state === "fighting") intoTheFire(room.players.get(floorOf(room)[1]), 1);
-    stepSeconds(eng, 8);
+    stepSeconds(eng, 15);
   }
   const verdict = host.last("match_end");
   check("the reckoning is the FIELD's — the visitor is not in it",
