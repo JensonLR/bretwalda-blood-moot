@@ -48,7 +48,7 @@ import {
   syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import { readCreds } from "./profileLink";
-import Dispatch, { takeWatermark } from "../game/client/factionMap/Dispatch";
+import Dispatch, { takeCrownNews, takeWatermark } from "../game/client/factionMap/Dispatch";
 import type { WarViewData } from "../game/client/factionMap/WarMap";
 // Statically imported, unlike the canvas: this module builds no AudioContext
 // until a gesture and pulls in nothing else, so the landing screen pays a
@@ -257,6 +257,7 @@ export default function Page() {
    */
   const [warDispatch, setWarDispatch] = useState<{
     war: WarViewData; mine: string | null; seen: number | null;
+    crownNews: { seasonIndex: number; people: string; name: string | null } | null;
   } | null>(null);
   useEffect(() => {
     fetch("/api/war", {
@@ -271,7 +272,13 @@ export default function Page() {
           body.war.season.index,
           body.war.recent.reduce((m, f) => Math.max(m, f.at), 0),
         );
-        setWarDispatch({ war: body.war, mine: body.self?.allegiance ?? null, seen });
+        setWarDispatch({
+          war: body.war, mine: body.self?.allegiance ?? null, seen,
+          // The crowning rides the same visit as the flips and retires the
+          // same way — its own latch, because a fresh season has no flip for
+          // the watermark to be raised to. See `takeCrownNews`.
+          crownNews: takeCrownNews(body.war.crowns),
+        });
       })
       .catch(() => { /* a quiet landing beats a blocked one */ });
   }, []);
@@ -2367,7 +2374,8 @@ export default function Page() {
               quiet or unread, so the landing pays no height for a slow wire. */}
           {warDispatch && (
             <div className="mx-auto w-full max-w-[26rem]">
-              <Dispatch war={warDispatch.war} mine={warDispatch.mine} seen={warDispatch.seen} />
+              <Dispatch war={warDispatch.war} mine={warDispatch.mine} seen={warDispatch.seen}
+                crownNews={warDispatch.crownNews} />
             </div>
           )}
 

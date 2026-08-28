@@ -24,7 +24,7 @@ import { ArrowLeft } from "lucide-react";
 import { faceSeedFor } from "@/game/client/armouryThumbs";
 import type { Appearance } from "@/game/client/characters";
 import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
-import Dispatch, { takeWatermark } from "@/game/client/factionMap/Dispatch";
+import Dispatch, { takeCrownNews, takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
 import Roll, { ROLL_ASK_DEFAULT, type RollAsk, type RollSeat } from "@/game/client/factionMap/Roll";
 import Hearth, { type HearthViewData, type HearthSeatData } from "@/game/client/factionMap/Hearth";
@@ -173,6 +173,14 @@ export default function WarPage() {
    * effect body is the one place this repository does not put them.
    */
   const [seen, setSeen] = useState<number | null | undefined>(undefined);
+  /**
+   * The crowning this browser has not been shown yet, on the same once-per-
+   * visit discipline as `seen` — see `takeCrownNews`, which has its own latch
+   * because a fresh season has no flips for the flip watermark to ride on.
+   */
+  const [crownNews, setCrownNews] = useState<
+    { seasonIndex: number; people: string; name: string | null } | null
+  >(null);
   /** The roll of honour, or null while it loads (and in local mode forever). */
   const [roll, setRoll] = useState<RollSeat[] | null>(null);
   /** The viewer's own house and the season's houses — backlog 4.4. */
@@ -212,6 +220,10 @@ export default function WarPage() {
         // value the FIRST one answered, or the dispatch would go quiet in the
         // middle of the visit that was showing it.
         setSeen((had) => (had !== undefined ? had : watermark));
+        // Same reasoning, same place: read outside the updater (it touches a
+        // store), and keep the first load's answer for the rest of the visit.
+        const crowning = takeCrownNews(body.war.crowns);
+        setCrownNews((had) => had ?? crowning);
         setSelf(body.self ?? null);
         setRoll(Array.isArray(body.roll) ? body.roll : null);
         setHearth(body.hearth ?? null);
@@ -339,7 +351,7 @@ export default function WarPage() {
               viewport, so anything below it is off-screen on the phone this
               defect was reported from. The one sentence a returning player
               came back for cannot be a thing he has to go and find. */}
-          {mode === "server" && <Dispatch war={war} mine={sworn ?? null} seen={seen} />}
+          {mode === "server" && <Dispatch war={war} mine={sworn ?? null} seen={seen} crownNews={crownNews} />}
 
           {mode === "loading"
             ? <p className="war-loading">Reading the war rolls…</p>

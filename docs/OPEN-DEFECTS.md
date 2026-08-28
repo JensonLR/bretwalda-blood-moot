@@ -8392,3 +8392,43 @@ red there predates this change.
 hydration (LOW), the 6.1 CLIP singleton (rides the next full walk),
 and helmclash's standing measurement reds, which are a survey and not
 a gate.
+
+---
+
+## THE CROWNING IS ANNOUNCED — the retention wave's second piece — 28 Aug 2026
+
+`endSeason` has crowned exactly one Bretwalda since the war shipped, and
+`warView` has carried the verdict roll to every client — but NO SURFACE
+EVER SAID IT. A man who fought a whole season opened the game after the
+reset and learned the outcome only if he thought to open the map and
+read the roll of Bretwaldas. The loudest moment the game owns was
+arriving as a table row.
+
+The Dispatch is the right home by its own charter — backlog 5.13, "a man
+who has not opened the map still learns the map moved" — and a crowning
+is the largest move the map can make. It now leads the panel on both
+surfaces that draw it (the landing and /factions), once, with the season
+by NAME and the two consequences `openingHoldings` actually applies: the
+champion's kingdom starts a territory ahead and every border of it is a
+quarter cheaper to take.
+
+**ITS LATCH IS DELIBERATELY NOT THE FLIP WATERMARK, and that is the
+whole engineering content.** `takeWatermark` only writes when a flip
+exists to be shown; the visit that matters most for a crowning is the
+FIRST VISIT OF A FRESH SEASON, which has no flips at all. A crowning
+latched on it would shout on every visit until the first border moved —
+the opposite of news. So: one key, one number, the newest verdict season
+this browser has been shown.
+
+**`tools/crownnews.mjs` (10/10, `npm run crownnews`)** is the ruler, and
+it was SHOWN RED before it was believed: with the latch deleted it fails
+exactly two claims — "the visit that showed it is the visit after which
+it stops being news" and "shown exactly ONCE across three fresh-season
+visits (3 of 3)" — and nothing else. It bundles the SHIPPED `Dispatch.tsx`
+with esbuild and imports it fresh per simulated browser tab (the module
+caches its arrival value per JS context, so a reused import would be one
+long visit and every second-visit claim would measure nothing). It
+asserts the flip watermark stays null across those same fresh-season
+visits, side by side, so the reason the second key exists is a
+measurement rather than a comment. Private-mode throws and an empty
+crowns list are covered. No database, no browser, no server.

@@ -94,6 +94,8 @@ art/fit/
 .helmclash/
 # transpile cache for tools/rungcensus.mjs
 .rungcensus/
+# esbuild bundle for tools/crownnews.mjs
+.crownnews/
 # scratch transpile caches an agent's own probes emit. Same sweep the note
 # over `.tb/` warns about: an unignored one gets swept in by `git add -A`,
 # and round eight committed four of them before noticing.

@@ -60,6 +60,7 @@
     "replayseen": "node tools/replayseen.mjs",
     "doctor": "npx react-doctor@latest",
     "marktest": "node tools/marktest.mjs",
+    "crownnews": "node tools/crownnews.mjs",
     "scoretest": "node tools/scoretest.mjs",
     "platformcheck": "node tools/platformcheck.mjs",
     "burhtest": "node tools/burhtest.mjs",

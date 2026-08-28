@@ -37,6 +37,7 @@
 
 import React from "react";
 import { DRAWN_BY_ID, FIELD, PEOPLE_NAME } from "./territories";
+import { seasonName } from "@/game/war.mjs";
 import type { WarViewData } from "./WarMap";
 
 /**
@@ -96,6 +97,47 @@ export function takeWatermark(seasonIndex: number, newestFlipAt: number): number
   return wasSeen;
 }
 
+/**
+ * THE CROWNING, ONCE — the retention wave's announcement moment.
+ *
+ * `endSeason` crowns exactly one Bretwalda and `warView` has carried the
+ * verdict roll to every client since the war shipped, but no surface ever
+ * ANNOUNCED it: a man who fought all season opened the game after the reset
+ * and learned the outcome only if he thought to read the roll. This is the
+ * flip watermark's own mechanic applied to the verdict: the visit that shows
+ * you the crowning is the visit after which it stops being news.
+ *
+ * Its latch is deliberately NOT the flip watermark. `takeWatermark` only
+ * writes when a flip exists to be shown, and a fresh season has no flips —
+ * a crowning latched on it would shout on every visit until the first
+ * border moved. One key, one number: the newest verdict season this browser
+ * has been shown. `null` stored means never — and a first-visit browser IS
+ * shown the latest crowning once, as "the war so far" context, which is the
+ * heading that visit already gets.
+ *
+ * Same calling discipline as `takeWatermark`, stated in its header: from
+ * the fetch callback, never from render, so there is no server snapshot to
+ * disagree with and no hydration pass to lose the answer in.
+ */
+const CROWN_KEY = "bretwalda_crown_seen";
+const crownAsOfLoad: { v?: number | null } = {};
+export function takeCrownNews(
+  crowns: WarViewData["crowns"],
+): { seasonIndex: number; people: string; name: string | null } | null {
+  const latest = crowns[0];
+  if (!latest) return null;
+  if (!("v" in crownAsOfLoad)) {
+    try {
+      const raw = localStorage.getItem(CROWN_KEY);
+      const n = raw === null ? null : Number(raw);
+      crownAsOfLoad.v = n !== null && Number.isFinite(n) ? n : null;
+    } catch { crownAsOfLoad.v = null; }
+  }
+  const was = crownAsOfLoad.v ?? null;
+  try { localStorage.setItem(CROWN_KEY, String(latest.seasonIndex)); } catch { /* private mode */ }
+  return was === null || latest.seasonIndex > was ? latest : null;
+}
+
 /** Minutes to words. The MINUTES are the server's — see `WarMap`'s copy. */
 const ago = (mins: number): string => {
   if (mins < 60) return `${mins}m ago`;
@@ -114,10 +156,16 @@ export interface DispatchProps {
    * has not been read yet, and the panel draws nothing rather than guessing.
    */
   seen?: number | null;
+  /**
+   * The crowning this browser has not been shown, from `takeCrownNews`, or
+   * null/omitted when there is none. Computed by the caller in its fetch
+   * callback, same as `seen`.
+   */
+  crownNews?: { seasonIndex: number; people: string; name: string | null } | null;
 }
 
 /** Purely presentational: it reads no store and keeps no state. */
-export default function Dispatch({ war, mine = null, seen }: DispatchProps) {
+export default function Dispatch({ war, mine = null, seen, crownNews = null }: DispatchProps) {
   if (!war || seen === undefined) return null;
   const looked = seen !== null;
 
@@ -143,6 +191,22 @@ export default function Dispatch({ war, mine = null, seen }: DispatchProps) {
     <section className="wd" aria-label={heading}>
       <style>{CSS}</style>
       <div className="section-title">{heading}</div>
+
+      {crownNews && (
+        /* THE CROWNING LEADS. One line, once per browser per verdict — see
+           `takeCrownNews`. The copy's claims are `openingHoldings`'s own:
+           the champion's kingdom starts a territory ahead and everything it
+           holds is a quarter cheaper to take. */
+        <p className="wd-crown">
+          <b style={{ color: FIELD[crownNews.people]?.lit }}>
+            {crownNews.name || "A nameless warrior"}
+          </b>
+          {" of the "}{PEOPLE_NAME(crownNews.people)}{" was crowned "}
+          <strong>BRETWALDA</strong>
+          {" — the Season of "}{seasonName(crownNews.seasonIndex)}{" is done. "}
+          {"The map is reset; the champion's kingdom starts ahead, and every border of it is cheaper to take."}
+        </p>
+      )}
 
       {fresh.length > 0 ? (
         <ul className="wd-list">
@@ -209,6 +273,15 @@ const CSS = `
   box-shadow: inset 0 1px 0 rgba(255,232,190,0.08);
 }
 .wd .section-title { margin-bottom: 0.5rem; }
+
+.wd-crown {
+  margin: 0 0 0.55rem; padding: 0.5rem 0.65rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(217,164,65,0.55);
+  background: linear-gradient(180deg, rgba(64,48,20,0.55), rgba(38,28,14,0.55));
+  color: #e8dcbe; font-size: 12px; line-height: 1.5;
+}
+.wd-crown strong { color: #ecc25c; letter-spacing: 0.12em; }
 
 .wd-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 .wd-list > li {
