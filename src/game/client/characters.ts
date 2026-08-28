@@ -86,7 +86,7 @@ export interface Appearance {
   beardColor: number;
   cloak: string;     // none | brown | red | blue | gold
   armorColor: number;
-  warPaint: string;  // none | stripes | cross | half
+  warPaint: string;  // none | stripes | woadband | cross | crescent | half | glastum
   /**
    * THE WEAPON'S FINISH — backlog 3.3, a `WEAPON_STYLES` id. Optional the way
    * `people` is and for the same reason: every stored appearance predates it,
@@ -1827,7 +1827,7 @@ export interface WeaponStyle {
    * pattern the armoury lens cannot see is the Shadow-Hood fault in a
    * different slot. Absent, the builder's own steel map stands.
    */
-  blade: { tint: readonly [number, number, number]; dRough: number; substance?: "weldsteel" };
+  blade: { tint: readonly [number, number, number]; dRough: number; substance?: "weldsteel" | "serpentsteel" };
   /** Multiplier on the dark iron (fullers, guards, axe cheeks). */
   iron: { tint: readonly [number, number, number] };
   /** Replacement for the fitting metal, or null to keep the builder's own. */
@@ -1886,6 +1886,35 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     // toward the wire's own metal so the twist reads gilt over oxblood.
     grip: { hex: 0x7a4a22, substance: "rope" },
     shaft: { tint: [1.05, 0.95, 0.82] },
+  },
+  // Horn and bronze: the working-man's upgrade under the whole paid ladder.
+  // Organic hilts are the common find — horn and antler grips survive from
+  // ordinary graves where gold wire never visits — and cast copper-alloy
+  // mounts are everywhere in the corpus. Bright honest steel, warm bronze
+  // fittings rougher than gilt (sand-cast, not burnished), a dark horn grip.
+  weapon_bronze: {
+    blade: { tint: [0.99, 0.97, 0.93], dRough: 0.02 },
+    iron: { tint: [1.0, 0.94, 0.84] },
+    fitting: { hex: 0x96763f, rough: 0.44 },
+    grip: { hex: 0x241a11 },
+    shaft: { tint: [0.96, 0.9, 0.83] },
+  },
+  // Serpent-marked: Beowulf's own word — wyrm-fah, the serpent in the steel.
+  // The watering etched proud and dark (see `serpentsteel`) instead of oiled
+  // and quiet, over blackened mounts and a soot-dark grip, so the pattern is
+  // the only bright thing on the weapon. The crown of the ladder: what the
+  // poem's audience was meant to admire, made admirable at the armoury lens.
+  weapon_serpent: {
+    // [0.55, 0.6, 0.7] and +0.16 rough, not the first cut's [0.68, 0.72,
+    // 0.8]/+0.10: at the fight lens the brighter, keener blade whited out
+    // under the key light exactly like the issued steel and the etch was
+    // invisible — an acid-darkened blade is matte enough to KEEP its own
+    // colour in the sun, and that matteness is what lets the watering show.
+    blade: { tint: [0.55, 0.6, 0.7], dRough: 0.16, substance: "serpentsteel" },
+    iron: { tint: [0.62, 0.62, 0.66] },
+    fitting: { hex: 0x3a3d45, rough: 0.5 },
+    grip: { hex: 0x16120e },
+    shaft: { tint: [0.72, 0.7, 0.68] },
   },
 };
 
@@ -2184,8 +2213,11 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
     options: [
       { id: "wp_none", label: "None", cost: 0, slot: "warPaint", value: "none" },
       { id: "wp_stripes", label: "Blood Stripes", cost: 40, slot: "warPaint", value: "stripes" },
+      { id: "wp_woadband", label: "Woad Band", cost: 60, slot: "warPaint", value: "woadband" },
       { id: "wp_cross", label: "Raven Cross", cost: 70, slot: "warPaint", value: "cross" },
+      { id: "wp_crescent", label: "Crescent of Fortriu", cost: 90, slot: "warPaint", value: "crescent" },
       { id: "wp_half", label: "Half-Face Shadow", cost: 110, slot: "warPaint", value: "half" },
+      { id: "wp_glastum", label: "Glastum Mask", cost: 130, slot: "warPaint", value: "glastum" },
     ],
   },
   {
@@ -2203,12 +2235,16 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // the sword's blade under the style's own tint, or the replaced gilt
       // fitting. docs/PROCESS.md failure mode 3 is a mirrored constant.
       { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: 0xc4ccd6 },
+      { id: "weapon_bronze", label: "Horn and Bronze", cost: 60, slot: "weapon", value: "weapon_bronze",
+        swatch: WEAPON_STYLES.weapon_bronze.fitting!.hex },
       { id: "weapon_welded", label: "Pattern-Welded", cost: 90, slot: "weapon", value: "weapon_welded",
         swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_welded.blade.tint) },
       { id: "weapon_blued", label: "Fire-Blued", cost: 130, slot: "weapon", value: "weapon_blued",
         swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_blued.blade.tint) },
       { id: "weapon_gilt", label: "Gold-Wired Hilt", cost: 160, slot: "weapon", value: "weapon_gilt",
         swatch: WEAPON_STYLES.weapon_gilt.fitting!.hex },
+      { id: "weapon_serpent", label: "Serpent-Marked", cost: 190, slot: "weapon", value: "weapon_serpent",
+        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_serpent.blade.tint) },
     ],
   },
 ];
@@ -2321,7 +2357,7 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 // which is what lets the arena's full `SurfaceName` union satisfy the narrow
 // list a warrior actually wears.
 export type CharacterSurface =
-  | "mail" | "iron" | "steel" | "weldsteel" | "bronze" | "interlace"
+  | "mail" | "iron" | "steel" | "weldsteel" | "serpentsteel" | "bronze" | "interlace"
   | "wool" | "hair" | "linen" | "leather" | "rope"
   | "oak" | "bone" | "skin";
 
@@ -9384,6 +9420,65 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
       // Behind the ear it wraps rather than ending: `front` would take the mark
       // off the side of the head entirely, which is where half of it lives.
       return side * load * clamp01(0.45 + 0.55 * front);
+    },
+  },
+  // WOAD BAND — a single stroke of woad across the eyes, temple to temple.
+  // SOURCED: Caesar, De Bello Gallico V.14 — the Britons stain themselves
+  // with glastum (woad) "which produces a blue colour, and makes their
+  // appearance in battle more terrible". The band SHAPE is ours, labelled:
+  // no source draws where on the face the stain went.
+  woadband: {
+    color: 0x223f6e,
+    mark: (ax, x, y, z, front) => {
+      // The Raven Cross's own band arithmetic — one hand drawn outward,
+      // falling a little — without its midline bar, wider and pressed
+      // harder: woad is a dye slapped on with the palm, not pitch drawn
+      // with a finger, and the first portrait read as a bruise on the lit
+      // side until the cover came up.
+      const band = clamp01(stroke(ax, y, 0.02, Y_EYE + 0.07, 1.06, Y_EYE - 0.02, 0.24, 0.175) * 1.3);
+      const notch = 1 - 0.55 * (1 - smooth(0.05, 0.42, ax)) * smooth(Y_NOSE, Y_EYE + 0.06, y);
+      return band * notch * front;
+    },
+  },
+  // CRESCENT OF FORTRIU — the crescent, horns down, one on each cheekbone.
+  // The crescent is the most common symbol in the whole Class I Pictish
+  // corpus (Aberlemno, Dunnichen, dozens more); putting it on skin is our
+  // invention, labelled as such — the stones are the only place it survives.
+  // On the CHEEKS, not the brow: the first cut arced over the forehead and
+  // the portrait showed a smudge under the fringe — a paint that a haircut
+  // hides is the Shadow-Hood fault wearing pigment, so it lives where no
+  // hair or helm rim reaches, mirrored the way the stones mirror a pair.
+  crescent: {
+    color: 0x223f6e,
+    mark: (ax, x, y, z, front) => {
+      // An arc per cheek in the marks' own direction space: centred on the
+      // cheekbone, apex toward the eye, horns falling outward — HIGH on the
+      // cheek, because the second portrait put it lower and a full beard ate
+      // the horns: a drawn line has to live on skin every beard leaves bare.
+      const r = Math.hypot((ax - 0.50) * 1.25, y - (Y_EYE - 0.40));
+      const onArc = 1 - smooth(0.035, 0.115, Math.abs(r - 0.215));
+      // Upper half only — that is what "horns down" means.
+      const upper = smooth(-0.04, 0.16, y - (Y_EYE - 0.40));
+      return clamp01(onArc * 1.25) * upper * front;
+    },
+  },
+  // GLASTUM MASK — the whole face in woad, the crown of the paint ladder the
+  // way Half-Face Shadow is the crown of the soot: a face at a different
+  // VALUE AND HUE is legible at 34 px when no drawn mark is. Same source as
+  // the Woad Band; whole-face coverage is again ours to label. The colour
+  // sits a step bluer than the band's: over a whole face the skin's own red
+  // survives the multiply and the first portrait came out lavender.
+  glastum: {
+    color: 0x1c416b,
+    mark: (ax, x, y, z, front) => {
+      // Hand-applied, so the load wanders — two low harmonics, both far
+      // under the mesh's Nyquist (the Half-Face lesson) — and it dies at
+      // the hairline rather than running onto the scalp.
+      const load = 0.80 + 0.20 * Math.cos(y * 4.3 + x * 2.1) * Math.cos(z * 3.4 - 0.8);
+      const hairline = 1 - smooth(Y_BROW + 0.34, Y_BROW + 0.62, y);
+      // Wraps past the jaw the way the soot does: a stained face does not
+      // stop at a silhouette line.
+      return load * hairline * clamp01(0.35 + 0.65 * front);
     },
   },
 };

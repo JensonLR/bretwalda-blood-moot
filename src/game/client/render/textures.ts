@@ -102,6 +102,7 @@ export type SurfaceName =
   | "iron"      // forged and blackened, hammer-planished
   | "steel"     // polished, pattern-welded, ground
   | "weldsteel" // the same forge with the watering POLISHED UP — the paid finish
+  | "serpentsteel" // the watering ETCHED PROUD — Beowulf's wyrm-fah, the serpent in the steel
   | "bronze"    // sand-cast, verdigris in the cavities
   | "interlace" // tinned sheet, die-stamped ribbon plait
   // cloth and hide
@@ -2950,6 +2951,13 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   // greyer than the issued steel — an oiled weld is honestly darker — and the
   // rest of the row is steel's, because it IS steel.
   weldsteel: { detail: "hero", tint: 0xaab3bf, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
+  // The Serpent-Marked finish: the same forge at weld 6, where `buildSteel`'s
+  // own 0.55 mix cap becomes the ceiling — the watering as dark as the recipe
+  // allows, which is what an ETCHED weld is against a polished one. The name
+  // is the period's: Beowulf calls the sword wyrm-fah, serpent-marked, and
+  // the serpentine core is what the poem is looking at. Tint another step
+  // down from weldsteel — acid-darkened steel, not oiled.
+  serpentsteel: { detail: "hero", tint: 0x99a2af, roughness: 0.22, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 6) },
   // Roughness and metalness here are the recipe's own measured means, because
   // materials.ts divides a caller's request by them. `normalScale` is under
   // steel's: a stamped foil stands about a third of a millimetre proud and the

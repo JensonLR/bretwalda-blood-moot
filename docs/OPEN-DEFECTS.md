@@ -8243,3 +8243,46 @@ the mesh that carries it is not a lever. At resolvable width it reads as
 "more cape", which is what the 8.1 sweep predicted amplitude would do.
 Recommendation on the sheet: the band, tuned narrower; the gather left
 unbuilt. Both levers reverted; nothing shipped ahead of the ruling.
+
+---
+
+## THE CONTENT HALF OF THE SECOND PLAY REPORT — three paints, two finishes — 28 Aug 2026
+
+Item 6 ("more war paint options & weapon finish design upgrades") closes
+with six new purchases, every one photographed before it was believed and
+every source named in the code beside its constants:
+
+**War paints** (the ladder grows 4 → 7):
+- **Woad Band, 60g** — one palm-width stroke of woad across the eyes.
+  SOURCED (TEXT): Caesar, De Bello Gallico V.14, the Britons staining
+  themselves with glastum for battle. The shape is ours, labelled.
+- **Crescent of Fortriu, 90g** — the crescent, horns down, one per
+  cheekbone. SOURCED (FIND for the symbol): the most common symbol in the
+  Class I Pictish corpus; on skin it is our invention, labelled. It was
+  drawn three times before it was right, and both wrong drawings are
+  lessons: on the BROW it vanished under every fringe (a paint a haircut
+  hides is the Shadow-Hood fault wearing pigment), and low on the cheek a
+  full beard ate the horns. It lives on the cheekbone, where no hair,
+  helm rim or beard reaches.
+- **Glastum Mask, 130g** — the whole face in woad, the paint ladder's
+  crown by the Half-Face Shadow's own argument: a face at a different
+  value AND hue is legible at 34 px. First portrait came out lavender —
+  the skin's red surviving the multiply — so its vat sits a step bluer
+  than the band's.
+
+**Weapon finishes** (the ladder grows 4 → 6):
+- **Horn and Bronze, 60g** — the working-man's rung under the paid
+  ladder: dark horn grip, sand-cast copper-alloy mounts (the common
+  grave's own kit), honest steel.
+- **Serpent-Marked, 190g** — the crown. Beowulf's wyrm-fah, the serpent
+  in the steel: a new `serpentsteel` substance (buildSteel at weld 6,
+  where the recipe's own 0.55 mix cap is the ceiling) under an
+  acid-dark, matte temper. The first cut kept the issued blade's
+  keenness and WHITED OUT under the key light — the etch was invisible
+  at the fight lens; matte is what lets a dark blade keep its colour in
+  the sun, and the re-photograph shows a slate blade whose pattern is
+  the brightest thing on it.
+
+The catalog is the only list: cosmetictest sweeps ARMOURY itself, so the
+six new rows joined its pair matrix, its helm-compatibility matrix and
+its recolour-flatness claims with no ruler change.
