@@ -8344,3 +8344,51 @@ cloak only — the other three keep their hide selvedge. The centre-back
 gather stays unbuilt, as ruled. wearmeasure PASS on every section with
 the standing deferrals unchanged; the rear portrait shows the design
 event the 8.1 sweep said amplitude could never buy.
+
+---
+
+## THE OPEN-LEDGER VERIFICATION ROUND — 28 Aug 2026
+
+The owner's directive: work the backlog and all open defects. Rule 8
+first — every standing OPEN entry was re-verified against TODAY's build
+before being believed, and the round splits them cleanly:
+
+**FIXED NOW — the loose hair commas (15 Aug, round ten).** Verified
+still real first: warden/Ridge-Helm/Warrior-Crop at -90 showed the same
+detached fragments on the bare cheek, beard removed to reproduce the
+original controls. The mechanism was in this file all along: the helmed
+lock courses sit 0.03-0.17 rad below a hairline itself dropped 0.30
+rad, designed to peek from under a rim/plate/flange — and where NOTHING
+is overhead, `hairCeil` returns no ceiling and the coil was built FULL
+SIZE on bare cheek (the flange entry's own words: "a coil rooted in
+that band gets no ceiling at all"). One gate closes the class: a helmed
+coil with no ceiling is not built — it has no mass to hang from and no
+rim to emerge from. Unhelmed fringes untouched (a bare head's coils are
+attached to the mass, photographed). A/B portraits clean at -90 bearded
+and unbearded; wearmeasure PASS every section; helmclash A/B on the
+same build BYTE-IDENTICAL across all six sections (19/24/6/8/74/13) —
+the stranded coils were never in a clash reading, and every standing
+red there predates this change.
+
+**STALE, CLOSED BY LATER WORK, WITH TODAY'S PHOTOGRAPHS:**
+- *The speckled face* (bare head flecks): the complexion rewrite closed
+  it — today's bare-head portrait is clean graded skin, no flecks.
+- *Four classes one tunic* (tunicDye era): superseded whole by the
+  FINISH_KIT rework — armorColor has selected a coordinated kit per
+  class since the armour repricing, and today's lineup shows distinct
+  kits. The mechanism the entry criticises no longer exists.
+- *The Shadow Hood swallows the mane* (13 Aug): closed by the owner's
+  own second play report — he reported the mane STICKING OUT as the
+  defect, and hoodSquash (with the hoodHemY this entry said was
+  missing) gathered it inside, verified on portraits. The owner's
+  later ruling supersedes this file's earlier aesthetic ruling.
+- *The Wyrm-Crest's deep cheek guard* (13 Aug): the crest was
+  redesigned on the owner's report (task ledger), BACKLOG 0.5
+  re-verified 24 Aug that no wyrm row is red, and facecover flags
+  spread as measurement-only. Nothing left to hold open.
+
+**STILL OPEN, CARRIED HONESTLY:** the lips-and-moustache entry
+(deliberately not attempted, unchanged), the /shot React #418
+hydration (LOW), the 6.1 CLIP singleton (rides the next full walk),
+and helmclash's standing measurement reds, which are a survey and not
+a gate.

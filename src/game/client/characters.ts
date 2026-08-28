@@ -16892,6 +16892,21 @@ export function buildCharacter(
             // there is 33 mm and the lock is built full size; over the ear there
             // is 9 mm and it is not built at all.
             const room = hairCeil(u, v);
+            // A HELMED COIL MUST BE UNDER SOMETHING. The helmed courses sit
+            // 0.03-0.17 rad below a hairline that is itself dropped 0.30 rad,
+            // on the design that a cap's rim, plate or flange is overhead for
+            // the coil to peek from under — and where one is, `hairCeil` says
+            // so and the compress/bury arithmetic below does its work. Where
+            // NOTHING is overhead the same course put a full-size coil on
+            // bare cheek: the Ridge-Helm's bowl rides high at the temple, no
+            // plate hangs there, and the round-ten "loose hair commas on the
+            // bare cheek" (15 Aug, ledgered OPEN) are exactly these — verified
+            // still standing on today's build before this line existed. A
+            // coil with no ceiling under a helm has no mass to hang from and
+            // no rim to emerge from; it is not built. The unhelmed courses
+            // are untouched — a bare head's fringe is ATTACHED to the mass
+            // above it, which is the difference the controls photographed.
+            if (helmed && !Number.isFinite(room)) continue;
             dirOf(u, v, lockDir);
             faceSurface(K, lockDir, lockRoot);
             faceNormalTrue(K, u, v, lockNrm);
