@@ -8286,3 +8286,37 @@ every source named in the code beside its constants:
 The catalog is the only list: cosmetictest sweeps ARMOURY itself, so the
 six new rows joined its pair matrix, its helm-compatibility matrix and
 its recolour-flatness claims with no ruler change.
+
+---
+
+## THE STEAM WAVE'S FIRST ROUND + THE CROWN — 28 Aug 2026
+
+**The desktop judge has now judged, twice.** First dispatch: all three OS
+builders refused `productName` "Bretwalda: Blood Moot" — a colon cannot
+be a filename on Windows (Tauri's own `^[^/:*?"<>|]+$`). Fixed to
+"Bretwalda Blood Moot" (the window title keeps its colon; a title bar is
+not a path). Second dispatch: **SUCCESS on windows/macos/ubuntu** — real
+installers (msi/exe/dmg/AppImage/deb) exist as artifacts of run 2. The
+scaffold is no longer asserted-never-judged.
+
+**Steam prep shipped dry:** achievements derived live from the marks
+(one rule two readers; `steamsheet` 5/5 prints the paste-ready table),
+store copy drafted with a fenced do-not-claim list, the asset ledger
+with Valve's exact capsule sizes, and six 1920×1080 store screenshots
+off the real renderer (`tools/storeshots.mjs`, in
+`store/steam/screenshots/`). The fort's first frame was the crane wide
+and photographed a bare plaza — retaken at the duel lens. HONEST NOTE
+FOR THE GROUNDS WAVE: at the duel mark the roman_fort's walls sit too
+far off to frame a fight against; the ground reads thin at fight level
+in a way the village never does. That is a wave-2 look, written down
+here so the screenshot round's finding is not lost.
+
+**The Crown** (retention wave, first piece): the marks table's eleventh
+row, `how: "crowned"`, reading players.bretwaldaSeasons — the fact the
+war has stamped in exactly one place since the season machinery landed.
+ProfileView/adoptServer carry it like level and wins; the roll of
+Bretwaldas names its seasons ("the Season of the Long Frost, s3") per
+7.6; MARK_CROWN joins the Steamworks sheet by derivation alone.
+marktest extended to the grown truth (eleven marks, five facts, two
+confessed inventions) — 25/25. wartest 82/82, moottest 25/25, playtest
+38/38, touchtest 32/32, tsc, lint, build all green.
