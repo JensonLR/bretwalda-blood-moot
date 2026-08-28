@@ -1052,6 +1052,12 @@ check(`the same beat at ${SLOW_FPS} fps as at ${FAST_FPS}`,
 // ============================================================
 let openUnder = 0;
 let openOff = 0;
+/** `KILLER_CLEAR` in deathcam.mjs. Quoted, because the module does not export it. */
+const KILLER_CLEAR_BAR = 0.62;
+let openThroughWinner = 0;
+let openKillerSamples = 0;
+let openWorstK = null;
+let openWorstCase = "";
 let openSamples = 0;
 const openCases = [];
 for (let b = 0; b < 24; b++) {
@@ -1077,6 +1083,29 @@ for (let b = 0; b < 24; b++) {
       if (!isSubject(a)) openOff++;
       openSamples++;
     }
+    // THE WINNER IS NOT IN THE WAY — the owner's third report: "Camera angles
+    // for final kill cams are sometimes blocked by back of the winner of
+    // round." The opening eye sits at `wound + bearing * radius`, so a bearing
+    // pointing at the killer composes the shot straight through him — and after
+    // a killing blow he is always nearer than that radius. Measured as the
+    // angle between the opening bearing and the killer's own: inside
+    // KILLER_CLEAR is the lens looking down his back.
+    if (kind !== "arena") {
+      const obx = (from.x - wound.x) / (openDist || 1);
+      const obz = (from.z - wound.z) / (openDist || 1);
+      const kdx = killer.x - wound.x;
+      const kdz = killer.z - wound.z;
+      const klen = Math.hypot(kdx, kdz) || 1;
+      const dotK = Math.max(-1, Math.min(1, obx * (kdx / klen) + obz * (kdz / klen)));
+      const offK = Math.acos(dotK);
+      openKillerSamples++;
+      // Epsilon: a swung bearing lands EXACTLY on the bar, and acos of a
+      // dot product does not return exactly the angle that produced it.
+      if (offK < KILLER_CLEAR_BAR - 1e-6) {
+        openThroughWinner++;
+        if (openWorstK === null || offK < openWorstK) { openWorstK = offK; openWorstCase = `${kind}@${b}`; }
+      }
+    }
     if (b === 0) openCases.push(`${kind} opens ${openDist.toFixed(2)}m out`);
   }
 }
@@ -1086,6 +1115,12 @@ check("the beat's lens never goes under the turf, on any bearing, in any of the 
 check("and the final death is the subject from the cut to the end, on every bearing and in every case",
   openOff === 0,
   `${openOff} of ${openSamples} frames put the wound outside the middle fifth`);
+check("and the beat never opens down the winner's back — the owner's third report",
+  openThroughWinner === 0,
+  openThroughWinner === 0
+    ? `${openKillerSamples} openings, every one clear of the killer by at least ${(KILLER_CLEAR_BAR * 180 / Math.PI).toFixed(0)} deg`
+    : `${openThroughWinner} of ${openKillerSamples} openings look through him — worst `
+      + `${((openWorstK ?? 0) * 180 / Math.PI).toFixed(1)} deg off his bearing at ${openWorstCase}`);
 
 // ============================================================
 // 16. SOURCE LOCK for the beat, same argument as claim 9.

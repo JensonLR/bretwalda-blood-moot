@@ -9114,3 +9114,46 @@ not deleted and not left as a gate that cannot see. What still holds the
 owner's ruling is volume and arrival — MARKS, REACH and "AND IT ARRIVES"
 all move with the pour and all have margin over the noise. goretest
 35/35.
+
+---
+
+## THE KILL CAM OPENED DOWN THE WINNER'S BACK — ONE INVERTED SIGN — 28 Aug 2026
+
+**"Camera angles for final kill cams are sometimes blocked by back of the
+winner of round."** Two faults, and the second is the one that matters.
+
+**FAULT 1 — the round beat had no guard at all.** `roundOpening` places
+the eye at `wound + bearing * ROUND_OPEN_RADIUS`, and its bearing comes
+from the spray, else the KILLER, else the viewer. `frameDeathShot` has
+swung clear of the killer since it was written (`KILLER_CLEAR`, 0.62 rad);
+the round opening had never been told. So a bearing pointing at the man
+who struck the blow composed the shot straight through him — and after a
+killing blow he is always nearer than the opening radius. The guard is
+now applied to EVERY branch, not just the killer's: the spray branch is
+preferred, and a wound sprays back down the line the blow came from about
+as often as not, so the commonest opening was the likeliest offender.
+
+**FAULT 2 — AND THE SWING WENT THE WRONG WAY.** With the guard added the
+new claim still failed, so it was measured rather than re-read: an
+opening 18 degrees off the killer came back **0.5 degrees** off him. The
+swing was rotating the bearing ONTO his line.
+
+```js
+const side = bx * kz - bz * kx >= 0 ? 1 : -1;   // toward him
+const side = bx * kz - bz * kx >= 0 ? -1 : 1;   // away
+```
+
+The cross product's sign says the killer lies anticlockwise of the
+bearing, so the bearing must go CLOCKWISE to leave him. **This arithmetic
+was inherited from `frameDeathShot`, which has carried it inline since it
+was written** — so the death camera's killer-avoidance has been pushing
+the lens toward the killer, not away, for the life of the feature. It
+never showed because nothing measured the angle afterwards: every
+existing claim asked where the wound sat in frame, and a lens looking
+through a shoulder still has the wound dead centre.
+
+One rule, two readers now (`swingOffKiller`), and a claim named after the
+owner's report walks all 24 bearings x 3 fallback cases: **28 of 48
+openings looked through him before, 0 after, every one clear by at least
+36 degrees.** deathcamtest 46/46 (from 45/45 — the suite could not see
+this), cameratest 13/13, replaytest GREEN.

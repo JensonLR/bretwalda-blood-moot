@@ -311,6 +311,40 @@ function unitXZ(x, z, fx, fz) {
  * @param v.fov       the lens, `DEATH_FOV` by default.
  * @returns { position: [x,y,z], target: [x,y,z], fov, beat, moved }
  */
+/**
+ * A bearing swung clear of the man who did it.
+ *
+ * ONE RULE, TWO READERS. This was inline in `frameDeathShot` and `roundOpening`
+ * had nothing like it, which is the whole of the owner's third-report note:
+ * "Camera angles for final kill cams are sometimes blocked by back of the
+ * winner of round." The opening eye is placed at `wound + bearing * radius`, so
+ * a bearing taken FROM THE KILLER puts the lens on the killer's own line — and
+ * when he is standing closer than that radius, which after a killing blow he
+ * always is, the shot is composed straight through his back.
+ *
+ * `side` is the cross product's sign: which way round he sits, so the swing
+ * always goes the short way and never lifts the frame over him.
+ */
+function swingOffKiller(bx, bz, kx, kz, off) {
+  // THE SIGN WAS INVERTED, AND IT HAD BEEN SINCE THIS ARITHMETIC WAS WRITTEN.
+  //
+  // `bx*kz - bz*kx` is the cross product's sign: POSITIVE means the killer lies
+  // anticlockwise of the bearing, so the bearing must go CLOCKWISE — the other
+  // way — to get away from him. The old line rotated by `+side`, which is
+  // toward him: measured at bearing 2 of the sweep, an opening 18 degrees off
+  // the killer came back 0.5 degrees off him, i.e. swung the whole way ONTO his
+  // line instead of the 35.5 degrees clear it was asking for.
+  //
+  // It never showed because nothing measured it: `frameDeathShot` carried this
+  // inline and no claim read the angle afterwards. It is the owner's "blocked
+  // by back of the winner of round" in one character.
+  const side = bx * kz - bz * kx >= 0 ? -1 : 1;
+  const a = side * (KILLER_CLEAR - off);
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  return [bx * ca - bz * sa, bx * sa + bz * ca];
+}
+
 export function frameDeathShot(v) {
   const t = Math.max(0, v.t || 0);
   const hold = v.hold ?? DEATH_HOLD;
@@ -377,14 +411,8 @@ export function frameDeathShot(v) {
     const dot = Math.max(-1, Math.min(1, wx * kx + wz * kz));
     const off = Math.acos(dot);
     if (off < KILLER_CLEAR) {
-      // Cross product's sign says which way round the killer sits.
-      const side = wx * kz - wz * kx >= 0 ? 1 : -1;
-      const a = side * (KILLER_CLEAR - off);
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      const nx = wx * ca - wz * sa;
-      const nz = wx * sa + wz * ca;
-      wx = nx; wz = nz;
+      const swung = swingOffKiller(wx, wz, kx, kz, off);
+      wx = swung[0]; wz = swung[1];
     }
   }
 
@@ -475,6 +503,22 @@ export function roundOpening(v) {
     [bx, bz] = unitXZ(v.killer.x - w.x, v.killer.z - w.z, 0, 1);
   } else if (v.from) {
     [bx, bz] = unitXZ(v.from.x - w.x, v.from.z - w.z, 0, 1);
+  }
+  // AND CLEAR OF THE WINNER, whichever way the bearing was chosen.
+  //
+  // The guard belongs on all three branches and not just the killer's: the
+  // SPRAY branch is preferred, and a wound sprays back down the line the blow
+  // came from about as often as not — so the commonest opening was the one
+  // most likely to be looking through the man who struck it. `frameDeathShot`
+  // has swung clear of him since it was written; this had never been told.
+  if (v.killer) {
+    const [kx, kz] = unitXZ(v.killer.x - w.x, v.killer.z - w.z, bx, bz);
+    const dot = Math.max(-1, Math.min(1, bx * kx + bz * kz));
+    const off = Math.acos(dot);
+    if (off < KILLER_CLEAR) {
+      const swung = swingOffKiller(bx, bz, kx, kz, off);
+      bx = swung[0]; bz = swung[1];
+    }
   }
   const px = w.x + bx * ROUND_OPEN_RADIUS;
   const pz = w.z + bz * ROUND_OPEN_RADIUS;
