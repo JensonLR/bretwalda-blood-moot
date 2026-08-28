@@ -2202,8 +2202,30 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       { id: "armor_iron", label: "Rough Iron", cost: 0, slot: "armor", value: 0x5f6b7a },
       { id: "armor_steel", label: "Polished Steel", cost: 60, slot: "armor", value: 0x8a97a5 },
       { id: "armor_dark", label: "Blackened Steel", cost: 110, slot: "armor", value: 0x2a2f38 },
-      { id: "armor_bronze", label: "Bronze Scales", cost: 110, slot: "armor", value: 0x8a6a3a },
-      { id: "armor_crimson", label: "Crimson Warplate", cost: 130, slot: "armor", value: 0x7a2f2a },
+      // RENAMED 28 Aug 2026 — "Bronze Scales" and "Crimson Warplate". Both
+      // labels sold geometry this slot does not build and never has: an armour
+      // finish is a TREATMENT — a coordinated kit of dyes and metals (see
+      // `FINISH_KIT`) — and no scale and no plate is added by either. Worse,
+      // "warplate" is plate armour, which postdates 878 by centuries and is
+      // exactly the generic-medieval vocabulary this project has a standing
+      // rule against; `docs/FACTIONS.md` §9 asks every device to be sourced or
+      // labelled, and a NAME that promises an object is the same claim as a
+      // drawing of one.
+      //
+      // The new names are what `FINISH_KIT`'s own comments already call them:
+      // the warm row is "walnut-dyed trousers, oat wraps... true cast bronze",
+      // and the red row is "madder. The dyestuff that actually made a Dark Age
+      // man look rich", over brass fittings (0xbfa25c). That is the grammar
+      // "Sea Queen's Gift" (woad) is already in: name the vat and the metal.
+      //
+      // SAFE BY CONSTRUCTION: ownership is by `id`, `db/catalogue.ts` imports
+      // this same table, and nothing in the repository matches on these
+      // strings — every other mention is a comment. The historical notes
+      // elsewhere in this file and in the harnesses keep the OLD names on
+      // purpose: they are records of what was measured, and rewriting them
+      // would make each one false to its own reading.
+      { id: "armor_bronze", label: "Walnut and Bronze", cost: 110, slot: "armor", value: 0x8a6a3a },
+      { id: "armor_crimson", label: "Madder and Brass", cost: 130, slot: "armor", value: 0x7a2f2a },
       { id: "armor_seablue", label: "Sea Queen's Gift", cost: 130, slot: "armor", value: 0x2f4a6a },
       { id: "armor_gold", label: "Bretwalda Gold", cost: 160, slot: "armor", value: 0x9a7a2a },
     ],
