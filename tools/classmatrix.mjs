@@ -488,8 +488,10 @@ function runMatrix() {
 //   to the bar shows up as cells moving from INSIDE to EDGE long before anything
 //   goes red — which is the early warning the two-way rule could never give.
 //
-//   OVERALL SPREAD. Each class's win rate against the FIELD (its row, mirror
-//   excluded) must sit inside 40-60%. A class can be a rock-paper-scissors
+//   OVERALL SPREAD. Each class's win rate against the FIELD — every bout it
+//   fought that was not a mirror, POOLED OVER BOTH DIRECTIONS (this said
+//   "its row" and the code did only the row; see the note where `field` is
+//   built) — must sit inside 40-60%. A class can be a rock-paper-scissors
 //   counter and still be fine; a class that loses to everybody is the
 //   runekeeper's complaint and it is what this line is for.
 // ---------------------------------------------------------------------------
@@ -827,13 +829,45 @@ function main() {
   }
 
   // ---- against the field ----
+  // POOLED OVER BOTH DIRECTIONS, and it used to be the row alone.
+  //
+  // `A>B` and `B>A` are two INDEPENDENT sets of bouts of the same matchup —
+  // `runBout` attributes the win to the class role and already splits the
+  // insertion-order edge inside each cell, so neither set is the biased one.
+  // Summing the row therefore threw away, for every class, exactly half of
+  // the bouts this harness had already run and paid for: the ones where the
+  // class stood on the RIGHT. The pair analysis below has always pooled them
+  // correctly (`ab.wins + (ba.n - ba.wins)`); the headline did not.
+  //
+  // It cost precision on the one number the class rework is quoted on. The
+  // SPREAD note below records the symptom without naming this cause — "an
+  // adversary reading the identical roster at the same n got 13.1 and 13.9
+  // where the doc said 9.6" — and a difference of two rates, each computed
+  // from half the available sample, is exactly the quantity that wobbles
+  // like that. Measured at `--bouts=60 --seed=4242`, on the SAME bouts:
+  // n per class 180 -> 360, every field interval narrows from ~14.5 points
+  // to ~10.3, and SPREAD's own interval tightens from [0.0-19.8] to
+  // [0.0-13.8]. Every verdict line is byte-identical, so no gate moved.
+  //
+  // AND IT KILLED A FALSE SIGNAL, which is the part worth keeping. On the
+  // row alone the runekeeper read 43.9% [36.8-51.2] — an interval reaching
+  // under the 40% FIELD_BAND floor, which is precisely "the runekeeper's
+  // complaint" this band exists to catch. Pooled over the bouts already
+  // run he is 48.3% [43.2-53.5], entirely inside. The roster had not
+  // moved; half a sample had been mistaken for a class that loses to
+  // everybody.
+  //
+  // No extra bouts are run. This is arithmetic on data that was already on
+  // the floor.
   const field = new Map();
   for (const left of CLASSES) {
     let wins = 0, n = 0;
     for (const right of CLASSES) {
       if (right === left) continue;               // a mirror is 50% by construction
-      const c = cells.get(`${left}>${right}`);
-      wins += c.wins; n += c.n;
+      const fwd = cells.get(`${left}>${right}`);  // won as the left-hand class
+      const rev = cells.get(`${right}>${left}`);  // won as the right-hand class
+      wins += fwd.wins + (rev.n - rev.wins);
+      n += fwd.n + rev.n;
     }
     field.set(left, wilson(wins, n));
   }

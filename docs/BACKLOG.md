@@ -374,19 +374,35 @@ enough to answer it. It is kept against a future regression, `--no-swap` is kept
 so the bias can be re-measured in one command, and the tolerance must **not** be
 cut to make the gate "work" — that would be tuning the bar to the noise.
 
-**A DECLARED DEBT IN THIS HARNESS, found on 14 Aug and NOT fixed, so it is named
-rather than left to be rediscovered.** The band gate pools both orderings of a
-matchup — the whole argument above is that `A>B` and `B>A` are one matchup
-measured twice — but **`AGAINST THE FIELD` does not**. It sums only the row
-cells (`A>B`, `A>C`, `A>D`), so the field rate, and therefore **the SPREAD, which
-is the single number this rework is quoted on**, is computed from half the
-available sample: n=3,000 where n=6,000 exists. Fixing it would narrow the spread
-interval by about √2 and can only make the 40–60% field gate *stricter*, never
-looser, so it is a tightening and not a bar move. It was left alone this pass
-only because changing it would have invalidated a ten-seed measurement already
-in flight, and quoting a re-measured number would have cost another twenty
-minutes of duels. **Whoever picks this up: fix it, then re-quote 3.2c's spreads,
-and expect the point estimates to move by noise and the intervals to shrink.**
+**A DECLARED DEBT IN THIS HARNESS, found on 14 Aug — PAID 28 Aug 2026.** The
+band gate pools both orderings of a matchup — the whole argument above is that
+`A>B` and `B>A` are one matchup measured twice — but **`AGAINST THE FIELD` did
+not**. It summed only the row cells (`A>B`, `A>C`, `A>D`), so the field rate, and
+therefore **the SPREAD, which is the single number this rework is quoted on**,
+was computed from half the available sample: n=3,000 where n=6,000 existed. The
+note left here read: *"Whoever picks this up: fix it, then re-quote 3.2c's
+spreads, and expect the point estimates to move by noise and the intervals to
+shrink."*
+
+Done, and the prediction held exactly. `field` now pools both directions the way
+the pair check always has (`fwd.wins + (rev.n - rev.wins)`), running not one
+extra bout. Measured on the SAME bouts at `--bouts=60 --seed=4242`: n per class
+180 → 360, field intervals ~14.5 points → ~10.3, SPREAD `[0.0-19.8]` →
+`[0.0-13.8]`, and **every verdict line byte-identical** — a tightening, not a bar
+move, as promised.
+
+**AND IT KILLED A FALSE SIGNAL.** On the row alone the runekeeper read
+**43.9% [36.8-51.2]** — an interval reaching under the 40% field floor, which is
+precisely "the runekeeper's complaint" that gate exists to catch. Pooled over
+bouts already run he is **48.3% [43.2-53.5]**, entirely inside. The roster had
+not moved; half a sample had been mistaken for a class that loses to everybody.
+
+**RE-QUOTED at the full default (1000 bouts a cell, seed 20260813):** huscarl
+**52.2% [51.0-53.5]**, warden **49.3% [48.0-50.5]**, runekeeper **48.2%
+[47.0-49.5]**, berserker **50.3% [49.0-51.5]**; **SPREAD 4.0 points [1.5-6.5]**
+— and **6 of 6 matchups DECISIVELY inside 30-70%**, a clean sheet with no band
+edges at all. The earlier double-digit spreads in 3.2b/3.2c were read through the
+halved sample and should not be compared with these directly.
 
 **Two levers that moved nothing, and they are the finding.** Taking the huscarl's
 `blockReduction` from 0.80 to **0.00** — the best shield in the game to no shield
