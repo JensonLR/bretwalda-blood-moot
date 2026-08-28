@@ -8783,3 +8783,47 @@ and a veteran who owns everything must actually clear every top rung.
 The nineteen paid rungs became nineteen Steam achievements with **no new
 code** — `achievements.mjs` derives them from the marks, which is what
 that seam was built for. `steamsheet` 5/5.
+
+---
+
+## THE CLIP GATE WAS MEASURING AN UNPINNED RENDERER — 28 Aug 2026
+
+**CORRECTING THIS FILE'S OWN LAST TWO ENTRIES, and the correction is the
+finding.** The entry above concluded the §6.1 singleton was believed
+(it reproduced at 7.66% across two full walks) and diagnosed it as the
+shop's fitting ladder — Polished Steel at 60g carrying brighter fittings
+(0.785) than the 160g crown (0.753). The ladder observation is true. **It
+is not the cause, and the singleton is not a fact about the subject.**
+
+`factionread` has a documented probe mode — `--people --cls --finish
+--turn`, eleven minutes — which the previous entry wrongly said did not
+exist. Asked for that exact frame on the same tree:
+
+```
+full walk    norse/huscarl/Polished Steel @160°   7.66%   (twice, exactly)
+probe alone  norse/huscarl/Polished Steel @160°   0.00%   (all four peoples <= 0.01%)
+             ...with the CONTROL reading 5.99% in BOTH
+```
+
+A frame that blows only when 120 captures precede it is not the subject.
+
+**THE CAUSE: `factionread` PINNED NO QUALITY TIER.** `render/quality.ts`
+states the hazard in its own words — *"The governor only ever runs
+against a tier nobody pinned. Under `?quality=` the whole point is that
+the tier stays put — a capture harness that got silently demoted mid-run
+would be measuring a build nobody ships."* `cosmetictest` pins
+`quality=high` on every URL and its comment records that this demotion
+"took a day to catch". This file opened 126 pages and pinned nothing.
+The CONTROL is stable across runs because it is captured EARLY; the sweep
+drifts because it is captured LATE.
+
+Pinned now on both capture paths (`stageQ` and the CONTROL). **The pin
+demonstrably changes the instrument** — the control moved 0.13/0.90/5.99%
+to 0.05/0.63/6.26% at the three bearings — which is itself the proof that
+the tier was never "high" before and was free to wander.
+
+**WHAT IS NOT YET PROVEN:** that the pin closes the singleton. The
+singleton only appears in a LONG run, so only a full walk can test it,
+and that walk is running. Until it answers, §6's historical numbers —
+including every clip figure this file has ever quoted — were taken at an
+unpinned tier and should not be compared across runs.
