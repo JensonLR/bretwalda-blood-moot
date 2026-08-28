@@ -15890,6 +15890,66 @@ export function buildCharacter(
     out.x *= k; out.z = L.z + (out.z - L.z) * k;
   };
   /**
+   * THE HOOD'S OWN SQUASH — the coif's counterpart on cloth, and the owner's
+   * play report is why it exists ("still have issues with long mane hair
+   * sticking out on the shadow hood helmet"; the staged rear capture shows
+   * the whole fall lying ON TOP of the cowl's shoulder drape). `fitFall`'s
+   * ceiling is RADIAL FROM THE SKULL'S CENTRE, and at drape heights that ray
+   * points steeply down — it shortens a fall but cannot press one against a
+   * wall that is now beside it, so between the rim and the drape's bottom
+   * the mane took free-air volume outside the cloth. This clamp is the
+   * cowl's own geometry inverted: `cowlFall` maps (u, s) to the drape, so
+   * for a point at height y the wall's ellipse at that azimuth's fraction is
+   * one mix, and the fall is held a layer inside its inner face. In front
+   * of the cowl's ±2.30 rad there is no cloth and nothing is touched; above
+   * the rim the scalp ceiling already owns the shape; below the drape's
+   * bottom station `shoulderRide` does.
+   */
+  const hoodSquash = (out: THREE.Vector3): void => {
+    if (!hooded || out.y <= hoodHemY) return;
+    const mantleTopY = skullY - R.y * 1.45;
+    if (out.y > mantleTopY - 0.010) {
+      // THE COWL SPAN, rim to the mantle's collar: the cowl's own sweep
+      // inverted, inside its ±2.30 rad of cloth. (The first cut of this
+      // clamp stopped HERE — and the re-photograph showed the same proud
+      // slab, because the bulk lies over the MANTLE below, in the span the
+      // early bail skipped. Both spans now, or neither matters.)
+      const u = Math.atan2(out.x, out.z);
+      if (awayFromFace(u) < Math.PI - 2.30) return;
+      const a = hoodRim(u);
+      const yTop = skullY + R.y * Math.sin(a);
+      if (out.y >= yTop) return;
+      const q = smooth(0, 1, clamp01((yTop - out.y) / Math.max(1e-6, yTop - (mantleTopY - 0.010))));
+      const tr = Math.cos(a), lift = hoodLift(u, 0);
+      const inset = 0.009 + LAYER_GAP;
+      const wx = mix(R.x * tr + lift, R.x * 1.14, q) - inset;
+      const wz = mix(R.z * tr + lift, R.z * 1.08, q) - inset;
+      if (wx <= 0.01 || wz <= 0.01) return;
+      const e = Math.hypot(out.x / wx, out.z / wz);
+      if (e <= 1) return;
+      out.x /= e; out.z /= e;
+      return;
+    }
+    // THE MANTLE SPAN, collar to hem: the shoulder drape's own three
+    // stations, full-round (the mantle hides the throat — there is no open
+    // arc), superellipse power 2.2 as swept, hair held a wall and a layer
+    // inside its inner face. Below `hoodHemY` there is no cloth and the
+    // fall is in open air — the paid rung's own emergence.
+    const S1 = { y: mantleTopY, hw: R.x * 1.16, hd: R.z * 1.10 };
+    const S2 = { y: skullY - R.y * 2.10, hw: R.x * 1.62, hd: R.z * 1.40 };
+    const S3 = { y: hoodHemY, hw: R.x * 2.02, hd: R.z * 1.58 };
+    const inset = 0.014 + LAYER_GAP;
+    const [A, B] = out.y > S2.y ? [S1, S2] : [S2, S3];
+    const t = clamp01((A.y - out.y) / Math.max(1e-6, A.y - B.y));
+    const hw = mix(A.hw, B.hw, t) - inset;
+    const hd = mix(A.hd, B.hd, t) - inset;
+    if (hw <= 0.01 || hd <= 0.01) return;
+    const e = Math.pow(Math.abs(out.x) / hw, 2.2) + Math.pow(Math.abs(out.z) / hd, 2.2);
+    if (e <= 1) return;
+    const k = Math.pow(e, -1 / 2.2);
+    out.x *= k; out.z *= k;
+  };
+  /**
    * WHERE THE GATHER GOES ONCE IT IS OUT FROM UNDER THE MAIL — onto the man's
    * back, not into it.
    *
@@ -16064,6 +16124,7 @@ export function buildCharacter(
   const _ffA = new THREE.Vector3();
   const fitFall = (out: THREE.Vector3, ride: boolean): void => {
     coifSquash(out);
+    hoodSquash(out);
     if (ride) shoulderRide(out);
     const dy = out.y - skullY;
     const r = Math.hypot(out.x, dy, out.z);
@@ -17681,8 +17742,19 @@ export function buildCharacter(
           burnY: Y_EYE - 0.175,
           uEdge: 1.13,
           prof: braidProfile(),
-          mass: (u) => Math.pow(1 - smooth(0.18, 0.80, Math.abs(u)), 1.20),
-          lean: 0.40,
+          // NARROWED TO THE ROPE THE HEADER PROMISES (owner's play report:
+          // "Ringed Braid looks like a long beard thats it"). The old mass
+          // died at 0.80 rad — a full-width CURTAIN wearing the braid's
+          // profile, so the four ring swells ran as horizontal ridges
+          // across a slab and read as nothing. A braid is one gathered
+          // rope under the chin: the mass dies by 0.34 rad now, the cheeks
+          // keep only the gather's root, and the same four swells cut a
+          // ROPE's outline — which is where a ring was ever going to read.
+          mass: (u) => Math.pow(1 - smooth(0.10, 0.34, Math.abs(u)), 1.30),
+          // ...and a touch more forward carry, so the narrowed tip rests
+          // ON the chest ("it also goes into the body of berserker")
+          // instead of dropping straight into the sternum.
+          lean: 0.48,
           wall: 0.0090,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
           fade: beardFade(0.42),

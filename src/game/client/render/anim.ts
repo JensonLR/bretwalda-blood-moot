@@ -3613,6 +3613,10 @@ const WING_FWD = 0.62;
  * the number cloth would want needs the cloak cut wider first.
  */
 const GATHER = 0.07;
+/** A wing's outward rest at stillness — the cloth lying ON the arm. */
+const ARM_REST = 0.10;
+/** How far inward a wing may EVER travel: shy of the arm's own line. */
+const ARM_HOLD = 0.04;
 /** Where the leading edges turn out to, so the two wings are not one plane. */
 const WING_SPLAY = 0.07;
 /** Sub-step ceiling. `dt` is capped at 50 ms upstream and the stiff ring is 26 rad/s. */
@@ -3684,10 +3688,21 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
     const wing = Math.abs(DRAPE_SIDE[c]);
     const fwd = mix(SWING_FWD, WING_FWD, wing);
     const tx = clamp((Math.atan2(-(lz + rz), down) + billow * BILLOW + kick) * upright, -fwd, SWING_BACK);
+    // THE WINGS REST ON THE ARMS, NOT THROUGH THEM (owner's play report:
+    // "the cape is sticking through the body... curves round & goes
+    // through his arm"). The still-state gather pulled every column in
+    // against the body — right for the back panel, and exactly wrong for
+    // the wings, whose "body" at that bearing IS an arm: cloth cannot
+    // gather into space an arm occupies, it lies on the arm's outside. So
+    // a wing's rest is a small OUTWARD hold instead of the gather, and its
+    // inward travel is hard-bounded so sway and turn overshoot can never
+    // carry it past the arm's own line.
+    const inHold = wing ? ARM_HOLD : SWING_SIDE;
     const tz = clamp(
       (Math.atan2(lx + rx, down) + sway) * upright
-      - DRAPE_SIDE[c] * (GATHER * still * upright - WING_SPLAY * (1 - still)),
-      -SWING_SIDE, SWING_SIDE,
+      - DRAPE_SIDE[c] * ((wing ? -ARM_REST : GATHER) * still * upright - WING_SPLAY * (1 - still)),
+      DRAPE_SIDE[c] > 0 ? -inHold : -SWING_SIDE,
+      DRAPE_SIDE[c] < 0 ? inHold : SWING_SIDE,
     );
     springRings(motion, 1 + c * DRAPE_RINGS, tx, tz, dt);
     if (c === Math.floor(cols / 2)) springRings(motion, 0, tx, tz, dt);
@@ -3708,8 +3723,13 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
       const i = 1 + c * DRAPE_RINGS + r;
       // Clamped on the way out as well as on the way in: the springs overshoot
       // on purpose, and an overshoot is exactly where a limit earns its keep.
+      // The wing's inward hold rides here too — the spring must not carry
+      // what the target clamp refused.
       const x = clamp(motion.drapeX[i], -WING_FWD, SWING_BACK);
-      const z = clamp(motion.drapeZ[i], -SWING_SIDE, SWING_SIDE);
+      const zin = Math.abs(DRAPE_SIDE[c]) ? ARM_HOLD : SWING_SIDE;
+      const z = clamp(motion.drapeZ[i],
+        DRAPE_SIDE[c] > 0 ? -zin : -SWING_SIDE,
+        DRAPE_SIDE[c] < 0 ? zin : SWING_SIDE);
       const twist = r === DRAPE_RINGS - 1
         ? (-w * 0.07 - DRAPE_SIDE[c] * 0.05) * upright
         : 0;
