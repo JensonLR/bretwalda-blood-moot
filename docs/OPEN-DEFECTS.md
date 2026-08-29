@@ -9270,3 +9270,12 @@ band's nearest control went from 170 px to 231. Portrait re-run at 390x844
 to prove the tall branch unchanged.
 
 The manifest is `orientation: "any"`.
+
+Portrait came back **31/32 on the first re-run**, and the red was the stage
+rather than the rail: the lock claim's own `exercised()` guard refuses to
+pass a case that did not happen, and the harness's strafe reached 1.77 rad/s
+against its 1.80 bar after all fourteen draws — the stochastic manoeuvre the
+file already logs ("a red that indicts the STAGE, not the cap"). The same
+claim passed at 2.97 rad/s in landscape on the same build. Re-run: **32/32,
+with the strafe at 1.98.** Recorded rather than waved away, because a claim
+that goes red for a reason has to be shown to be that reason.
