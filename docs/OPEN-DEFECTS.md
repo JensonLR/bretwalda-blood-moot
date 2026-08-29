@@ -9503,6 +9503,13 @@ the red tab on the shoulder plate; `shipped-weard-front.png` has nothing on it.
 cosmetictest **19/19** — the cloak's silhouette still reads as four garments
 through the suite that exists to prove cosmetics differ.
 
+**EVERY APPEARANCE GATE, run against this.** wearmeasure 11/11 sections,
+cosmetictest 19/19, wearsweep 54/54, and helmclash byte-identical to the
+baseline `docs/HANDOVER.md` records — LAYERS 19 / FLESH 24 / WRAP 6 / CREST 8 /
+PELT 74 / SEAM 11, before and after. That suite is a comparison instrument
+rather than a gate and its red is its documented standing state; the point of
+running it here is that the cloak moved NOTHING in it.
+
 **WHAT IT COSTS, plainly.** The four cuts used to differ by 43° in how far
 round the front they reached and now differ by six. The order survives, `a1`
 and the back are untouched, and length, hem, flare and fold are untouched. It
