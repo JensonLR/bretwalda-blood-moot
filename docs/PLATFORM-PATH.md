@@ -282,9 +282,21 @@ Three options, in increasing cost:
    takes the browser chrome away — roughly 120px of vertical handed back to a
    HUD laid out against 390x844 — and it stops the address bar appearing and
    disappearing mid-fight, which resizes the WebGL canvas while a man is
-   swinging. `orientation: "portrait"` because the touch controls put a thumb
-   either side of the screen, and a rotation mid-match buries the attack buttons
-   under the player's palms.
+   swinging.
+
+   **`orientation` IS `"any"` SINCE 29 Aug 2026, and it used to be `"portrait"`.**
+   The old line said the touch controls put a thumb either side of the screen
+   and a rotation mid-match would bury the attack buttons under the player's
+   palms. The second half was never true — the cluster is corner-anchored and
+   mirrors with handedness, so it lands under the thumbs either way round. The
+   first half was, and the pin is what kept it true: every mobile gate in the
+   tree ran portrait, so nothing had ever measured the other rotation. Asked at
+   844x390, `touchtest` could not finish the run — the First Moot's skip button
+   was drawn over the handedness button and ate the press. The movement-side
+   rail folds into two columns when there is no height for one
+   (`src/game/client/fightRail.ts`); the owner's ask was "supported to be played
+   both landscape & portrait hand held positions", and it now is: 32/32
+   landscape, 33/33 portrait.
 
    **No service worker, deliberately.** Installability does not require one, and
    a worker caching this app would be a liability rather than a feature: it is a
@@ -298,6 +310,47 @@ Three options, in increasing cost:
 
 Start at 1. It is the only one that costs nothing and it fits the "link in a
 group chat" pitch exactly.
+
+### The owner on option 2, 29 Aug 2026
+
+> "Note that I'm interested in working parallel for iOS & Android launch of this
+> game when it's finalised & ready. Mobile reaches EVERYONE."
+
+Recorded as a DIRECTION, not scheduled — the ask is explicitly "when it's
+finalised & ready", and the same message put Steam behind the same condition.
+What it changes today is what "ready" has to include, and three of those are
+now true rather than aspirational:
+
+* **Both rotations play.** Done, above, and it was a real defect rather than a
+  box to tick. A store listing whose screenshots are portrait and whose game
+  breaks in landscape is a one-star review with a photograph attached.
+* **Every control is reachable by a thumb and taught to a stranger.** The touch
+  scheme is gated at 44/56 px floors on every screen shape `touchtest` is
+  pointed at, and the First Moot now teaches all ten controls rather than five
+  (29 Aug). Mobile is where the untutored arrive.
+* **Installable and self-contained.** The PWA already is, which is what makes a
+  Capacitor wrapper a packaging job rather than a port: the same build, the
+  same server, the same wire.
+
+What is NOT done and is the actual cost of option 2, in the order it bites:
+
+1. **Two developer accounts and two review queues.** Apple $99/yr, Google $25
+   once. Neither is reachable from a cloud session — both need the owner's
+   identity documents, and Apple's needs a Mac for the signing step.
+2. **Store rules the web build has never had to satisfy.** Age rating with
+   combat and blood declared honestly (this game dismembers people); a privacy
+   label naming what the account system stores; and — the one that costs
+   design rather than paperwork — Apple's rules on anything that looks like a
+   purchase. The armoury is gold earned in play with no money in it, which is
+   the easy side of that line, and it must stay there or the 30% conversation
+   starts.
+3. **A native shell per store, kept in step with the web build.** Capacitor
+   makes this small, but "small" is not "none": two more artefacts to build,
+   sign and ship on every release, and a `platformcheck` that can see them.
+
+None of that is work to start now. It is work to have written down before
+"finalised & ready" arrives, so the answer to "how long until it is on a phone
+store" is a list rather than a guess.
 
 ---
 
