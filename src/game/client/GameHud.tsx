@@ -28,6 +28,7 @@ import {
 } from "./input";
 import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
 import { createFirstMoot, FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
+import { useFightRail, railStyle, publishReadoutBottom } from "./fightRail";
 import {
   ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
   getBindings, getServerBindings, subscribeBindings,
@@ -52,6 +53,10 @@ import {
  * lands off the top edge of a 667 px one.
  */
 const GFX_TOP = 172;
+// ^ kept as the record of where this rung hangs on a tall screen, and now read
+// FROM `fightRail.ts` rather than applied from here: on a landscape phone the
+// column folds and 172 is 44 px below the ability readout. See that file.
+
 
 interface HudRoomState {
   state: string;
@@ -687,6 +692,28 @@ export default function GameHud({
   // touch zones and the buttons mirror as one thing.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
 
+  // THE RAIL, and the measurement it flows from. `soloEnd` is the same
+  // expression `page.tsx` renders the END button on — solo mode — handed to the
+  // layout so the mute toggle takes END's slot wherever END is not there. The
+  // observer watches the timer column because its height is a function of the
+  // mode (a Burh adds WAVE, a bench adds its own row) and guessing that here
+  // would be a second copy of the conditions twenty lines below.
+  const rail = useFightRail();
+  const soloEnd = roomState?.mode === "solo";
+  const readoutRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = readoutRef.current;
+    if (!el) return;
+    const read = () => publishReadoutBottom(el.getBoundingClientRect().bottom);
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // The element mounts and unmounts with the fight, and its CONTENT changes
+    // under the observer without remounting, which is the case the observer is
+    // for. Re-run on the conditions that mount it, not on the rows inside it.
+  }, [isFighting, isAlive, localPlayer?.id]);
+
   // "<target id>|<switches>". It changes when the lock takes a different man,
   // which is a handful of times a fight — not per frame. The reticle's POSITION
   // never comes through here: render/camera.ts writes that onto the element's
@@ -1110,8 +1137,14 @@ export default function GameHud({
               exactly that. When it leaves is `src/game/firstmoot.mjs`'s
               decision — a beat retires when the sim has honoured the act it
               teaches, never on a timer alone. */}
+          {/* 352 px off the foot is above the cluster on a tall screen and off
+              the TOP of a landscape one — at 390 px of height it lands 38 px
+              down, straight through the timer column. It is a caption that has
+              to sit between the thumbs and the readouts, so on a short screen
+              it takes the room that is actually there. */}
           {mootUp.line && (
-            <div className="absolute bottom-[352px] left-1/2 z-10 -translate-x-1/2 pointer-events-none max-w-[86vw]">
+            <div style={{ bottom: Math.min(352, Math.max(150, rail.h - 150)) }}
+              className="absolute left-1/2 z-10 -translate-x-1/2 pointer-events-none max-w-[86vw]">
               <div className={`rounded-md px-3 py-1.5 text-center transition-colors duration-300 ${
                 mootUp.flash ? "bg-amber-900/70 ring-1 ring-amber-400/70" : "bg-black/55"
               }`}
@@ -1150,7 +1183,8 @@ export default function GameHud({
               the glass. */}
           {mootUp.line && (
             <button onClick={skipMoot} data-snd="back"
-              className={`absolute top-3 ${lefty ? "right-3" : "left-3"} mt-[14.25rem] z-30 min-h-[44px] w-[8.5rem] px-2 py-1.5 bg-stone-900/80 hover:bg-stone-800 border border-stone-600/80 rounded-lg text-[9px] font-bold tracking-[0.12em] text-[#b6a888] transition backdrop-blur leading-tight`}>
+              style={railStyle("skip", rail, lefty, soloEnd)}
+              className="z-30 min-h-[44px] w-[8.5rem] px-2 py-1.5 bg-stone-900/80 hover:bg-stone-800 border border-stone-600/80 rounded-lg text-[9px] font-bold tracking-[0.12em] text-[#b6a888] transition backdrop-blur leading-tight">
               I KNOW THE FIGHT<br />— SKIP —
             </button>
           )}
@@ -1212,7 +1246,8 @@ export default function GameHud({
 
           {/* Timer + alive — the other half of the same mirror. END and mute
               stack underneath this, so it has to be on the side they are. */}
-          <div className={`absolute top-3 ${lefty ? "right-3 items-end" : "left-3 items-start"} flex flex-col pointer-events-none z-10`}>
+          <div ref={readoutRef}
+            className={`absolute top-3 ${lefty ? "right-3 items-end" : "left-3 items-start"} flex flex-col pointer-events-none z-10`}>
             <div className="text-amber-100 text-sm font-mono bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-md">
               {Math.floor((roomState?.matchTimer ?? 0) / 60)}:{String(Math.floor((roomState?.matchTimer ?? 0) % 60)).padStart(2, "0")}
             </div>
@@ -1527,7 +1562,7 @@ export default function GameHud({
         deliver a ghost tap into the panel it just opened. */}
     {isMobile.current && isFighting && (
       <button
-        style={{ top: GFX_TOP, ...(lefty ? { right: 12 } : { left: 12 }), touchAction: "none" }}
+        style={{ ...railStyle("graphics", rail, lefty, soloEnd), touchAction: "none" }}
         onClick={() => setGfxOpen(true)}
         aria-label="Graphics quality"
         className="absolute z-30 w-[48px] h-[48px] rounded-lg bg-stone-900/90 active:bg-stone-600 text-amber-100 border border-amber-700/70 flex flex-col items-center justify-center gap-px shadow-lg shadow-black/50">

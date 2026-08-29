@@ -15,9 +15,21 @@ import type { MetadataRoute } from "next";
  *   stops the address bar appearing and disappearing mid-fight as the page
  *   scrolls, which resizes the WebGL canvas while a man is swinging.
  *
- *   `orientation: "portrait"` because the touch controls are laid out for a
- *   thumb either side of a portrait screen; a landscape rotation mid-match puts
- *   the attack buttons under the player's palms.
+ *   `orientation: "any"`, AND IT USED TO SAY "portrait". The old line was
+ *   honest about why — "the touch controls are laid out for a thumb either side
+ *   of a portrait screen" — but it was a pin over a layout fault rather than a
+ *   design decision, and it made the fault invisible: every mobile gate in the
+ *   tree ran portrait, so nothing ever measured what the other rotation looked
+ *   like. Asked, at 844x390, touchtest found the First Moot's skip button drawn
+ *   over the handedness button and the graphics pad drawn over the ability
+ *   readout.
+ *
+ *   The owner: "This game for mobile should be supported to be played both
+ *   landscape & portrait hand held positions." The movement-side rail folds
+ *   into two columns when there is no height for one (`fightRail.ts`), which is
+ *   what the pin was standing in for, so the pin can go. The attack buttons
+ *   were never the problem — they are corner-anchored and mirror with
+ *   handedness, so they land under the thumbs either way round.
  *
  * NO SERVICE WORKER, deliberately. Installability does not require one, and a
  * worker that cached this app would be a liability rather than a feature: the
@@ -42,7 +54,7 @@ export default function manifest(): MetadataRoute.Manifest {
       "Multiplayer sword fighting in Dark Age Britain. Choose a warrior, take the field, fight.",
     start_url: "/",
     display: "standalone",
-    orientation: "portrait",
+    orientation: "any",
     background_color: "#14100b",
     theme_color: "#14100b",
     categories: ["games"],

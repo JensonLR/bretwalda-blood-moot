@@ -19,6 +19,7 @@ import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // shared module so this screen, the glyph component and `tools/marktest.mjs`
 // all read the same law; see the header of `marks.mjs`.
 import { MARKS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks, type MarkFacts } from "@/game/marks.mjs";
+import { useFightRail, railStyle } from "@/game/client/fightRail";
 import { MarkGlyph } from "../game/client/MarkGlyph";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
@@ -1569,6 +1570,11 @@ export default function Page() {
   // reason GameHud reads it: anything drawn over the fight has to keep off the
   // free-look half, and which half that is is the player's choice.
   const lefty = useSyncExternalStore(subscribeHandedness, getHandedness, getServerHandedness);
+  // The other two rungs of the movement-side rail. See `fightRail.ts` — this
+  // file owns END and the mute toggle, GameHud owns the graphics pad and the
+  // First Moot's skip, and one rule places all four.
+  const rail = useFightRail();
+  const soloEnd = roomState?.mode === "solo";
 
 
   /**
@@ -1816,14 +1822,14 @@ export default function Page() {
             up the fight is over, free look with it, so the movement-side
             argument dies and the toggle takes the corner every MENU gives it. */}
         <SoundToggle muted={muted} onToggle={toggleMute}
-          className={`absolute ${matchResults && !replay?.playing
-            ? "right-3 top-3 z-40"
-            : `top-3 ${lefty ? "right-3" : "left-3"} mt-[7rem] z-30`}`} />
+          style={matchResults && !replay?.playing ? undefined : railStyle("sound", rail, lefty, soloEnd)}
+          className={matchResults && !replay?.playing ? "absolute right-3 top-3 z-40" : "z-30"} />
         {roomState?.mode === "solo" && (
           <button
             onClick={() => { leaveRoom(); setScreen("muster"); }}
             data-snd="back"
-            className={`absolute top-3 ${lefty ? "right-3" : "left-3"} pointer-fine:left-1/2 pointer-fine:right-auto pointer-fine:-translate-x-1/2 mt-16 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur`}
+            style={railStyle("end", rail, lefty, soloEnd)}
+            className="pointer-fine:left-1/2 pointer-fine:right-auto pointer-fine:-translate-x-1/2 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur"
           >
             <DoorOpen size={15} /> <span className="inline pointer-fine:hidden">END</span><span className="hidden pointer-fine:inline">END SESSION</span>
           </button>
@@ -4263,11 +4269,16 @@ function StatBar({ label, frac, text, cls }: { label: string; frac: number; text
  * keeps the delegated tap off it: a button that silences the game must not make
  * a noise on the way, and un-silencing it says `confirm` for itself.
  */
-function SoundToggle({ muted, onToggle, className = "" }: {
+function SoundToggle({ muted, onToggle, className = "", style }: {
   muted: boolean; onToggle: () => void; className?: string;
+  /** Where it hangs, when a caller places it rather than classing it — the
+   *  fight rail does, because on a landscape phone that position is arithmetic
+   *  and not a Tailwind offset. See `fightRail.ts`. */
+  style?: React.CSSProperties;
 }) {
   return (
     <button
+      style={style}
       onClick={onToggle}
       data-snd="none"
       aria-pressed={muted}

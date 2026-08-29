@@ -9207,3 +9207,66 @@ until the tile is pressed. Reading the line is the acknowledgement.
 marktest **38/38, from 25/25** — thirteen new claims, all eight of the new
 behavioural ones shown red first (four against the page as it was before the
 change, four by mutation).
+
+---
+
+## LANDSCAPE WAS PINNED OFF, AND BEHIND THE PIN IT WAS BROKEN — 29 Aug 2026
+
+**"This game for mobile should be supported to be played both landscape &
+portrait hand held positions."**
+
+`manifest.ts` said `orientation: "portrait"` and gave a reason: *"the touch
+controls are laid out for a thumb either side of a portrait screen; a
+landscape rotation mid-match puts the attack buttons under the player's
+palms."* The second half of that sentence is not true — the attack cluster is
+corner-anchored and mirrors with handedness, so it lands under the thumbs
+either way round. The first half was true, and the pin is what kept it true:
+**every mobile gate in this tree ran portrait**, so the other rotation had
+never been measured by anything.
+
+`touchtest` takes `--w`/`--h` and always has. Asked at 844x390 it did not
+report a layout blemish — **it could not finish the run**:
+
+```
+locator.tap: Timeout 90000ms exceeded.
+  - waiting for getByLabel('Switch to left-handed controls')
+  - <button data-snd="back" class="... mt-[14.25rem] ..."> intercepts pointer events
+```
+
+A left-handed player in landscape **cannot switch to left-handed controls**.
+The First Moot's skip button is drawn on top of it and eats the press. The
+same frame had the graphics pad drawn over the ability readout.
+
+**WHY.** Two stacks growing toward each other, both sized for 844 px of
+height. Down from the top: END at 76, mute at 124, graphics at 172, skip at
+240. Up from the foot: RUN at 24, handedness at 92, the ability readout at
+152. On 390 px of height they meet in the middle.
+
+**THE RULE, NOT THE NUDGE.** `src/game/client/fightRail.ts` is one layout
+rule with three readers — `page.tsx` owns END and the mute toggle, `GameHud`
+owns the graphics pad and the skip, and none of them now knows a pixel
+offset. Tall enough for the column: hang it at the offsets it already
+shipped with, so **portrait is byte-identical** and the four suites that
+measure it are measuring the same layout. Too short: fold the column into
+TWO, side by side. A landscape phone has no height and a great deal of
+width, and this is the only furniture on that side of the glass that can
+spend width instead.
+
+**AND IT FLOWS FROM A MEASUREMENT.** Above the rail is the timer column,
+whose height is a function of the mode — a Burh adds a WAVE row, a bench adds
+another. Reserving the worst case would push the rail into the thumb cluster
+on exactly the screens this fixes; computing the worst case in the rail would
+be a second copy of GameHud's render conditions, which is PROCESS.md's third
+failure mode by name. A `ResizeObserver` on the real element publishes its
+real foot, and everything flows below whatever that is.
+
+The First Moot's beat line went with them: `bottom-[352px]` is above the
+cluster on a tall screen and 38 px from the TOP of a 390 px one, straight
+through the timer column.
+
+**touchtest at 844x390: 32/32, from a run that could not complete.** The
+graphics pad now sits 67–115 of 390 and 275 px up from the foot; the thumb
+band's nearest control went from 170 px to 231. Portrait re-run at 390x844
+to prove the tall branch unchanged.
+
+The manifest is `orientation: "any"`.
