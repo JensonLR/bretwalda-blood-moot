@@ -1476,3 +1476,28 @@ and traversal; they must run per ground rather than once.
 cheaper, already scoped in `docs/FACTIONS.md`, and touches one file the helm work
 is already in. Doing kit first also means the first new ground is walked by
 warriors who look like they belong on it.
+
+### The cloak's envelope has to know the arms exist
+
+`docs/OPEN-DEFECTS.md`, 29 Aug 2026. The owner photographed cloth standing out
+of the front of a shoulder; `wearmeasure` §11 now measures it and reports
+37.7 mm on huscarl/red, 80.1 on berserker/brown, 49.3 on berserker/gold.
+
+Two fixes were tried and both turned §8 red, and they failed the same way:
+the cloak's radius is the torso's plus the wear stack with **no slack**, so
+taking width away anywhere puts the mantle or the ruff through the lining.
+
+What a real fix needs, both at once:
+
+1. A per-azimuth radius profile that dips through the quadrant the arm hangs
+   in — the cloth passing inboard of the limb rather than outboard of it —
+   while still clearing whatever is worn under it at that height. The clearance
+   is `stackAt(y)`, which today is a function of HEIGHT only; it wants to be a
+   function of height and azimuth, read off the same `wear()` stack §8 reads.
+2. §11's bar, which cannot be set until (1) exists: measure proud of the arm
+   PLUS whatever is worn over the shoulder at that height, using `_wornSpy` —
+   the spy already exists and §8 already reads it. Then 12 mm is a real bar
+   rather than a number that condemns the berserker for owning a coat.
+
+Done means: §11 gates instead of reporting, §8 and §9 stay green, and the
+wedge in `art/shots/cloakfront/` is gone from a fresh capture.

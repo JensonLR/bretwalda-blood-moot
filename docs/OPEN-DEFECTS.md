@@ -9279,3 +9279,72 @@ file already logs ("a red that indicts the STAGE, not the cap"). The same
 claim passed at 2.97 rad/s in landscape on the same build. Re-run: **32/32,
 with the strafe at 1.98.** Recorded rather than waved away, because a claim
 that goes red for a reason has to be shown to be that reason.
+
+---
+
+## THE CLOAK IN FRONT OF THE ARM — FOUND, MEASURED, PHOTOGRAPHED, NOT FIXED — 29 Aug 2026
+
+**"Cloak sticks out of front of shoulder/arm."** The owner is right. The defect
+is real, it is on every kit in the shop, and **it is still there.** This entry
+is what was learned, what was tried, and why nothing shipped.
+
+**IT WAS NEVER MEASURED.** `wearmeasure` §8 asks how far the garment under the
+cloak comes through its lining. §9 asks how near the carried weapon gets to the
+cloth. Sixteen kits x four cuts, measured against everything a man wears
+**except the two limbs hanging beside it.** A gate green because the case is
+absent is not a gate.
+
+**§11 IS THE INSTRUMENT, AND ITS FIRST VERSION ASKED THE WRONG QUESTION** —
+the sixth time in this file. It rasterised the man from the front and counted
+cells where cloth won the depth test over an arm. All sixteen kits failed,
+which should have been the tell: a cloak hangs BEHIND a man and his arms swing
+back into it. The rest carry alone puts the weapon arm 165 mm behind the
+torso's centre, which is the cloak's own depth. The ruler was counting a
+garment being worn. What the photograph shows is narrower and has no innocent
+reading: cloth **outboard of the arm AND forward of it**. Outboard-and-behind
+is the cape. Forward-and-inboard is the brooch. Only both at once is a wing.
+
+That version did name the culprit before it was retired: **every offending
+vertex in the shop was weighted to bone 10 — the YOKE.** Not the hem, not the
+wings. The cloak's top edge.
+
+**THE PICTURES** are `art/shots/cloakfront/` (untracked). The berserker in the
+Blood Red at 40° shows a thin wedge of cloth standing out of the top of his
+shoulder and crossing in front of the arm. It is exactly the owner's sentence.
+
+**TWO FIXES WERE TRIED AND BOTH BROKE §8.**
+
+1. Fading the flare out past the shoulder line. Barely moved §11 — because
+   flare is distributed by `grow`, which is near zero at the top edge, and the
+   fault is AT the top edge. Turned §8 red on warden/gold (10.7 mm).
+2. Drawing the leading corner in to the brooch's own x past the shoulder. The
+   photographs are unambiguous — the wedge goes, the gold cloak's front comes
+   off the mail sleeve — and §11's front-view worst fell from 216 mm to 123.
+   **It turned §8 red on five kits, up to 65.6 mm of garment through the
+   lining.**
+
+**AND THAT IS THE FINDING.** Both attempts NARROWED the cloak, and §8 turning
+red both times says the same thing twice: **the cloak is cut with no slack over
+what it covers.** Its radius is the torso's plus the wear stack, and any fix
+that takes width away anywhere puts the mantle, the ruff or the pelt through
+the lining. So the fix is not a narrower cloak. It is an envelope that knows
+the arms exist — a per-azimuth profile that dips through the quadrant the limb
+hangs in while still clearing the garment beneath — and that quadrant is
+exactly where the huscarl's mantle and the berserker's ruff force the width.
+That is a garment redesign, not a constant.
+
+**NOTHING WAS SHIPPED, DELIBERATELY.** A change that turns a green gate red to
+make a picture better is a trade, not a fix, and it is not mine to make
+quietly.
+
+**WHAT DID SHIP** is §11: a ruler for a quantity nobody was measuring. It
+REPORTS rather than gates, and the reason is written above it — the berserker
+reads 80 mm and is entitled to, because his fur ruff stands 80 mm off the spine
+and the cloak is cut to clear it. A bar low enough to catch the huscarl's wing
+condemns him for owning a coat. What §11 DOES gate is the floor: every kit
+reaching the ruler with cloth, two arms and a shoulder band, and **the depth
+sign pointing forward** — shown red by inverting it, which is the mistake its
+own first version made.
+
+Measured now, on the shipped tree: huscarl/red **37.7 mm** proud, berserker/
+brown **80.1**, berserker/gold **49.3**; the other thirteen under 12.

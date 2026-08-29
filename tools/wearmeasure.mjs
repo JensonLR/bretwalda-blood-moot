@@ -1660,4 +1660,200 @@ const SLOT_MISS_MM = 22;
   }
 }
 
-process.exit(fails.length + gfails.length + nfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length + (globalThis.__openFails ?? 0) ? 1 : 0);
+// ============================================================
+// 11. THE CLOAK STANDING PROUD OF THE ARM
+// ============================================================
+//
+// The owner, with a photograph: "Cloak sticks out of front of shoulder/arm."
+//
+// AND §8 AND §9 BOTH PASS ON EVERY MAN IN THE SHOP. §8 asks how far the garment
+// UNDER the cloak comes through its lining, answered against the torso's
+// `wear()` stack; §9 asks how near the carried WEAPON gets to the cloth.
+// Neither has ever looked at an arm. Sixteen kits x four cuts measured against
+// everything a man wears except the two limbs hanging beside it, and "a gate
+// green because the case is absent is not a gate".
+//
+// THE FIRST VERSION OF THIS SECTION ASKED THE WRONG QUESTION, and it is written
+// down here because that is now six times in this file. It rasterised the man
+// from the front and counted cells where cloth won the depth test over an arm.
+// Every kit failed, which should have been the tell: a cloak hangs BEHIND a man
+// and his arms swing back into it — the rest carry alone puts the weapon arm
+// 165 mm behind the torso's own centre, which is the cloak's depth exactly. The
+// ruler was counting a garment being worn.
+//
+// WHAT THE PHOTOGRAPH ACTUALLY SHOWS is narrower and has no legitimate reading:
+// a wedge of cloth standing OUTBOARD of the arm — further from his centreline
+// than the limb is — AND FORWARD of it. Outboard-and-behind is the cape hanging
+// past his shoulders, which every picture of a cloaked man has. Forward-and-
+// inboard is the corner lying on his chest, which is what a brooch does. Only
+// both at once is a wing, and only a wing sticks out.
+//
+//   PROUD   how far outboard of the arm's own outer edge the cloth reaches, at
+//           that height, counting only cloth forward of the arm's front surface.
+//           Measured in 6 mm rows so a limb that tapers is compared against
+//           itself rather than against its widest station.
+//
+// THE BAND IS THE SHOULDER, top 240 mm of the arm plus the 120 mm above it:
+// that is where cloth is pinned and where the defect was, and below it a cloak
+// is allowed to be wider than a man because every cut in the shop flares.
+//
+// THIS SECTION REPORTS. IT DOES NOT GATE, AND THE REASON IS WORTH THE PARAGRAPH.
+//
+// A bar needs a quantity with no legitimate large values, and PROUD is not one
+// yet. The berserker reads 80 mm on the Traveller's cloak — and he is right to:
+// his fur ruff stands 80 mm off the spine sampler (`PELT_LOFT`), the cloak is
+// cut to clear whatever is worn under it, and at shoulder height that puts
+// cloth exactly 80 mm outboard of an arm that hangs below the ruff. That is a
+// garment being worn, not a wing, and any bar low enough to catch a wing on the
+// huscarl condemns the berserker for owning a coat.
+//
+// THE FIX FOR THAT IS KNOWN AND IS NOT GUESSWORK: measure proud of the arm PLUS
+// WHATEVER IS WORN OVER THE SHOULDER at that height, which is the same `wear()`
+// stack §8 already reads through `_wornSpy`. Until that is wired, a bar here
+// would be a number chosen to make the current tree pass, and this file has
+// enough history of rulers that returned a number instead of an answer.
+// `docs/BACKLOG.md` carries it.
+//
+// WHAT IS GATED is the floor — the two ways this section can be green while
+// blind, which is the failure mode §8's own note calls out: a kit that reached
+// the ruler with no cloth, no arm or no shoulder band, and a depth sign that is
+// backwards. The second is not hypothetical. THE FIRST VERSION OF THIS SECTION
+// HAD THE WRONG QUESTION and failed all sixteen kits; the check that the
+// cloak's centroid sits behind the torso's is what a wrong sign would trip.
+//
+// Points and not triangles, on a 6 mm grid. That can miss a sliver; it cannot
+// invent one, and under-claiming is the right direction for a ruler whose
+// failure mode is crying wolf on a garment meant to hang beside an arm.
+const PROUD_MM = 12;
+const SHOULDER_BAND = 0.24;
+/** How far above the crown of the arm cloth is still judged against it. */
+const SHOULDER_RISE = 0.12;
+const CELL = 0.006;
+console.log("");
+console.log("[wear] 11. THE CLOAK STANDING PROUD OF THE ARM — outboard of the limb AND forward of it.");
+console.log("");
+console.log("[wear] class        cloak   arm pts  cloth pts    rows   proud mm  verdict");
+console.log("[wear] ----------------------------------------------------------------------");
+const afails = [];
+if (!anim) {
+  afails.push("render/anim.js was not emitted — the cloak is not being measured against the arm at all");
+} else {
+  const skinned = (o, out) => {
+    const g = o.geometry, pos = g.attributes.position;
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    const v = new THREE.Vector3(), acc = new THREE.Vector3(), m = new THREE.Matrix4();
+    if (o.isSkinnedMesh && si && sw && o.skeleton) {
+      o.skeleton.update();
+      const bm = o.skeleton.boneMatrices;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.bindMatrix);
+        acc.set(0, 0, 0);
+        for (let k = 0; k < 4; k++) {
+          const w = sw.getComponent(i, k);
+          if (!w) continue;
+          m.fromArray(bm, si.getComponent(i, k) * 16);
+          acc.addScaledVector(v.clone().applyMatrix4(m), w);
+        }
+        out.push(acc.clone().applyMatrix4(o.bindMatrixInverse).applyMatrix4(o.matrixWorld));
+      }
+    } else {
+      for (let i = 0; i < pos.count; i++) out.push(v.fromBufferAttribute(pos, i).clone().applyMatrix4(o.matrixWorld));
+    }
+  };
+  for (const cls of CLASSES) {
+    for (const cloak of CLOAK_VALUES) {
+      const player = {
+        id: "wear", name: "", warriorClass: cls, team: "none", ready: true,
+        position: { x: 0, y: 0, z: 0 }, rotation: 0, velocity: { x: 0, y: 0, z: 0 },
+        health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
+        attackDir: "right", blockDir: "right",
+        attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+        abilityCooldown: 0, abilityActive: false, abilityTimer: 0,
+        kills: 0, deaths: 0, damage: 0, score: 0, lastHitBy: "",
+        comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
+        appearance: { ...defaultAppearance(cls), cloak },
+      };
+      const parent = new THREE.Group();
+      const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+      const motion = anim.createMotion(player);
+      const ctx = {
+        dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
+        focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
+        quality: { tier: "high", shadows: false },
+      };
+      for (let i = 0; i < 180; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
+      parent.updateMatrixWorld(true);
+      const cpts = [], arms = [[], []];
+      rig.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.name.endsWith("cloak")) skinned(o, cpts);
+        else if (o.name.endsWith("arm-1")) skinned(o, arms[0]);
+        else if (o.name.endsWith("arm1")) skinned(o, arms[1]);
+      });
+      // WHICH WAY IS FORWARD, asked of the man rather than assumed. The sweep
+      // puts azimuth 0 — the spine — at negative z, so +z is his front; the
+      // cloak's own centroid sitting behind the torso's is that claim checked
+      // against the one garment that is only ever worn on a back.
+      const mid = (a) => a.reduce((t, q) => t + q.z, 0) / (a.length || 1);
+      const bpts = [];
+      rig.group.traverse((o) => { if (o.isMesh && o.name.endsWith("torso")) skinned(o, bpts); });
+      const facingOk = cpts.length && bpts.length && mid(cpts) < mid(bpts);
+      let rows = 0, proud = 0, at = "-";
+      for (const arm of arms) {
+        if (!arm.length || !cpts.length) continue;
+        const top = arm.reduce((m, q) => Math.max(m, q.y), -Infinity);
+        const lo = top - SHOULDER_BAND;
+        // The arm's own envelope, row by row: how far out it reaches on its own
+        // side, and how far forward its front surface comes.
+        const side = Math.sign(arm.reduce((t, q) => t + q.x, 0)) || 1;
+        const outer = new Map(), front = new Map();
+        for (const q of arm) {
+          if (q.y < lo || q.y > top) continue;
+          const r = Math.round(q.y / CELL);
+          outer.set(r, Math.max(outer.get(r) ?? -Infinity, q.x * side));
+          front.set(r, Math.max(front.get(r) ?? -Infinity, q.z));
+        }
+        rows += outer.size;
+        for (const q of cpts) {
+          // ABOVE THE SHOULDER COUNTS TOO, and the first cut of this missed the
+          // photograph by leaving it out: the wedge in `art/shots/cloakfront/`
+          // rises OUT of the top of the shoulder, above the highest vertex on
+          // the arm, so a band that stopped at the arm's crown read 0.0 on the
+          // very kit the owner reported. Cloth above the shoulder is compared
+          // against the shoulder's own envelope — the topmost row — because
+          // that is the widest the limb ever gets and cloth outboard of it up
+          // there is standing in mid-air beside his head.
+          if (q.y < lo || q.y > top + SHOULDER_RISE) continue;
+          const r = Math.round(Math.min(q.y, top) / CELL);
+          const o = outer.get(r), f = front.get(r);
+          if (o === undefined || f === undefined) continue;
+          if (q.z <= f) continue;                 // behind the arm: that is the cape
+          const mm = (q.x * side - o) * 1000;     // outboard of it: that is the wing
+          if (mm > proud) { proud = mm; at = `${(q.x).toFixed(3)},${q.y.toFixed(2)}`; }
+        }
+      }
+      const bad = [];
+      if (!cpts.length) bad.push(`the ${cloak} cloak reached the ruler with no vertices`);
+      if (!arms[0].length || !arms[1].length) bad.push("an arm reached the ruler with no vertices");
+      if (!rows) bad.push("no shoulder band was found on either arm — the ruler measured nothing");
+      if (!facingOk) bad.push("the cloak's centroid is not behind the torso's — this section has its depth sign backwards and every number below it is about his back");
+      // Reported, not judged — see the note above the bar for why there is no
+      // bar. `PROUD_MM` still names what a fold is worth, so the line says
+      // which kits are carrying more than cloth gathering.
+      const note = proud > PROUD_MM ? ` <- ${proud.toFixed(1)} mm at x,y ${at}` : "";
+      if (bad.length) afails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
+      console.log(
+        `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${String(arms[0].length + arms[1].length).padStart(8)} ${String(cpts.length).padStart(10)}  ` +
+        `${String(rows).padStart(6)}  ${proud.toFixed(1).padStart(9)}  ${bad.length ? "<-- FAIL" : "ok"}${note}`);
+    }
+  }
+}
+console.log("");
+console.log(`[wear] REPORTED, NOT GATED: how far cloth stands outboard of an arm while also in front of it, in the`);
+console.log(`[wear]   top ${SHOULDER_BAND * 1000} mm of the limb or the ${SHOULDER_RISE * 1000} mm above it. Anything over ${PROUD_MM} mm is more than a fold and is flagged`);
+console.log(`[wear]   on its row. There is no bar because the berserker's own fur ruff earns 80 mm of it; see the note.`);
+console.log(`[wear] GATED: every kit reaches the ruler with cloth, two arms and a shoulder band, and the depth sign is forward.`);
+for (const f of afails) console.log(`[wear] FAIL ${f}`);
+console.log(`[wear] ${afails.length ? "FAIL" : "PASS"}: the cloak against the arm`);
+
+process.exit(fails.length + gfails.length + nfails.length + hfails.length + bfails.length + handfails.length + dfails.length + kfails.length + cfails.length + afails.length + (globalThis.__openFails ?? 0) ? 1 : 0);
