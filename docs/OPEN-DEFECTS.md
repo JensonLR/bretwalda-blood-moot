@@ -9430,3 +9430,73 @@ wartest 82/82, fighttest 23/23, burhtest 24/24, touchtest 33/33, playtest
 38/38.** Every new behavioural claim
 shown red first — the wrap, the hold, the arming, the two-direction cut, and
 tourtest's three wiring claims against the page before it was wired.
+
+---
+
+## THE CLOAK CAME ROUND THE FRONT OF HIM — FIXED — 29 Aug 2026
+
+The owner reported this twice. The second time he sent the picture with the
+spot circled: a hard-edged tab of cloak cloth standing on the FRONT of a mail
+shoulder, on the armoury's own SHOULDERS framing. **That circle is what solved
+it**, because it named the view — and `tools/cloakshoulder.mjs` now takes that
+view on demand, for four classes and three bearings, which nothing did before.
+`art/cloakshoulder/before-*.png` at three times size is the defect on every
+class in the shop.
+
+**IT WAS THE LEADING EDGE'S AZIMUTH, AND NOTHING ELSE.** Every cut takes `a0`
+well past the shoulder line — the Gilded to **144° from the spine, 54° round
+the front of him** — and at those bearings the cloth is forward of the chest,
+outside the mail, and facing the camera. The four cuts were competing on how
+far round a man's breast they could reach. `cloakLead()` compresses the excess
+to an eighth: 101/112/122/144° becomes 91/93/94/97°, the ORDER kept, `a1` and
+the whole of the back untouched.
+
+**THE BROOCH FOLLOWED IT FOR FREE.** The clasp block seats the pin at
+`uPin = 0.07` ALONG the sweep rather than at a remembered point, so the brooch
+walked from the front of the chest to the point of the shoulder — where a cloak
+brooch of the period is found. One rule, two readers: `cloakLead` is a function
+because the clasp must ask the same question the sweep does.
+
+**THIS IS THE THIRD FIX TRIED AND THE ONLY ONE THAT COULD SHIP,** and the two
+failures are the useful part of the record. Both narrowed the cloak and both
+turned §8 red, up to 65.6 mm of garment through the lining:
+
+1. Fading the flare past the shoulder. Barely moved anything — flare is near
+   zero at the top edge and the fault was AT the top edge.
+2. Pinning the corner to the body's own superellipse, read from the `wear()`
+   registry with the frame offsets reconciled. This one **worked** — §8 green,
+   the tab gone — and the capture killed it anyway: the cloak came back as a
+   red band down the ribs like a tabard, because a brooch pins one point and I
+   had pinned a seam. Fading the pin down the drop fixed the band and left a
+   larger red wedge on the chest than the tab it replaced.
+
+The lesson is one line: **the standoff is not air.** The cloak's 55 mm is
+paying for the difference between its ellipse and the body's superellipse,
+which is boxier at the front — so no fix that takes width away can survive §8.
+Restricting the AZIMUTH takes no width at all: the sweep spans a sub-range of
+bearings it already spanned, so every sample sits where it already sat and a
+minimum over a subset cannot be lower than the minimum over the whole. §8
+cannot break on it, by argument and then by measurement.
+
+**THE RULER TOOK THREE TRIES TOO,** which puts this file's count of
+wrong-quantity rulers at eight. Versions one and two rasterised him from the
+front and counted cells where cloth won the depth test — over the arm, then
+over the torso — and both over-claimed for the same structural reason: **a
+garment worn outside a man shares the cells at his outline, because that is
+what an outline is.** Version two failed the berserker's Gilded cloak at 60 mm
+on a frame with no cloth anywhere near his chest (`art/shots/cloakcheck/`), and
+no inset wide enough to spare his fur ruff was narrow enough to catch the tab.
+
+The question that works has no cells in it: **per height row, how far forward
+does the cloth reach against how far forward the man reaches?** A cloak hangs
+off a back, so the frontmost cloth at a height belongs behind the frontmost
+part of him. One comparison of two maxima; an outline cannot confuse it.
+
+**Measured: 9 of 16 kits fail before, up to 53.9 mm. 0 of 16 after.** The
+warden with the Blood Red — the kit in the owner's photograph — reads 9.9 mm
+before and 0.0 after. wearmeasure: all eleven sections PASS.
+
+**WHAT IT COSTS, plainly.** The four cuts used to differ by 43° in how far
+round the front they reached and now differ by six. The order survives, `a1`
+and the back are untouched, and length, hem, flare and fold are untouched. It
+was a distinction bought with cloth on a man's chest.

@@ -1661,7 +1661,7 @@ const SLOT_MISS_MM = 22;
 }
 
 // ============================================================
-// 11. THE CLOAK STANDING PROUD OF THE ARM
+// 11. THE CLOAK, AGAINST THE ARM AND AGAINST HIS FRONT
 // ============================================================
 //
 // The owner, with a photograph: "Cloak sticks out of front of shoulder/arm."
@@ -1672,6 +1672,12 @@ const SLOT_MISS_MM = 22;
 // Neither has ever looked at an arm. Sixteen kits x four cuts measured against
 // everything a man wears except the two limbs hanging beside it, and "a gate
 // green because the case is absent is not a gate".
+//
+// TWO QUESTIONS, AND ONLY ONE OF THEM GATES. PROUD is reported; REACH is the
+// gate, and its note sits with the code that computes it. This section has now
+// asked the wrong question three times over — the count of wrong-quantity
+// rulers in this file is at eight — so each retirement is written down where
+// the next person will hit it.
 //
 // THE FIRST VERSION OF THIS SECTION ASKED THE WRONG QUESTION, and it is written
 // down here because that is now six times in this file. It rasterised the man
@@ -1725,15 +1731,22 @@ const SLOT_MISS_MM = 22;
 // invent one, and under-claiming is the right direction for a ruler whose
 // failure mode is crying wolf on a garment meant to hang beside an arm.
 const PROUD_MM = 12;
+/** How far past the front of the man his own cloak may reach before it is round
+ *  the front of him rather than beside him. 3 mm, the same slop §7 gives the
+ *  beard and §9 the rest carry. */
+const REACH_MM = 3;
+/** The band that question is asked in: the top 200 mm of the torso, which is
+ *  the shoulder and the upper chest — where the owner's ring was. */
+const FRONT_BAND = 0.20;
 const SHOULDER_BAND = 0.24;
 /** How far above the crown of the arm cloth is still judged against it. */
 const SHOULDER_RISE = 0.12;
 const CELL = 0.006;
 console.log("");
-console.log("[wear] 11. THE CLOAK STANDING PROUD OF THE ARM — outboard of the limb AND forward of it.");
+console.log("[wear] 11. THE CLOAK — how far it stands proud of an arm, and whether it comes round his front.");
 console.log("");
-console.log("[wear] class        cloak   arm pts  cloth pts    rows   proud mm  verdict");
-console.log("[wear] ----------------------------------------------------------------------");
+console.log("[wear] class        cloak   arm pts  cloth pts    rows   proud mm  reach mm  verdict");
+console.log("[wear] --------------------------------------------------------------------------------");
 const afails = [];
 if (!anim) {
   afails.push("render/anim.js was not emitted — the cloak is not being measured against the arm at all");
@@ -1783,21 +1796,62 @@ if (!anim) {
       };
       for (let i = 0; i < 180; i++) { ctx.time = i / 60; anim.poseWarrior(rig, motion, player, 1 / 60, ctx); }
       parent.updateMatrixWorld(true);
-      const cpts = [], arms = [[], []];
+      const cpts = [], arms = [[], []], torso = [];
       rig.group.traverse((o) => {
         if (!o.isMesh) return;
         if (o.name.endsWith("cloak")) skinned(o, cpts);
         else if (o.name.endsWith("arm-1")) skinned(o, arms[0]);
         else if (o.name.endsWith("arm1")) skinned(o, arms[1]);
+        else if (o.name.endsWith("torso")) skinned(o, torso);
       });
       // WHICH WAY IS FORWARD, asked of the man rather than assumed. The sweep
       // puts azimuth 0 — the spine — at negative z, so +z is his front; the
       // cloak's own centroid sitting behind the torso's is that claim checked
       // against the one garment that is only ever worn on a back.
       const mid = (a) => a.reduce((t, q) => t + q.z, 0) / (a.length || 1);
-      const bpts = [];
-      rig.group.traverse((o) => { if (o.isMesh && o.name.endsWith("torso")) skinned(o, bpts); });
-      const facingOk = cpts.length && bpts.length && mid(cpts) < mid(bpts);
+      const facingOk = cpts.length && torso.length && mid(cpts) < mid(torso);
+
+      // ---- DOES THE CLOTH COME ROUND THE FRONT OF HIM ----
+      //
+      // The owner photographed the armoury's SHOULDERS framing and drew a ring
+      // round a hard-edged tab of cloak standing on the FRONT of a mail
+      // shoulder. `art/cloakshoulder/before-*.png` reproduces it on all four.
+      //
+      // THIS IS THE HALF THAT GATES, and it took three tries to ask without
+      // lying. The first two rasterised him from the front and counted cells
+      // where cloth won the depth test — over the arm, then over the torso —
+      // and both over-claimed for the same structural reason: a garment worn
+      // OUTSIDE a man shares the cells at his outline, because that is what an
+      // outline is. Version two failed the berserker's Gilded cloak at 60 mm on
+      // a frame with no cloth anywhere near his chest
+      // (`art/shots/cloakcheck/`), and no inset wide enough to spare his fur
+      // ruff was narrow enough to catch the tab.
+      //
+      // THE QUESTION HAS NO CELLS IN IT. Per height row: how far FORWARD does
+      // the cloth reach, against how far forward the man himself reaches? A
+      // cloak hangs off a back, so the frontmost cloth at a height belongs
+      // behind the frontmost part of HIM at that height. One comparison of two
+      // maxima — an outline cannot confuse it — and it is the sentence the
+      // owner wrote, twice.
+      let reach = 0, reachAt = "-";
+      if (torso.length && cpts.length) {
+        const ttop = torso.reduce((m, q) => Math.max(m, q.y), -Infinity);
+        const tlo = ttop - FRONT_BAND;
+        const him = new Map();
+        for (const q of torso) {
+          if (q.y < tlo || q.y > ttop) continue;
+          const r = Math.round(q.y / CELL);
+          const cur = him.get(r);
+          if (cur === undefined || q.z > cur) him.set(r, q.z);
+        }
+        for (const q of cpts) {
+          if (q.y < tlo || q.y > ttop) continue;
+          const f = him.get(Math.round(q.y / CELL));
+          if (f === undefined) continue;
+          const mm = (q.z - f) * 1000;
+          if (mm > reach) { reach = mm; reachAt = `${q.x.toFixed(3)},${q.y.toFixed(2)}`; }
+        }
+      }
       let rows = 0, proud = 0, at = "-";
       for (const arm of arms) {
         if (!arm.length || !cpts.length) continue;
@@ -1837,6 +1891,8 @@ if (!anim) {
       if (!arms[0].length || !arms[1].length) bad.push("an arm reached the ruler with no vertices");
       if (!rows) bad.push("no shoulder band was found on either arm — the ruler measured nothing");
       if (!facingOk) bad.push("the cloak's centroid is not behind the torso's — this section has its depth sign backwards and every number below it is about his back");
+      if (!torso.length) bad.push("no torso reached the ruler — the question about his front was not asked at all");
+      if (reach > REACH_MM) bad.push(`the ${cloak} cloak reaches ${reach.toFixed(1)} mm further forward than he does, at x,y ${reachAt}`);
       // Reported, not judged — see the note above the bar for why there is no
       // bar. `PROUD_MM` still names what a fold is worth, so the line says
       // which kits are carrying more than cloth gathering.
@@ -1844,7 +1900,7 @@ if (!anim) {
       if (bad.length) afails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
       console.log(
         `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${String(arms[0].length + arms[1].length).padStart(8)} ${String(cpts.length).padStart(10)}  ` +
-        `${String(rows).padStart(6)}  ${proud.toFixed(1).padStart(9)}  ${bad.length ? "<-- FAIL" : "ok"}${note}`);
+        `${String(rows).padStart(6)}  ${proud.toFixed(1).padStart(9)}  ${reach.toFixed(1).padStart(9)}  ${bad.length ? "<-- FAIL" : "ok"}${note}`);
     }
   }
 }
@@ -1852,7 +1908,9 @@ console.log("");
 console.log(`[wear] REPORTED, NOT GATED: how far cloth stands outboard of an arm while also in front of it, in the`);
 console.log(`[wear]   top ${SHOULDER_BAND * 1000} mm of the limb or the ${SHOULDER_RISE * 1000} mm above it. Anything over ${PROUD_MM} mm is more than a fold and is flagged`);
 console.log(`[wear]   on its row. There is no bar because the berserker's own fur ruff earns 80 mm of it; see the note.`);
-console.log(`[wear] GATED: every kit reaches the ruler with cloth, two arms and a shoulder band, and the depth sign is forward.`);
+console.log(`[wear] GATED: at no height in the top ${FRONT_BAND * 1000} mm of him does the cloth reach more than ${REACH_MM} mm further forward`);
+console.log(`[wear]   than he does — the owner's ring — and every kit reaches the ruler with cloth, a torso, two arms`);
+console.log(`[wear]   and a shoulder band, with the depth sign pointing forward.`);
 for (const f of afails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${afails.length ? "FAIL" : "PASS"}: the cloak against the arm`);
 

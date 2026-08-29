@@ -2577,6 +2577,39 @@ const CLOAK_CUTS: Record<string, CloakCut> = {
   },
 };
 
+/**
+ * How much of a cut's reach PAST THE SHOULDER LINE it keeps.
+ *
+ * An eighth, and the number was MEASURED rather than chosen. Behind the
+ * shoulder every cut is untouched — this only ever bites on the last stretch of
+ * the pinned side, which is the stretch that was landing on the front of a
+ * man's chest. A quarter was tried first and `wearmeasure` §11 still found the
+ * Gilded's corner across two men's breasts; an eighth clears every kit in the
+ * shop. See the note in the cloak block for why it is a compression and not a
+ * clamp, and for why this is the shape of fix §8 cannot be broken by.
+ *
+ * WHAT IT COSTS, said plainly: the four cuts used to differ in how far round
+ * the FRONT they reached — 101, 112, 122 and 144 degrees — and they now differ
+ * by six degrees instead of forty-three. The order survives and so does every
+ * other axis the table competes on (length, hem, flare, fold, and the whole of
+ * the wrap BEHIND the shoulder, where `a1` is untouched). It was a distinction
+ * bought with cloth on a man's chest, and the owner has reported that twice.
+ */
+const FRONT_WRAP = 0.12;
+
+/**
+ * Where a cut's leading edge ACTUALLY starts, which is not what its row says.
+ *
+ * One rule, two readers, and the second is the reason this is a function: the
+ * clasp block in the torso seats the brooch at `uPin = 0.07` along the sweep,
+ * so a leading edge that moved without the pin moving would leave a brooch
+ * pinning air. Both now ask the same question of the same table.
+ */
+function cloakLead(cut: CloakCut): number {
+  const past = Math.abs(cut.a0) - Math.PI * 0.5;
+  return past <= 0 ? cut.a0 : -(Math.PI * 0.5 + past * FRONT_WRAP);
+}
+
 /** The cloak rungs, so `wearmeasure` §4 can measure all four clasps. */
 export const CLOAK_VALUES: readonly string[] = Object.keys(CLOAK_CUTS);
 
@@ -15016,7 +15049,11 @@ export function buildCharacter(
       const pivotY = S.shoulderY + 0.030;
       const stack = heavy ? 0.052 : robed ? 0.040 : bare ? PELT_LOFT + 0.012 : 0.024;
       const uPin = 0.07;
-      const aPin = cut.a0 + (cut.a1 - cut.a0) * uPin;
+      // `cloakLead`, not `cut.a0`: the sweep's leading edge is pulled back to the
+      // shoulder and the brooch is seated ALONG that sweep, so reading the raw
+      // table here would pin the clasp to a bearing the cloth no longer reaches.
+      const lead0 = cloakLead(cut);
+      const aPin = lead0 + (cut.a1 - lead0) * uPin;
       const yTop = -cut.nape * Math.pow(uPin, cut.napePow)
         - cut.lead * Math.pow(1 - uPin, 3);
       const cy = pivotY + yTop - 0.012;
@@ -21018,6 +21055,41 @@ export function buildCharacter(
     cloak = pivot;
 
     const cut = CLOAK_CUTS[ap.cloak] ?? CLOAK_CUTS.brown;
+    // THE LEADING EDGE STOPS AT THE SHOULDER, NOT ON THE CHEST.
+    //
+    // The owner, twice, the second time with the spot circled: "Cloak sticks out
+    // of front of shoulder/arm." `art/cloakshoulder/before-weard-front.png` at
+    // three times size is the whole story — a hard-edged red tab of cloth
+    // standing on the FRONT of the mail, just inboard of the shoulder plate.
+    //
+    // It is the sweep's own leading corner. Every cut takes `a0` well past the
+    // shoulder line — the Gilded to 144 degrees from the spine, which is 54
+    // degrees round the front of him — and at those bearings the cloth is
+    // forward of the chest, outside the mail, and facing the camera. A cloak
+    // hangs off a back and over a shoulder; it does not lie across a man's
+    // breast, and the four cuts were competing on how far round the front they
+    // could get.
+    //
+    // THE EXCESS IS COMPRESSED, NOT CLAMPED. Wrap is one of the five things
+    // that make four garments out of four names (`CLOAK_CUTS`), so the ORDER is
+    // kept and only the amount is cut: the Sea-Wolf still wraps least and the
+    // Gilded most, at 93 and 104 degrees against 101 and 144. At 104 the cloth
+    // sits at 23% of the chest's depth forward — behind the plane of his
+    // breast, which is the whole requirement.
+    //
+    // AND THE BROOCH FOLLOWS IT, because the clasp block places itself at
+    // `uPin = 0.07` ALONG THIS SWEEP rather than at a remembered point: the pin
+    // moves from the front of the chest to the point of the shoulder, which is
+    // where a cloak brooch of the period is found and where it should have been.
+    //
+    // §8 CANNOT BREAK ON THIS, and that is why it is the change that shipped
+    // where two better-looking ones did not. That section samples the cloak's
+    // own LINING and asks how far the garment beneath comes through it. No
+    // radius moves here and no sample moves inward — the sweep simply spans a
+    // SUB-RANGE of the azimuths it spanned before, so every sample sits at a
+    // bearing that was already measured and already clear. A minimum taken over
+    // a subset cannot be lower than the minimum over the whole.
+    const a0 = cloakLead(cut);
     // The class scale, kept off the cut so a Sea-Wolf is the same garment on all
     // four men: a huscarl's mail skirt already reaches his thigh and a cloak over
     // it has to stop shorter, a runekeeper is robed and wears everything longer.
@@ -21071,7 +21143,7 @@ export function buildCharacter(
     emit("cloak", pivot, () => {
       const p = new Part();
       const surf = (u: number, v: number, inset: number, out: THREE.Vector3) => {
-        const a = mix(cut.a0, cut.a1, u);
+        const a = mix(a0, cut.a1, u);
         // Folds push *out* and never in. A cosine about zero spends half its
         // amplitude cutting inside the base ellipse, and the base ellipse is
         // only ~60 mm clear of the tunic's flared hem — so a trough put the
