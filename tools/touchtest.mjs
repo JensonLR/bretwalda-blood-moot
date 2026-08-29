@@ -86,6 +86,15 @@ function waitForServer(url, timeoutMs = 180000) {
 // intent rather than what the fight was actually fought with.
 const PROBE = () => {
   const w = window;
+  // A GRADUATE'S DEVICE. These suites measure the fight's controls for a player
+  // who has them; the First Moot is a phased rite that opens each phase on a
+  // full-screen pause card (`src/game/firstmoot.mjs`), and a card over a
+  // touch-scheme measurement is a measurement of the card. The rite has its own
+  // instrument — `tools/moottest.mjs`, 41 claims, headless — and the walk that
+  // follows it has `tools/tourtest.mjs`. Written before load so `createFirstMoot`
+  // reads it at construction, which is exactly what a returning player's device
+  // carries.
+  try { localStorage.setItem("bretwalda.firstmoot", "done"); localStorage.setItem("bretwalda.tour", "done"); } catch { /* private mode */ }
   // `frames` is the addition the lock assertions needed: one row per snapshot,
   // carrying the local warrior's facing AND where every live enemy was standing
   // at that instant. A lock is a claim about the relationship between the two,
@@ -1418,6 +1427,22 @@ async function main() {
   };
 
   {
+    // THE RITE IS BEHIND THIS DEVICE, and this claim is here so that stops
+    // being an assumption. `PROBE` writes the graduate's record before load;
+    // if that key ever drifts, the First Moot opens on a full-screen pause
+    // card and EVERY assertion below fails at once with no clue why. One line
+    // that names the cause beats twenty that describe the symptom.
+    const rite = await page.evaluate(() => {
+      const held = [...document.querySelectorAll("button")]
+        .some((b) => /I AM READY/i.test(b.textContent || ""));
+      return { held, store: localStorage.getItem("bretwalda.firstmoot") };
+    });
+    check("the harness fights as a graduate, with no rite over the glass",
+      !rite.held && rite.store === "done",
+      rite.held
+        ? "the First Moot's pause card is up — the graduate's record did not take, and every claim below is about a card"
+        : `the device carries "${rite.store}" and no card is held`);
+
     await checkLookSideIsClear("right-handed");
 
     // And nothing is drawn on top of anything. Buttons that overlap steal each

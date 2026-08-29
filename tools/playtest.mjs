@@ -55,6 +55,15 @@ function waitForServer(url, timeoutMs = 180000) {
 // real input rate and read the server's authoritative player state.
 const PROBE = () => {
   const w = window;
+  // A GRADUATE'S DEVICE. These suites measure the fight's controls for a player
+  // who has them; the First Moot is a phased rite that opens each phase on a
+  // full-screen pause card (`src/game/firstmoot.mjs`), and a card over a
+  // touch-scheme measurement is a measurement of the card. The rite has its own
+  // instrument — `tools/moottest.mjs`, 41 claims, headless — and the walk that
+  // follows it has `tools/tourtest.mjs`. Written before load so `createFirstMoot`
+  // reads it at construction, which is exactly what a returning player's device
+  // carries.
+  try { localStorage.setItem("bretwalda.firstmoot", "done"); localStorage.setItem("bretwalda.tour", "done"); } catch { /* private mode */ }
   w.__probe = { sent: [], lastState: null, states: 0, opened: false, rec: null };
   const RealWS = window.WebSocket;
   function TappedWS(url, protocols) {
