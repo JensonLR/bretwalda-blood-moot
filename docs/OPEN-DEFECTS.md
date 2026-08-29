@@ -9348,3 +9348,75 @@ own first version made.
 
 Measured now, on the shipped tree: huscarl/red **37.7 mm** proud, berserker/
 brown **80.1**, berserker/gold **49.3**; the other thirteen under 12.
+
+---
+
+## THE FIRST MOOT IS A JOURNEY NOW, NOT A LIST — 29 Aug 2026
+
+**"The tutorial should be a full phased cinematic journey, with pause points,
+teaching all the controls, and they must complete each task before advancing.
+We don't want them just dying constantly while trying to figure it out. Then
+it should take you to the WAR ROOM to choose your kingdom rather than muster
+training, then a tour of the armoury, the sage, training, find a fight, create
+a match."**
+
+Five things were asked for and five were missing. Each is now a mechanism
+rather than a line of copy.
+
+**PHASES, NOT A LIST.** The rite was five beats in a row — move, strike,
+guard, dodge, power — with no shape and no rest. It is four phases now: THE
+FIELD (look, move, sprint), THE BLADE (strike, aim, heavy), THE SHIELD (guard,
+dodge, shove), THE DEED (the power).
+
+**ALL THE CONTROLS.** Five of the eleven things a man actually does were
+untaught: where to LOOK, how to RUN, how to NAME a cut, how to throw a HEAVY,
+how to SHOVE. Ten beats now, and every one is still read off the SERVER's
+snapshot — `swingHeavy` off the wire rather than inferred from a timer, two
+distinct `attackDir`s for the cut, and two new ledgers (`turned`, `dirs`) for
+the things one snapshot cannot know. The view ledger wraps: a man turning
+through north hands back a rotation that jumped 2π, and unwrapped that spends
+the whole arc on one frame of arithmetic. Shown red.
+
+**PAUSE POINTS, AND THEY ARE REAL HOLDS.** Each phase opens on a card — its
+name, two lines of what the next stretch is for, and I AM READY. `note()`
+retires nothing while a card is up, so a player who spends four seconds doing
+exactly what the next beat wants gets no credit and nothing scrolls past him
+unread. The claim that proves it is fed *the exact act the next beat is waiting
+for* — a pause claim fed something the beat would refuse anyway goes green
+whether the hold exists or not, and the first draft of it did.
+
+**AND NOBODY SWINGS AT HIM WHILE HE IS LEARNING.** This is the owner's
+sentence about dying, and it needed the engine. The ring already opened empty
+and the foe already walked in (backlog 8.5) — but he walked in fighting, so a
+new arrival learning which thumb names a cut was learning it under a recruit's
+blows. `add_bot { hold: true }` now walks him in as a **PELL**: `botThink`
+returns at once, so he stands — no stepping, no circling, no feint. Half a
+fighter is a worse lesson than a post, and a post is what the card promises
+("He will not strike back"). `arm_bots` drops the hold, sent once, when
+`firstmoot.mjs` says the rite has reached THE SHIELD — the phase whose whole
+subject is a blow arriving. **The client decides, the engine enforces:** a
+hold a client could forget to ask for is a hold that fails open on the one
+player it exists for.
+
+**IT ENDS IN THE WAR ROOM.** The handoff to `/factions?oath=first` existed but
+fired when the player LEFT the fight — so the journey's last step was a menu
+he had to find, and a man who kept playing the solo ring never reached it at
+all. It fires on the rite's own finish now.
+
+**AND THEN THE HALL.** `src/game/tour.mjs` + `TourGuide`: five doors, ringed
+one at a time, in the order the owner named them. **"The sage" is the SAGA** —
+there is no sage in this game and never has been; the mini-nav's third door is
+"Saga · profile", his record. Written down rather than guessed at silently.
+
+The ring is the button's **own measured rect**, re-read on resize and scroll,
+and a stop whose control is not on the glass is stepped over rather than drawn
+at the origin. A tour with its own idea of the layout points at the wrong
+corner the first time a button moves — and this repo has just spent a day on
+that exact class of fault. It is offered ONCE and only to a device the rite
+marked due: a stranger, a veteran and a garbled record all get nothing,
+because a tutorial that ambushes a veteran is a tutorial.
+
+**moottest 41/41 (from 25/25), tourtest 22/22 (new), protocoltest 81/81,
+wartest 82/82, fighttest 23/23, burhtest 24/24.** Every new behavioural claim
+shown red first — the wrap, the hold, the arming, the two-direction cut, and
+tourtest's three wiring claims against the page before it was wired.

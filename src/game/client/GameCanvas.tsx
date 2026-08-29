@@ -98,6 +98,11 @@ interface GameCanvasProps {
    * once per mount, only in solo, only while a rite is actually running.
    */
   onMootFoe?: () => void;
+  /** Sent once when the First Moot reaches the phase a blow may arrive in. */
+  onMootArm?: () => void;
+  /** The rite is over — the war room is its last step, not a menu he has to
+   *  find. See `page.tsx`. */
+  onMootDone?: () => void;
   /**
    * Whether the STAGE would honour a flourish from the local player, pushed up
    * so the button and the thing that honours it stop being two different
@@ -253,7 +258,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onClip }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onMootArm, onMootDone, onClip }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -2240,6 +2245,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         joyOrigin={touch.origin}
         joystickPos={touch.knob}
         onMootFoe={onMootFoe}
+        onMootArm={onMootArm}
+        onMootDone={onMootDone}
       />
     </div>
   );

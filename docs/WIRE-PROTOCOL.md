@@ -84,7 +84,8 @@ not, the message is dropped silently.
 | `ready` | — | — | Toggles. Broadcasts `lobby_update`. Nothing reads `ready` to decide anything — see §9.4. |
 | `loaded` | — | ignored unless the caller declared `awaitLoad` | **"My arena is standing."** Releases this man from the muster; when he is the last one the countdown starts on that message rather than on a timer. Idempotent. See §2.1. |
 | `set_appearance` | `{appearance}` | — | Stored opaquely and echoed to every client on every snapshot. The simulation never reads it; see §5. |
-| `add_bot` | `{difficulty?, warriorClass?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. NO LOBBY GATE, and since 26 Aug 2026 that is load-bearing: a bot added into a running fight is dealt the emptiest point on the round's spawn ring, facing centre, whole — the First Moot's staged foe (backlog 8.5) is the first deliberate mid-match caller. |
+| `add_bot` | `{difficulty?, warriorClass?, hold?}` | host only; `botsIn < botCapacity` | Adds one bot. `warriorClass` names what it fights as; anything not in `WARRIOR_STATS` is ignored and the roster cycles `BOT_CLASSES` as before. NO LOBBY GATE, and since 26 Aug 2026 that is load-bearing: a bot added into a running fight is dealt the emptiest point on the round's spawn ring, facing centre, whole — the First Moot's staged foe (backlog 8.5) is the first deliberate mid-match caller. `hold: true` walks him in as a PELL — `botThink` returns at once, so he stands, does not step, circle, feint or strike, and waits for `arm_bots`. Asked for by the caller rather than inferred from the room, because "solo" is also every training fight a veteran takes and those men are meant to swing. |
+| `arm_bots` | `{}` | host only | Drops the hold on every held bot in the room. The First Moot's second half: `src/game/firstmoot.mjs` decides WHEN (its `armed`, true from the SHIELD phase on, which is the phase whose subject is a blow arriving) and the client relays it once. There is no way back — a rite that could disarm a live fight would be a way to freeze an opponent, and the only opponents here are bots in a room sealed to other humans. The owner's reason: "We don't want them just dying constantly while trying to figure it out." |
 | `remove_bot` | `{botId?}` | host only | Named bot, or the last one added. |
 | `set_bots` | `{count?, difficulty?}` | host only; `state === "lobby"` | Sizes the whole roster in one message and re-grades existing bots. |
 | `set_rounds` | `{bestOf}` | host only; `state === "lobby"`; not solo | Best of 1, 3 or 5; anything else falls back (`normalizeBestOf`, 890). |
@@ -834,6 +835,7 @@ C2S ready
 C2S loaded
 C2S set_appearance
 C2S add_bot
+C2S arm_bots
 C2S remove_bot
 C2S set_bots
 C2S set_rounds

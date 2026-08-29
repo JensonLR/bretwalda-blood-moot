@@ -2498,12 +2498,25 @@ export function makeEngine(options = {}) {
       // asked to be waited for, and it can only ever make the fight start
       // SOONER — see LOAD_HOLD_MS on why there is nothing here to farm.
       case "loaded": return withRoom(sid, (room, player) => reportLoaded(room, player));
+      // THE FIRST MOOT ARMS ITS PELL. Host only and once: `firstmoot.mjs`
+      // decides when (its `armed`, true from THE SHIELD on) and the client
+      // relays it. There is no way back — a rite that could disarm a live fight
+      // would be a way to freeze an opponent, and the only opponents here are
+      // bots in a room sealed to other humans.
+      case "arm_bots": return withRoom(sid, (room, player) => {
+        if (room.hostId !== player.id) return;
+        room.players.forEach((p) => { if (p.holdHand) p.holdHand = false; });
+      });
       case "add_bot": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id) return;
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);
         if (botsIn(room) >= botCapacity(room)) return;
         room.difficulty = room.difficulty || diff;
         const late = addBot(room, botsIn(room), diff, data.warriorClass, data.arms);
+        // The First Moot's pell — see `botThink`. Asked for by the caller
+        // rather than inferred from the room, because "solo" is also every
+        // training fight a veteran takes and those men are meant to swing.
+        if (late && data.hold) late.holdHand = true;
         // A BOT ADDED INTO A RUNNING FIGHT WALKS IN DRESSED FOR IT. This
         // handler never had a lobby gate — the button that drives it lives in
         // the lobby — but `createPlayer` parks a man at the origin, which
@@ -4537,6 +4550,23 @@ export function makeEngine(options = {}) {
 
   function botThink(room, bot, dt) {
     if (bot.state === "dead") return;
+    // THE PELL. The owner, on the First Moot: "We don't want them just dying
+    // constantly while trying to figure it out."
+    //
+    // The rite already opened on an empty ring and already walked this man in
+    // when it was time to STRIKE (backlog 8.5). What it could not do was let
+    // him be struck AT without striking back, so a new arrival learning which
+    // thumb names a cut was learning it under a recruit's blows. He now stands
+    // — a training post with a pulse — until the client says the rite has
+    // reached THE SHIELD, which is the phase whose whole subject is a blow
+    // arriving. `firstmoot.mjs` owns that judgement (`armed`); this is the half
+    // that enforces it, because a hold a client could forget to ask for is a
+    // hold that fails open on the one player it exists for.
+    //
+    // A FULL STOP AND NOT A GENTLER BOT: he does not step, circle or feint
+    // either. Half a fighter is a worse lesson than a post, and a post is what
+    // the copy on the card promises — "He will not strike back."
+    if (bot.holdHand) return;
     const now = room.matchTimer;
     if (now < bot.nextThink) return;
     bot.nextThink = now + (0.18 - bot.aiSkill * 0.08);

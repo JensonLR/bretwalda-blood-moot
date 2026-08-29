@@ -98,6 +98,11 @@ interface GameHudProps {
   joystickPos: { x: number; y: number; active: boolean };
   /** The rite left MOVE (learned or skipped): the staged foe may walk in. */
   onMootFoe?: () => void;
+  /** Sent once when the First Moot reaches the phase a blow may arrive in. */
+  onMootArm?: () => void;
+  /** The rite is over — take him to the war room, which is the second half of
+   *  the owner's one flow: "learn the fight, then choose your kingdom". */
+  onMootDone?: () => void;
 }
 
 /**
@@ -660,7 +665,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe,
+  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe, onMootArm, onMootDone,
 }: GameHudProps) {
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
@@ -864,7 +869,11 @@ export default function GameHud({
   const ensureMoot = useCallback(() => (
     mootRef.current ??= createFirstMoot(browserStore(FIRST_MOOT_KEY))
   ), []);
-  const [mootUp, setMootUp] = useState<{ line: string | null; at: number; total: number; flash?: boolean }>({ line: null, at: 0, total: 0 });
+  const [mootUp, setMootUp] = useState<{
+    line: string | null; at: number; total: number; flash?: boolean;
+    /** The pause point: a phase's card, held until the player takes it down. */
+    card: { title: string; lines: readonly string[]; at: number; total: number } | null;
+  }>({ line: null, at: 0, total: 0, card: null });
   // The staged foe (backlog 8.5): fired once, the first time the rite is seen
   // past its MOVE beat — learned or skipped — so the First Moot's empty ring
   // gets its opponent exactly when striking becomes the lesson. A ref, so the
@@ -872,6 +881,18 @@ export default function GameHud({
   const mootFoeSentRef = useRef(false);
   const onMootFoeRef = useRef(onMootFoe);
   useEffect(() => { onMootFoeRef.current = onMootFoe; });
+  /** Sent once, when the rite reaches the phase a blow may arrive in. The pell
+   *  stands still until then — `firstmoot.mjs` decides, `engine.mjs` enforces,
+   *  this is the wire between them. */
+  const mootArmSentRef = useRef(false);
+  const onMootArmRef = useRef(onMootArm);
+  useEffect(() => { onMootArmRef.current = onMootArm; });
+  /** Fired on the EDGE of the rite finishing inside this session, so a
+   *  graduate who happens to take another solo fight is not marched off to the
+   *  war room every time he loads the ring. */
+  const mootDoneSentRef = useRef(false);
+  const onMootDoneRef = useRef(onMootDone);
+  useEffect(() => { onMootDoneRef.current = onMootDone; });
   const mootPrevAtRef = useRef(0);
   // The interval reads the LATEST snapshot through a ref: `localPlayer` is a
   // fresh object twenty times a second and an effect keyed on it would tear
@@ -887,7 +908,7 @@ export default function GameHud({
     // state (the cascade react-doctor flags); a beat line appearing one task
     // later than the commit is not observable against a 250 ms cadence.
     if (!mootEligible) {
-      const t = setTimeout(() => setMootUp((p) => (p.line ? { line: null, at: p.at, total: p.total } : p)), 0);
+      const t = setTimeout(() => setMootUp((p) => (p.line || p.card ? { line: null, at: p.at, total: p.total, card: null } : p)), 0);
       return () => clearTimeout(t);
     }
     const moot = ensureMoot();
@@ -896,9 +917,22 @@ export default function GameHud({
     let flashTimer: ReturnType<typeof setTimeout> | null = null;
     const push = () => {
       const b = moot.beat;
-      if (!mootFoeSentRef.current && (!b || b.id !== "move")) {
+      // The foe walks in for THE BLADE — the phase whose card promises him —
+      // and not before. Keyed on the phase and no longer on "the MOVE beat is
+      // behind us", because MOVE is the second beat of three now and the ring
+      // would have filled up while the player was still learning where to look.
+      if (!mootFoeSentRef.current && (moot.done || moot.phaseAt >= 1)) {
         mootFoeSentRef.current = true;
         onMootFoeRef.current?.();
+      }
+      // And he keeps his hands down until the rite says otherwise.
+      if (!mootArmSentRef.current && moot.armed) {
+        mootArmSentRef.current = true;
+        onMootArmRef.current?.();
+      }
+      if (!mootDoneSentRef.current && moot.done && mootPrevAtRef.current > 0) {
+        mootDoneSentRef.current = true;
+        onMootDoneRef.current?.();
       }
       // A beat retiring is the rite's one reward moment — flash the line so
       // "learned" reads as an event, not as text quietly swapping.
@@ -909,8 +943,11 @@ export default function GameHud({
         flashTimer = setTimeout(() => setMootUp((p) => (p.flash ? { ...p, flash: false } : p)), 1300);
       }
       const line = b ? (isMobile.current ? b.touch : b.desk) : null;
+      const c = moot.card;
+      const card = c ? { title: c.title, lines: c.card, at: moot.phaseAt, total: moot.phaseTotal } : null;
       setMootUp((prev) => (prev.line === line && prev.at === moot.at && !learned
-        ? prev : { line, at: moot.at, total: moot.total, flash: learned || (prev.flash && prev.at === moot.at) }));
+        && (prev.card?.title ?? null) === (card?.title ?? null)
+        ? prev : { line, at: moot.at, total: moot.total, card, flash: learned || (prev.flash && prev.at === moot.at) }));
     };
     const t0 = setTimeout(push, 0);
     const id = setInterval(() => {
@@ -922,8 +959,26 @@ export default function GameHud({
   }, [mootEligible, ensureMoot, isMobile]);
   const skipMoot = useCallback(() => {
     ensureMoot().skip();
-    setMootUp((p) => ({ line: null, at: p.at, total: p.total }));
+    setMootUp((p) => ({ line: null, at: p.at, total: p.total, card: null }));
   }, [ensureMoot]);
+  /**
+   * Take the card down and begin the phase. THE PAUSE POINT ends here.
+   *
+   * A plain function and not a `useCallback`: it reads `isMobile.current`, and
+   * a ref read inside a memo is the one thing the compiler will not carry — it
+   * cannot know the ref moved. Memoising a handler used once by one button buys
+   * nothing anyway, and the alternative (letting the 250 ms interval fill the
+   * line in) is a quarter of a second of blank glass after "I AM READY", which
+   * is the press this whole card exists for.
+   */
+  const openMoot = () => {
+    const m = ensureMoot();
+    m.open();
+    setMootUp((p) => ({
+      ...p, card: null,
+      line: m.beat ? (isMobile.current ? m.beat.touch : m.beat.desk) : null,
+    }));
+  };
 
   const slash = useSwingButton("attack", true, setFlag, onCommit);
   const heavy = useSwingButton("heavy", false, setFlag, onCommit);
@@ -1137,6 +1192,46 @@ export default function GameHud({
               exactly that. When it leaves is `src/game/firstmoot.mjs`'s
               decision — a beat retires when the sim has honoured the act it
               teaches, never on a timer alone. */}
+          {/* THE PAUSE POINT — a phase's card, and the cinematic half of the
+              owner's "full phased cinematic journey, with pause points".
+              
+              It is a real HOLD and not a caption: `firstmoot.mjs` retires
+              nothing while its card is up, so a player who spends four seconds
+              doing exactly what the next beat wants gets no credit for it and
+              nothing scrolls past him unread. He takes it down when he has read
+              it, and only then is anything asked.
+
+              `inset-0` and `pointer-events-auto`: the whole glass is the card
+              while it is up. That is deliberate on a phone — a 44 px button in
+              a corner is a thing to hunt for, and there is nothing else to
+              press here. The free-look half is not being taken from anyone,
+              because nothing is being asked yet. */}
+          {mootUp.card && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/72 px-6 backdrop-blur-sm pointer-events-auto animate-fadeIn">
+              <div className="max-w-sm text-center">
+                <div className="text-[10px] font-bold uppercase tracking-[0.4em] text-amber-500/80">
+                  THE FIRST MOOT · {mootUp.card.at + 1} OF {mootUp.card.total}
+                </div>
+                <h2 className="font-display mt-2 text-3xl tracking-[0.18em] text-[#f6f1e6]"
+                  style={{ textShadow: "0 2px 24px rgba(0,0,0,0.95), 0 0 30px rgba(255,180,60,0.3)" }}>
+                  {mootUp.card.title}
+                </h2>
+                <div className="mx-auto mt-3 h-px w-24 bg-amber-700/60" />
+                {mootUp.card.lines.map((l, i) => (
+                  <p key={i} className="mt-2.5 text-[13px] leading-relaxed text-[#d9cdb2]">{l}</p>
+                ))}
+                <button onClick={openMoot} data-snd="confirm"
+                  className="btn-primary mt-6 w-full !min-h-[3.25rem]">
+                  I AM READY
+                </button>
+                <button onClick={skipMoot} data-snd="back"
+                  className="mt-2 w-full py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d7057] transition hover:text-[#a89a7c]">
+                  I know the fight — take me to the war
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 352 px off the foot is above the cluster on a tall screen and off
               the TOP of a landscape one — at 390 px of height it lands 38 px
               down, straight through the timer column. It is a caption that has

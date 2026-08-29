@@ -20,6 +20,8 @@ import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // all read the same law; see the header of `marks.mjs`.
 import { MARKS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks, type MarkFacts } from "@/game/marks.mjs";
 import { useFightRail, railStyle } from "@/game/client/fightRail";
+import { createTour, tourIsDue, TOUR_KEY } from "@/game/tour.mjs";
+import { browserStore } from "@/game/tuition.mjs";
 import { MarkGlyph } from "../game/client/MarkGlyph";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
@@ -1639,7 +1641,30 @@ export default function Page() {
           // MOOT door — that session starts with an empty ring on purpose. A
           // player who chose zero bots in TRAINING chose an empty ring and
           // keeps it; the HUD's callback fires either way, the guard is here.
-          onMootFoe={() => { if (mootSessionRef.current) sendMsg("add_bot", { difficulty: "recruit" }); }}
+          // `hold: true` is the pell (engine `botThink`): he walks in for THE
+          // BLADE and stands there. The owner: "We don't want them just dying
+          // constantly while trying to figure it out."
+          onMootFoe={() => { if (mootSessionRef.current) sendMsg("add_bot", { difficulty: "recruit", hold: true }); }}
+          // And he is armed when the rite reaches THE SHIELD, whose whole
+          // subject is a blow arriving. One message, once, host only.
+          onMootArm={() => { if (mootSessionRef.current) sendMsg("arm_bots"); }}
+          // THE RITE ENDS IN THE WAR ROOM. The owner: "then it should take you
+          // to the WAR ROOM to choose your kingdom rather than muster
+          // training." It used to wait for him to LEAVE the fight, which meant
+          // the journey's last step was a menu he had to find on his own —
+          // and a man who kept playing the solo ring never reached it at all.
+          // Same handoff, fired on the rite's own finish.
+          onMootDone={() => {
+            if (!mootSessionRef.current) return;
+            mootSessionRef.current = false;
+            // The third act is owed from here — see `tour.mjs`. Written now
+            // rather than on his return, because the return is a full page
+            // navigation out of `/factions` and this component will not exist
+            // to remember anything.
+            tourIsDue(browserStore(TOUR_KEY).save);
+            leaveRoom(); setMatchResults(null);
+            window.location.href = "/factions?oath=first";
+          }}
           onClip={(f) => setClipSave(() => f)} />
         {/* The arena being built, instead of a black screen. Driven only by
             stages that have LANDED (see GameCanvas), and it sits under the
@@ -2327,6 +2352,14 @@ export default function Page() {
   return (
     <MenuShell art={screen === "landing" ? "hero" : "hall"} notice={notice} onDismiss={() => setNotice(null)} muted={muted} onMute={toggleMute}>
       {keysOpen && <KeyBindingsPanel onClose={() => setKeysOpen(false)} />}
+      {/* THE THIRD ACT — see `TourGuide` and `src/game/tour.mjs`. Landing only
+          and with no other panel over it: the five doors it names are on this
+          screen and nowhere else, and a ring drawn round a button behind a
+          modal is a ring round a button nobody can press. Mounted rather than
+          gated on a flag here because the module itself answers "is this device
+          owed a walk" — a stranger, a veteran and a garbled record all get
+          nothing, and only a device the rite marked DUE sees anything at all. */}
+      {screen === "landing" && !keysOpen && <TourGuide onDone={() => setNotice(null)} />}
       {screen === "landing" && (
         // Centred as a whole rather than as a stack of centred children, so the
         // title and the controls stay one composition from 390px to 1440px.
@@ -2421,11 +2454,11 @@ export default function Page() {
                 Learn the fight. Then choose your kingdom.
               </p>
             )}
-            <button data-snd="confirm" onClick={handleQuick} disabled={busy}
+            <button data-snd="confirm" data-tour="fight" onClick={handleQuick} disabled={busy}
               className={`${mootOffered ? "btn-ghost" : "btn-primary animate-glow"} w-full !min-h-[3.75rem] !text-lg`}>
               <Swords size={20} /> FIND A FIGHT
             </button>
-            <button onClick={() => setScreen("create")} disabled={busy}
+            <button data-tour="create" onClick={() => setScreen("create")} disabled={busy}
               className="btn-ghost w-full !min-h-[3.75rem] !text-lg">
               <Swords size={20} /> CREATE BATTLE
             </button>
@@ -2456,17 +2489,17 @@ export default function Page() {
                 <span>The War</span>
                 <span className="text-[9px] font-normal text-amber-400/80">the map</span>
               </a>
-              <button onClick={() => setScreen("training")} className="mini-nav">
+              <button data-tour="training" onClick={() => setScreen("training")} className="mini-nav">
                 <Crosshair size={19} className="text-amber-400" />
                 <span>Training</span>
                 <span className="text-[9px] font-normal text-emerald-400">vs AI</span>
               </button>
-              <button onClick={() => openArmoury("landing")} className="mini-nav">
+              <button data-tour="armoury" onClick={() => openArmoury("landing")} className="mini-nav">
                 <Shirt size={19} className="text-amber-400" />
                 <span>Armoury</span>
                 <span className="text-[9px] font-normal text-[#a89a7c]">customise</span>
               </button>
-              <button onClick={() => setScreen("profile")} className="mini-nav">
+              <button data-tour="saga" onClick={() => setScreen("profile")} className="mini-nav">
                 <Scroll size={19} className="text-amber-400" />
                 <span>Saga</span>
                 <span className="text-[9px] font-normal text-[#a89a7c]">profile</span>
@@ -4269,6 +4302,121 @@ function StatBar({ label, frac, text, cls }: { label: string; frac: number; text
  * keeps the delegated tap off it: a button that silences the game must not make
  * a noise on the way, and un-silencing it says `confirm` for itself.
  */
+/**
+ * THE TOUR — five doors, pointed at, after the oath.
+ *
+ * The owner: "...then a tour of the armoury, the sage, training, find a fight,
+ * create a match." `src/game/tour.mjs` owns which doors there are, who is owed
+ * the walk and what happens when one is not on the glass; this is the drawing.
+ *
+ * IT MEASURES THE BUTTON. `data-tour` is on the real control and the ring is
+ * that element's own rect, read on mount and on every resize — a tour with its
+ * own idea of the layout points at the wrong corner the first time a button
+ * moves, and this codebase has spent a day on exactly that class of fault.
+ * `has()` is the same measurement, so a door that is not rendered is stepped
+ * over by the module rather than ringed at the origin.
+ *
+ * The scrim takes the whole glass and the ring is a hole in it: everything is
+ * dimmed EXCEPT the door being named, which is the one thing a tour has to do.
+ * The card places itself under the ring, or over it when the ring is low
+ * enough that under would be off the foot of a phone.
+ */
+function TourGuide({ onDone }: { onDone: () => void }) {
+  const store = browserStore(TOUR_KEY);
+  const seen = useCallback((target: string) =>
+    typeof document !== "undefined" && !!document.querySelector(`[data-tour="${target}"]`), []);
+  const tourRef = useRef<ReturnType<typeof createTour> | null>(null);
+  const [stop, setStop] = useState<{ title: string; line: string; target: string; at: number; total: number } | null>(null);
+  const [rect, setRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  // Built after mount, never during render: `createTour` reads localStorage and
+  // walks the DOM through `has`, and neither exists on the server.
+  useEffect(() => {
+    // On a 0 ms timer, so the effect body itself sets no state — the cascade
+    // react-doctor flags, and the same shape the First Moot's own first write
+    // uses. A ring appearing one task after the landing screen commits is not
+    // observable, and the module has to read localStorage and walk the DOM
+    // before it can say whether there is anything to draw at all.
+    const t0 = setTimeout(() => {
+      const t = tourRef.current ?? (tourRef.current = createTour({ ...store, has: seen }));
+      const s = t.stop;
+      setStop(s ? { title: s.title, line: s.line, target: s.target, at: t.at, total: t.total } : null);
+    }, 0);
+    return () => clearTimeout(t0);
+    // `store` and `seen` are stable for the life of this component (one is a
+    // fresh object per render but only its two closures are used, and they
+    // close over a constant key); the tour is built once by the ref guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The ring follows the button, including through a rotation — which is not
+  // hypothetical now that the game plays in landscape.
+  useEffect(() => {
+    const target = stop?.target;
+    const read = () => {
+      const el = target ? document.querySelector(`[data-tour="${target}"]`) : null;
+      if (!el) { setRect(null); return; }
+      const r = el.getBoundingClientRect();
+      setRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+    };
+    // Same 0 ms deferral as above, and here it earns something besides the
+    // lint: the ring is measured after the browser has laid the button out,
+    // which on the first commit of the landing screen it has not.
+    const t0 = setTimeout(read, 0);
+    window.addEventListener("resize", read);
+    window.addEventListener("scroll", read, true);
+    return () => {
+      clearTimeout(t0);
+      window.removeEventListener("resize", read);
+      window.removeEventListener("scroll", read, true);
+    };
+  }, [stop]);
+
+  if (!stop || !rect) return null;
+  const advance = (all: boolean) => {
+    const t = tourRef.current;
+    if (!t) return;
+    if (all) t.skip(); else t.next();
+    const s = t.stop;
+    setStop(s ? { title: s.title, line: s.line, target: s.target, at: t.at, total: t.total } : null);
+    if (!s) onDone();
+  };
+  // Under the ring by default; above it when under would run off the foot.
+  const below = rect.y + rect.h + 190 < (typeof window === "undefined" ? 800 : window.innerHeight);
+  return (
+    <div className="fixed inset-0 z-[60] animate-fadeIn">
+      {/* The hole. Four panels rather than a mask so the ring is a real gap in
+          a real scrim on every browser, and so a press anywhere on the dimmed
+          part is caught by this layer instead of opening a door he has not
+          been told about yet. */}
+      <div className="absolute inset-x-0 top-0 bg-black/78" style={{ height: Math.max(0, rect.y - 6) }} onClick={() => advance(false)} />
+      <div className="absolute inset-x-0 bottom-0 bg-black/78" style={{ top: rect.y + rect.h + 6 }} onClick={() => advance(false)} />
+      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: 0, width: Math.max(0, rect.x - 6) }} onClick={() => advance(false)} />
+      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: rect.x + rect.w + 6, right: 0 }} onClick={() => advance(false)} />
+      <div className="pointer-events-none absolute rounded-xl border-2 border-amber-400/90 shadow-[0_0_28px_rgba(217,164,65,0.5)]"
+        style={{ left: rect.x - 6, top: rect.y - 6, width: rect.w + 12, height: rect.h + 12 }} />
+      <div className="absolute left-1/2 w-[min(22rem,88vw)] -translate-x-1/2 px-1"
+        style={below ? { top: rect.y + rect.h + 22 } : { bottom: (typeof window === "undefined" ? 800 : window.innerHeight) - rect.y + 22 }}>
+        <div className="card !bg-stone-950/95 p-4 text-center backdrop-blur">
+          <div className="text-[9px] font-bold uppercase tracking-[0.34em] text-amber-500/80">
+            THE HALL · {stop.at + 1} OF {stop.total}
+          </div>
+          <div className="font-display mt-1.5 text-lg tracking-[0.14em] text-amber-100">{stop.title}</div>
+          <p className="mt-2 text-[12px] leading-relaxed text-[#d9cdb2]">{stop.line}</p>
+          <div className="mt-3.5 flex gap-2">
+            <button onClick={() => advance(true)} data-snd="back"
+              className="btn-ghost flex-1 !min-h-[2.75rem] !text-[11px]">I&apos;LL LOOK MYSELF</button>
+            <button onClick={() => advance(false)} data-snd="confirm"
+              className="btn-primary flex-1 !min-h-[2.75rem] !text-[11px]">
+              {stop.at + 1 >= stop.total ? "TO THE FIGHT" : "NEXT"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SoundToggle({ muted, onToggle, className = "", style }: {
   muted: boolean; onToggle: () => void; className?: string;
   /** Where it hangs, when a caller places it rather than classing it — the
