@@ -213,3 +213,57 @@ export function markHint(mark) {
     default: return "";
   }
 }
+
+/**
+ * What an EARNED mark's line says — the same fact as `markHint`, in the past
+ * tense.
+ *
+ * The owner: "There's no ... ability to see why or how you got it once
+ * unlocked." That was true, and the comment on the picker in `page.tsx` said
+ * so out loud — "the hint is the whole of what a locked tile has to say" — so
+ * the moment a rule was satisfied its line was replaced by the mark's name and
+ * the reason went with it. A man who came back a week later had a Raven Banner
+ * and no way to learn it cost him twenty-five wins.
+ *
+ * ONE RULE, TWO READERS, and this is the second: both functions switch on the
+ * same `how`/`need` and neither restates a threshold the other owns, so a rule
+ * that changes changes both lines or neither. marktest holds them together.
+ */
+export function markWon(mark) {
+  switch (mark.how) {
+    case "free": return "Yours from the first day.";
+    case "level": return `Reached level ${mark.need}.`;
+    case "wins": return `Won ${mark.need} match${mark.need === 1 ? "" : "es"}.`;
+    case "matches": return `Fought ${mark.need} match${mark.need === 1 ? "" : "es"}.`;
+    case "sworn": return "Sworn to a kingdom.";
+    case "crowned": return "Crowned Bretwalda of Britain.";
+    default: return "";
+  }
+}
+
+/**
+ * WHICH MARKS TO ANNOUNCE, and the record to keep — the other half of the
+ * owner's report: "There's no notification for when you unlock a new mark via
+ * an achievement."
+ *
+ * `seen` is the ids already announced to this player. Undefined means the
+ * record has never been kept, and that case PRIMES rather than announces: a
+ * profile that already satisfies nine rules earned them before this function
+ * existed, and nine notices at once is how a player learns to dismiss the
+ * notice without reading it. So the first run announces nothing and writes
+ * everything down; every run after announces the difference. The picker's
+ * detail line covers the marks that priming swallows — that is the half of the
+ * report about looking a mark up, and it does not depend on having been told.
+ *
+ * FREE MARKS ARE NEVER ANNOUNCED. "Yours already" is not an unlock, and four
+ * of them land on the first frame a new player ever sees.
+ *
+ * Returns the SAME `seen` array when nothing is fresh, so a caller can skip the
+ * write by identity and never save a profile just for having looked.
+ */
+export function heraldMarks(seen, facts) {
+  const earned = MARKS.filter((m) => m.how !== "free" && markEarned(m, facts)).map((m) => m.id);
+  if (!Array.isArray(seen)) return { fresh: [], seen: earned };
+  const fresh = earned.filter((id) => !seen.includes(id));
+  return { fresh, seen: fresh.length ? [...seen, ...fresh] : seen };
+}

@@ -26,4 +26,9 @@ declare module "@/game/marks.mjs" {
   export function markEarned(mark: Mark, facts?: MarkFacts): boolean;
   export function earnedMark(id: string | undefined | null, facts?: MarkFacts): Mark;
   export function markHint(mark: Mark): string;
+  export function markWon(mark: Mark): string;
+  export function heraldMarks(
+    seen: readonly string[] | undefined | null,
+    facts?: MarkFacts,
+  ): { fresh: string[]; seen: string[] };
 }

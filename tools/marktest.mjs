@@ -8,7 +8,7 @@
 // every law the surfaces rely on is provable here in milliseconds. The one
 // thing this file CANNOT see is whether a glyph reads as what it is named —
 // that is R2 territory and lives in the proof sheet the ledger points at.
-import { MARKS, MARK_FACTS, markOf, markEarned, earnedMark, markHint } from "../src/game/marks.mjs";
+import { MARKS, MARK_FACTS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks } from "../src/game/marks.mjs";
 
 let passed = 0, failed = 0;
 const check = (name, ok, detail = "") => {
@@ -109,6 +109,53 @@ check("every gated mark has a hint that names its bar",
         : markHint(m).includes(String(m.need))));
 check("free marks claim themselves", MARKS.filter((m) => m.how === "free").every((m) => /yours/i.test(markHint(m))));
 
+// ---- WHAT AN EARNED TILE SAYS — the owner's fifth report ----
+// "There's no ... ability to see why or how you got it once unlocked." The
+// past-tense line is the answer, and the danger in having two lines for one
+// rule is that they drift, so these hold them together rather than restating
+// either.
+check("every gated mark says what it cost, in the past tense",
+  MARKS.filter((m) => m.how !== "free").every((m) =>
+    m.how === "sworn" ? /kingdom/i.test(markWon(m))
+      : m.how === "crowned" ? /bretwalda/i.test(markWon(m))
+        : markWon(m).includes(String(m.need))));
+check("the two lines never disagree about the bar",
+  // Same threshold in both, and never the same sentence: a hint that reads as
+  // a boast, or a boast that still reads as an instruction, is the drift.
+  MARKS.every((m) => markWon(m).length > 0 && markWon(m) !== markHint(m)));
+check("no earned line still gives an order",
+  // "Reach level 5" on a mark you are wearing is the defect this whole line
+  // exists to remove. Every imperative the hints use, banned from the boasts.
+  MARKS.every((m) => !/^(Reach|Win|Fight|Swear|Be)\b/.test(markWon(m))));
+
+// ---- WHO GETS TOLD — the other half of the same report ----
+{
+  const none = { level: 1, wins: 0, matches: 0 };
+  const mid = { level: 12, wins: 6, matches: 30, sworn: true };
+  const primed = heraldMarks(undefined, mid);
+  check("a first run announces nothing and records everything",
+    primed.fresh.length === 0 && primed.seen.length > 0,
+    `${primed.seen.length} marks written down, ${primed.fresh.length} announced`);
+  check("a free mark is never announced",
+    heraldMarks([], none).seen.length === 0 && heraldMarks([], none).fresh.length === 0,
+    "four marks are yours on the first frame; none of them is news");
+  const idle = heraldMarks(primed.seen, mid);
+  check("an idle screen never writes",
+    idle.seen === primed.seen && idle.fresh.length === 0,
+    "the record comes back by identity, so the caller can skip the save");
+  const won = heraldMarks(primed.seen, { ...mid, wins: 25 });
+  check("crossing a bar announces exactly what was crossed",
+    won.fresh.includes("ravenbanner") && won.fresh.every((id) => !primed.seen.includes(id))
+      && won.seen.length === primed.seen.length + won.fresh.length,
+    `25 wins announced ${won.fresh.join(", ")}`);
+  check("what was announced is never announced twice",
+    heraldMarks(won.seen, { ...mid, wins: 25 }).fresh.length === 0);
+  check("a bar that falls back does not un-announce",
+    // Levels do not fall, but a server answer can arrive stale and a profile
+    // can be restored mid-season. A mark once told stays told.
+    heraldMarks(won.seen, none).seen === won.seen);
+}
+
 // ---- the migration promise: characters.ts backfills what this narrows ----
 // marktest cannot import the TS module, but it can hold the CONTRACT the two
 // agreed: "none" is a real id, so a backfilled profile resolves to a real mark.
@@ -138,6 +185,23 @@ import { readFileSync } from "node:fs";
       calls > 0 && calls === backed,
       `${calls} calls, ${backed} carrying facts`);
   }
+  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  check("the record screen actually heralds",
+    /heraldMarks\(p\.seenMarks,/.test(page) && /seenMarks: seen/.test(page),
+    "the effect reads the record and writes it back");
+  check("the herald's no-op guard is identity and not length",
+    // Length would write the profile on every render that earned nothing new,
+    // and the profile mirror writes localStorage on every change.
+    /if \(seen === p\.seenMarks\) return;/.test(page));
+  check("a pressed mark shows its line rather than a tooltip",
+    /markWon\(markOf\(markPeek\)\)/.test(page) && /setMarkPeek\(/.test(page)
+      && !/title=\{`\$\{m\.name\} — \$\{m\.source\}`\}/.test(page),
+    "the title attribute no phone can show is gone, the line under the grid is not");
+  check("a locked tile can still be asked a question",
+    // `disabled` on a locked tile is what made the provenance unreachable.
+    // `pickMark` refuses an unearned id on its own, so nothing needs it.
+    !/onClick=\{\(\) => pickMark\(m\.id\)\} disabled=\{!earned\}/.test(page),
+    "locked tiles are pressable and still unpickable");
   check("the weapon finish is a persisted slot",
     /weapon:\s*\{\s*field:\s*"weapon"/.test(catalogue),
     "the 3.3 paid-finish revert defect stays fixed");

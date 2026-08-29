@@ -18,7 +18,7 @@ import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // The profile marks — backlog 5.5. The set and the unlock rules live in one
 // shared module so this screen, the glyph component and `tools/marktest.mjs`
 // all read the same law; see the header of `marks.mjs`.
-import { MARKS, markEarned, earnedMark, markHint, type MarkFacts } from "@/game/marks.mjs";
+import { MARKS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks, type MarkFacts } from "@/game/marks.mjs";
 import { MarkGlyph } from "../game/client/MarkGlyph";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
@@ -130,6 +130,13 @@ interface ProfileData {
   /** Seasons crowned Bretwalda. Only ever set by the server; absent under-claims,
    *  which is the marks' own narrowing posture. */
   bretwaldaSeasons?: number[];
+  /**
+   * WHICH MARKS THIS DEVICE HAS ALREADY ANNOUNCED. Device-local on purpose and
+   * never sent: it records what a player has been TOLD, which is a fact about
+   * this screen and not about the account. `undefined` is "no record kept" and
+   * primes silently — see `heraldMarks`.
+   */
+  seenMarks?: string[];
 }
 
 // Where this player's hoard actually lives. "reaching" is the second or two
@@ -879,6 +886,53 @@ export default function Page() {
   }, [audio]);
 
   const showError = useCallback((msg: string) => say(msg, "bad"), [say]);
+
+  /**
+   * THE HERALD — a mark that unlocks says so.
+   *
+   * The owner: "There's no notification for when you unlock a new mark via an
+   * achievement." There was not. `markEarned` was a pure function nobody
+   * watched, so the Raven Banner appeared on the record screen whenever the
+   * player next happened to scroll to it, silently, weeks after the
+   * twenty-fifth win that bought it.
+   *
+   * WHAT IT WATCHES is the five facts a rule may read, not the mark list: the
+   * rules live in `marks.mjs` and this effect must not restate any of them.
+   * `heraldMarks` owns the difference and owns the priming, and returns the
+   * same array when nothing changed so an idle screen never writes.
+   *
+   * ONE LINE FOR MANY. A restore onto a fresh device lands a season's worth of
+   * progress in one packet and can earn a dozen rules at once; a dozen banners
+   * teaches a player to dismiss the banner. Two or fewer are named, more are
+   * counted, and either way the pips on the tiles are the durable half — the
+   * banner is 3.2 seconds and the record screen is not.
+   */
+  const [freshMarks, setFreshMarks] = useState<string[]>([]);
+  /** Which mark's line is open below the grid. Not the WORN mark: a locked one
+   *  can be asked about, which is most of the point. */
+  const [markPeek, setMarkPeek] = useState<string | null>(null);
+  useEffect(() => {
+    const p = profileRef.current;
+    const { fresh, seen } = heraldMarks(p.seenMarks, {
+      level: p.level, wins: p.wins, matches: p.matches,
+      sworn: peopleOf(p.appearance) !== "none",
+      crowned: (p.bretwaldaSeasons?.length ?? 0) > 0,
+    });
+    // Identity, not length: `heraldMarks` hands back the very array it was
+    // given when there is nothing to add, so this is the whole no-op guard.
+    if (seen === p.seenMarks) return;
+    saveProfile({ seenMarks: seen });
+    if (!fresh.length) return;
+    setFreshMarks((prev) => [...new Set([...prev, ...fresh])]);
+    // No sound of its own: `say`'s "good" tone already rings `confirm`, and a
+    // second cue on the same frame is two sounds, not one louder one.
+    say(fresh.length === 1
+      ? `A NEW MARK — ${markOf(fresh[0]).name}. ${markWon(markOf(fresh[0]))}`
+      : fresh.length === 2
+        ? `TWO NEW MARKS — ${markOf(fresh[0]).name} and ${markOf(fresh[1]).name}.`
+        : `${fresh.length} NEW MARKS. They are waiting on your record.`, "good");
+  }, [profile.level, profile.wins, profile.matches, profile.appearance,
+      profile.bretwaldaSeasons, profile.seenMarks, saveProfile, say]);
 
   // The device-local tally, exactly as it was before there was a server, and
   // still the entire economy anywhere the database is not. It runs only when
@@ -2966,13 +3020,33 @@ export default function Page() {
               {MARKS.map((m) => {
                 const earned = markEarned(m, markFacts);
                 const chosen = myMark === m.id;
+                const isNew = freshMarks.includes(m.id);
+                const peeked = markPeek === m.id;
                 return (
                   <button key={m.id} data-mark={m.id} data-earned={earned ? "1" : "0"}
-                    onClick={() => pickMark(m.id)} disabled={!earned}
-                    title={`${m.name} — ${m.source}`}
+                    data-fresh={isNew ? "1" : "0"}
+                    /* NOT `disabled` any more, and that is the fix rather than an
+                       oversight. A locked tile is the one a player most wants to
+                       ask a question of — "why haven't I got that one" — and a
+                       disabled button answers nothing on a touch screen, where
+                       the `title` tooltip that used to carry the provenance
+                       cannot be reached at all. Pressing a locked tile now opens
+                       its line below instead of doing nothing. Picking is still
+                       refused: `pickMark` re-checks the rule at press time and
+                       always did — "the rule module is the law, the button is
+                       furniture". */
+                    onClick={() => {
+                      setMarkPeek(peeked ? null : m.id);
+                      // Reading the line IS the acknowledgement — the pip goes
+                      // when the question it was asking has been answered.
+                      if (isNew) setFreshMarks((prev) => prev.filter((id) => id !== m.id));
+                      if (earned) pickMark(m.id);
+                    }}
+                    aria-pressed={chosen}
                     className={`card relative flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 !p-1.5 text-center transition ${
                       chosen ? "!border-amber-400/80 !bg-amber-950/40 shadow-[0_0_18px_rgba(217,164,65,0.22)]"
-                        : earned ? "hover:!border-amber-700/60" : "opacity-55"
+                        : peeked ? "!border-amber-700/70"
+                          : earned ? "hover:!border-amber-700/60" : "opacity-55 hover:opacity-80"
                     }`}>
                     {m.d
                       ? <MarkGlyph id={m.id} size={24} className={chosen ? "text-amber-200" : earned ? "text-[#d9cdb2]" : "text-[#7d7057]"} />
@@ -2982,14 +3056,46 @@ export default function Page() {
                     }`}>{earned ? m.name : markHint(m)}</span>
                     {!earned && <Lock size={9} className="absolute right-1 top-1 text-[#7d7057]" />}
                     {chosen && <Check size={10} className="absolute right-1 top-1 text-amber-300" />}
+                    {/* The durable half of the herald. The banner is 3.2 seconds
+                        and a player who was mid-fight when the rule fell never
+                        saw it; this pip waits on the record screen until the
+                        tile is pressed. Left, because the right corner is spoken
+                        for by the lock and the tick. */}
+                    {isNew && !chosen && (
+                      <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_6px_rgba(217,164,65,0.9)]" />
+                    )}
                   </button>
                 );
               })}
             </div>
-            <div className="text-center text-[11px] leading-relaxed text-[#7d7057]">
-              Worn beside your name in every lobby and ledger. Every device is a real
-              find of the age — or honestly called an invention.
-            </div>
+            {/* THE LINE — the owner's "or ability to see why or how you got it
+                once unlocked". Locked tiles carried their reason and earned ones
+                threw it away; both now say it here, in the tense that fits, with
+                the find it is drawn from underneath. It replaces a `title`
+                attribute, which no phone has ever shown anyone. */}
+            {markPeek ? (
+              <div className="card !p-3 text-center">
+                <div className="font-display text-[13px] uppercase tracking-[0.14em] text-amber-200">
+                  {markOf(markPeek).name}
+                </div>
+                <div className={`mt-1 text-[11px] font-bold uppercase tracking-[0.08em] ${
+                  markEarned(markOf(markPeek), markFacts) ? "text-[#a89a7c]" : "text-[#7d7057]"
+                }`}>
+                  {markEarned(markOf(markPeek), markFacts)
+                    ? markWon(markOf(markPeek))
+                    : `Locked — ${markHint(markOf(markPeek)).replace(/\.$/, "")}.`}
+                </div>
+                <div className="mt-1.5 text-[11px] leading-relaxed text-[#7d7057]">
+                  {markOf(markPeek).source}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-[11px] leading-relaxed text-[#7d7057]">
+                Worn beside your name in every lobby and ledger. Press a mark to
+                see what it is and what it costs — every device is a real find of
+                the age, or honestly called an invention.
+              </div>
+            )}
           </div>
 
           <TheKeep

@@ -9157,3 +9157,53 @@ owner's report walks all 24 bearings x 3 fallback cases: **28 of 48
 openings looked through him before, 0 after, every one clear by at least
 36 degrees.** deathcamtest 46/46 (from 45/45 — the suite could not see
 this), cameratest 13/13, replaytest GREEN.
+
+---
+
+## A MARK UNLOCKED IN SILENCE, AND THEN FORGOT WHY — 29 Aug 2026
+
+**"There's no notification for when you unlock a new mark via an achievement
+or ability to see why or how you got it once unlocked."** Two faults with
+one cause: `markEarned` was a pure function that nobody watched and nobody
+asked twice.
+
+**NOBODY TOLD YOU.** The record screen recomputed `markEarned` on render, so
+a Raven Banner bought by a twenty-fifth win appeared the next time the player
+happened to scroll to the tile — no banner, no sound, no pip, possibly weeks
+later. `heraldMarks(seen, facts)` now owns the difference: it returns what is
+newly earned and the record to keep, and the record is device-local because
+it records what a player has been TOLD, not what he owns.
+
+Two things it deliberately does NOT do. It never announces a `free` mark —
+four of them are yours on the first frame, and "unlocked: Shield Boss" as a
+new player's first ever notification is noise. And a profile with no record
+kept PRIMES rather than announces: every existing save already satisfies
+half the rules, and nine banners at once teaches a player to dismiss the
+banner without reading it. The picker's line covers what priming swallows.
+
+**AND THEN IT FORGOT.** The picker's own comment said it: *"A locked tile
+shows what wins it instead of its name — the hint is the whole of what a
+locked tile has to say."* So the reason existed only while the mark was out
+of reach, and the moment it was earned the tile showed its name and the
+reason was gone. `markWon(mark)` is the same rule in the past tense — one
+rule, two readers, and marktest holds them to the same threshold and forbids
+either from reading like the other.
+
+**THE PROVENANCE WAS IN A `title` ATTRIBUTE.** Every mark's find — the
+Gotland stone, the York amulet, the Chronicle's raven — sat in a hover
+tooltip. On the phone this game is aimed at, that is not reachable by any
+gesture. It is now a line under the grid, and pressing a mark opens it.
+
+**LOCKED TILES WERE `disabled`,** which is why the question could not be
+asked at all: the tile a player most wants to interrogate was the one that
+did nothing. They are pressable now and still unpickable — `pickMark`
+re-checks the rule at press time and always did, "the rule module is the
+law, the button is furniture".
+
+The banner lasts 3.2 seconds and a player mid-fight never sees it, so the
+durable half is an amber pip on the tile that waits on the record screen
+until the tile is pressed. Reading the line is the acknowledgement.
+
+marktest **38/38, from 25/25** — thirteen new claims, all eight of the new
+behavioural ones shown red first (four against the page as it was before the
+change, four by mutation).
