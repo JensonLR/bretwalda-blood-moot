@@ -9416,7 +9416,17 @@ that exact class of fault. It is offered ONCE and only to a device the rite
 marked due: a stranger, a veteran and a garbled record all get nothing,
 because a tutorial that ambushes a veteran is a tutorial.
 
+**THE CARD WAS PROVEN ON REAL GLASS, not only in the module.** Both browser
+suites drive solo fights, which is exactly where the rite runs, so both now
+write the graduate's record before load — and one claim names that, because a
+key that drifts would put a full-screen card over every assertion below it
+with no clue why. Run once with that record taken away, the claim comes back:
+*"the First Moot's pause card is up — the graduate's record did not take, and
+every claim below is about a card."* That red IS the browser proof: a brand-new
+player lands on the card, and I AM READY is on it.
+
 **moottest 41/41 (from 25/25), tourtest 22/22 (new), protocoltest 81/81,
-wartest 82/82, fighttest 23/23, burhtest 24/24.** Every new behavioural claim
+wartest 82/82, fighttest 23/23, burhtest 24/24, touchtest 33/33, playtest
+38/38.** Every new behavioural claim
 shown red first — the wrap, the hold, the arming, the two-direction cut, and
 tourtest's three wiring claims against the page before it was wired.
