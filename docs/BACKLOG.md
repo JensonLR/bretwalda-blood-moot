@@ -1477,7 +1477,20 @@ cheaper, already scoped in `docs/FACTIONS.md`, and touches one file the helm wor
 is already in. Doing kit first also means the first new ground is walked by
 warriors who look like they belong on it.
 
-### The cloak's envelope has to know the arms exist
+### ~~The cloak's envelope has to know the arms exist~~ — CLOSED 29 Aug 2026
+
+**Closed by a different diagnosis than this row assumed.** The owner sent the
+picture with the spot circled and it was not the arm at all: the cloak's
+LEADING EDGE was reaching round the front of his chest, and the fix is
+`cloakLead()` compressing that reach — no envelope, no per-azimuth clearance,
+and §8 untouched by construction. `docs/OPEN-DEFECTS.md` carries the whole
+account, including the two fixes that this row's diagnosis led to and that both
+turned §8 red. The row is kept because the reasoning in it is still the right
+reasoning for the OTHER half — `wearmeasure` §11's PROUD figure still reports
+up to 85 mm on the berserker's Gilded cloak, and that half is still ungated for
+the reason below.
+
+### The original row, kept for the ungated PROUD half
 
 `docs/OPEN-DEFECTS.md`, 29 Aug 2026. The owner photographed cloth standing out
 of the front of a shoulder; `wearmeasure` §11 now measures it and reports

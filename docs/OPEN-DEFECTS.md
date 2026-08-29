@@ -9496,6 +9496,13 @@ part of him. One comparison of two maxima; an outline cannot confuse it.
 warden with the Blood Red — the kit in the owner's photograph — reads 9.9 mm
 before and 0.0 after. wearmeasure: all eleven sections PASS.
 
+**PHOTOGRAPHED ON WHAT SHIPS.** The before/after pair was first taken at a
+looser compression; the captures were retaken at the shipped value so the
+picture in the ledger is the picture in the build. `before-weard-front.png` has
+the red tab on the shoulder plate; `shipped-weard-front.png` has nothing on it.
+cosmetictest **19/19** — the cloak's silhouette still reads as four garments
+through the suite that exists to prove cosmetics differ.
+
 **WHAT IT COSTS, plainly.** The four cuts used to differ by 43° in how far
 round the front they reached and now differ by six. The order survives, `a1`
 and the back are untouched, and length, hem, flare and fold are untouched. It
