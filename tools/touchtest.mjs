@@ -807,15 +807,46 @@ async function lockAct(browser, url, check) {
       // STRAFE ROUND HIM while it is out. At a metre and a half the bearing to
       // him sweeps faster than any shoulders can follow, so the lock asks for
       // more than 1.8 rad/s as a matter of geometry rather than of luck.
+      // CLOSE THE RANGE. DO NOT WAIT FOR IT.
+      //
+      // This is backlog row 0 — "make the two flaky gates deterministic" — at
+      // its actual cause. The step below used to be a passive
+      // `waitForFunction` for the recruit to wander inside 1.8 m, with
+      // `.catch(() => {})` on a 20 s timeout, so a draw that never got close
+      // went ahead ANYWAY at whatever range he happened to be. The sweep goes
+      // as 1/range: at 3 m the geometry can only ask for ~1.2 rad/s, under the
+      // 1.8 cap, so the case the claim exists to measure never happened and
+      // `exercised()` correctly refused to pass. Observed on this box at
+      // **1.77 rad/s against a 1.80 bar** after all fourteen draws — a red that
+      // indicts the stage, exactly as the note above says, and one run in
+      // three per the backlog.
+      //
+      // A player does not stand still hoping. The lock already holds facing on
+      // the man, so FORWARD on the stick is toward him: walk in until the range
+      // is inside 1.6 m, then fight. Stochastic wait becomes deterministic
+      // approach, and the geometry that proves the cap is arranged rather than
+      // hoped for.
+      await hand.press(STICK, stickHome.x, stickHome.y);
+      for (let step = 0; step < 40; step++) {
+        const near = await page.evaluate(() => {
+          const f = window.__probe.frames[window.__probe.frames.length - 1];
+          if (!f || !f.lock) return false;
+          const q = f.foes[f.lock];
+          return !!q && !q.dead && Math.hypot(q.x - f.x, q.z - f.z) < 1.6;
+        });
+        if (near) break;
+        await hand.move(STICK, stickHome.x, stickHome.y - 62);
+        await wait(100);
+      }
+      await hand.lift(STICK);
+      await wait(140);
+      // Kept as the confirmation it now is rather than the wait it used to be:
+      // after the approach this passes at once, and if it does not, this draw
+      // is genuinely unusable and costs one of the fourteen.
       await page.waitForFunction(() => {
         const f = window.__probe.frames[window.__probe.frames.length - 1];
         if (!f || !f.lock) return false;
         const p = f.foes[f.lock];
-        // Inside 1.8 m. The sweep goes as 1/range, so three metres is the
-        // difference between a demand of 1.2 rad/s and one of 3.5 — and the
-        // 2.2 m gate this started with let through draws that could only ever
-        // sweep at 0.7. A tighter gate times out more often; a timed-out draw
-        // costs an attempt, a weak draw costs a false red.
         return !!p && !p.dead && Math.hypot(p.x - f.x, p.z - f.z) < 1.8;
       }, null, { timeout: 20000 }).catch(() => {});
 

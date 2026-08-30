@@ -893,7 +893,27 @@ async function main() {
   const b6 = await me();
   await page.mouse.move(640, 400);
   await page.mouse.move(980, 400, { steps: 24 });
-  await page.waitForTimeout(300);
+  // WAIT ON THE FACT, NOT ON A CLOCK — backlog row 0, "make the two flaky
+  // gates deterministic", whose diagnosis is this line by name: *"both
+  // harnesses sample after a wall-clock delay; both must instead wait on the
+  // client having received the pointer delta."*
+  //
+  // It was `waitForTimeout(300)` and then a sample. Three hundred milliseconds
+  // is generous when the box is idle and not generous at all when it is
+  // building, and the failure it produces is a claim that says the mouse does
+  // not turn the camera — which is a lie about the product told by a stopwatch.
+  //
+  // The rotation arriving is an OBSERVABLE, and `me()` already knows how to
+  // wait for a fresh snapshot. Poll for the turn itself with a long ceiling:
+  // when it lands the step costs a few frames instead of 300 ms, and when it
+  // genuinely never lands the sample below is unchanged and the claim fails —
+  // so the teeth are kept and only the guessing is gone.
+  await page.waitForFunction((was) => {
+    const s = window.__probe.lastState;
+    if (!s) return false;
+    const m = Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+    return !!m && Math.abs(m.rotation - was) > 0.05;
+  }, b6.rot, { timeout: 10000 }).catch(() => {});
   const a6 = await me();
   const locked = await page.evaluate(() => document.pointerLockElement !== null);
   check("mouse turns the camera", Math.abs(a6.rot - b6.rot) > 0.05,

@@ -899,6 +899,17 @@ protocol. Not "better than before".
 
 ### Wave B — THE 90-DAY CLOCK (one wave, and it has a deadline)
 
+> **CORRECTED 29 Aug 2026 — the sentence below is no longer true, and it is
+> corrected here rather than deleted.** `src/db/index.ts` DOES mention Neon: it
+> handles the `&channel_binding=require` suffix Neon appends to its connection
+> strings, and `docs/PLATFORM-PATH.md` §3 carries the move as a decided step.
+> **The code half is done; the CLOCK half is the owner's** — provisioning the
+> Neon database and pointing `DATABASE_URL` at it happens on a dashboard this
+> container cannot reach, and so does reading the real Render provisioning date
+> that this row wants written down. What remains here is one environment
+> variable and a dump/restore, by the owner, and it is still the only item on
+> this list with a date attached.
+
 *NOT STARTED.* `src/db/index.ts:20` reads `process.env.DATABASE_URL` and
 nothing in the repo mentions Neon.
 

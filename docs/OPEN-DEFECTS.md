@@ -9284,6 +9284,17 @@ that goes red for a reason has to be shown to be that reason.
 
 ## THE CLOAK IN FRONT OF THE ARM — FOUND, MEASURED, PHOTOGRAPHED, NOT FIXED — 29 Aug 2026
 
+> **SUPERSEDED THE SAME DAY — IT IS FIXED.** Read this section for the two
+> attempts that failed and why, which is the useful part; do NOT read the
+> heading as the state of the tree. The defect was closed hours later by
+> `cloakLead()` (see *THE CLOAK CAME ROUND THE FRONT OF HIM — FIXED*, below):
+> the fault was never the cloak's WIDTH, which is what both attempts here
+> narrowed and what turned §8 red both times — it was the leading edge's
+> AZIMUTH reaching round the front of the chest. This banner is here because a
+> reader grepping "NOT FIXED" would otherwise find a heading that outlived its
+> own truth by one afternoon, and the file is append-only.
+
+
 **"Cloak sticks out of front of shoulder/arm."** The owner is right. The defect
 is real, it is on every kit in the shop, and **it is still there.** This entry
 is what was learned, what was tried, and why nothing shipped.
