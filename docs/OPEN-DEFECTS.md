@@ -9652,4 +9652,7 @@ them wants a DOM overlay and the kingdom rows below the map are the primary
 selector, all of which clear the floor. The backlog carries it with the
 instrument that found it.
 
-**uishots: PASS, the 44 px floor on 36 screens at both widths.**
+**uishots: PASS, the 44 px floor on 36 screens at both widths** — and shown
+red by raising the floor to 60, which names the sound toggle at 44x44, the
+round pickers at 133x45 and the invite button at 533x52 across the lobby at
+both widths. The gate fires.
