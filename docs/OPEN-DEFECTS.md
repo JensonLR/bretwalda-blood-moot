@@ -9514,3 +9514,77 @@ running it here is that the cloak moved NOTHING in it.
 round the front they reached and now differ by six. The order survives, `a1`
 and the back are untouched, and length, hem, flare and fold are untouched. It
 was a distinction bought with cloth on a man's chest.
+
+---
+
+## THE ARM-RING WAS FLOATING, AND NOTHING COULD HAVE SEEN IT — 29 Aug 2026
+
+Backlog 8.1. The owner: *"Armour design needs rework on all class types as some
+have defects shown in SS"* — a disc standing clear of an upper arm.
+
+**THE SWEEP HE ORDERED, DONE.** Four classes in his own kit (crowned helm,
+gold finish), photographed and looked at: `art/shots/fitsweep/`. Three are
+clean. The berserker's brass arm-rings are the defect, and at five times size
+(`/tmp` crops, reproduced in `art/shots/fitfix/`) the ring's left edge visibly
+projects past the arm's own silhouette with daylight behind it.
+
+**WHY.** Two lines:
+
+```js
+p.add(ring(rSh * 1.02, 0.011, 5, 12), brass, xf(0, -0.14, ...));
+p.add(ring(rSh * 0.96, 0.009, 5, 12), brass, xf(0, -0.20, ...));
+```
+
+`rSh` is the **shoulder's** radius and those heights are 140 and 200 mm DOWN a
+tapering arm — the flesh is at `rSh * 0.95` and less by then. Both rings were
+cut for a shoulder and worn on a bicep. Worse, they were **circles on an
+ellipse** (`hd` runs 4% wider than `hw` through that stretch), so each stood
+proud at the flanks and sank at the front, which is what breaks a silhouette.
+
+**THE FIX WAS TWENTY LINES BELOW THEM THE WHOLE TIME.** The bracer's buckles
+ride `bracerC`, a carrier off the bracer's own sweep, and its comment names
+this exact fault: *"so the buckles that lace it ride the taper instead of
+standing at the ONE height where `rWr * 1.36` was true."* The rings now ask the
+arm's own stations where the limb is, take its ellipse through the transform's
+scale, and sit 2 mm off the skin.
+
+**AND HERE IS THE PART THAT MATTERS.** They were added with a bare `p.add`, so
+they were never fittings as far as `wearmeasure` §5 was concerned: **148 pieces
+measured, every one seated, and the defect in none of them.** They go through
+`fitAdd` now — 148 → **168**.
+
+**§5 STILL COULD NOT HAVE CAUGHT THEM, EVEN REGISTERED, and that is a second
+finding.** Registered with their old geometry it read **0.9 mm** and passed:
+§5 takes a fitting's CLOSEST point, and a ring cut too big still touches on its
+narrow axis. That is §8's own plank lesson — *"a sheet touches at its middle
+while its corners hang a hand's width off"* — never applied to §5.
+
+So `BodyFit.gripMm` is new: bin a piece's vertices by azimuth about the carrier,
+take the nearest approach in each bin, and report the SPREAD. A band that grips
+sits at the same depth at every bearing. **Asked of the MESH, not of a name** —
+only a piece occupying most of the azimuth circle is a band, so a stud is never
+asked and a clasp's boss standing on its own disc is never condemned.
+
+Two mistakes in building it, both written down: the first version took the
+WORST bin rather than the spread, which is clamped to zero because a band's
+inner face is below the skin by its own tube radius all the way round; and it
+binned into 24 slots while `ring()` is tessellated with 12, a threshold no ring
+in the shop can reach. Both printed 0.0 on the very ring the owner
+photographed.
+
+**Measured: 2.8 mm as he photographed them, 1.6 mm cut to the arm.** The 1.6 is
+not tessellation — raising the ring from 12 segments to 16 did not move it (it
+is a rounder band now regardless, which is the right look at armoury zoom). It
+is the **limb's own taper across the ring's thickness**: an arm narrows through
+the 22 mm a tube spans and its ellipse changes ratio as it goes, so no flat band
+sits at one depth all the way round a cone. **A bar between 1.6 and 2.8 would be
+a number chosen to make today's tree pass**, so grip is REPORTED and flagged
+past 3 mm, and not gated.
+
+**WHAT IS GATED IS THE FLOOR, because the floor is the fault that actually hid
+this for a month:** every class must present at least ten distinct fitting tags,
+and the two limb bands must be among them by name. Shown red by un-registering
+the rings exactly as they shipped — *"no arm-ring registered — it is on the man
+but not in this ruler, which is how the last one was missed."*
+
+wearmeasure: all eleven sections PASS, 168 fittings.

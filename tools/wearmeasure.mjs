@@ -663,35 +663,87 @@ console.log(`[wear] ${hfails.length ? "FAIL" : "PASS"}: ` +
 // in front of it is the defect. Only the mesh can tell those apart.
 const STAND_MM = 3;
 const SINK_MM = 22;
+/**
+ * GRIP — how unevenly a band sits on the limb it wraps. See `BodyFit.gripMm`:
+ * `standoffMm` is a fitting's CLOSEST point and cannot see this at all, because
+ * a ring cut too big still touches on its narrow axis and reads 0.9 mm while it
+ * hangs off the wide one.
+ *
+ * REPORTED, NOT GATED, and the measurements say why. The berserker's arm-rings
+ * as the owner photographed them read **2.8 mm**; cut to the arm's own taper
+ * and ellipse they read **1.6**. That is a real separation and the fix is real,
+ * but 1.6 is not zero and it is not tessellation either — raising the ring from
+ * 12 segments to 16 did not move it. It is the LIMB'S OWN TAPER across the
+ * ring's thickness: an arm narrows through the 22 mm a tube spans, and its
+ * ellipse changes ratio as it goes, so no flat band can sit at one depth all
+ * the way round a cone. A bar between 1.6 and 2.8 would be a number picked to
+ * make today's tree pass, and this file has enough of that history.
+ *
+ * So the number is printed and flagged past 3 mm, and what GATES is the floor
+ * below — which is the fault that actually hid this defect for a month.
+ */
+const GRIP_MM = 3;
+
+/**
+ * THE FLOOR, AND IT IS THE REAL GATE HERE.
+ *
+ * The owner's arm-ring was not missed because a bar was too loose. It was
+ * missed because the rings were added with a bare `p.add` and were therefore
+ * NOT FITTINGS as far as this section was concerned: 148 pieces measured, all
+ * seated, and the defect in none of them. A gate green because the case is
+ * absent is not a gate.
+ *
+ * Every class must present at least this many distinct fitting tags, and the
+ * two limb bands must be among them by name. Names here and nowhere else: the
+ * grip question is asked of the MESH (see `BodyFit.gripMm`), and this is the
+ * one place where the point IS that a specific piece has not quietly stopped
+ * registering itself.
+ */
+const FIT_TAGS_MIN = 10;
+const FIT_MUST_HAVE = ["arm-ring", "wrist-ring"];
 console.log("");
 console.log("[wear] 5. BODY FITTINGS — brooches, bosses, buckles, studs, rivets.");
 console.log("[wear]    Measured off each fitting's own vertices, against the garment under it.");
 console.log("");
-console.log("[wear] class        cloak   fittings  stand mm   sink mm  worst fitting");
-console.log("[wear] ---------------------------------------------------------------------");
+console.log("[wear] class        cloak   fittings  stand mm   sink mm   grip mm  worst fitting");
+console.log("[wear] ------------------------------------------------------------------------------");
 const bfails = [];
 let nFit = 0;
 for (const cls of CLASSES) {
   for (const cloak of CLOAK_VALUES) {
-    let stand = 0, sink = 0, standTag = "-", sinkTag = "-";
+    let stand = 0, sink = 0, grip = 0, standTag = "-", sinkTag = "-", gripTag = "-";
     const rows = bodyFitProbe(cls, seeds[0], cloak);
     nFit += rows.length;
     for (const r of rows) {
       if (r.standoffMm > stand) { stand = r.standoffMm; standTag = r.tag; }
       if (r.sinkMm > sink) { sink = r.sinkMm; sinkTag = r.tag; }
+      if ((r.gripMm ?? 0) > grip) { grip = r.gripMm; gripTag = r.tag; }
     }
     const bad = [];
     if (stand > STAND_MM) bad.push(`${standTag} floats ${stand.toFixed(1)} mm off the body`);
     if (sink > SINK_MM) bad.push(`${sinkTag} is ${sink.toFixed(1)} mm inside it`);
+    // Reported, not judged — see the note above `GRIP_MM`.
+    const gripNote = grip > GRIP_MM ? `  <- ${gripTag} ${grip.toFixed(1)} mm uneven` : "";
+    const tags = new Set(rows.map((r) => r.tag));
+    if (tags.size < FIT_TAGS_MIN) {
+      bad.push(`only ${tags.size} fitting tags reached the ruler, under the ${FIT_TAGS_MIN} floor — something stopped registering itself`);
+    }
+    // The berserker is the only class with bare arms, so he is the only one who
+    // wears the upper bands; everyone else's forearm ring must still be there.
+    for (const need of FIT_MUST_HAVE) {
+      if (need === "arm-ring" && cls !== "berserker") continue;
+      if (!tags.has(need)) bad.push(`no ${need} registered — it is on the man but not in this ruler, which is how the last one was missed`);
+    }
     if (bad.length) bfails.push(`${cls}/${cloak}: ${bad.join("; ")}`);
     console.log(
       `[wear] ${cls.padEnd(12)} ${cloak.padEnd(6)} ${String(rows.length).padStart(8)}  ` +
-      `${stand.toFixed(1).padStart(8)}  ${sink.toFixed(1).padStart(8)}  ` +
-      `${stand > STAND_MM ? standTag : sink > SINK_MM ? sinkTag : "-"}${bad.length ? "   <-- FAIL" : ""}`);
+      `${stand.toFixed(1).padStart(8)}  ${sink.toFixed(1).padStart(8)}  ${grip.toFixed(1).padStart(8)}  ` +
+      `${stand > STAND_MM ? standTag : sink > SINK_MM ? sinkTag : "-"}${bad.length ? "   <-- FAIL" : ""}${gripNote}`);
   }
 }
 console.log("");
-console.log(`[wear] ${nFit} seated fittings measured; bars: standoff ${STAND_MM} mm, sink ${SINK_MM} mm`);
+console.log(`[wear] ${nFit} seated fittings measured; GATED: standoff ${STAND_MM} mm, sink ${SINK_MM} mm, at least ${FIT_TAGS_MIN} tags a class,`);
+console.log(`[wear]   and ${FIT_MUST_HAVE.join(" + ")} registered. REPORTED: band grip, flagged past ${GRIP_MM} mm — see the note.`);
 for (const f of bfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${bfails.length ? "FAIL" : "PASS"}: ` +
   `${CLASSES.length * CLOAK_VALUES.length - bfails.length}/${CLASSES.length * CLOAK_VALUES.length} kits with every fitting on the body`);

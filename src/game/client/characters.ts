@@ -2598,6 +2598,16 @@ const CLOAK_CUTS: Record<string, CloakCut> = {
 const FRONT_WRAP = 0.12;
 
 /**
+ * How far a ring worn on a bare limb stands off the flesh under it, in metres.
+ *
+ * 2 mm — a brass band lies ON an arm. Well inside `wearmeasure` §5's 3 mm
+ * standoff bar, which is the bar these rings were never measured against
+ * because they were not registered as fittings at all. See the note at
+ * `armRing`.
+ */
+const ARM_RING_LIFT = 0.002;
+
+/**
  * Where a cut's leading edge ACTUALLY starts, which is not what its row says.
  *
  * One rule, two readers, and the second is the reason this is a function: the
@@ -10398,6 +10408,32 @@ export interface BodyFit {
   standoffMm: number;
   /** How far the fitting's deepest point is INSIDE the carrier, in mm. */
   sinkMm: number;
+  /**
+   * THE WORST GRIP OF A FITTING THAT GOES ALL THE WAY ROUND, in mm, and zero
+   * for one that does not.
+   *
+   * `standoffMm` is the CLOSEST point and that is the right question for a stud;
+   * `BackFit.standoffMm` is the WIDEST and that is the right question for a
+   * sheet. A BAND is a third thing and neither number can see it: a ring cut too
+   * big for the limb it is worn on still TOUCHES on the narrow axis, so its
+   * closest point is zero and §5 passes it while it hangs off the wide one. That
+   * is exactly the defect the owner photographed on a berserker's arm-ring, and
+   * this file measured 0.9 mm and called it seated.
+   *
+   * So: bin the piece's vertices by azimuth about the carrier, take the nearest
+   * approach WITHIN each bin, and report the SPREAD of those. A band that grips
+   * sits at the same depth at every bearing and reads near zero; one cut for a
+   * shoulder and worn on a bicep reads the gap. Spread rather than worst,
+   * because a band's inner face is below the skin by its own tube radius all
+   * the way round — see the note at the arithmetic.
+   *
+   * ASKED OF THE MESH, NOT OF A NAME. Only a piece that occupies most of the
+   * azimuth circle is a band, so only it is asked — a stud lives in two bins and
+   * a clasp's boss legitimately stands on the disc under it. No list of ring
+   * names to keep in step with the builder, which is this file's own standard
+   * and the reason `_wornSpy` exists.
+   */
+  gripMm: number;
 }
 
 /**
@@ -10437,9 +10473,20 @@ export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): B
   // Reporting them separately would have every clasp fail on the stud that is
   // correctly standing on the disc below it.
   const out = new Map<string, BodyFit>();
+  /**
+   * Azimuth bins for the grip question. TWELVE, and the number is the mesh's,
+   * not a taste: `ring()` is tessellated with 12 segments round its circle, so
+   * a band contributes about twelve distinct azimuths and no more. The first cut
+   * of this used 24 and asked for 18 of them filled — a threshold no ring in the
+   * shop can reach — so `gripMm` read 0.0 on every kit including the one with
+   * the defect in it. A bin count finer than the geometry is a gate that cannot
+   * fire.
+   */
+  const BINS = 12;
   for (const rec of spy) {
     let lo = Infinity;
     let hi = -Infinity;
+    const near: number[] = new Array(BINS).fill(Infinity);
     for (const q of rec.pts) {
       // Coarse sweep for the nearest azimuth, then two bisection refinements —
       // enough for a tenth of a millimetre on a 250 mm chest.
@@ -10465,15 +10512,43 @@ export function bodyFitProbe(cls: WarriorClass, seed: number, cloak?: string): B
       const signed = d.copy(q).sub(surf).dot(nrm);
       if (signed < lo) lo = signed;
       if (signed > hi) hi = signed;
+      const bi = ((Math.round((best / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS;
+      if (signed < near[bi]!) near[bi] = signed;
     }
     // A fitting with no vertices at all cannot be allowed to report a pass.
     const stand = hi === -Infinity ? 999 : Math.max(0, lo) * 1000;
     const sink = hi === -Infinity ? 0 : Math.max(0, -lo) * 1000;
+    // A BAND, decided by the mesh: a piece whose vertices reach most of the way
+    // round the carrier. Three quarters, so a torus tessellated coarsely still
+    // counts and a buckle plate never does.
+    const filled = near.filter((v) => v !== Infinity).length;
+    let grip = 0;
+    if (filled >= Math.ceil(BINS * 0.75)) {
+      // THE SPREAD OF THE BIN MINIMA, not the worst of them. A band's inner
+      // surface is BELOW the skin by its own tube radius all the way round —
+      // every bin reads about -9 mm on an 11 mm tube — so a max over the minima
+      // is clamped to zero and the first cut of this printed 0.0 on the very
+      // ring the owner photographed. What separates a band that grips from one
+      // that hangs is that the gripping one sits at the SAME depth at every
+      // bearing. Spread is that, it needs no knowledge of the tube, and it is
+      // zero for a ring cut to the limb's own ellipse.
+      let lo2 = Infinity;
+      let hi2 = -Infinity;
+      for (const v of near) {
+        if (v === Infinity) continue;
+        if (v < lo2) lo2 = v;
+        if (v > hi2) hi2 = v;
+      }
+      grip = (hi2 - lo2) * 1000;
+    }
     const prevRow = out.get(rec.tag);
-    if (!prevRow) out.set(rec.tag, { tag: rec.tag, standoffMm: stand, sinkMm: sink });
+    if (!prevRow) out.set(rec.tag, { tag: rec.tag, standoffMm: stand, sinkMm: sink, gripMm: grip });
     else {
       prevRow.standoffMm = Math.min(prevRow.standoffMm, stand);
       prevRow.sinkMm = Math.max(prevRow.sinkMm, sink);
+      // The WORST band in the assembly, not the best: two arm-rings share a tag
+      // and one of them hanging off is the whole complaint.
+      prevRow.gripMm = Math.max(prevRow.gripMm, grip);
     }
   }
   return [...out.values()];
@@ -15139,13 +15214,17 @@ export function buildCharacter(
       // 0.44 of its radius, so anything that used to tuck under the old crest now
       // stands out round it as a ring. The wool at y = 0.06 was doing exactly that —
       // a green hoop sitting on the pauldron.
-      p.add(shell([
+      // Named, because the arm-rings below have to be able to ASK where the arm
+      // is at the height they are worn. See the note there.
+      const upperSts: Station[] = [
         { y: 0.026, hw: rSh * 1.06, hd: rSh * 1.06 },
         { y: -0.06, hw: rSh * 1.04, hd: rSh * 1.08 },
         { y: -0.19, hw: rSh * 0.9, hd: rSh * 0.94 },
         { y: elbow + 0.02, hw: rEl * 1.06, hd: rEl * 1.06 },
         { y: elbow - 0.01, hw: rEl, hd: rEl * 1.04 },
-      ], lod.limb, { capTop: true }), skin);
+      ];
+      const upperC: FitCarrier = { st: (y: number) => stationAlong(upperSts, y), power: 2 };
+      p.add(shell(upperSts, lod.limb, { capTop: true }), skin);
       p.add(shell([
         { y: elbow + 0.005, hw: rElB * 1.04, hd: rElB * 1.06 },
         { y: elbow - 0.075, hw: rElB, hd: rElB * 1.02 },
@@ -15277,8 +15356,50 @@ export function buildCharacter(
           { y: -0.02, hw: rSh * 1.5, hd: rSh * 1.55 },
           { y: -0.075, hw: rSh * 1.3, hd: rSh * 1.34 },
         ], lod.limb, { power: 2.0, wall: 0.016, capTop: true }), pelt(2 * Math.PI * rSh * 1.45));
-        p.add(ring(rSh * 1.02, 0.011, 5, 12), brass, xf(0, -0.14, 0, Math.PI / 2, 0, 0));
-        if (lod.trim) p.add(ring(rSh * 0.96, 0.009, 5, 12), brass, xf(0, -0.2, 0, Math.PI / 2, 0, 0));
+        // THE ARM-RINGS, AND THEY WERE FLOATING — backlog 8.1, the owner:
+        // "the armour design needs rework on all class types as some have
+        // defects shown in SS", photographed as a disc standing clear of an
+        // upper arm.
+        //
+        // They were `ring(rSh * 1.02)` and `ring(rSh * 0.96)` hung at y = -0.14
+        // and -0.20. `rSh` is the SHOULDER's radius and those heights are 140
+        // and 200 mm DOWN a tapering arm — the flesh is at `rSh * 0.95` and
+        // less by then — so both rings were cut for a shoulder and worn on a
+        // bicep. Worse, they were CIRCLES on an arm that is an ellipse (`hd` is
+        // 4% wider than `hw` through this stretch), so each one stood proud at
+        // the flanks and sank at the front, which is what breaks a silhouette
+        // and reads as a hoop floating round a limb.
+        //
+        // THE FIX IS TWENTY LINES BELOW THIS AND ALWAYS WAS. The bracer's
+        // buckles ride `bracerC`, a carrier off the bracer's own sweep, and its
+        // comment names this exact fault: "so the buckles that lace it ride the
+        // taper instead of standing at the ONE height where `rWr * 1.36` was
+        // true". The rings now ask `upperC` where the arm is, take its ellipse
+        // through the transform's scale, and sit `ARM_RING_LIFT` off the skin.
+        //
+        // AND THEY GO THROUGH `fitAdd`, which is the half that keeps them
+        // fixed. `wearmeasure` §5 measures every REGISTERED fitting against the
+        // garment under it and passes 148 of them; these two were added with a
+        // bare `p.add` and so were never in that count. A gate green because
+        // the case is absent is not a gate.
+        const armRing = (y: number, tube: number) => {
+          const st = upperC.st(y);
+          const rw = st.hw + ARM_RING_LIFT;
+          const rd = (st.hd ?? st.hw) + ARM_RING_LIFT;
+          const mean = (rw + rd) / 2;
+          // SIXTEEN SEGMENTS, NOT TWELVE, and it is the ruler that asked. A
+          // 12-gon on a 55 mm radius has a chord sagitta of 1.87 mm — its
+          // midpoints sit that far inside the ellipse its vertices are on — and
+          // `gripMm` measures exactly that spread, so the tessellation was most
+          // of the number and no bar could be set below it. At 16 the sagitta is
+          // 1.06 and the measurement is about the ring instead of about the
+          // polygon. It is also a visibly rounder band at armoury zoom, which is
+          // where a player looks at it.
+          fitAdd(p, "arm-ring", upperC, ring(mean, tube, 5, 16), brass,
+            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, 1, rd / mean));
+        };
+        armRing(-0.14, 0.011);
+        if (lod.trim) armRing(-0.2, 0.009);
       }
 
       // Bracer over the forearm, buckled. It stops at the wrist, not 28 mm short of
@@ -15309,7 +15430,19 @@ export function buildCharacter(
         // because brass is already on this part and buff is not — one extra
         // substance on a limb is one extra draw call per arm per warrior, and a
         // fitting is worth having, a sixteenth of a millisecond is not.
-        p.add(ring(rWr * 1.26, 0.005, 4, 10), brass, xf(0, wrist + 0.008, 0, Math.PI / 2, 0, 0, 1, 1, 0.98));
+        // The same correction, on the same limb, for the same reason: a circle
+        // at a remembered radius on a sweep that tapers. The hand-tuned 0.98 in
+        // z was somebody noticing the ellipse and guessing at it; the bracer's
+        // own stations know it exactly.
+        {
+          const y = wrist + 0.008;
+          const st = bracerC.st(y);
+          const rw = st.hw + ARM_RING_LIFT;
+          const rd = (st.hd ?? st.hw) + ARM_RING_LIFT;
+          const mean = (rw + rd) / 2;
+          fitAdd(p, "wrist-ring", bracerC, ring(mean, 0.005, 4, 14), brass,
+            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, 1, rd / mean));
+        }
       }
       if (robed) {
         fitAdd(p, "wrist-rune", bracerC, box(0.006, 0.05, 0.008), rune,
