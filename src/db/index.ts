@@ -30,11 +30,6 @@ const globalForDb = globalThis as typeof globalThis & {
 const BREAKER_MS = 30_000;
 let breakerUntil = 0;
 
-/** True when the deployment was given a database at all. */
-export function isDatabaseConfigured(): boolean {
-  return !!databaseUrl;
-}
-
 function connect(): Db | null {
   if (!databaseUrl) return null;
   if (!globalForDb.__bretwaldaPool) {
@@ -343,10 +338,4 @@ export async function withDb<T>(fn: (db: Db) => Promise<T>, fallback: T): Promis
     breakerUntil = Date.now() + BREAKER_MS;
     return fallback;
   }
-}
-
-/** Test seam: forget the breaker so a probe can retry immediately. */
-export function resetDbBreaker(): void {
-  breakerUntil = 0;
-  schemaReady = null;
 }

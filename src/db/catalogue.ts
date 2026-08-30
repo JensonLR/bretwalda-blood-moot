@@ -65,10 +65,6 @@ export function startingUnlocks(): string[] {
   return [...FREE_IDS];
 }
 
-export function optionById(id: string): ArmouryOption | undefined {
-  return BY_ID.get(id);
-}
-
 function optionForValue(slot: string, value: unknown): ArmouryOption | undefined {
   return BY_SLOT_VALUE.get(slot)?.get(String(value));
 }

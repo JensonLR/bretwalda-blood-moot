@@ -613,7 +613,7 @@ or staggered mess & 100% passage via react doctor etc."*
 
 | # | Item | Note |
 |---|---|---|
-| 6.1 | **Redundant code sweep**, when deemed necessary and verified | NEW |
+| 6.1 | **Redundant code sweep**, when deemed necessary and verified | **SWEPT 29 Aug 2026 — measured first, then cut.** 145 exports are named nowhere outside their own file; only **8** are defined and never named again anywhere, and those are gone (41 lines), three of them "test seams" with no test using them. The other 137 are types carrying a module's public shape or functions used internally — cutting those is churn, not a sweep. See the note below the table. |
 | 6.2 | **Agent graph architecture** — build the agents properly with graphs and loops, documented, reusable across projects | NEW |
 | 6.3 | **Orchestrator stays under 50% context** | NEW — now `docs/PROCESS.md` E2 |
 | 6.4 | Rotate the exposed Neon password; delete the old Render Postgres | **OWNER-ONLY, STILL OPEN — and the repo's own half is now done (28 Aug 2026).** The tree was audited for committed credentials: `drizzle.config.json` and `docs/JUDGEMENT-2026-08-06.md` both hold `127.0.0.1` PLACEHOLDERS and are fine (`db/README.md`'s claim about the former verified rather than trusted). The one real exposure was `docs/HANDOVER.md`, which printed the live Neon password verbatim *inside the instruction telling the reader to rotate it* — so the security note was handing the secret to every reader, clone and fork. Redacted; no `npg_` token remains anywhere in the tracked tree. **Redaction is not the remedy and does not close this row**: git history still carries the value, which is precisely why rotation at the provider is the only fix. Only the owner can do it (Neon console, then delete the old Render Postgres). |
@@ -1516,3 +1516,39 @@ What a real fix needs, both at once:
 
 Done means: §11 gates instead of reporting, §8 and §9 stay green, and the
 wedge in `art/shots/cloakfront/` is gone from a fresh capture.
+
+### 6.1, as swept — 29 Aug 2026
+
+The row said *"redundant code sweep, when deemed necessary and verified"*, and
+the honest way to deem it is to measure it. Every exported symbol in `src/`
+was checked for a reference outside its own file, across `src/` and `tools/`.
+
+**145 exports are named nowhere else** — but that is not the same as dead, and
+lumping them together is how a sweep becomes churn:
+
+* Most are TYPES exported for a module's public shape (`LightingOptions`,
+  `WorldOptions`, `RailGeometry`). They cost nothing at runtime and removing
+  the keyword would be noise.
+* 29 are FUNCTIONS, and 21 of those are used inside their own file — merely
+  over-exported, which is a wider surface than needed but not dead weight.
+* **8 are defined and never named again anywhere.** Those are the sweep.
+
+Deleted: `groundIds`, `cachedThumb`, `factionLivery`, `isDatabaseConfigured`,
+`resetDbBreaker`, `optionById`, `ledgerInstalled`, `resetLedger` — 41 lines.
+
+**Three of them called themselves TEST SEAMS with no test using them**
+(`resetDbBreaker`: *"forget the breaker so a probe can retry immediately"*;
+`resetLedger`: *"drop everything witnessed so far"*). An unused seam is worse
+than dead code, because it reads as coverage that does not exist. If a probe
+wants one back it is one line.
+
+The ninth candidate, `generateMetadata`, is Next's own convention and is called
+by the framework — kept, and named here so the next sweep does not "find" it.
+
+Gates after: tsc, lint, build, wartest 82/82, protocoltest 81/81, fighttest
+23/23, burhtest 24/24, storeclaims 25/25, marktest 38/38, scoretest 16/16,
+solidtest 16/16, wearmeasure 11/11 sections.
+
+**Not done, deliberately:** narrowing the 21 over-exported functions to module
+scope. It is a real tidy and it is pure churn against a working tree; it wants
+doing alongside a change that touches those files anyway.

@@ -262,11 +262,6 @@ export function registerGround(def: GroundDef): GroundDef {
   return def;
 }
 
-/** Every ground this build can draw. */
-export function groundIds(): string[] {
-  return [...GROUND_DEFS.keys()];
-}
-
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------

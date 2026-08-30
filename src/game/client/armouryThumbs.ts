@@ -118,10 +118,6 @@ export function thumbKey(spec: ThumbSpec): string {
   return [spec.warriorClass, spec.slot, spec.faceSeed, ...kit].join("|");
 }
 
-export function cachedThumb(key: string): string | null {
-  return THUMBS.get(key) ?? null;
-}
-
 /**
  * The picture, or null and a job queued for it. Safe to call every render:
  * a key already drawn or already queued costs one map lookup.

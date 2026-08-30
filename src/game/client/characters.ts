@@ -1022,12 +1022,6 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
   },
 };
 
-/** The livery of a people, for the screens that name one. */
-export function factionLivery(people: PeopleId): { name: string; native: string; field: number } {
-  const f = FACTION[people];
-  return { name: f.name, native: f.native, field: f.field };
-}
-
 /** True for one of the four. Everything else — including `undefined` — is unsworn. */
 export function isPeople(v: unknown): v is PeopleId {
   return typeof v === "string" && (PEOPLE_IDS as readonly string[]).includes(v);

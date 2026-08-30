@@ -188,11 +188,6 @@ export function installMatchLedger(): void {
   }
 }
 
-/** True when this process is actually witnessing payouts. */
-export function ledgerInstalled(): boolean {
-  return ledger().installed;
-}
-
 /**
  * Reserves an engine player id for a profile, on the `join` message.
  *
@@ -268,10 +263,4 @@ export function claimAward(playerId: string, profileId: number): ClaimOutcome {
     return { status: "granted", award, match };
   }
   return { status: "granted", award };
-}
-
-/** Test seam: drop everything witnessed so far. */
-export function resetLedger(): void {
-  const l = ledger();
-  l.awards.clear(); l.matches.clear(); l.binds.clear(); l.rooms.clear(); l.frames.clear();
 }
