@@ -699,6 +699,55 @@ async function duelPhase(browser) {
     check("the summary overlay stands over a live canvas", overlayUp && canvasUp,
       `verdict=${overlayUp}, canvas=${canvasUp}`);
   }
+  // A CONTROL MAY NEVER SIT ON WORDS — backlog 8.2, the owner's screenshot:
+  // the sound toggle mid-left, ON TOP of the war banner ("THE WAR WATCHES
+  // MEN…"). It was moved to the corner the moment he reported it, and then
+  // nothing held it there: this suite stands a real summary up at phone width
+  // and had no claim about what covers what, so the fix was a comment and a
+  // hope.
+  //
+  // Buttons against TEXT, not buttons against buttons — `touchtest` already
+  // owns the second question and it owns it during a FIGHT, which is a
+  // different screen with different furniture. Leaves only, so one paragraph
+  // is not reported once per nested span, and only what is actually painted.
+  {
+    const sat = await page.evaluate(() => {
+      const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const btns = [...document.querySelectorAll("button,a[href]")]
+        .map((el) => ({ name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 22), r: el.getBoundingClientRect() }))
+        .filter((b) => b.r.width > 4 && b.r.height > 4);
+      const words = [...document.querySelectorAll("div,span,p,h1,h2,h3,li")].filter((el) => {
+        // A CONTAINER IS NOT A WORD, and the first run of this claim proved it:
+        // the emote row is a bare flex div holding three buttons, so a leaf test
+        // that only looked for nested TEXT elements read it as a text node
+        // saying "RAISE BOSS TAUNT" and then reported all three of its own
+        // buttons for sitting on it. An element whose text comes FROM buttons
+        // is not text a button can cover.
+        if (el.querySelector("div,span,p,h1,h2,h3,li,button,a[href]")) return false;
+        if (el.closest("button,a[href]")) return false;
+        const t = el.textContent.trim();
+        if (t.length < 3) return false;
+        const st = window.getComputedStyle(el);
+        if (st.visibility === "hidden" || st.display === "none" || parseFloat(st.opacity || "1") < 0.05) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 4 && r.height > 4;
+      });
+      const out = [];
+      for (const w of words) {
+        for (const b of btns) {
+          if (hits(w.getBoundingClientRect(), b.r)) {
+            out.push(`"${b.name}" sits on "${w.textContent.trim().slice(0, 26)}"`);
+          }
+        }
+      }
+      return { out: [...new Set(out)], btns: btns.length, words: words.length };
+    });
+    check("no control on the summary sits on any words",
+      sat.out.length === 0,
+      sat.out.length ? sat.out.join("; ")
+        : `${sat.btns} controls against ${sat.words} painted texts at 390x844, none overlapping`);
+  }
+
   const duelEarly = await castNow(page);
   await emoteCheck(page, duelEarly, "duel");
   await page.screenshot({ path: `${OUT}/summary-real-phone.png` });
