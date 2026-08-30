@@ -9588,3 +9588,68 @@ the rings exactly as they shipped — *"no arm-ring registered — it is on the 
 but not in this ruler, which is how the last one was missed."*
 
 wearmeasure: all eleven sections PASS, 168 fittings.
+
+---
+
+## THE 44 px FLOOR WAS HELD ON ONE PLATFORM AND ONE SCREEN — 29 Aug 2026
+
+Backlog 5.10's own words: *"44 px floor on every control INCLUDING DESKTOP"*.
+`touchtest` has held the fight's glass to it since 24 August. The menus never
+were: `uishots` walks every screen there is and its only size audit ran on the
+**lobby**, at both widths, and **printed** — it could not fail. A law kept on
+one of two platforms and one of a dozen screens is a law nobody is keeping.
+
+The audit rides `shot()` now, so it reaches all **36** screens the sweep walks
+at both widths and cannot fall behind the capture list. Measured on the SMALLER
+side of the box, which is the side a thumb misses.
+
+**IT FOUND EXACTLY TWO BREACHES IN THE WHOLE GAME**, and both were on the one
+screen that had never been in the sweep at all — the war map: Kent at 46x43 and
+Fib at 84x34 on a phone. The places are small because the places are small.
+
+**AND THEN THE RULER TURNED OUT TO BE MEASURING THE WRONG THING.**
+`getBoundingClientRect` on an SVG path **excludes its stroke** — probed and
+confirmed: Fib reports 84x34 while its own bbox is 161x65 and a press 20 px
+below its centre lands on Fib. So a box rule under-reports an SVG target and
+would condemn one a thumb can hit. Map geometry is asked the question a thumb
+asks instead: is there ANY point on the shape from which a half-floor press
+stays on it?
+
+Three cuts of that question were wrong before one was right, all recorded in
+the tool:
+
+* the **box centre** as the anchor — an irregular polygon's box centre is
+  usually not inside the polygon and on a map is usually inside a neighbour, so
+  it reported Mercia at 130x140 as unreachable;
+* the **first grid point that hits** as the anchor — a map tiles with no gaps,
+  so an anchor near a border fails while the middle of the same territory is
+  fine;
+* **off-screen elements** judged at all — `elementFromPoint` answers for the
+  viewport, and the sweep scrolls past the map to reach the oath, so everything
+  on the map read as pressable by nothing.
+
+**AND THE FIRST GREEN SHEET WAS GREEN BECAUSE THE CASE WAS ABSENT.** With the
+off-screen skip in place the map was simply skipped and the audit passed. The
+sweep now photographs and audits the map **in view** first.
+
+**THE FIX THAT SHIPPED** is a transparent `vector-effect: non-scaling-stroke`
+hit stroke on the territory paths: 14 px of target in SCREEN pixels at any zoom,
+borders overlapping 7 px a side, which is the ordinary trade for map targets and
+a better failure than a place a thumb cannot land on. Measured both ways on the
+real page: **six territories unreachable without it, three with** (Wessex, Fib
+and Circinn rescued).
+
+**WHAT DID NOT WORK, so nobody spends the afternoon on it again:** a zero-radius
+circle carrying a 44 px non-scaling stroke at each territory's own label anchor.
+It paints as a perfect 44 px disc and Chromium hit-tests it against the
+UNSCALED geometry — Kent, Kernow and Sudreyjar were exactly as unreachable with
+the circles as without them. Reverted; the finding is in the CSS beside the
+place it would have gone.
+
+**Kent, Kernow and Sudreyjar remain** — a corner, a peninsula and a scatter of
+islands. They are REPORTED by name on every run and not gated, because closing
+them wants a DOM overlay and the kingdom rows below the map are the primary
+selector, all of which clear the floor. The backlog carries it with the
+instrument that found it.
+
+**uishots: PASS, the 44 px floor on 36 screens at both widths.**

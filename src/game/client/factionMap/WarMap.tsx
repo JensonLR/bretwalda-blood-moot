@@ -602,8 +602,48 @@ const CSS = `
 .wm-label { fill: #f4e6c8; font-size: 26px; letter-spacing: 0.10em; font-weight: 700; }
 .wm-label-sub { fill: rgba(240,226,196,0.72); font-size: 15px; letter-spacing: 0.16em; }
 
-.wm-hit { fill: transparent; cursor: pointer; outline: none; }
+/* A TERRITORY IS A CONTROL, AND GEOGRAPHY DOES NOT KNOW ABOUT THE 44 px FLOOR.
+   Backlog 5.10 sets that floor on every control including desktop, and the
+   menu sweep — which walks 34 screens at two widths — finds exactly two
+   breaches in the whole game, both here: Kent at 46x43 and Fib at 84x34 on a
+   phone. They are small because the places are small, so no amount of layout
+   fixes them.
+
+   A transparent hit stroke does. vector-effect: non-scaling-stroke keeps it a
+   constant number of SCREEN pixels however far the map is zoomed, so the target
+   grows by 14 px in each dimension at every scale — Fib to 48, Kent to 57 —
+   and it grows the element's real hit area rather than merely satisfying a
+   ruler: getBoundingClientRect on an SVG path includes its stroke, which is
+   why the measurement and the fix are the same fact.
+
+   NO BACKTICKS IN THIS BLOCK. All of this CSS is a template literal in a .tsx
+   file, so one backtick ends the string and the build fails inside a stylesheet
+   with a syntax error pointing at prose. It cost a whole sweep: the page came up
+   unstyled, the capture harness waited two minutes for stylesheets that were
+   never going to arrive, and the run died at the oath.
+
+   Borders overlap by 7 px a side as a result. That is the right trade and the
+   ordinary one for map targets: the hit layer is drawn last and in document
+   order, so the topmost path wins, and an ambiguous 7 px at a coastline is a
+   better failure than a territory a thumb cannot land on at all. */
+.wm-hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
 .wm-hit:focus-visible { stroke: var(--gilt-lit); stroke-width: 3; }
+/* A ZERO-RADIUS CIRCLE WITH A 44 px NON-SCALING STROKE WAS TRIED HERE AND DOES
+   NOT WORK, which is written down so the next person does not spend the
+   afternoon on it. It paints as a 44 px disc in screen pixels and reads
+   beautifully, and Chromium hit-tests it against the UNSCALED geometry: probed,
+   Kent, Kernow and Sudreyjar were exactly as unreachable with the circles as
+   without them. A DOM overlay would work and is not worth the complexity on a
+   map whose kingdom rows below it are the primary selector — see the backlog
+   row, which carries the measurement. */
 
 .warmap-side { display: grid; gap: 0.75rem; align-content: start; }
 .wm-panel {

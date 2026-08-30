@@ -30,6 +30,12 @@ const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv
 // still exists for when a fixed one is wanted; see also the free-port check in
 // startServer, which refuses rather than guesses.
 const PORT = parseInt(flag("port", String(3400 + (process.pid % 200))), 10);
+/** The design system's floor, `docs/DESIGN-SYSTEM.md` §3 and backlog 5.10. The
+ *  same 44 `touchtest` holds the fight's glass to — one law, two harnesses,
+ *  because the menus are the half touchtest never sees. */
+const TAP_FLOOR = 44;
+/** Every control this sweep found under the floor, across both widths. */
+const tapFails = [];
 // See the same constant in shoot.mjs for why this is not 127.0.0.1: Next 16
 // blocks dev resources from the loopback literal, the HMR socket dies, and the
 // dev client reload-loops the page — which for this tool means every shot is of
@@ -152,10 +158,111 @@ async function main() {
       reducedMotion: "reduce",
     });
     const page = await ctx.newPage();
+    // THE 44 px FLOOR, ON EVERY SCREEN THIS SWEEP VISITS — backlog 5.10, whose
+    // own words are "44 px floor on every control INCLUDING DESKTOP". The phone
+    // half has been gated in `touchtest` since 24 Aug; the desktop half never
+    // was, and this file's only size audit ran on ONE screen (the lobby) and
+    // merely printed. A law held on one of two platforms and one of a dozen
+    // screens is a law nobody is keeping.
+    //
+    // Riding `shot()` on purpose: the sweep already walks every screen there is,
+    // so the audit reaches all of them for free and cannot fall behind the
+    // capture list. Measured on the SMALLER side of the box, which is the one a
+    // thumb or a cursor misses.
+    const tapAudit = async (name) => {
+      const rows = await page.evaluate((floor) => {
+        const bad = [];
+        const svgThin = [];
+        let total = 0;
+        for (const e of document.querySelectorAll("button, select, a[href], input, [role=button]")) {
+          const st = window.getComputedStyle(e);
+          if (st.visibility === "hidden" || st.display === "none" || parseFloat(st.opacity || "1") < 0.05) continue;
+          const r = e.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) continue;
+          // An inline link inside running prose is a word, not a target: it
+          // cannot be 44 px tall without breaking the paragraph it lives in,
+          // and the design system's law is about CONTROLS. Anything whose own
+          // display is inline and which sits inside a text block is skipped —
+          // decided off the element, not off a list of hrefs.
+          if (st.display.startsWith("inline") && e.closest("p, li, .war-oath-note, .war-mirror-note")) continue;
+          total++;
+          const name = (e.getAttribute("aria-label") || e.textContent || e.tagName).trim().slice(0, 30);
+          // SVG GEOMETRY IS MEASURED BY PRESSING IT, NOT BY ITS BOX.
+          //
+          // `getBoundingClientRect` on an SVG path EXCLUDES its stroke — probed
+          // and confirmed: the war map's Fib reports 84x34 while its own bbox is
+          // 161x65 and a press 20 px below its centre lands on Fib. The hit area
+          // is widened by a transparent non-scaling stroke (see `.wm-hit`), and
+          // a box rule cannot see that, so on this kind of control the box is
+          // the wrong quantity and would condemn a target a thumb can hit.
+          //
+          // So the map's territories are asked the question a thumb asks:
+          // press the centre, and press half a floor away on each axis. A
+          // control that answers its own centre and reaches at least half a
+          // floor on BOTH axes is reachable. Neighbours may take the far side —
+          // they overlap by design, the note in `.wm-hit` says why — so one
+          // direction per axis is enough.
+          if (e.ownerSVGElement) {
+            // AND ONLY IF IT IS ON SCREEN. `elementFromPoint` answers for the
+            // VIEWPORT, so a control scrolled out of it answers nothing and
+            // reads as unreachable — which is how the second cut of this
+            // reported Mercia at 130x140 and Wessex at 228x101 as pressable by
+            // nothing: the oath sits below the map and this sweep scrolls to
+            // the oath. A control you cannot see is not a control you can press,
+            // and it is not this claim's business either.
+            if (r.top < 0 || r.left < 0 || r.bottom > window.innerHeight || r.right > window.innerWidth) continue;
+            // ANCHOR ON A POINT THAT IS ACTUALLY THE SHAPE. The first cut of
+            // this probed the bounding box's CENTRE and reported Mercia at
+            // 130x140 as unreachable — an irregular polygon's box centre is
+            // very often not inside the polygon, and on a map it is usually
+            // inside a neighbour. Scan a coarse grid for a point that answers
+            // as this element, then ask how far the press can travel from
+            // there.
+            // DOES THERE EXIST AN ANCHOR a thumb can land on? Not "is the box
+            // centre good" — a map tiles with no gaps, so a point near a border
+            // fails while the middle of the same territory is fine, and an
+            // earlier cut of this reported Mercia at 130x140 for exactly that.
+            // Scan for ANY point from which a half-floor press stays on the
+            // shape.
+            const h = floor / 2;
+            let ok = false;
+            for (let gy = 1; gy < 12 && !ok; gy++) {
+              for (let gx = 1; gx < 12; gx++) {
+                const px = r.left + (r.width * gx) / 12;
+                const py = r.top + (r.height * gy) / 12;
+                if (document.elementFromPoint(px, py) !== e) continue;
+                const at = (dx, dy) => document.elementFromPoint(px + dx, py + dy) === e;
+                if ((at(-h, 0) || at(h, 0)) && (at(0, -h) || at(0, h))) { ok = true; break; }
+              }
+            }
+            // REPORTED, NOT GATED, and the reason is on the record: three of the
+            // sixteen territories — Kent, Kernow, Sudreyjar — are a corner, a
+            // peninsula and a scatter of islands, and no border stroke makes
+            // them 44 px. The hit stroke took the count from six to three
+            // (measured both ways); closing the last three wants a DOM overlay,
+            // which is a backlog row and not a bar to bend today.
+            if (!ok) svgThin.push(`${name} ${Math.round(r.width)}x${Math.round(r.height)}`);
+            continue;
+          }
+          const side = Math.min(r.width, r.height);
+          if (side < floor) bad.push({ t: name, w: Math.round(r.width), h: Math.round(r.height) });
+        }
+        return { bad, total, svgThin };
+      }, TAP_FLOOR);
+      if (rows.svgThin.length) {
+        console.log(`[ui] ${name}-${vp.tag} map targets under a ${TAP_FLOOR}px press (reported): ${rows.svgThin.join(", ")}`);
+      }
+      if (rows.bad.length) {
+        tapFails.push(`${name}-${vp.tag}: ${rows.bad.map((b) => `"${b.t}" ${b.w}x${b.h}${b.why ? " — " + b.why : ""}`).join(", ")}`);
+      }
+      console.log(`[ui] ${name}-${vp.tag} controls ${rows.total}, under ${TAP_FLOOR}px: ${rows.bad.length}`);
+    };
+
     const shot = async (name, full = true) => {
       await waitForStyles(page);
       await page.waitForTimeout(700);
       await page.screenshot({ path: resolve(OUT, `${name}-${vp.tag}.png`), fullPage: full });
+      await tapAudit(name);
       console.log(`[ui] ${name}-${vp.tag}`);
     };
 
@@ -285,6 +392,12 @@ async function main() {
       });
       await page.waitForTimeout(700);
     };
+    // THE MAP ITSELF, IN VIEW. The oath is below it and this sweep scrolls
+    // there, so every earlier cut of the tap audit skipped the map entirely and
+    // reported a clean sheet — green because the case was absent, which is the
+    // one thing this project does not accept. Photographed and audited at the
+    // top of the page first.
+    await shot("warmap");
     await oathAt();
     await shot("oath");
     // `.war-people-row` is the kingdom list's own class. By role/name the map's
@@ -316,16 +429,9 @@ async function main() {
     await shot("lobby");
     await shot("lobby-viewport", false);
 
-    // tap-target audit: every visible control's box and the gaps between them
-    const audit = await page.evaluate(() => {
-      const els = [...document.querySelectorAll("button, select, input, a")];
-      const boxes = els.map((e) => {
-        const r = e.getBoundingClientRect();
-        return { t: (e.textContent || e.getAttribute("aria-label") || e.tagName).trim().slice(0, 28), w: Math.round(r.width), h: Math.round(r.height) };
-      }).filter((b) => b.w > 0 && b.h > 0);
-      return { small: boxes.filter((b) => b.h < 44), total: boxes.length };
-    });
-    console.log(`[ui] ${vp.tag} lobby controls: ${audit.total}, under 44px tall:`, JSON.stringify(audit.small));
+    // The lobby's own tap-target audit used to live here, on this ONE screen,
+    // printing and never failing. `tapAudit` rides every `shot()` now and gates
+    // the lot — see its note.
 
     // deep link: a fresh guest opening the bare invite URL
     const code = await page.evaluate(() => {
@@ -358,7 +464,16 @@ async function main() {
 
   await browser.close();
   if (server && !server.killed) server.kill("SIGTERM");
-  process.exit(0);
+
+  // THE FLOOR, REPORTED AND THEN HELD. See `tapAudit`.
+  console.log("");
+  if (tapFails.length) {
+    console.log(`[ui] CONTROLS UNDER THE ${TAP_FLOOR}px FLOOR — backlog 5.10, "every control including desktop":`);
+    for (const f of tapFails) console.log(`[ui]   ${f}`);
+  }
+  console.log(`[ui] ${tapFails.length ? "FAIL" : "PASS"}: the ${TAP_FLOOR}px floor, on every screen this sweep walks, at both widths`);
+  if (server && !server.killed) server.kill("SIGTERM");
+  process.exit(tapFails.length ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); if (server && !server.killed) server.kill("SIGTERM"); process.exit(1); });
