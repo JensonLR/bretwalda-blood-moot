@@ -858,9 +858,30 @@ async function lockAct(browser, url, check) {
       // not matter; that it is across his front and not at him does.
       await hand.press(STICK, stickHome.x, stickHome.y);
       await Promise.all([0.4, 0.75, 1].map((k) => hand.move(STICK, stickHome.x - 62 * k, stickHome.y)));
-      // Held past the swing's own 1.15 s, so the grading window is the whole
-      // blow rather than however much strafe a 0.9 s hold happened to overlap.
-      await wait(1150);
+      // AND HAND HIM A DIFFERENT MAN, MID-BLOW. This is the manoeuvre this
+      // section's own header describes — "ask the lock, mid-blow, for a man in
+      // a completely different direction" — and it is back because the strafe
+      // ALONE CANNOT TEST THE CAP. Measured, printed on every run:
+      //
+      //     range 1.37-3.30 m; he covered 1.87 u/s while committed;
+      //     so the tightest the bearing could be asked to sweep was 1.36 rad/s
+      //
+      // The demand is speed over range, a committed man is damped to 1.87 u/s,
+      // and collision will not let you inside about 1.3 m — so the strafe tops
+      // out at 1.36 rad/s against a 1.8 cap. The body ALWAYS keeps up, and the
+      // only reason this claim ever went green was the recruit's own motion
+      // happening to swing the bearing. That is a case the harness waits for
+      // rather than makes, which is exactly backlog row 0's complaint, and it
+      // is why fourteen draws still went red at 1.70.
+      //
+      // A switch is a lever the harness PULLS. The demand-rate loop already
+      // skips frames across a lock change (`a.lock !== c.lock`), so this cannot
+      // inflate the rate it grades — it only creates the residual that proves
+      // the server was asked for a big turn while committed, and then the cap
+      // is measured on what he actually did with it.
+      await wait(300);
+      await glassDrag(92);
+      await wait(850);
       await hand.lift(STICK);
       await wait(250);
 
@@ -900,14 +921,35 @@ async function lockAct(browser, url, check) {
         }
         const last = rows[rows.length - 1];
         const lastB = bearing(last);
+        // THE GEOMETRY THE DEMAND IS MADE OF, carried out so a red says WHY.
+        // demand = tangential speed / range, so a draw that fails the
+        // `exercised` guard failed on one of those two, and the verdict line
+        // has to say which. Without them this claim's reds are unactionable —
+        // the range was tightened twice by guesswork before anyone printed it.
+        let rMin = Infinity, rMax = 0, moved = 0;
+        for (let i = 0; i < rows.length; i++) {
+          const q = rows[i].lock && rows[i].foes[rows[i].lock];
+          if (q && !q.dead) {
+            const rr = Math.hypot(q.x - rows[i].x, q.z - rows[i].z);
+            if (rr < rMin) rMin = rr;
+            if (rr > rMax) rMax = rr;
+          }
+          if (i > 0) moved += Math.hypot(rows[i].x - rows[i - 1].x, rows[i].z - rows[i - 1].z);
+        }
         return {
           turned, elapsed, demandRate, bodyPeak, peakResidual,
           rate: turned / elapsed,
           residual: lastB === null ? null : Math.abs(wrap(lastB - last.rot)),
           allowed: cap * elapsed, frames: rows.length,
+          rMin: rMin === Infinity ? -1 : rMin, rMax, speed: moved / elapsed,
         };
       }, [mark, CAP]);
       if (m && better(m, best)) best = m;
+    }
+    if (best) {
+      console.log(`[touchtest] lock stage geometry: range ${best.rMin.toFixed(2)}-${best.rMax.toFixed(2)} m; `
+        + `he covered ${best.speed.toFixed(2)} u/s while committed; so the tightest the bearing could be `
+        + `asked to sweep was ${(best.speed / Math.max(0.01, best.rMin)).toFixed(2)} rad/s (cap ${CAP})`);
     }
 
     // Tolerance is on the CLOCK, not on the cap: the server integrates 1.8 rad/s
