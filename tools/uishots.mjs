@@ -36,6 +36,8 @@ const PORT = parseInt(flag("port", String(3400 + (process.pid % 200))), 10);
 const TAP_FLOOR = 44;
 /** Every control this sweep found under the floor, across both widths. */
 const tapFails = [];
+/** Which screens wear the Trewhiddle ornament — backlog 5.9. Counted, not judged. */
+const ornCensus = [];
 // See the same constant in shoot.mjs for why this is not 127.0.0.1: Next 16
 // blocks dev resources from the loopback literal, the HMR socket dies, and the
 // dev client reload-loops the page — which for this tool means every shot is of
@@ -249,6 +251,19 @@ async function main() {
         }
         return { bad, total, svgThin };
       }, TAP_FLOOR);
+      // THE TREWHIDDLE CENSUS — backlog 5.9, "adopt the thesis across EVERY
+      // screen". `docs/DESIGN-SYSTEM.md` §1 names the ornament: dark on metal,
+      // COMPARTMENTED — bands with cut ends, never a full-length rule. The
+      // system is built (`.knot-band`, `.ornament-line`); what nobody could say
+      // was which screens actually wear it, because that is a question about
+      // rendered pages and this sweep is the only thing that has them all.
+      // Counted, not judged: a screen with none is named, and whether it WANTS
+      // one is the owner's call and not a harness's.
+      const orn = await page.evaluate(() => ({
+        bands: document.querySelectorAll(".knot-band").length,
+        rules: document.querySelectorAll(".ornament-line").length,
+      }));
+      ornCensus.push(`${name}-${vp.tag}: ${orn.bands} band(s), ${orn.rules} rule(s)`);
       if (rows.svgThin.length) {
         console.log(`[ui] ${name}-${vp.tag} map targets under a ${TAP_FLOOR}px press (reported): ${rows.svgThin.join(", ")}`);
       }
@@ -472,6 +487,10 @@ async function main() {
     for (const f of tapFails) console.log(`[ui]   ${f}`);
   }
   console.log(`[ui] ${tapFails.length ? "FAIL" : "PASS"}: the ${TAP_FLOOR}px floor, on every screen this sweep walks, at both widths`);
+  console.log("");
+  const bare = ornCensus.filter((l) => l.includes("0 band(s), 0 rule(s)"));
+  console.log(`[ui] TREWHIDDLE (5.9): ${ornCensus.length - bare.length} of ${ornCensus.length} rendered screens wear the ornament.`);
+  for (const l of bare) console.log(`[ui]   bare: ${l.split(":")[0]}`);
   if (server && !server.killed) server.kill("SIGTERM");
   process.exit(tapFails.length ? 1 : 0);
 }
