@@ -264,6 +264,47 @@ async function main() {
       await shot("saga-restore");
     }
 
+    // THE OATH, and its livery mirror — backlog 8.3, the owner's screenshot:
+    // the caption said "In the colours of the Anglo-Saxons" over a warrior in
+    // plain issued steel. The mirror is the ONE surface in the game whose whole
+    // job is to show a colour, and this sweep had never photographed it: the
+    // factions page is its own route and the loop above only ever walked the
+    // screens reachable from the landing hall.
+    //
+    // Two frames, and the pair is the claim: the mirror before a kingdom is
+    // touched, and after. If the second is not visibly a different man from the
+    // first, the caption is lying.
+    await page.goto(`${BASE()}/factions`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(4500);
+    // The oath is far down a long page and the map is above it. Scroll to the
+    // section itself — the first cut of this photographed the map, twice, and
+    // filed it as the mirror.
+    const oathAt = async () => {
+      await page.evaluate(() => {
+        document.querySelector(".war-oath")?.scrollIntoView({ block: "center" });
+      });
+      await page.waitForTimeout(700);
+    };
+    await oathAt();
+    await shot("oath");
+    // `.war-people-row` is the kingdom list's own class. By role/name the map's
+    // territories answer first, which is what went wrong.
+    const rows = page.locator(".war-people-row");
+    const n = await rows.count();
+    if (n >= 2) {
+      await rows.nth(0).click();
+      await oathAt();
+      await shot("oath-first");
+      await rows.nth(1).click();
+      await oathAt();
+      await shot("oath-second");
+      const said = await page.evaluate(() =>
+        document.querySelector(".war-mirror-note")?.textContent?.trim() ?? "(no mirror note)");
+      console.log(`[ui] oath mirror says: ${said}`);
+    } else {
+      console.log(`[ui] WARNING: ${n} kingdom rows on /factions — the oath mirror was not exercised`);
+    }
+
     // lobby: name -> create battle -> create room
     await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(900);
