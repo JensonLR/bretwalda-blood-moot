@@ -1415,6 +1415,14 @@ function underCeiling(hex: number, cap: number): number {
  * Danelaw comes out of it at ΔE 3.94 against `cosmetictest`'s JND of 2.3.
  */
 /** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
+/**
+ * Behind this bearing from the face, hair under a helm may hang with nothing
+ * over it, because that is what a nape fall IS. 2.09 rad is 120 degrees, the
+ * empty bin between the two populations the cull was conflating — see the note
+ * at the cull itself for the measurement.
+ */
+const HAIR_NAPE_FREE = 2.09;
+
 const ROSE_ARC = 0.10;
 /**
  * How the arc's edge is feathered, in turns, so nothing steps at the boundary.
@@ -17121,7 +17129,28 @@ export function buildCharacter(
             // no rim to emerge from; it is not built. The unhelmed courses
             // are untouched — a bare head's fringe is ATTACHED to the mass
             // above it, which is the difference the controls photographed.
-            if (helmed && !Number.isFinite(room)) continue;
+            // ...BUT ONLY IN FRONT OF THE NAPE, and that line is measured
+            // rather than chosen. The cull above closed the cheek commas and
+            // `tools/rungcensus.mjs` then failed the tree: 306 scope-readings
+            // lost, and on `hair=long` and `hair=braids` — PAID RUNGS — fifteen
+            // components and twelve hundred triangles apiece under every open
+            // helm. It was deleting the FALL as well as the commas.
+            //
+            // Binned by bearing from the face, the two populations do not touch.
+            // warden/iron/long, vertices the cull removes:
+            //
+            //   30-45:242  45-60:128  60-75:443  75-90:122  90-105:173
+            //   105-120:487    (nothing at all between 120 and 135)
+            //   135-150:337  150-165:315  165-180:173
+            //
+            // The forward group is the commas — bare cheek and temple, no metal
+            // overhead, the owner's round-ten report. The rear group is the
+            // NAPE FALL, which is what long hair is for and which is supposed to
+            // hang free: there is no rim back there and there never was, so
+            // "nothing overhead" is the normal condition rather than the fault.
+            // An empty bin sits between them, so the boundary is read off the
+            // geometry instead of guessed at.
+            if (helmed && !Number.isFinite(room) && awayFromFace(u) < HAIR_NAPE_FREE) continue;
             dirOf(u, v, lockDir);
             faceSurface(K, lockDir, lockRoot);
             faceNormalTrue(K, u, v, lockNrm);

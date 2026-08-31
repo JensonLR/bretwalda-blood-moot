@@ -9868,3 +9868,57 @@ the decimal**, detached-and-proud islands 9 → 9, against warden 17 → 2.
 
 So on the coifed man it costs paid hair and closes nothing. Both halves are on
 the list as 5.13 and 5.14, with these numbers.
+
+---
+
+## THE CULL TOOK THE NAPE FALL AS WELL AS THE COMMAS, AND ONLY ONE OF THOSE WAS THE FIX — 31 Aug 2026
+
+**CORRECTING MY OWN ENTRY OF THIS MORNING.** The section above says the comma
+cull "took paid hair" and reads as though every triangle it removed was wrongly
+removed. That is not what the geometry says, and the difference matters because
+one half is the fix working and the other half is a real defect.
+
+The census could not tell them apart — its bar is *zero* loss, so it fails
+identically whether the thing removed was a defect or a cosmetic. The
+discriminating measurement is WHERE the culled coils are ROOTED, and the first
+attempt at that got it wrong too: I binned the resulting VERTICES, but a coil
+rooted at 100° reaches to 135°, so the bins were of the wrong quantity. Binned
+by root bearing, on warden / iron / hair=long, the forty-four coils the cull
+takes fall into two populations that do not touch:
+
+```
+30-45:4  45-60:2  60-75:9  75-90:2  90-105:1  105-120:11
+        (nothing at all between 120 and 135)
+135-150:6  150-165:6  165-180:3
+```
+
+The forward twenty-nine are the **commas** — bare cheek and temple with no metal
+overhead, the owner's round-ten report, and deleting them is the fix. The rear
+fifteen are the **NAPE FALL**, which is what long hair is FOR. There is no rim
+behind a man's head and there never was, so "nothing overhead" is the normal
+condition back there rather than the fault — and the cull was reading it as one.
+
+`HAIR_NAPE_FREE` is 2.09 rad, 120°, **the empty bin between the two
+populations**: read off the geometry rather than chosen.
+
+**Measured, shop-wide, head-pivot components:**
+
+```
+before the 28 Aug cull   27609
+after it                 22887   (-4722)
+after this fix           24282   (-3327 from baseline, 1395 restored)
+```
+
+The 1395 restored are the falls. The 3327 still absent are the commas, which is
+the fix doing its job — and no census bar of zero can ever say so, which is why
+this file now carries a recorded baseline (`docs/census-baseline.json`) taken on
+the CORRECTED tree. Future changes are held to a tree that is right, instead of
+to one that predates a fix.
+
+**No regression anywhere:** helmclash **exactly** 19/24/6/8/74/11, BASELINE
+HELD, exit 0 — the restored falls clash with nothing. wearmeasure eleven
+sections PASS, wearsweep 54/54.
+
+**5.14 is closed. 5.13 is not** — the huscarl's own commas are a separate fault
+(his coif branch hands back a ceiling from an analytic surface that disagrees
+with the real mail), and this changes nothing about it.
