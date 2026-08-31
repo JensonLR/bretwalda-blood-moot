@@ -15646,19 +15646,19 @@ export function buildCharacter(
   // seen; 14 mm proud of the skull at this height is well within the band's
   // own 24 mm standoff, so it is covered.
   const coifLevels = [
-    // 18 mm and not 11, and this is what let the rim reach the guard at all.
-    // The ring is raised on the LOW-PASSED form and the skin stands up to 16 mm
-    // proud of it, so at 11 mm the mail was INSIDE the face across the crown:
-    // `hairCeil`'s coif branch computed `mail - surface - gap`, went negative,
-    // floored at its 2 mm, and left the hairline outside metal that was buried
-    // in the scalp. helmclash §5 read it as twelve rows on the Boar-Crest and
-    // the Jarl's Crowned — every rung, `beard=none` and `default` included,
-    // `hair=shaved` at 0.00 — all landing on one place, az 88 deg / y 231 mm,
-    // 3.87% out by 4.4 mm. Not a hairstyle fault; the garment had no room.
-    // 18 clears it and ten of the twelve go. It is nowhere near the
-    // `R.x * 1.34 + 0.026` this ring was cut back FROM — the note below records
-    // that reading as "a dark bell with the head somewhere inside it" — and
-    // growing it further to 22, 26 or 30 mm buys nothing on either ruler.
+    // 18 mm and not 11. The ring is raised on the LOW-PASSED form and the skin
+    // stands up to 16 mm proud of it, so at 11 mm the mail was INSIDE the face
+    // across the crown: `hairCeil`'s coif branch computed `mail - surface -
+    // gap`, went negative, floored at its 2 mm, and left the hairline sitting
+    // outside metal that was buried in the scalp. Found while measuring 5.15 —
+    // helmclash read it as 3.87% of hair out by 4.4 mm at az 88 deg, y 231 mm
+    // on the Boar-Crest and the Jarl's Crowned, on every rung, `hair=shaved` at
+    // 0.00, which is what says garment and not hairstyle.
+    //
+    // It is nowhere near the `R.x * 1.34 + 0.026` this ring was cut back FROM —
+    // the note below records that reading as "a dark bell with the head
+    // somewhere inside it" — and 22, 26 and 30 mm buy nothing further on any
+    // ruler. Three helmclash sections improve on this line alone.
     { y: skullY + R.y * 0.44, hw: R.x * 1.00 + 0.018, hd: R.z * 1.00 + 0.018, z: -0.008 },
     { y: skullY - R.y * 0.62, hw: R.x * 1.10 + 0.014, hd: R.z * 0.98 + 0.014, z: -0.020 },
     { y: skullY - R.y * 1.55, hw: R.x * 1.36 + 0.016, hd: R.z * 0.92 + 0.016, z: -0.028 },
@@ -15705,6 +15705,8 @@ export function buildCharacter(
     }
     return coifLevels[coifLevels.length - 1][key];
   };
+  /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
+  const coifRim = (v: number) => 1.46 + 0.34 * v * v;
   /**
    * THE AVENTAIL'S OWN FREE LOWER HEM, and it is the whole of the Sutton Hoo fix.
    *
@@ -15911,42 +15913,6 @@ export function buildCharacter(
    */
   const CHEEK_HEM_IN = style.cheek === "deep" ? (style.mask ? 0.66 : 0.56) : 0.56;
   const cheekT = (a: number): number => clamp01((a - CHEEK_HEM_IN) / (cheekOut - CHEEK_HEM_IN));
-  /**
-   * Azimuth of the coif's front edge at a descent — the mail's own opening.
-   *
-   * DERIVED FROM THE GUARD'S REAR EDGE, which is the owner's flank gap in one
-   * line: *"there are large gaps in the sides of the helmets, if they are there
-   * they need more consideration & better lining up with the actual ears"*. A
-   * DEEP guard reaches 1.45 and the mail started at a flat 1.46, so those helms
-   * never had a gap. A SHORT guard stops at 1.10 and the mail still started at
-   * 1.46 — 0.36 rad of nothing between the plate's rear edge and the mail's
-   * front one, which is the window §10 reports on the Spectacle, the Boar-Crest
-   * and the Jarl's Crowned. Two pieces, no shared definition of where they
-   * meet: the failure mode this file names over `shoulderOut`.
-   *
-   * The reach fades in over the first tenth of the descent rather than applying
-   * at the band, because the crown is where the ring has least room; see the
-   * note on the top ring. Moved below `cheekOut` because it now reads it, and a
-   * definition that reads another belongs under it rather than relying on every
-   * caller happening to run late.
-   */
-  const coifRim = (v: number) => mix(1.46, COIF_REACH, smooth(0.00, 0.10, v)) + 0.34 * v * v;
-  /**
-   * THE FURTHEST FORWARD THE MAIL EVER REACHES, and it has to have a name.
-   *
-   * Two readers below early-out on the rim's value, and both were correct to
-   * use `coifRim(0)` for exactly as long as the ramp was `1.46 + 0.34 * v * v`:
-   * monotone in the descent, so its value at `v = 0` was its minimum and
-   * nothing that failed the early-out could pass the precise test. Deriving the
-   * rim breaks that property — the ramp now DIPS to `COIF_REACH` just past the
-   * onset before rising again — and leaves the early-out reading the wrong end
-   * of its own curve.
-   *
-   * The cost of not noticing was two helmclash §5 rows: the huscarl's plaits at
-   * az 285 deg, 4.10% out by 16.3 mm, hanging in front of a rim that had moved
-   * behind them and never squashed, because the ceiling refused to look.
-   */
-  const COIF_REACH = style.cheek === "none" ? 1.46 : Math.min(1.46, cheekOut + 0.02);
   /**
    * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
    * hangs there. Below this line the side of the head is open air on every rung
@@ -16244,7 +16210,7 @@ export function buildCharacter(
     // This is the failure mode the file names twenty lines above `shoulderOut`
     // — "a piece that keeps its own copy of where another piece is will drift
     // away from it". The rim is the copy; the fudge was the drift.
-    if (coifed && awayFromFace(u) > COIF_REACH
+    if (coifed && awayFromFace(u) > coifRim(0)
       && (atY === undefined || atY > coifHemY)) {
       dirOf(u, v, _hcA);
       faceSurface(K, _hcA, _hcB);
@@ -16260,9 +16226,9 @@ export function buildCharacter(
       // there. The tool already existed and its own comment already says why —
       // `coifRingAt` reads the rings "at the point's ACTUAL height, off the
       // same table the coif is drawn from", written for the hanging mass and
-      // never applied to the rim. The early-out above is `COIF_REACH` and NOT
-      // `coifRim(0)`: the ramp stopped being monotone in the descent the moment
-      // the rim was derived from the guard. See the note over `COIF_REACH`.
+      // never applied to the rim. `coifRim(0)` stays as the cheap early-out:
+      // the ramp is monotone in the descent, so nothing that fails it could
+      // pass this.
       if (awayFromFace(u) <= coifRim(coifRingAt(atY ?? y).v)) return c;
       const mail = Math.hypot(Math.sin(u) * coifAt(y, "hw"), Math.cos(u) * coifAt(y, "hd"));
       c = Math.min(c, Math.max(0.002, mail - Math.hypot(_hcB.x, _hcB.z) - LAYER_GAP));
@@ -17816,7 +17782,7 @@ export function buildCharacter(
           // this rung's hair uses, and he is the class the shop's portrait and
           // this gate are both shot on.
           if (style.mask && !coifed) continue;
-          if (coifed && !masked && awayFromFace(rootU) > COIF_REACH - 0.10) continue;
+          if (coifed && !masked && awayFromFace(rootU) > coifRim(0) - 0.10) continue;
           // A CHEEK GUARD OWNS THE SPACE A WAR-LOCK HANGS IN — SO THE PLAIT IS
           // TAKEN FROM UNDER THE GUARD, NOT DELETED BY IT.
           //

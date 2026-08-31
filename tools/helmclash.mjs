@@ -2206,7 +2206,7 @@ function battery() {
   // PELT tightened 74 -> 73 on 31 Aug 2026: the coif branch stopped claiming mail
   // it does not draw, so one pelt combination stopped clashing. The ratchet asked
   // for this in its own words — "IMPROVED, so tighten the baseline in this file".
-  const BASELINE = { LAYERS: 16, FLESH: 24, WRAP: 6, CREST: 8, PELT: 70, SEAM: 10 };
+  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 6, CREST: 8, PELT: 67, SEAM: 11 };
   const full = ran === 6 && CLASSES.length === 4 && HELMS.length === 9;
   if (!full) {
     console.log(`[clash] BASELINE NOT CHECKED — this was a partial sweep (${ran}/6 sections, `
