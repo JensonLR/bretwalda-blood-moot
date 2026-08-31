@@ -16160,7 +16160,19 @@ export function buildCharacter(
       && (atY === undefined || atY > maskHemY - 0.030)) {
       c = Math.min(c, 0.010);
     }
-    if (coifed && awayFromFace(u) > coifRim(0) - 0.16
+    // THE FUDGE CLAIMED MAIL THAT IS NOT DRAWN. `- 0.16` reached this branch
+    // forward of the rim, and the coif MESH skips everything in front of
+    // `coifRim(v)` — so over that arc the ceiling was computed from an ANALYTIC
+    // mail surface where the real garment has a hole. `room` came back finite,
+    // the helmed-coil cull (which fires only on an INFINITE room) never fired,
+    // and the huscarl kept the cheek commas the same cull removed from every
+    // other class. Measured before this line changed: gate on versus gate off,
+    // huscarl/ridge/short, identical to the decimal.
+    //
+    // This is the failure mode the file names twenty lines above `shoulderOut`
+    // — "a piece that keeps its own copy of where another piece is will drift
+    // away from it". The rim is the copy; the fudge was the drift.
+    if (coifed && awayFromFace(u) > coifRim(0)
       && (atY === undefined || atY > coifHemY)) {
       dirOf(u, v, _hcA);
       faceSurface(K, _hcA, _hcB);

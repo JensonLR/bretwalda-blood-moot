@@ -9922,3 +9922,49 @@ sections PASS, wearsweep 54/54.
 **5.14 is closed. 5.13 is not** — the huscarl's own commas are a separate fault
 (his coif branch hands back a ceiling from an analytic surface that disagrees
 with the real mail), and this changes nothing about it.
+
+---
+
+## THE HUSCARL'S COMMAS: THE CEILING CLAIMED MAIL THAT IS NOT DRAWN — 31 Aug 2026
+
+Backlog 5.13, found by an adversarial audit that overturned this file's own
+"already fixed" verdict, and verified at the mesh: the 28 Aug comma cull was a
+**no-op on the huscarl.** Gate on versus gate off, huscarl/ridge/short, seed 13:
+**identical to the decimal.** Every other class lost its cheek commas; he kept
+all of his.
+
+The cull fires only where `hairCeil` returns an INFINITE room — nothing
+overhead. On a coifed man it never did, because of a fudge:
+
+```js
+if (coifed && awayFromFace(u) > coifRim(0) - 0.16 && …)
+```
+
+`- 0.16` reaches the branch **forward of the rim**, and the coif MESH skips
+everything in front of `coifRim(v)`. So over that arc the ceiling was computed
+from an ANALYTIC mail surface where the real garment has a hole: `room` came
+back finite, the cull never fired, and the commas stood.
+
+This is the failure mode the file names itself, twenty lines above
+`shoulderOut`: *"a piece that keeps its own copy of where another piece is will
+drift away from it."* The rim is the copy; the fudge was the drift.
+
+With it gone the huscarl loses **six coils per cell** off his bare cheek —
+`head -6 / -480 triangles` on 84 cells, all of them his — which is the cull
+finally reaching the class it was aimed at.
+
+**And helmclash IMPROVED: PELT 74 → 73**, with the new ratchet asking, in its
+own words, *"IMPROVED, so tighten the baseline in this file"*. Tightened to 73.
+That is the gate built four commits ago earning its keep on its first
+improvement rather than its first regression.
+
+**PARTLY, AND THE REST IS NAMED.** The fudge was 0.16 rad of the disagreement;
+`coifRim` opens from 1.46 to 1.80 as it descends, so lower down the analytic
+surface still over-claims by up to 0.34 rad more. Closing that wants the
+ceiling to read the rim at the coil's own height rather than at `v = 0`, and
+the two are not the same parameterisation — a mapping this pass did not risk
+against a green tree at the end of a long run. What shipped is the bounded,
+measured part.
+
+wearmeasure eleven sections PASS, helmclash BASELINE HELD at the tightened
+number, census re-recorded on the corrected tree.
