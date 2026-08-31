@@ -1415,16 +1415,6 @@ function underCeiling(hex: number, cap: number): number {
  * Danelaw comes out of it at ΔE 3.94 against `cosmetictest`'s JND of 2.3.
  */
 /** How far either side of pure red the arc runs, in turns. 0.10 is 36°. */
-/**
- * THE GUARD'S REAR EDGE, as one function of the helm's style.
- *
- * It was a literal inside the head builder and the coif's own rim was a second
- * literal three hundred lines above it; the two had to meet and did not. Both
- * read this now — see the note at `coifRim`.
- */
-const CHEEK_OUT = (style: { cheek: string; mask?: boolean }): number =>
-  (style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10);
-
 const ROSE_ARC = 0.10;
 /**
  * How the arc's edge is feathered, in turns, so nothing steps at the boundary.
@@ -15695,31 +15685,7 @@ export function buildCharacter(
     return coifLevels[coifLevels.length - 1][key];
   };
   /** Azimuth of the coif's front edge at a descent — the mail's own opening. */
-  // THE MAIL NOW LAPS THE GUARD INSTEAD OF LEAVING A GAP TO IT.
-  //
-  // The owner's first complaint about the helmets — "there are large gaps in
-  // the sides of the helmets" — and the constant three hundred lines below this
-  // has carried its own confession for weeks: a short guard stops at 1.10 rad
-  // and this rim opened at 1.46, so on the Spectacle, the Boar-Crest and the
-  // Jarl's Crowned there was 0.36 rad of head with no metal on it at all,
-  // bounded above by the band, in front by a plate and behind by a plate. Not
-  // an ear opening — the place two plates failed to meet. `wearmeasure` §10 has
-  // reported it on every run since, as a deferral on the PASS line.
-  //
-  // 1.46 and 1.10 were INDEPENDENT LITERALS, which is the whole fault: two
-  // edges that must meet, written down twice, free to drift. The rim is derived
-  // from the guard now — one definition, two readers, the same pattern
-  // `cheekHemAt` and `napeHalf` already use — so the gap cannot reopen by
-  // editing one of them.
-  //
-  // THE MAIL MOVES, NOT THE PLATE, and that choice is measured rather than
-  // taken: `docs/OPEN-DEFECTS.md` records `cheekOut` 1.45 -> 1.10 reading
-  // 30.6/52.1/55.3 face coverage with spread 24.7, so carrying the GUARD back
-  // over the ear makes the face worse, and 1.52 was tried on exactly that route
-  // and reverted. Nothing in `wearmeasure` §2's fold/thru/seat/float reads this
-  // rim, so bringing the mail forward costs no plate fit.
-  const GUARD_LAP = 0.08;
-  const coifRim = (v: number) => cheekOut - GUARD_LAP + 0.34 * v * v;
+  const coifRim = (v: number) => 1.46 + 0.34 * v * v;
   /**
    * THE AVENTAIL'S OWN FREE LOWER HEM, and it is the whole of the Sutton Hoo fix.
    *
@@ -15900,11 +15866,7 @@ export function buildCharacter(
   // guard" was ALSO false when it was written — `deepHem` was that copy, seven
   // hundred lines down. It is true now: the copy is gone and `cheekHemAt` is the
   // one definition both the plate and the hair read.
-  // HOISTED ABOVE `coifRim` — see the note there. The value is unchanged; only
-  // its position moved, so that the mail's face opening can be DERIVED from the
-  // guard's rear edge instead of being a second literal that drifts away from
-  // it. That drift is this defect.
-  const cheekOut = CHEEK_OUT(style);
+  const cheekOut = style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10;
   /**
    * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
    * hangs there. Below this line the side of the head is open air on every rung

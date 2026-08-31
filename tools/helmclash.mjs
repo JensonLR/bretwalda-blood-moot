@@ -2184,6 +2184,48 @@ function battery() {
   const ran = Object.keys(fails).length;
   console.log(`[clash] ${ran === 0 ? "NO SECTIONS SELECTED — nothing was measured, which is not a pass"
     : red === 0 ? "ALL SECTIONS PASS" : `${red} of ${ran} sections RED`}`);
+
+  // THE BASELINE, HELD BY CODE INSTEAD OF BY PROSE.
+  //
+  // This instrument has been six-of-six red for weeks, and that is its honest
+  // standing state — the sections measure real geometry against strict bars and
+  // the shop does not clear them all. `docs/HANDOVER.md` records the accepted
+  // counts and asks a reader to "compare vs baseline". NOBODY AND NOTHING
+  // COMPARED. A number in a paragraph is not a gate, and the cost of that is
+  // not hypothetical: a helmet change made this run on 31 Aug moved WRAP from 6
+  // to 13 and PELT from 74 to 91 while every other suite in the tree stayed
+  // green, and the only reason it was caught is that somebody happened to run
+  // this by hand and remember six numbers.
+  //
+  // So the counts are compared here, and the run FAILS when a section is worse
+  // than its recorded baseline. It is a ratchet, not a bar: a section that
+  // comes in BETTER is reported as a baseline to tighten, so the numbers can
+  // only travel one way. When a full sweep is not run — `--only`, a narrowed
+  // class or helm list — the comparison is skipped and says so, because a
+  // subset's count is not this number.
+  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 6, CREST: 8, PELT: 74, SEAM: 11 };
+  const full = ran === 6 && CLASSES.length === 4 && HELMS.length === 9;
+  if (!full) {
+    console.log(`[clash] BASELINE NOT CHECKED — this was a partial sweep (${ran}/6 sections, `
+      + `${CLASSES.length}/4 classes, ${HELMS.length}/9 helms) and a subset's count is not the baseline`);
+  } else {
+    const worse = [], better = [];
+    for (const s of [1, 2, 3, 4, 5, 6]) {
+      const n = names[s], have = fails[s] ?? 0, want = BASELINE[n];
+      if (have > want) worse.push(`${n} ${want} -> ${have} (+${have - want})`);
+      else if (have < want) better.push(`${n} ${want} -> ${have} (-${want - have})`);
+    }
+    if (better.length) {
+      console.log(`[clash] IMPROVED, so tighten the baseline in this file: ${better.join(", ")}`);
+    }
+    if (worse.length) {
+      console.log(`[clash] REGRESSED AGAINST THE BASELINE: ${worse.join(", ")}`);
+      console.log("[clash] BASELINE FAIL — a section got worse. This is the gate the prose could not be.");
+      globalThis.__clashRegressed = true;
+    } else {
+      console.log("[clash] BASELINE HELD — no section is worse than its recorded count.");
+    }
+  }
   const rungs = CLASSES.reduce((a, c) => a + getupsOf(c).length, 0) / CLASSES.length;
   console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms x ${rungs} hair-and-beard rungs, read off the built mesh.`);
   console.log("[clash] ============================================================");
@@ -2219,6 +2261,12 @@ if (has("twice")) {
     process.exit(1);
   }
 } else {
-  const { fails } = battery();
-  process.exitCode = Object.values(fails).some((n) => n > 0) ? 1 : 0;
+  battery();
+  // THE EXIT CODE IS THE BASELINE QUESTION, NOT THE RED QUESTION. Every section
+  // of this instrument has been red for weeks and that is its honest standing
+  // state, so an exit code that says "something is red" is a warning light
+  // wired permanently on: nothing can act on it and nobody reads it. What a
+  // pipeline can act on is whether anything got WORSE than the recorded counts,
+  // which is what the block at the end of `battery()` now decides.
+  process.exitCode = globalThis.__clashRegressed ? 1 : 0;
 }

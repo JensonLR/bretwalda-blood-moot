@@ -114,7 +114,9 @@ helm-land are identical at handover.
 
 tsc --noEmit · npm run lint (0/0) · npm run build · wearmeasure (all
 sections; standing 5-window deferral) · cosmetictest (full render; PASS) ·
-helmclash (compare vs baseline LAYERS 19/FLESH 24/WRAP 6/CREST 8/PELT 74/
+helmclash (THE TOOL COMPARES ITS OWN BASELINE SINCE 31 Aug — it exits 1 when a
+section gets worse and prints what to tighten when one gets better; the counts
+below are kept as the human-readable copy only) (LAYERS 19/FLESH 24/WRAP 6/CREST 8/PELT 74/
 SEAM 13 — never vs zero) · warsay 52/52 · wartest 82/82 · protocoltest 81/81
 · solidtest 12/12 (standing deferral) · playtest 38/38 (×3 widths for layout
 work) · touchtest 32/32 (×4 shapes; tablet's "lock holds facing" claim

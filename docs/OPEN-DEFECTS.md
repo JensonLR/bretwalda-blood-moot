@@ -9730,3 +9730,91 @@ sits in the middle of a sevenfold separation and today's tree clears it by 1.1
 mm. Shown red by putting one token back.
 
 burhtest 24/24, wearmeasure eleven sections PASS.
+
+---
+
+## ROW 0 IS DONE, AND THE HELMET GAP IS CONTESTED SPACE — 31 Aug 2026
+
+### The two flaky gates are deterministic. Ten green runs each.
+
+Backlog's row 0 — *"it displaced everything"* — asked for ten consecutive green
+runs of `touchtest` and `playtest`. **touchtest 10/10. playtest 10/10.** Three
+causes, all of them the harness rather than the game:
+
+**1. `playtest`'s mouse-look sampled a stopwatch.** `waitForTimeout(300)` then
+assert. Generous on an idle box, not generous while one is building, and the
+failure it produces is a claim saying the mouse does not turn the camera — a lie
+about the product told by a clock. It waits on the rotation ARRIVING now, with a
+long ceiling; a turn that never lands still leaves the sample unchanged and
+still fails, so the teeth are kept.
+
+**2. `touchtest`'s lock claim waited for its own case instead of making it** —
+and the instrument that proves it now prints on every run:
+
+```
+range 1.37-3.30 m; he covered 1.87 u/s while committed;
+so the tightest the bearing could be asked to sweep was 1.36 rad/s (cap 1.8)
+```
+
+Demand is speed over range. A committed man is damped under 2 u/s and collision
+will not let you inside about 1.3 m, so **the strafe tops out at 1.36 rad/s
+against a 1.8 cap**: the body always keeps up, and the only reason the claim ever
+went green was the recruit's own motion happening to swing the bearing. Fourteen
+draws still ended red at 1.70. Now the approach is walked rather than waited for,
+the geometry is printed so a red says which of speed or range failed, and the
+**mid-blow target switch is restored** — the manoeuvre this section's own header
+always described, and a lever the harness pulls. The demand-rate loop already
+skips frames across a lock change, so it cannot inflate the rate it grades.
+
+**3. A second flaky claim the sweep found:** the acceptance case checked
+`readyToSwing()` once and then spent 400 ms getting up to speed with three
+recruits swinging at him — staggered or under 45 stamina by the time the flick
+went out, the server refused the blow and the claim reported that the scheme
+does not survive a strafe. Re-asked after the run-up, four draws.
+
+**And one measurement was too thin to hold its own tolerance.** The turn rate
+was sampled over ~100 ms, where a single bunched packet moves it 40% — more than
+the 30% clock tolerance underneath it — so the claim could fail on arithmetic
+while the server obeyed the cap exactly. It samples over 200 ms now: same cap,
+same tolerance, a window where jitter is a fifth of the signal.
+
+### `helmclash`'s baseline is held by code now, and it caught a regression at once
+
+The instrument has been six-of-six red for weeks — its honest standing state.
+`docs/HANDOVER.md` recorded the counts and asked a reader to "compare vs
+baseline". **Nothing compared.** The counts are in the tool now and a section
+that gets WORSE fails the run; a section that gets better is reported as a
+baseline to tighten, so the numbers travel one way. The exit code carries the
+BASELINE question rather than the red question, because an exit code that says
+"something is red" on every run is a warning light wired permanently on.
+
+Shown both ways: tightened to `PELT 70` it reports *"REGRESSED: PELT 70 -> 74"*
+and exits 1; at the true baseline it reports **BASELINE HELD** and exits 0.
+
+### The helmet gap: fixed, measured, and REVERTED, because it is contested space
+
+The owner's first helmet complaint — *"there are large gaps in the sides of the
+helmets"* — is a real, still-open defect, and `characters.ts` has carried its own
+confession for weeks: a short guard stops at 1.10 rad and the coif's rim opened
+at 1.46, leaving 0.36 rad of head with no metal on it, *"not an ear opening —
+the place two plates failed to meet."*
+
+Deriving the rim from the guard through one definition **works**: five reported
+windows become three, the huscarl's Spectacle and Boar-Crest close outright and
+the Crowned halves, 6.0% → 3.3%, with all eleven wearmeasure sections still PASS.
+
+**And it costs more than it buys, measured.** helmclash: LAYERS 19 → 13 and
+SEAM 11 → 10 better, but **WRAP 6 → 13 and PELT 74 → 91 worse** — net 17
+combinations. Confining the derivation to coifed classes changed nothing, and
+the new failures are the **hooded** huscarl. That is the finding worth keeping:
+
+> **The gap is where the huscarl's hair comes out.** Filling it with mail
+> displaces the hair, which is why the two previous attempts at this constant
+> were also reverted — they hit the same wall from the plate's side. It is not
+> an oversight to be tidied by moving a number; it is contested space, and
+> closing it properly is the head-stack reshape the ledger already priced.
+
+Reverted, and this is the third attempt recorded rather than the third attempt
+forgotten. **The new helmclash baseline gate is what makes the next attempt
+cheap to judge** — it would have caught this one without anybody remembering six
+numbers.
