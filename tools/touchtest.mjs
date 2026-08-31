@@ -1882,23 +1882,42 @@ async function main() {
   // =====================================================================
   await readyToSwing();
   {
-    // Point the camera so that strafing left carries him across the ring rather
-    // than into the palisade. The test is about a flick surviving a strafe, and
-    // a man pinned against a wall is not strafing.
-    const stood = await settle();
-    const d = sweepDir(stood);
-    await turnCameraTo(Math.atan2(-d.z, d.x));
-    await hand.press(STICK, stickHome.x, stickHome.y);
-    await pushStick(-STICK_PUSH, 0);
-    await wait(400); // up to speed, unmistakably strafing before the blow starts
-    const before = await me(await seq());
-    const mark = await now();
-    await flickSwing("overhead");
-    const swing = await nextSwing(mark);
-    const shape = await gestureShape(mark, SWING);
-    await wait(300);
-    const after = await afterInput();
-    await hand.lift(STICK);
+    // FOUR DRAWS, AND THE READINESS RE-ASKED AT THE MOMENT OF THE BLOW.
+    //
+    // Backlog row 0 again, and the second flaky claim in this file: `run 3` of a
+    // ten-run determinism sweep came back "the server never accepted a swing".
+    // `readyToSwing()` was checked ONCE, above — and then this block spends 400
+    // ms getting up to speed with three recruits swinging at him. Staggered or
+    // under 45 stamina by the time the flick goes out, the server refuses the
+    // blow and the claim reports that the SCHEME does not survive a strafe,
+    // which is a lie about the product told by a recruit's timing.
+    //
+    // The manoeuvre is unchanged. What is new is that it is re-attempted from a
+    // state where the sim will actually accept it, and that a draw the server
+    // refused costs an attempt instead of the run.
+    let before = null, swing = null, shape = null, after = null;
+    for (let draw = 0; draw < 4 && !swing; draw++) {
+      // Point the camera so that strafing left carries him across the ring rather
+      // than into the palisade. The test is about a flick surviving a strafe, and
+      // a man pinned against a wall is not strafing.
+      const stood = await settle();
+      const d = sweepDir(stood);
+      await turnCameraTo(Math.atan2(-d.z, d.x));
+      await hand.press(STICK, stickHome.x, stickHome.y);
+      await pushStick(-STICK_PUSH, 0);
+      await wait(400); // up to speed, unmistakably strafing before the blow starts
+      // Re-asked HERE, after the run-up, because that is where it has to be true.
+      await readyToSwing().catch(() => {});
+      before = await me(await seq());
+      const mark = await now();
+      await flickSwing("overhead");
+      swing = await nextSwing(mark);
+      shape = await gestureShape(mark, SWING);
+      await wait(300);
+      after = await afterInput();
+      await hand.lift(STICK);
+      if (!swing) { await waitForAlive().catch(() => {}); await wait(500); }
+    }
 
     check("swipe-up overhead WHILE strafing left lands as an overhead", swing?.dir === "overhead",
       swingDetail(swing, shape));
