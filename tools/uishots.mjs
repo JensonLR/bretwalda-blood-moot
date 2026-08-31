@@ -413,6 +413,59 @@ async function main() {
     // one thing this project does not accept. Photographed and audited at the
     // top of the page first.
     await shot("warmap");
+    // THE THREE TIGHT TERRITORIES MUST BE PRESSABLE, and this claim exists so
+    // that closing them cannot close the ROW by absence. Kent, Kernow and
+    // Sudreyjar used to appear on the reported line above as targets a 44 px
+    // press slips off; they are DOM buttons now, and the paths they cover were
+    // demoted to `aria-hidden` with no role — which means the reported line
+    // goes quiet whether the buttons work or whether somebody deletes them.
+    // So: they are found BY NAME, measured, and pressed.
+    {
+      // SCROLLED INTO VIEW FIRST, BECAUSE THAT IS WHAT A USER DOES. Measured
+      // without it, Kent and Kernow failed on the phone with "something covers
+      // it" — and the thing covering them is the sticky SWEAR bar at the foot
+      // of the screen, which this file's own map comment already warns about
+      // ("`.action-bar` is position: sticky; bottom: 0 ... anything at the foot
+      // of the plate is under the SWEAR button"). A target under a sticky bar
+      // at one scroll offset is not an unreachable target; it is a target you
+      // scroll to. What must be true is that ONCE IT IS ON SCREEN a 44 px press
+      // lands on it, and that is what is asked.
+      await page.evaluate(() => {
+        const el = document.querySelector("button.wm-tight");
+        if (el) el.scrollIntoView({ block: "center" });
+      });
+      await page.waitForTimeout(400);
+      const tight = await page.evaluate((floor) => {
+        const want = ["Kent", "Kernow", "Sudreyjar", "Gwynedd"];
+        const out = [];
+        for (const name of want) {
+          const el = [...document.querySelectorAll("button.wm-tight")]
+            .find((b) => (b.getAttribute("aria-label") || "").startsWith(name + ","));
+          if (!el) { out.push({ name, why: "no DOM target rendered" }); continue; }
+          const r = el.getBoundingClientRect();
+          if (Math.min(r.width, r.height) < floor) {
+            out.push({ name, why: `${Math.round(r.width)}x${Math.round(r.height)}, under the floor` });
+            continue;
+          }
+          // Each one in turn: the three are far apart on the island and one
+          // scroll cannot put all of them in the clear.
+          el.scrollIntoView({ block: "center" });
+          const rr = el.getBoundingClientRect();
+          if (rr.top < 0 || rr.left < 0 || rr.bottom > window.innerHeight || rr.right > window.innerWidth) continue;
+          const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+          const h = floor / 2 - 1;
+          const on = (dx, dy) => { const t = document.elementFromPoint(cx + dx, cy + dy); return t === el || el.contains(t); };
+          if (!(on(0, 0) && on(-h, 0) && on(h, 0) && on(0, -h) && on(0, h))) {
+            out.push({ name, why: "something covers it — a press does not reach the button" });
+          }
+        }
+        return out;
+      }, TAP_FLOOR);
+      if (tight.length) {
+        tapFails.push(`warmap-${vp.tag}: ${tight.map((t) => `"${t.name}" ${t.why}`).join(", ")}`);
+      }
+      console.log(`[ui] warmap-${vp.tag} tight territories: ${tight.length ? tight.map((t) => t.name).join("/") + " FAILED" : "every named tight territory takes a 44px press"}`);
+    }
     await oathAt();
     await shot("oath");
     // `.war-people-row` is the kingdom list's own class. By role/name the map's

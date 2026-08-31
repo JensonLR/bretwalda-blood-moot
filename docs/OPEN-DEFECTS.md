@@ -9968,3 +9968,47 @@ measured part.
 
 wearmeasure eleven sections PASS, helmclash BASELINE HELD at the tightened
 number, census re-recorded on the corrected tree.
+
+---
+
+## THE FOUR TERRITORIES NO THUMB COULD LAND ON — 31 Aug 2026
+
+Backlog 5.10b, and now closed. The war map's territories are SVG paths, so a
+44 px target is whatever geography gives you: a 14 px transparent hit stroke
+took the unreachable count from six to three, and a corner, a peninsula and a
+scatter of islands survived it. A fourth — Gwynedd — showed on the reported
+line at desktop width only.
+
+**NO BOX RULER CAN FIND THEM, and that is the reason this is a named list
+rather than a measurement.** `getBBox` and `getBoundingClientRect` both report
+the UNCLIPPED ring polygon: Kent's box is 88x82 units, and **Sudreyjar's is
+231x483 while its painted land is Man plus a scatter of Hebridean specks**. The
+clip is the whole trick the map is drawn with, and the clip is invisible to
+every box ruler there is. Only pressing the thing finds them.
+
+Each of the four gets a real DOM button, 44x44 CSS pixels, on the territory's
+own label anchor — the point the map already treats as being that place —
+positioned through the svg's live `getScreenCTM` so it follows at any zoom, in
+either orientation, through a resize and a scroll. Percentages of the viewBox
+would be right only while the svg's aspect matched its box, and
+`preserveAspectRatio` letterboxes it the moment the column narrows.
+
+**THE PATHS THEY COVER STOP BEING CONTROLS** — `aria-hidden`, no role, no label
+— because two controls for one place announce it twice to a screen reader, and
+because a fix has to be measurable: leaving them would keep the sweep reporting
+a target it cannot press. One `hitLabel` builds the sentence for both, so the
+path and the button cannot drift.
+
+**AND THE ROW CANNOT CLOSE BY ABSENCE.** Demoting the paths would silence the
+reported line whether the buttons work or whether somebody deletes them, so the
+sweep now finds all four **by name**, measures them, and presses each at its
+centre and at four points half a floor out.
+
+That claim failed on its first run, correctly, and taught something: Kent and
+Kernow came back *"something covers it"* on the phone — the sticky SWEAR bar,
+which the map's own CSS comment already warns about. A target under a sticky
+bar at one scroll offset is not unreachable; it is a target you scroll to. Each
+is scrolled into the clear first, which is what a user does.
+
+**uishots: the reported line is now EMPTY at both widths, every named tight
+territory takes a 44 px press, and the floor gate PASSES on 36 screens.**

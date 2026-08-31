@@ -64,6 +64,28 @@ export const DRAWN: readonly DrawnTerritory[] = TERRITORIES.map((t) => {
   };
 });
 
+/**
+ * THE THREE TERRITORIES NO THUMB CAN LAND ON, named in data because no ruler
+ * can find them.
+ *
+ * `uishots` presses every map target and asks whether a 44 px press stays on
+ * it; three do not — a corner, a peninsula and a scatter of islands. They
+ * cannot be detected by a box test, and that is not a limitation of the test:
+ * `getBBox` and `getBoundingClientRect` both report the UNCLIPPED ring polygon.
+ * Kent's box is 88x82 units — 46x43 px — while Sudreyjar's is 231x483 units and
+ * its PAINTED land is Man plus a scatter of Hebridean specks. The clip is the
+ * whole trick this file's header describes, and the clip is invisible to every
+ * box ruler there is.
+ *
+ * This list is not a hiding place. The other thirteen keep their `role="button"`
+ * paths and are still probed by the sweep's reach scan, so a territory that
+ * becomes tight later is still named on the reported line rather than silently
+ * covered — which is how `gwynedd` joined it: the sweep reported it at desktop
+ * width only, a shape whose 86x70 box hides a coastline too narrow to land on,
+ * and the mechanism to fix it already existed by then.
+ */
+export const TIGHT_TARGETS: ReadonlySet<string> = new Set(["kent", "kernow", "sudreyjar", "gwynedd"]);
+
 export const DRAWN_BY_ID: Readonly<Record<string, DrawnTerritory>> =
   Object.fromEntries(DRAWN.map((t) => [t.id, t]));
 

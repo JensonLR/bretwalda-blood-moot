@@ -24,10 +24,10 @@
    here is a token that file already defines.
    ========================================================================== */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { seasonName } from "@/game/war.mjs";
 import { LAND, NEIGHBOUR, MAP_W, MAP_H, CLIP_DALRIATA } from "./britain";
-import { DRAWN, DRAWN_BY_ID, FIELD, PEOPLE_NAME } from "./territories";
+import { DRAWN, DRAWN_BY_ID, FIELD, PEOPLE_NAME, TIGHT_TARGETS } from "./territories";
 
 export interface WarTerritoryView {
   id: string;
@@ -119,6 +119,28 @@ function openingView(): WarViewData {
   };
 }
 
+/**
+ * The label a territory answers to, built once so the SVG path and the DOM
+ * button that covers it cannot drift apart. Three territories carry both — see
+ * `TIGHT_TARGETS` — and two different sentences for one place is worse for a
+ * screen reader than either sentence alone.
+ */
+/** The design system floor, and the whole point of these three. */
+const TIGHT_PX = 44;
+
+function hitLabel(
+  t: { id: string; name: string },
+  held: string,
+  w: { remaining?: number | null; challenger?: string | null } | undefined,
+  banked: number | undefined,
+): string {
+  return `${t.name}, held by the ${PEOPLE_NAME(held)}.`
+    + (w?.remaining != null && w.challenger
+      ? ` The ${PEOPLE_NAME(w.challenger)} need ${w.remaining} more points to take it.`
+      : " Uncontested.")
+    + (banked !== undefined ? ` You have banked ${banked} points here.` : "");
+}
+
 export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps) {
   const [live, setLive] = useState<string | null>(null);
   const data = war ?? openingView();
@@ -180,12 +202,47 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
 
   const { daysLeft, elapsed } = data.season;
 
+  // WHERE THE SVG ACTUALLY IS ON THE GLASS, so the three DOM targets below can
+  // be put on their territories' own anchors at any zoom. `getScreenCTM` is the
+  // browser's own answer to "where did this user unit land" — percentages of the
+  // viewBox would be right only while the svg's aspect exactly matches its box,
+  // and `preserveAspectRatio` letterboxes it the moment the column narrows.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const plateRef = useRef<HTMLDivElement | null>(null);
+  const [proj, setProj] = useState<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  useEffect(() => {
+    const svg = svgRef.current;
+    const plate = plateRef.current;
+    if (!svg || !plate) return;
+    const measure = () => {
+      const m = svg.getScreenCTM();
+      if (!m) return;
+      const r = plate.getBoundingClientRect();
+      const next = { sx: m.a, sy: m.d, ox: m.e - r.left, oy: m.f - r.top };
+      // Compared field by field: a fresh object every resize would re-render
+      // for ever through the observer it installs.
+      setProj((cur) => (cur && cur.sx === next.sx && cur.sy === next.sy
+        && cur.ox === next.ox && cur.oy === next.oy ? cur : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(svg);
+    ro.observe(plate);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, []);
+
   return (
     <div className="warmap">
       <style>{CSS}</style>
 
       {/* ----------------------------------------------------------- map */}
-      <div className="warmap-plate">
+      <div className="warmap-plate" ref={plateRef}>
         {/* THE KEY TO THE CUT, ABOVE the island and not below it.
             A mark nobody can decode is decoration, so it is on the plate
             rather than in the side column — on a phone that column is a screen
@@ -212,7 +269,7 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             this svg holds a focusable button per territory — a picture that
             contains buttons is lying to the screen reader about both. The
             summary stays on the group's own label. */}
-        <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="warmap-svg"
+        <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="warmap-svg"
              role="group" aria-label={mapSummary(data)}>
           <defs>
             <clipPath id="warmap-land"><path d={LAND} /></clipPath>
@@ -306,14 +363,18 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
               return (
                 <path
                   key={`h-${t.id}`} d={t.d} className="wm-hit"
-                  role="button" tabIndex={0}
-                  aria-label={`${t.name}, held by the ${PEOPLE_NAME(held)}.` +
-                    (w?.remaining != null && w.challenger
-                      ? ` The ${PEOPLE_NAME(w.challenger)} need ${w.remaining} more points to take it.`
-                      : " Uncontested.") +
-                    (mineById.has(t.id)
-                      ? ` You have banked ${mineById.get(t.id)!.points} points here.`
-                      : "")}
+                  // A TIGHT TERRITORY STOPS BEING A CONTROL HERE, because a DOM
+                  // button covers it (see the overlay below). Two controls for
+                  // one place would announce it twice to a screen reader and
+                  // would leave the sweep's reach scan still reporting a target
+                  // it cannot press — the fix has to be measurable, so the thing
+                  // it replaces has to go.
+                  {...(TIGHT_TARGETS.has(t.id)
+                    ? { "aria-hidden": true as const }
+                    : {
+                      role: "button", tabIndex: 0,
+                      "aria-label": hitLabel(t, held, w, mineById.get(t.id)?.points),
+                    })}
                   onPointerEnter={() => setLive(t.id)}
                   onPointerLeave={() => setLive((c) => (c === t.id ? null : c))}
                   onFocus={() => setLive(t.id)}
@@ -324,6 +385,43 @@ export default function WarMap({ war, mine = null, fought, onPick }: WarMapProps
             })}
           </g>
         </svg>
+
+        {/* THE THREE THAT NO THUMB CAN LAND ON.
+            `uishots` presses every map target and asks whether a 44 px press
+            stays on it. Thirteen answer; a corner, a peninsula and a scatter of
+            islands do not, and no border stroke can rescue a shape that thin —
+            the 14 px hit stroke above already took the count from six to three.
+            A zero-radius circle carrying a 44 px non-scaling stroke was tried
+            and reverted: it PAINTS as a perfect disc and Chromium hit-tests it
+            against the unscaled geometry, so it changed nothing (the note by
+            `.wm-hit` records it).
+            So these three get a real DOM button, 44x44 CSS pixels, on the
+            territory's own label anchor — the point the map already treats as
+            being that place — projected through the svg's live CTM so it
+            follows at any zoom and through a rotation. The paths they cover are
+            `aria-hidden` and carry no role, so nothing is announced twice and
+            the sweep's reach scan has nothing left to fail on. */}
+        {proj && DRAWN.filter((t) => TIGHT_TARGETS.has(t.id)).map((t) => {
+          const held = byId.get(t.id)?.holder ?? t.origin;
+          const w = byId.get(t.id);
+          return (
+            <button
+              key={`tt-${t.id}`}
+              type="button"
+              className="wm-tight"
+              style={{
+                left: proj.ox + t.x * proj.sx - TIGHT_PX / 2,
+                top: proj.oy + t.y * proj.sy - TIGHT_PX / 2,
+              }}
+              aria-label={hitLabel(t, held, w, mineById.get(t.id)?.points)}
+              onPointerEnter={() => setLive(t.id)}
+              onPointerLeave={() => setLive((c) => (c === t.id ? null : c))}
+              onFocus={() => setLive(t.id)}
+              onBlur={() => setLive((c) => (c === t.id ? null : c))}
+              onClick={() => { setLive(t.id); onPick?.(held); }}
+            />
+          );
+        })}
 
         {unkept && (
           <p className="wm-unkept">
@@ -636,6 +734,20 @@ const CSS = `
   stroke-linejoin: round;
 }
 .wm-hit:focus-visible { stroke: var(--gilt-lit); stroke-width: 3; }
+/* The three tight territories' DOM targets — see the note where they are
+   rendered. Transparent because the map already draws the place; this is a
+   hit area and nothing else, and it must not put a square over a coastline. */
+.wm-tight {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.wm-tight:focus-visible { outline: 2px solid var(--gilt-lit); outline-offset: 2px; }
 /* A ZERO-RADIUS CIRCLE WITH A 44 px NON-SCALING STROKE WAS TRIED HERE AND DOES
    NOT WORK, which is written down so the next person does not spend the
    afternoon on it. It paints as a 44 px disc in screen pixels and reads
