@@ -15842,7 +15842,7 @@ export function buildCharacter(
   // — the 6 mm that says hinged is untouched — and it holds the lap all the way
   // down. It is short of the 0.50 the audit failed for drawing a fold across the
   // middle of the cheek by 90 mm of arc.
-  const cheekIn = style.cheek === "deep" ? (style.mask ? 0.66 : 0.56) : 0.56;
+  const cheekIn = style.cheek === "deep" ? (style.mask ? 0.66 : 0.90) : 0.56;
   // THE SHORT GUARD IS AT 1.10 AND THE OWNER'S FIRST FAULT IS STILL OPEN.
   //
   //   "there are large gaps in the sides of the helmets, if they are there they
@@ -15876,12 +15876,33 @@ export function buildCharacter(
   // one definition both the plate and the hair read.
   const cheekOut = style.cheek === "deep" ? (style.mask ? 1.62 : 1.45) : 1.10;
   /**
+   * THE HEM'S OWN ARC, WHICH IS NOT THE GUARD'S ARC.
+   *
+   * `cheekHemAt` and `deepTop` both normalised their ramp over
+   * `[cheekIn, cheekOut]` — the guard's own span — so `cheekIn` was never the
+   * edge control it reads as. Moving it in to free the face RESHAPED THE HEM
+   * UNDER IT: the span narrows, every azimuth's `t` falls, and a ramp that
+   * rises with `t` therefore hangs LOWER everywhere at once. Walking the
+   * Wyrm-Crest's guard 0.56 -> 0.95 dropped the hem 0.117 rad at 1.12 rad —
+   * straight onto the berserker's war-locks, which is the whole of the 19.7 mm
+   * `hairFitProbe` reported and the reason the 5.16 attempt was reverted as
+   * "plate and hair competing for the same arc". They were not competing. One
+   * constant was moving two things, and only one of them was on purpose.
+   *
+   * So the ramp is anchored to the arc it was TUNED on and the guard's leading
+   * edge is free to move across it. On the shipped build `cheekIn` and this are
+   * the same number, so the whole change is a no-op by construction — proven by
+   * fingerprint rather than argued, the same way the `deepHem` collapse was.
+   */
+  const CHEEK_HEM_IN = style.cheek === "deep" ? (style.mask ? 0.66 : 0.56) : 0.56;
+  const cheekT = (a: number): number => clamp01((a - CHEEK_HEM_IN) / (cheekOut - CHEEK_HEM_IN));
+  /**
    * The plate's hem at an azimuth, as a latitude, or -Infinity where nothing
    * hangs there. Below this line the side of the head is open air on every rung
    * in the shop, and that is where a mane and a war-lock are allowed to be.
    */
   const cheekHemAt = (a: number): number => {
-    const t = clamp01((a - cheekIn) / (cheekOut - cheekIn));
+    const t = cheekT(a);
     return style.cheek === "deep"
       ? lat(Y_CHIN + 0.05) + 0.34 * Math.pow(smooth(0.30, 1, t), 1.35)
       : lat(Y_LIP + 0.02) + 0.20 * Math.pow(smooth(0.20, 1, t), 1.5);
@@ -16483,7 +16504,29 @@ export function buildCharacter(
     out.x *= k; out.z *= k;
   };
   const _ffA = new THREE.Vector3();
-  const fitFall = (out: THREE.Vector3, ride: boolean): void => {
+  /**
+   * A ROPE IS FITTED BY ITS SURFACE, NOT BY ITS SPINE.
+   *
+   * `girth` is the half-width of the mass being fitted at this station, and it
+   * defaults to zero so every sheet-like caller — the gather, the fall, the
+   * mane — reads exactly as it always did. A plait is not a sheet: `braid`
+   * sweeps a tube of `braidR(t)` around whatever spine it is handed, so a spine
+   * held exactly ON the ceiling puts a third of the rope's circumference
+   * outside it. The file already knew this — the note over the mask's `tuck`
+   * says it in as many words, "a rope is not a point, which is why the second
+   * seed caught this and the first did not" — but it knew it in ONE PLACE, as
+   * an `if (masked)` correction on the one rung where a rope was measured under
+   * metal. Everywhere else the rule was absent, and a rule that is absent is
+   * not a rule; it is a case that has not come up yet.
+   *
+   * It came up. Walking the Wyrm-Crest's guard in to free the face (5.16) drops
+   * its hem to chin height at 1.06 rad, which is exactly where the berserker's
+   * war-locks hang: `hairFitProbe` read 19.7 mm of braid outside the guard at
+   * 64/-56 deg, 4.4% of the style, while the sheet-like Long Mane through the
+   * same change read 0.0 mm on every bearing. The plate had not moved onto the
+   * hair's ceiling; the hair's ceiling had never accounted for the rope.
+   */
+  const fitFall = (out: THREE.Vector3, ride: boolean, girth = 0): void => {
     coifSquash(out);
     hoodSquash(out);
     if (ride) shoulderRide(out);
@@ -16496,7 +16539,12 @@ export function buildCharacter(
     if (!Number.isFinite(c)) return;
     dirOf(Math.atan2(out.x, out.z), Math.asin(Math.max(-1, Math.min(1, dy / r))), _ffA);
     faceSurface(K, _ffA, _ffA);
-    const lim = _ffA.length() + c;
+    // Floored at a fifth of the head's own radius rather than at the skin: a
+    // 17.5 mm rope under a 3 mm liner CANNOT fit, and the honest answer is that
+    // it is buried under the plate rather than standing through it. The floor
+    // only stops a spine inverting through the skull's far side, which is the
+    // one thing burying it must never do.
+    const lim = Math.max(_ffA.length() * 0.2, _ffA.length() + c - girth);
     if (r <= lim) return;
     const k = lim / r;
     out.x *= k; out.z *= k; out.y = skullY + dy * k;
@@ -17814,6 +17862,13 @@ export function buildCharacter(
           const drop = masked
             ? bRoot.y - coifHemY + MASK_PLAIT
             : Math.max(0.20, 0.352 - (bDrop.y + skullY - bRoot.y));
+          // ONE DEFINITION OF THE ROPE'S HALF-WIDTH, read by the fit and by
+          // the sweep. It was written once as an inline `radius` callback on
+          // the `braid` call below, which meant the only thing that knew how
+          // thick the plait was at a station was the thing drawing it — and the
+          // thing FITTING it worked on a bare spine. Hoisted so the two cannot
+          // drift; this file has four recorded faults of exactly that shape.
+          const braidR = (t: number) => BRAID_R * (0.46 + 0.54 * smooth(0, 0.17, t)) * (1 - 0.42 * t * t);
           const bp = (t: number, out: THREE.Vector3) => {
             // Out and forward as it falls, so the plait hangs beside the jaw
             // rather than down the neck — that swing is the whole silhouette,
@@ -17852,7 +17907,7 @@ export function buildCharacter(
             // inside the huscarl's torso mail. So the bare-headed man's ropes
             // take the ride; it pushes out and never pulls in, so a rope
             // already swinging wide of the shoulder is left exactly as it was.
-            (coifed ? fallFit : gatherFit)(out);
+            fitFall(out, !coifed, braidR(t));
             // AND A ROPE IS NOT A POINT, WHICH IS WHY THE SECOND SEED CAUGHT
             // THIS AND THE FIRST DID NOT. `fallFit` holds the SPINE inside the
             // rings; `braid` then sweeps a 17.6 mm tube around that spine, so a
@@ -17885,7 +17940,7 @@ export function buildCharacter(
             // Gathered at the root, full through the middle, tapering to the
             // tie. A rope of constant radius springing out of a scalp is a
             // handle; a rope that is thin where it leaves the hair is a plait.
-            radius: (t) => BRAID_R * (0.46 + 0.54 * smooth(0, 0.17, t)) * (1 - 0.42 * t * t),
+            radius: braidR,
           }), hair);
           // Two bindings: one on the gather where the hair is drawn together,
           // one at the tip. Both stand outside the rope's own half-width at the
@@ -18791,7 +18846,7 @@ export function buildCharacter(
         // the guard is meant to lap it — so that case keeps the band-height rim it
         // was tuned with. Over an open helm the guard is cut for the socket.
         const deepTop = (u: number) => {
-          const t = clamp01((Math.abs(u) - guardIn) / (guardOut - guardIn));
+          const t = cheekT(Math.abs(u));
           return style.mask ? bandLo + 0.01 - 0.045 * Math.pow(1 - t, 1.6) : cheekTop(t);
         };
         for (const s of [-1, 1]) {
