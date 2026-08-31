@@ -10037,6 +10037,37 @@ territory takes a 44 px press, and the floor gate PASSES on 36 screens.**
 
 ## THREE HELMET DEFECTS ARE ONE PROBLEM: PLATE AND HAIR WANT THE SAME ARCS — 31 Aug 2026
 
+> **THIS SECTION'S DIAGNOSIS WAS WRONG, AND THE CORRECTION IS THE WHOLE FINDING
+> — 31 Aug 2026, later the same day.** I wrote below that plate and hair were
+> "competing for the same arc" and that "a constant cannot resolve a contention,
+> it can only relocate it". There was no contention. **`cheekIn` was moving two
+> things and only one of them was on purpose.**
+>
+> `cheekHemAt` and `deepTop` normalised their ramp over `[cheekIn, cheekOut]` —
+> the guard's OWN span. So narrowing the span lowered every azimuth's `t`, and a
+> ramp that rises with `t` hangs the hem LOWER everywhere at once. Walking the
+> guard 0.56 -> 0.95 dropped the hem **0.117 rad at 1.12 rad**, which is exactly
+> where the berserker's war-locks hang. The 19.7 mm of braid was not the hair
+> and the guard wanting one arc; it was the guard being made DEEPER by a
+> constant I believed only moved its front edge. The tell was in the numbers the
+> whole time and I did not read it: the sheet-like Long Mane measured **0.0 mm
+> through the same change on every bearing** while the ropes read 19.7. A
+> contention over an arc does not care what shape the hair in it is.
+>
+> Anchoring the ramp to the arc it was tuned on makes the edge a lever again,
+> and the edge alone: on the shipped build the two numbers are equal, so the
+> separation is a no-op by construction. **0.5 and 5.16 are CLOSED** — the face
+> goes 23.4/50.5/53.1% taken to 4.6/20.3/22.1%, spread 29.7 -> 17.6, with hair
+> at 0.0 mm through on every helm, hair, class and seed.
+>
+> **What survives of the section below is one true sentence and it is not the
+> conclusion.** "The head stack has four readers of where a plate is" is right,
+> and this bug was a fifth: the hem's own parameterisation. What is wrong is
+> reading a fight between two pieces from evidence that only ever showed one
+> piece being deformed. **Before calling two things contended, check that the
+> lever you pulled moved only the thing you named.**
+
+
 Three separate rows, three separate attempts this week, three reverts — and
 they are not three problems. Each one moves the contention rather than
 resolving it, and the numbers now say so together.
