@@ -9818,3 +9818,53 @@ Reverted, and this is the third attempt recorded rather than the third attempt
 forgotten. **The new helmclash baseline gate is what makes the next attempt
 cheap to judge** — it would have caught this one without anybody remembering six
 numbers.
+
+---
+
+## THE COMMA CULL TOOK PAID HAIR, AND THE CENSUS THAT EXISTS TO CATCH THAT WAS NOT RUN — 31 Aug 2026
+
+An adversarial audit flagged it; `tools/rungcensus.mjs` settles it. Recorded
+against the commit BEFORE the 28 Aug comma fix (`2451e75~1`) and held to the
+tree today:
+
+```
+[census] 167 scope-readings identical, 167 gained, 306 LOST, 0 rungs gone
+[census] FAIL: the bar is zero paid rungs losing a component or a triangle
+```
+
+Per cell, across the whole shop:
+
+```
+huscarl|iron|default      head  -11   -880    FAIL
+huscarl|iron|hair=long    head  -15  -1200    FAIL
+huscarl|iron|hair=braids  head  -15  -1200    FAIL
+huscarl|nasal|…           head  -11   -880    FAIL      (and ridge, and the rest)
+```
+
+**`hair=long` and `hair=braids` are PAID RUNGS**, and they lost fifteen
+components and twelve hundred triangles apiece under every open helm.
+
+This is the exact failure `rungcensus` was built for. Its own header says so:
+*"Three separate rounds before that tried to pass a gate by DELETING content —
+three paid beards in one, 7680 triangles of hair in another, two hairstyles"* —
+and `characters.ts` carries a long comment arguing against *"a paid hairstyle
+being deleted to close a gate."* The 28 Aug fix did it a fourth time, and the
+tool that would have said so **was never run against the change**.
+
+**THE FIX IS NOT SIMPLY WRONG, AND IT IS NOT SIMPLY RIGHT.** The coils it
+deletes are the ones standing on bare cheek with no metal over them — the
+owner's reported defect, genuinely closed on the warden. But the file's own
+principle is that a coil with no ceiling should be RE-ROUTED or tucked, not
+culled: deleting it closes the picture by taking the cosmetic away. That is a
+trade nobody chose, because nobody measured it.
+
+**AND THE CULL DOES NOT EVEN REACH THE CLASS IT WAS AIMED AT.** The same audit
+proved, at the mesh, that the gate is a no-op on the huscarl: `coifed` sends
+`hairCeil` down its coif branch, which returns a ceiling computed from an
+ANALYTIC mail surface disagreeing with the coif's real geometry by 0.16-0.50
+rad, so `room` is finite over az 74.5-110 deg and the coil survives at near
+full size. Gate on versus gate off, huscarl/ridge/short seed 13: **identical to
+the decimal**, detached-and-proud islands 9 → 9, against warden 17 → 2.
+
+So on the coifed man it costs paid hair and closes nothing. Both halves are on
+the list as 5.13 and 5.14, with these numbers.
