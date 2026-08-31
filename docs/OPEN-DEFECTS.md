@@ -10056,9 +10056,11 @@ territory takes a 44 px press, and the floor gate PASSES on 36 screens.**
 >
 > Anchoring the ramp to the arc it was tuned on makes the edge a lever again,
 > and the edge alone: on the shipped build the two numbers are equal, so the
-> separation is a no-op by construction. **0.5 and 5.16 are CLOSED** — the face
-> goes 23.4/50.5/53.1% taken to 4.6/20.3/22.1%, spread 29.7 -> 17.6, with hair
-> at 0.0 mm through on every helm, hair, class and seed.
+> separation is a no-op by construction. **0.5, 5.16 and 5.13's remainder are
+> CLOSED** at `cheekIn` 0.85 — the face goes 23.4/50.5/53.1% taken to
+> 4.6/22.4/24.3%, spread 29.7 -> 19.7, with hair at 0.0 mm through on every
+> helm, hair, class and seed and helmclash §5's red-row set byte-identical to
+> shipped.
 >
 > **What survives of the section below is one true sentence and it is not the
 > conclusion.** "The head stack has four readers of where a plate is" is right,
@@ -10131,3 +10133,59 @@ owner's eye on them.
 
 **Reverted. Tree green: wearmeasure eleven sections, §4 back to 30/30, §10 back
 to its five reported windows.**
+
+
+## THE ROPE-GIRTH RULE: A GOOD RULE, MEASURED, AND DROPPED — 31 Aug 2026
+
+Recorded because the reasoning was sound the whole way and the answer was still
+no, and because a commit went out on this branch (`d2a2ac0`) describing it as
+part of the fix. It is not. **`cheekIn` 0.85 is the shipped value, not 0.90, and
+there is no girth rule in the tree.**
+
+**The hypothesis.** `hairFitProbe` read 19.7 mm of braid outside the walked-in
+Wyrm guard. The file already names the mechanism, over the Sutton Hoo's `tuck`:
+*"a rope is not a point ... `fallFit` holds the SPINE inside the rings; `braid`
+then sweeps a 17.6 mm tube around that spine, so a spine sitting exactly on the
+limit puts a third of the rope's circumference through the mail."* That
+correction existed as an `if (masked)` special case on the one rung where a rope
+had ever been measured under metal. Generalising it — `fitFall` taking the
+mass's own half-width, defaulting to zero so every sheet-like caller is
+untouched — is the obvious right shape, and it is the shape this file argues for
+everywhere else.
+
+**What the measurement said.**
+
+1. *Inert on the shipped build.* THRU stayed 0.0 mm on every helm; SIL moved
+   0.04. Good — the rule is not supposed to do anything where nothing binds.
+2. *Inert on the defect it was written for.* With the guard walked in, the
+   numbers came back **byte-identical**: 19.7 mm, 4.37%, 80.4% shown, 31% kept.
+   Not "smaller". Identical. `hairCeil` returns a non-finite ceiling in that
+   direction, `fitFall` returns before it fits anything, and a girth subtracted
+   from a limit that is never reached is arithmetic nobody performs. The rule
+   was answering a question the failing vertices never asked.
+3. *And it cost a row.* helmclash §5 went red on `huscarl suttonhoo
+   hair=braids` — 1.95% -> 2.66% against a 2.0% bar, on a helm whose cheek
+   geometry had not changed by a millimetre.
+
+**The third of those is the interesting one**, because the first fix for it was
+also wrong and looked right. Taking the girth off `lim` is taking it off a
+projection along the ray from the skull's centre — the fit scales `out.y` with
+`out.x` and `out.z` — so shrinking the limit by a rope's half-width does not
+narrow the plait, **it lifts it**. The worst patch moved 123 mm up to 136 mm,
+into the tighter part of the mask. And at the same time the worst patch HALVED,
+40.7% -> 20.4%, which is exactly how a wrong correction reads as a right one if
+you look at one column. Re-applying the girth horizontally — the direction a
+hanging rope actually has thickness in, which is what the mask's own `tuck` had
+right — left the row red anyway.
+
+**So it went.** The defect it was written for was closed by the hem anchoring;
+the rule itself was provably inert on that defect and cost a gate elsewhere. A
+rule that is right in principle, does nothing measurable, and moves a ratchet is
+a rule you do not ship — however good the argument for it is, and the argument
+for this one is still good. It is written down here so the next pass can pick it
+up with the three measurements already done rather than rediscovering them.
+
+**The generalisable part.** I believed the girth rule had fixed the braid
+because I had formed the story before I ran the comparison, and byte-identical
+output is the loudest possible refutation — it is not "the fix helped a little",
+it is "that code did not execute". Read the digits, not the direction.
