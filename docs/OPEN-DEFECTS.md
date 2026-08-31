@@ -3072,6 +3072,26 @@ fine and looked like carved wood grain".
 
 ## STILL OPEN after 13 Aug — the two this unit measured and did not fix
 
+> **SPLIT 31 Aug 2026 — one of the two is closed and the other has moved.**
+> **(1) The Shadow Hood swallowing the mane is FIXED.** The `hoodHemY` this
+> section says "does not exist" is defined at `characters.ts:15963`, and
+> `hairFall` returns 1 under a hood where it returned 0. `hoodfall` produces a
+> clean sheet with all 120 paid pairs distinct.
+> **(2) The Wyrm's cheek-guard reshape is still open**, re-measured on HEAD at
+> 23.4/50.5/53.1 and unmoved in a week — it is tracked as backlog 5.16 now, with
+> an attempt and its costs recorded below.
+>
+> **THE LEVER NOT YET TRIED, so the next pass does not repeat mine.** I walked
+> `cheekIn` — where the guard STARTS — and it works on the face and fails on the
+> berserker's braids. What nobody has tried is reshaping the hem's CURVE rather
+> than scaling it: the recorded "inert" result moved the 0.34 ADDEND, which is a
+> scale, and the prescription at line 3616 asks for three phases — deep at the
+> front beside the mouth, sweeping UP over the mandible's angle in the middle,
+> short at the back. That removes plate from the mid-arc without moving the
+> front edge. It may well hit the same braids, which sit at az 51-64 deg; that
+> is worth finding out rather than assuming.
+
+
 > **Round two leaves both of these exactly where round one left them, and says
 > so here rather than by omission.** Neither was touched, neither was
 > re-measured, and no number below has moved. They are named again in the round
