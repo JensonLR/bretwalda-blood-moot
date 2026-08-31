@@ -9667,3 +9667,66 @@ instrument that found it.
 red by raising the floor to 60, which names the sound toggle at 44x44, the
 round pickers at 133x45 and the invite button at 533x52 across the lobby at
 both widths. The gate fires.
+
+---
+
+## A GATE THAT GREEN-LIT A HERE RUNNING AWAY, AND A RULER THAT BLAMED THE WRONG CAUSE — 31 Aug 2026
+
+Two findings from a thirteen-item audit of every remaining OPEN ledger section
+and standing gate deferral, each verified independently and each shown red.
+
+### 1. `burhtest`: "the here closes on the defenders" could not fail
+
+The claim compared two DIFFERENT measurements:
+
+```js
+const before = Math.min(...bots.map((b) => Math.hypot(b.position.x, b.position.z)));      // from the ORIGIN
+const after  = Math.min(...bots.map((b) => Math.hypot(b.x - humanAt.x, b.z - humanAt.z))); // from the DEFENDER
+check("the here closes on the defenders", after < before + 1, ...);
+```
+
+On this fixture that is `after < 5.87` against a here **already standing at
+1.07 m** — 4.8 m of slack before a tick is taken. Two controls both PASS it:
+raiders **pinned in place**, and raiders driven **bodily away** from the
+defender for the whole two seconds. A gate that green-lights a here running
+away is not a gate.
+
+**And the fixture could not measure hunting either.** Both raiders are inside
+1.5 m when the claim runs — they are fighting, not approaching, and over two
+seconds they drift OUT to 1.8 as they circle. Hunting is not observable from
+contact, whatever you compare.
+
+So: the same measurement at both ends (every raider against whichever defender
+is nearest HIM), the FURTHEST such raider graded rather than the nearest — one
+man in contact must not answer for the whole here — and the garrison walked to
+one side of the ring first so there is a gap to close. **16.8 m → 5.3 m in two
+seconds.** The frozen-raider control now FAILS it: 17.0 → 16.6.
+
+One repair was wrong on the way and is recorded: moving ONE defender across the
+ring went red, because there are two and the here quite correctly walked to the
+other. A gate is not improved by breaking its stage.
+
+### 2. `wearmeasure` §5 GRIP: the note blamed taper, and taper was 0.09 mm of it
+
+Yesterday's note said the residual 1.6 mm was *"the LIMB'S OWN TAPER across the
+ring's thickness"* and concluded no principled bar existed between 1.6 and 2.8.
+**Both halves were false, and this corrects them rather than quietly rewriting.**
+Freezing the carrier at the ring's own mid-height — every scrap of taper gone —
+leaves the number at **1.60**. Taper is 0.09 mm of it. The bin minima run
+`-7.21 -7.98 -8.56 -8.81 -8.56 -7.98` and repeat: **twice per revolution**,
+which is an ellipse-ratio signature, not a cone.
+
+The real cause was a live bug in yesterday's own fix. `xf` builds
+`Matrix4.compose(T, R, S)`, so scale is applied in the geometry's OWN frame;
+`TorusGeometry` lies in local XY with its axis on local Z, and the π/2 about X
+sends local **Y** to world z. The fix scaled local Z — which after that rotation
+is VERTICAL. The band was left perfectly circular round the limb and stretched
+up and down instead.
+
+Axes swapped: the shipped tree reads **0.4 mm at worst on any kit**, against
+2.8 for the rings as the owner photographed them. **So GRIP is gated at 1.5** —
+a band's correct grip is zero, the residual is 0.4, the defect is 2.8; the bar
+sits in the middle of a sevenfold separation and today's tree clears it by 1.1
+mm. Shown red by putting one token back.
+
+burhtest 24/24, wearmeasure eleven sections PASS.

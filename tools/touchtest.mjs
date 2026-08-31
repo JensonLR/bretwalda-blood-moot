@@ -909,13 +909,36 @@ async function lockAct(browser, url, check) {
           const b = bearing(f);
           if (b !== null) peakResidual = Math.max(peakResidual, Math.abs(wrap(b - f.rot)));
         }
-        for (let i = 2; i < rows.length; i++) {
-          const a = rows[i - 2], c = rows[i];
-          if (a.lock !== c.lock || a.lock !== rows[i - 1].lock) continue;
+        // A RATE OVER 200 ms, NOT OVER TWO PACKETS.
+        //
+        // This was a fixed stride of two rows with a 60 ms floor, which on a 50
+        // ms server tick is about 100 ms of window — and the note below already
+        // says why that is thin: "the window here is measured between two socket
+        // messages arriving at a box with no GPU, and bunched packets shorten
+        // the denominator". At 100 ms one bunched packet moves the computed rate
+        // by ~40%, which is MORE than the 30% clock tolerance underneath it, so
+        // the claim could fail on arithmetic while the server was obeying the
+        // cap exactly. It did: a ten-run sweep for backlog row 0 produced a red
+        // at a measured peak over 2.34 on a draw whose neighbours read 1.81 —
+        // the cap itself, to two decimal places.
+        //
+        // The fix is the window, not the bar. Walk back to the first row at
+        // least 200 ms earlier — four ticks — where the same jitter is a fifth
+        // of the signal instead of half of it. The cap and its 30% stay exactly
+        // as they were, and the lock must be the SAME MAN across the whole span
+        // or the sample is dropped, which the old fixed stride could only check
+        // for three rows.
+        for (let i = 1; i < rows.length; i++) {
+          let j = i - 1;
+          while (j > 0 && rows[i].t - rows[j].t < 200) j--;
+          const a = rows[j], c = rows[i];
+          const dt = (c.t - a.t) / 1000;
+          if (dt < 0.15) continue;
+          let same = true;
+          for (let k = j; k <= i; k++) if (rows[k].lock !== a.lock) { same = false; break; }
+          if (!same) continue;
           const b0 = bearing(a), b1 = bearing(c);
           if (b0 === null || b1 === null) continue;
-          const dt = (c.t - a.t) / 1000;
-          if (dt < 0.06) continue;
           demandRate = Math.max(demandRate, Math.abs(wrap(b1 - b0)) / dt);
           bodyPeak = Math.max(bodyPeak, Math.abs(wrap(c.rot - a.rot)) / dt);
         }

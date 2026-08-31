@@ -96,13 +96,51 @@ console.log("[burh] the stand against the here, headless\n");
   check("the first waves are recruits", bots(room).every((b) => b.difficulty === "recruit"));
   check("the wave rides the snapshot", (host.snapshot?.wave ?? 0) === 1);
 
-  // The here hunts defenders: step and watch the nearest raider close.
-  const before = Math.min(...bots(room).map((b) => Math.hypot(b.position.x, b.position.z)));
-  stepSeconds(eng, 2);
-  const humanAt = humans(room)[0].position;
-  const after = Math.min(...bots(room).map((b) =>
-    Math.hypot(b.position.x - humanAt.x, b.position.z - humanAt.z)));
-  check("the here closes on the defenders", after < before + 1, `nearest ${after.toFixed(1)}m`);
+  // THE HERE HUNTS DEFENDERS — and this claim could not see whether it did.
+  //
+  // It compared the raiders' distance from the ARENA ORIGIN before the step
+  // against their distance from the DEFENDER after it, then allowed a metre of
+  // slack on top. Two different measurements, so the bar it actually applied on
+  // this fixture was `after < 5.87` against a here already standing at 1.07 m:
+  // 4.8 m of slack before a single tick was taken. Both controls PASS it —
+  // raiders pinned in place and not hunting at all, and raiders driven bodily
+  // AWAY from the defender for the whole two seconds. A claim that green-lights
+  // a here running away is not a gate, which is this project's own first law.
+  //
+  // Same measurement at both ends, and a gap worth closing to close. The
+  // defender is put across the ring first because the nearest raider is already
+  // in contact and cannot demonstrate approach; the FURTHEST is graded, so one
+  // man already at the wall cannot answer for the here.
+  // AND THE FIXTURE HAS TO MEAN IT TOO. The first cut of this repair moved ONE
+  // defender across the ring and graded the distance to him — and it went red,
+  // because there are TWO defenders and the raiders quite correctly walked to
+  // the other one. A gate is not improved by breaking the stage; what "hunts
+  // DEFENDERS" means is every raider closing on whichever defender is nearest
+  // HIM, so that is what is measured, at both ends, with nobody teleported.
+  {
+    const gap = () => bots(room).map((b) =>
+      Math.min(...humans(room).map((h) =>
+        Math.hypot(b.position.x - h.position.x, b.position.z - h.position.z))));
+    // AND THERE HAS TO BE A GAP TO CLOSE. Measured on the fixture as it stands,
+    // both raiders are already within 1.5 m when this claim runs — they are
+    // fighting, not approaching, and over two seconds they drift OUT to 1.8 as
+    // they circle. Hunting is simply not observable from contact, which is the
+    // deeper reason the old claim could never have worked whatever it compared.
+    //
+    // So the whole garrison is walked to one side of the ring first — BOTH of
+    // them, because moving one and grading the distance to him only proves the
+    // here prefers the other. Well inside the 18 m play disc, so nobody is
+    // pinned on the palisade.
+    humans(room).forEach((h) => { h.position = { x: 12, y: 0, z: 0 }; });
+    // The FURTHEST such raider, not the nearest: one man already in contact
+    // must not be allowed to answer for the whole here, which is how the old
+    // claim let a frozen wave through.
+    const before = Math.max(...gap());
+    stepSeconds(eng, 2);
+    const after = Math.max(...gap());
+    check("the here closes on the defenders", after < before - 1.0,
+      `the raider furthest from any defender came from ${before.toFixed(1)} m to ${after.toFixed(1)} m in two seconds`);
+  }
 
   // Fell one defender, then clear the wave: the fallen must rise for wave 2.
   intoTheFire(humans(room)[1], 1);

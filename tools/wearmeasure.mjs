@@ -669,20 +669,29 @@ const SINK_MM = 22;
  * a ring cut too big still touches on its narrow axis and reads 0.9 mm while it
  * hangs off the wide one.
  *
- * REPORTED, NOT GATED, and the measurements say why. The berserker's arm-rings
- * as the owner photographed them read **2.8 mm**; cut to the arm's own taper
- * and ellipse they read **1.6**. That is a real separation and the fix is real,
- * but 1.6 is not zero and it is not tessellation either — raising the ring from
- * 12 segments to 16 did not move it. It is the LIMB'S OWN TAPER across the
- * ring's thickness: an arm narrows through the 22 mm a tube spans, and its
- * ellipse changes ratio as it goes, so no flat band can sit at one depth all
- * the way round a cone. A bar between 1.6 and 2.8 would be a number picked to
- * make today's tree pass, and this file has enough of that history.
+ * GATED AT LAST, AND THE PREVIOUS NOTE HERE WAS WRONG — corrected rather than
+ * quietly rewritten, because it stated a CAUSE that measurement refutes.
  *
- * So the number is printed and flagged past 3 mm, and what GATES is the floor
- * below — which is the fault that actually hid this defect for a month.
+ * It said the residual 1.6 mm was "the LIMB'S OWN TAPER across the ring's
+ * thickness" and concluded that no bar between 1.6 and 2.8 could be principled.
+ * Both halves were false. Freezing the carrier at the ring's own mid-height —
+ * every scrap of taper removed — leaves the number at 1.60, so taper is 0.09 mm
+ * of it. The bin minima ran -7.21 -7.98 -8.56 -8.81 -8.56 -7.98 and repeated:
+ * TWICE per revolution, which is an ellipse-ratio signature, not a cone.
+ *
+ * The real cause was a live bug in the fix that was supposed to seat the rings
+ * — two scale axes the wrong way round, so the band was stretched vertically
+ * instead of made elliptical (see the note at `arm-ring` in characters.ts).
+ * With the axes right the shipped tree reads **0.4 mm at worst on any kit**,
+ * against **2.8 mm** for the rings as the owner photographed them.
+ *
+ * So the bar is 1.5: a band's correct grip is ZERO, the residual across all
+ * sixteen kits is 0.4, and the defect is 2.8. That is a seven-fold separation
+ * with the bar at its middle — four times what a good tree reads and half what
+ * a bad one does. It is not a number chosen to make today's tree pass; today's
+ * tree passes it with 1.1 mm to spare.
  */
-const GRIP_MM = 3;
+const GRIP_MM = 1.5;
 
 /**
  * THE FLOOR, AND IT IS THE REAL GATE HERE.
@@ -722,8 +731,8 @@ for (const cls of CLASSES) {
     const bad = [];
     if (stand > STAND_MM) bad.push(`${standTag} floats ${stand.toFixed(1)} mm off the body`);
     if (sink > SINK_MM) bad.push(`${sinkTag} is ${sink.toFixed(1)} mm inside it`);
-    // Reported, not judged — see the note above `GRIP_MM`.
-    const gripNote = grip > GRIP_MM ? `  <- ${gripTag} ${grip.toFixed(1)} mm uneven` : "";
+    const gripNote = "";
+    if (grip > GRIP_MM) bad.push(`${gripTag} is a band that does not grip — ${grip.toFixed(1)} mm of unevenness round the limb, bar ${GRIP_MM}`);
     const tags = new Set(rows.map((r) => r.tag));
     if (tags.size < FIT_TAGS_MIN) {
       bad.push(`only ${tags.size} fitting tags reached the ruler, under the ${FIT_TAGS_MIN} floor — something stopped registering itself`);
@@ -742,8 +751,8 @@ for (const cls of CLASSES) {
   }
 }
 console.log("");
-console.log(`[wear] ${nFit} seated fittings measured; GATED: standoff ${STAND_MM} mm, sink ${SINK_MM} mm, at least ${FIT_TAGS_MIN} tags a class,`);
-console.log(`[wear]   and ${FIT_MUST_HAVE.join(" + ")} registered. REPORTED: band grip, flagged past ${GRIP_MM} mm — see the note.`);
+console.log(`[wear] ${nFit} seated fittings measured; GATED: standoff ${STAND_MM} mm, sink ${SINK_MM} mm, band grip ${GRIP_MM} mm,`);
+console.log(`[wear]   at least ${FIT_TAGS_MIN} tags a class, and ${FIT_MUST_HAVE.join(" + ")} registered.`);
 for (const f of bfails) console.log(`[wear] FAIL ${f}`);
 console.log(`[wear] ${bfails.length ? "FAIL" : "PASS"}: ` +
   `${CLASSES.length * CLOAK_VALUES.length - bfails.length}/${CLASSES.length * CLOAK_VALUES.length} kits with every fitting on the body`);

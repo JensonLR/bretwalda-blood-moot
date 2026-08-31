@@ -15389,8 +15389,27 @@ export function buildCharacter(
           // 1.06 and the measurement is about the ring instead of about the
           // polygon. It is also a visibly rounder band at armoury zoom, which is
           // where a player looks at it.
+          // THE TWO SCALE AXES WERE THE WRONG WAY ROUND, AND THE LEDGER'S
+          // EXPLANATION OF THE LEFTOVER WAS FALSE.
+          //
+          // `xf` builds `Matrix4.compose(T, R, S)`, so the scale is applied in
+          // the geometry's OWN frame, before the rotation. `TorusGeometry` lies
+          // in local XY with its axis along local Z, and the π/2 about X sends
+          // local Y to world z — so making a ring elliptical in the world's xz
+          // means scaling local X and local **Y**. This scaled local Z, which
+          // after that rotation is VERTICAL: the band was left perfectly
+          // circular round the limb and stretched up and down instead.
+          //
+          // It is why `wearmeasure` §5's `gripMm` still read 1.60 mm after the
+          // fix that was supposed to seat these rings, and why the note beside
+          // GRIP_MM blamed "the limb's own taper across the ring's thickness".
+          // That was measured and is not true: freezing the carrier at the
+          // ring's own mid-height — all taper removed — leaves the number at
+          // 1.60, so taper is 0.09 mm of it. The bin minima ran -7.21 -7.98
+          // -8.56 -8.81 -8.56 -7.98 repeating, twice per revolution, which is
+          // an ellipse-ratio signature and not a taper.
           fitAdd(p, "arm-ring", upperC, ring(mean, tube, 5, 16), brass,
-            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, 1, rd / mean));
+            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, rd / mean, 1));
         };
         armRing(-0.14, 0.011);
         if (lod.trim) armRing(-0.2, 0.009);
@@ -15434,8 +15453,9 @@ export function buildCharacter(
           const rw = st.hw + ARM_RING_LIFT;
           const rd = (st.hd ?? st.hw) + ARM_RING_LIFT;
           const mean = (rw + rd) / 2;
+          // Same correction as the arm-rings above — see the note there.
           fitAdd(p, "wrist-ring", bracerC, ring(mean, 0.005, 4, 14), brass,
-            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, 1, rd / mean));
+            xf(0, y, 0, Math.PI / 2, 0, 0, rw / mean, rd / mean, 1));
         }
       }
       if (robed) {
