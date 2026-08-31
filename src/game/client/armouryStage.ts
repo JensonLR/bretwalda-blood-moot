@@ -37,6 +37,7 @@ import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
   type WarriorRig, type WarriorMotion,
+  CLASS_TUNIC,
 } from "./render/anim";
 import {
   resolveQuality, configureRenderer,
@@ -46,14 +47,6 @@ import {
   SLOT_LENS, takeThumbJob, returnThumbJob, publishThumb, setThumbForgeLive,
   dropThumbCache, thumbsWaiting, type PreviewLens,
 } from "./armouryThumbs";
-
-/** Accent colour per class — the same table `anim.ts` dresses a warrior from. */
-const CLASS_TUNIC: Record<string, number> = {
-  huscarl: 0x6a5636,
-  warden: 0x5a6630,
-  runekeeper: 0x3d3a5c,
-  berserker: 0x6e2b26,
-};
 
 // ---------------------------------------------------------------------------
 // Lenses

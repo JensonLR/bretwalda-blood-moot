@@ -14401,7 +14401,7 @@ export function buildCharacter(
         // front and centre back opens roughly 35 mm at the hem, which is wide
         // enough to survive the 390 px column and narrow enough that the man is
         // not wearing two aprons.
-        const gap = 0.115;
+        const gap = 0.22;
         const panelSeg = Math.max(5, Math.round(seg / 2));
         const panelBottom = tunicHem - 0.02;
         const panel = layer(

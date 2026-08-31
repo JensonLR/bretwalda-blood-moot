@@ -181,7 +181,20 @@ function reportHand(rig: WarriorRig, mirrorSign: number): void {
  */
 export const CLASS_TUNIC: Record<string, number> = {
   huscarl: 0x6a5636,
-  warden: 0x5a6630,
+  // THE WARDEN IS OFF THE YELLOW-GREEN AXIS, and this is the last live half of
+  // `COSMETICS-AUDIT.md` §4.1's fourth fault: "warden defaults to a red cloak
+  // over a `0x5a6630` yellow-green tunic — the Roman colourway." Three of that
+  // item's four faults were fixed and the row never updated; this constant was
+  // the one still sitting exactly as the audit found it, and it is the largest
+  // garment on the man — his hem is the shortest on the roster, so the olive
+  // landed squarely at mid-thigh where his shield does not cover him.
+  //
+  // Woad over weld gives a green wool the period actually had, and taking it
+  // cool moves the warden off the olive without moving him onto anybody: the
+  // huscarl is walnut-brown, the berserker madder, the runekeeper a violet
+  // indigo. It also keeps the promise the `tunicDye` note makes about him —
+  // that he stays "the coolest of the four".
+  warden: 0x565a55,
   runekeeper: 0x3d3a5c,
   berserker: 0x6e2b26,
 };
