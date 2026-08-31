@@ -10012,3 +10012,71 @@ is scrolled into the clear first, which is what a user does.
 
 **uishots: the reported line is now EMPTY at both widths, every named tight
 territory takes a 44 px press, and the floor gate PASSES on 36 screens.**
+
+---
+
+## THREE HELMET DEFECTS ARE ONE PROBLEM: PLATE AND HAIR WANT THE SAME ARCS — 31 Aug 2026
+
+Three separate rows, three separate attempts this week, three reverts — and
+they are not three problems. Each one moves the contention rather than
+resolving it, and the numbers now say so together.
+
+### The Wyrm's cheek guard (0.5 / 5.16) — re-measured, attempted, reverted
+
+`facelook --cover` on today's HEAD: **23.4% / 50.5% / 53.1%** of the
+lens-facing face taken at 0/-35/+35 deg, **spread 29.7**, 95% of it one
+surface, against the Spectacle's 4.2. Raised on 24.3/50.9/53.1 spread 28.8 —
+**nothing has moved in a week.** `art/look/wyrm-before.png` shows why the
+ledger calls it a billboard: at three-quarter the far guard is a slab across
+the cheek and jaw up to the nose.
+
+The hem is NOT the lever and that was already recorded (addend 0.34 → 0.12
+moved spread 28.8 → 29.0, inert). The lever is **where the guard starts**.
+`cheekIn` for a deep unmasked guard is 0.56 rad, beside the mouth; walking it
+back:
+
+```
+cheekIn   0deg    -35deg   +35deg   spread
+0.56      23.4%   50.5%    53.1%    29.7     (shipped)
+0.80      12.8%   34.6%    36.7%    23.9
+0.95      12.6%   27.4%    29.3%    16.7     ← parity with the Spectacle at 3/4
+1.05      12.6%   23.7%    25.3%    12.7     (a DEEP guard covering less than a short one)
+```
+
+At 0.95 the Wyrm takes 27.4/29.3 against the Spectacle's 28.3/28.4 — parity at
+three-quarter while leaving more of the face visible from the front, and
+`art/look/wyrm-after.png` reads as a helm framing a face instead of swallowing
+one.
+
+**AND IT COSTS TWO GATES.** At 0.95: `wearmeasure` §4 goes **29/30** —
+*"19.7 mm of braids outside the wyrm on the berserker at 64/-56 deg, 4.95% of
+braids outside what covers it"* against a 0.8% bar — and §10's windows go 5 →
+6. At 0.80 the braids still fail (1.37%) **and the windows go to 7, worse than
+shipped.** The guard's width is load-bearing: it is covering the berserker's
+braids.
+
+### The same sentence, three times
+
+* **5.15, the flank gap.** Deriving the coif's rim from the guard closes the
+  owner's *"large gaps in the sides of the helmets"* — five windows to three —
+  and moves helmclash WRAP 6 → 13 and PELT 74 → 91 on the hooded huscarl.
+  **The gap is where his hair comes out.**
+* **5.13's remainder.** The coif ceiling still over-claims by up to 0.34 rad
+  lower down. Closing it needs the ceiling to read the rim at the coil's own
+  height — the plate's parameterisation and the hair's are not the same one.
+* **5.16, the Wyrm.** Narrowing the guard frees the face and **exposes the
+  braids it was covering.**
+
+Every one is plate and hair competing for the same arc, and every fix so far
+has been a constant moved on one side of that competition. That is why three
+attempts by three different passes all reverted: **a constant cannot resolve a
+contention, it can only relocate it.**
+
+What this wants is one pass over the head stack that gives the plates and the
+hair a shared account of who owns which arc at which height — the thing
+`maskBot(u)` already does for the one helm in the tier the audit passes. It is
+a project, not a tail-end fix, and it should be judged on captures with the
+owner's eye on them.
+
+**Reverted. Tree green: wearmeasure eleven sections, §4 back to 30/30, §10 back
+to its five reported windows.**
