@@ -3263,6 +3263,52 @@ minutes.
 
 ## OPEN — `goretest` on the gore branch still gates two statistics that cannot discriminate
 
+> **CLOSED ON THIS TREE — 1 Sep 2026 — and the harness that was supposed to
+> settle it could not even RUN.** Neither statistic below is gating anything
+> here, and the fixture holding the evidence had bit-rotted.
+>
+> **`tools/gorestat.mjs` hard-stopped on every invocation.** Its speed-law regex
+> wanted `(0.30 + pulse * 0.95)` and `vfx.ts` reads `(0.30 + 0.95 * pulse)` —
+> an operand reorder, not a behaviour change. The hard stop did its job (it
+> refused to run rather than quietly build six copies of one surface), but the
+> harness then sat unrunnable, which is how this entry came to cite a verdict
+> nobody could reproduce. Fixed to accept either order.
+>
+> **STATISTIC 1 IS NOT GATED HERE, AND IT IS NOT `1 - min/max` EITHER.** The
+> table below indicts `1 - min/max`. `goretest.mjs` on this tree uses a THIRD
+> implementation — one Fourier bin at the renderer's own beat, `2|X(9.2)|/N`
+> over the mean — and it does not gate it: *"the number is PRINTED and the claim
+> is retired rather than left as a gate that cannot see"*. A metric retired on
+> evidence about a different metric is the fault this project keeps finding, so
+> the shipped one is now measured too. `gorestat` grew a column for it:
+>
+> ```
+>     floor    NEW depth  predicted  SHIPPED fft  ship spread  OLD 1-min/max
+>     0.85        16.7%      14.1%        29.7%       27-32%          84.5%
+>     0.6         38.7%      38.3%        39.0%       37-42%          85.3%
+>     0.42        55.3%      56.2%        54.3%       52-58%          87.7%
+>     0.3         67.6%      68.4%        71.0%       68-75%          87.9%
+>     0.18        79.6%      80.9%        96.2%      93-100%          89.8%
+>     0.05        94.2%      94.6%       100.0%     100-100%          91.1%
+> ```
+>
+> **The shipped statistic is a real ruler**: 70.3 points of range across the
+> ladder against the old one's 6.6, strictly ordered, and its bar of 0.60 CAN be
+> failed — the shallowest rung scores 29.7%. What it cannot do is resolve the
+> jet this tree actually ships, and that is the honest reason to report rather
+> than gate: the shipped floor is **0.88, the owner's hose**, about 12% of
+> oscillation, and at that depth the metric sits on its own ~27% noise floor.
+> **Two independent instruments agree to a point**: `goretest` reads 29% on the
+> shipped jet, `gorestat`'s ladder reads 29.7% at its nearest rung (0.85).
+> `goretest`'s note was right and is now measured rather than asserted.
+>
+> **STATISTIC 2 IS STILL GATED AND NO LONGER MARGINAL.** The entry has it firing
+> on an unchanged tree in 84.5 / 90.9 / 91.1% of draws at 2.0 m. Today it reads
+> **3.8 / 3.5 / 3.0 marks against a bar of 1** at 120/60/30 fps — three to four
+> times the margin, because the pour was tripled when the owner asked for a hose.
+> A flakiness measured before that change does not describe this tree.
+
+
 The replacements are built and proven in `tools/gorestat.mjs`; the branch that
 carries `vfx.probe()` (`unit-gore-camera`) has not adopted them, so until it does
 the blood is still gated by two rulers that do not measure what they claim.

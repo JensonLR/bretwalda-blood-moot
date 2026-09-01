@@ -128,7 +128,14 @@ const { QUALITY_PRESETS } = await import(pathToFileURL(qualityJs).href);
 //            itself with the pulse held still.
 const BASE = readFileSync(vfxJs, "utf8");
 const PULSE_RE = /const pulse = ([\d.]+) \+ ([\d.]+) \* Math\.pow\(Math\.max\(0, Math\.sin\(j\.age \* ([\d.]+)\)\), ([\d.]+)\);/;
-const SPEED_RE = /\(([\d.]+) \+ ([\d.]+) \* j\.power\) \* \(([\d.]+) \+ pulse \* ([\d.]+)\)/;
+// EITHER OPERAND ORDER, because the fixture broke on a reformat and not on a
+// change of behaviour. `vfx.ts` reads `(0.30 + 0.95 * pulse)` today and read
+// `(0.30 + pulse * 0.95)` when this was written; multiplication does not care
+// and neither should the ruler. The hard stop below did its job — it refused to
+// run rather than silently building six copies of one surface — but the harness
+// then sat unrunnable, which is how `docs/OPEN-DEFECTS.md` came to be citing a
+// verdict nobody could reproduce.
+const SPEED_RE = /\(([\d.]+) \+ ([\d.]+) \* j\.power\) \* \(([\d.]+) \+ (?:pulse \* ([\d.]+)|([\d.]+) \* pulse)\)/;
 const ACC_RE = /(j\.acc -= n;)/;
 const tree = BASE.match(PULSE_RE);
 const treeSpeed = BASE.match(SPEED_RE);
@@ -145,7 +152,8 @@ const OMEGA = parseFloat(tree[3]);
 const SHARP = parseFloat(tree[4]);
 /** The tree's own pulse floor and its own speed law, as read. */
 const TREE_FLOOR = parseFloat(tree[1]);
-const TREE_SPEED = { a: parseFloat(treeSpeed[1]), b: parseFloat(treeSpeed[2]), c: parseFloat(treeSpeed[3]), d: parseFloat(treeSpeed[4]) };
+const TREE_SPEED = { a: parseFloat(treeSpeed[1]), b: parseFloat(treeSpeed[2]), c: parseFloat(treeSpeed[3]),
+  d: parseFloat(treeSpeed[4] ?? treeSpeed[5]) };
 // The other real surface, so the pair the adversary compared can be reproduced
 // exactly. These four numbers are the branch's, quoted in its commit message:
 // "Running jet (1.4 + 2.1·p)·(0.55 + 0.6·pulse) -> (2.6 + 4.2·p)·(0.30 + 0.95·
@@ -317,6 +325,17 @@ async function surface(tag, floor, speed, wounds = WOUNDS) {
   let thrown = 0;
   let saturated = 0;
   const oldScores = [];
+  // THE STATISTIC THAT IS ACTUALLY SHIPPED, computed on the same runs.
+  //
+  // This file was written against `1 - min/max`, and `goretest.mjs` on this tree
+  // does not use that any more — it uses a single Fourier bin at the renderer's
+  // own beat, `2|X(W)|/N` over the mean, with `W = 9.2`. So the indictment in
+  // `docs/OPEN-DEFECTS.md` convicts a metric that is no longer in the dock, and
+  // a ruler retired on the wrong evidence is the fault this project keeps
+  // finding. Measuring the shipped one here is the only way to know whether the
+  // gate on it can be failed, and it costs nothing: the same `perFrame` census,
+  // the same window, the same wounds.
+  const shipScores = [];
   const halo = Math.round(PERIOD / dt / 2);
   for (let w = 0; w < wounds; w++) {
     const stage = makeStage(mod);
@@ -388,6 +407,21 @@ async function surface(tag, floor, speed, wounds = WOUNDS) {
     const hi = air.reduce((m, v) => Math.max(m, v), 0);
     const lo = air.reduce((m, v) => Math.min(m, v), Infinity);
     oldScores.push(hi > 0 ? 1 - lo / hi : 0);
+    // THE SHIPPED METRIC, verbatim from `goretest.mjs`: one Fourier bin at the
+    // beat, amplitude over mean, on the births census over the same window.
+    const SHIP_W = 9.2;
+    let sre = 0, sim = 0, ssum = 0, sn = 0;
+    for (let f = 0; f < perFrame.length; f++) {
+      const age = (f + 1) * dt;
+      if (age <= OLD_WINDOW.from || age >= OLD_WINDOW.to) continue;
+      sre += perFrame[f] * Math.cos(SHIP_W * age);
+      sim += perFrame[f] * Math.sin(SHIP_W * age);
+      ssum += perFrame[f];
+      sn++;
+    }
+    const sAmp = sn ? (2 * Math.hypot(sre, sim)) / sn : 0;
+    const sAvg = sn ? ssum / sn : 0;
+    shipScores.push(sAvg > 0.01 ? Math.min(1, sAmp / sAvg) : 0);
   }
   const profile = num.map((b, i) => (den[i] > 0 ? b / den[i] : 0));
   const halfDepths = halves.map((h) => depthOf(h.num.map((b, i) => (h.den[i] > 0 ? b / h.den[i] : 0))));
@@ -402,6 +436,10 @@ async function surface(tag, floor, speed, wounds = WOUNDS) {
     oldScores,
     oldWorst: Math.min(...oldScores),
     oldBest: Math.max(...oldScores),
+    shipped: mean(shipScores),
+    shipScores,
+    shipWorst: Math.min(...shipScores),
+    shipBest: Math.max(...shipScores),
   };
 }
 
@@ -435,12 +473,25 @@ const LADDER = [0.85, 0.6, 0.42, 0.3, 0.18, 0.05];
 const rungs = [];
 for (const f of LADDER) rungs.push(await surface(`f${String(f).replace(".", "")}`, f, TREE_SPEED));
 
-console.log("  THE LADDER — six pulse floors, one speed law, both metrics on the same runs");
-console.log(`    ${"floor".padEnd(8)}${"thrown".padStart(8)}${"NEW depth".padStart(12)}${"predicted".padStart(11)}${"OLD 1-min/max".padStart(15)}${"OLD spread".padStart(14)}`);
+console.log("  THE LADDER — six pulse floors, one speed law, all three metrics on the same runs");
+console.log(`    ${"floor".padEnd(8)}${"thrown".padStart(8)}${"NEW depth".padStart(12)}${"predicted".padStart(11)}${"SHIPPED fft".padStart(13)}${"ship spread".padStart(14)}${"OLD 1-min/max".padStart(15)}`);
 for (const r of rungs) {
   console.log(`    ${String(r.floor).padEnd(8)}${String(r.thrown).padStart(8)}`
     + `${(r.depth * 100).toFixed(1).padStart(11)}%${(r.predicted * 100).toFixed(1).padStart(10)}%`
-    + `${(r.old * 100).toFixed(1).padStart(14)}%${`${(r.oldWorst * 100).toFixed(0)}–${(r.oldBest * 100).toFixed(0)}%`.padStart(14)}`);
+    + `${(r.shipped * 100).toFixed(1).padStart(12)}%${`${(r.shipWorst * 100).toFixed(0)}–${(r.shipBest * 100).toFixed(0)}%`.padStart(14)}`
+    + `${(r.old * 100).toFixed(1).padStart(14)}%`);
+}
+// THE ONE QUESTION THIS COLUMN EXISTS TO ANSWER: can `goretest`'s own gate be
+// failed? Its bar is `pulseDepth >= 0.6`. If the shallowest rung on the ladder —
+// 0.85, which is all but a hose and the thing the claim exists to forbid — still
+// clears 0.6, the gate is decoration, exactly as `1 - min/max` was.
+{
+  const worstRung = rungs[0];
+  const span = Math.abs(rungs[rungs.length - 1].shipped - rungs[0].shipped) * 100;
+  console.log(`\n    SHIPPED GATE, read against its own bar of 0.60: the shallowest rung `
+    + `(floor ${worstRung.floor}, true depth ${(worstRung.depth * 100).toFixed(1)}%) scores `
+    + `${(worstRung.shipped * 100).toFixed(1)}% — ${worstRung.shipped >= 0.6 ? "IT PASSES, so the bar cannot be failed" : "it FAILS, so the bar bites"}.`);
+  console.log(`    Across eighty points of real depth the shipped metric moves ${span.toFixed(1)} points.`);
 }
 
 // ============================================================
