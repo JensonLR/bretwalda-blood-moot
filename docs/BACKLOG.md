@@ -985,6 +985,45 @@ protocol. Not "better than before".
 *NOT STARTED.* `src/db/index.ts:20` reads `process.env.DATABASE_URL` and
 nothing in the repo mentions Neon.
 
+**THE CODE HALF AUDITED AGAINST NEON'S OWN SKILLS — 1 Sep 2026.** The owner
+installed `neon` and `neon-postgres` (`.claude/skills/`), which carry the
+vendor's checklist, so the "code half is done" claim was checked against it
+rather than trusted. Three of five items were already right and two were not.
+
+Right: the driver is `node-postgres` via `drizzle-orm/node-postgres`, which is
+what the skill prescribes for a long-running server (the `@neondatabase/serverless`
+driver is for edge and serverless, and Render is neither). `channel_binding` is
+handled, and handled sharply — node-postgres silently ignores the connection
+string's `channel_binding` and reads `enableChannelBinding` instead, which the
+file sets and explains. And the idempotent-DDL-instead-of-drizzle-kit choice is
+a deliberate deviation with its reason written down.
+
+**FIXED 1: schema work was running down the POOLED connection.** The skill's
+rule is app pooled, migrations DIRECT — transaction pooling carries no session
+state. `ensureSchema` is this project's migration step and it used whatever
+`DATABASE_URL` was, which on Render is direct and on Neon is pooled the moment
+somebody pastes the string the console shows first. It now derives the direct
+host and runs the DDL down a pool of one, closed after. Derived through `URL` so
+only the hostname changes: a naive `replace("-pooler.", ".")` eats a password
+containing that string AND leaves the host pooled, which `profiletest` now
+asserts as a case (27/27, up from 22).
+
+**FIXED 2: scale to zero would have looked like the game forgetting your gold.**
+`connectionTimeoutMillis` was 5 s, which was generous against Render's
+always-awake Postgres. A Neon compute SUSPENDS after five idle minutes and the
+next connection is a cold start — and a connect that times out here trips the
+30-second breaker, which drops the whole game to device-local gold. On Render
+that only happened when the database was genuinely down; on Neon it would happen
+after any quiet spell, read to a player as a lost hoard, and show nothing to
+whoever went looking, because by then the compute is awake. 10 s.
+
+**STILL THE OWNER'S, AND STILL THE CLOCK.** Provisioning cannot be done from
+this container at all: every Neon host — `console.neon.tech`, `api.neon.tech`,
+`neon.com`, `neon.new`, `claimable.neon.tech` — is refused by the environment's
+egress policy with a 403 to CONNECT, which the agent proxy's own README says to
+report rather than route around. An API key does not change that; a network
+policy that allows those hosts would.
+
 **Render's free Postgres expires at 90 days and takes every profile with it** —
 every recovery code, every helmet, every gold balance. The repo's first commit
 is **2026-07-28**, so the database cannot have been provisioned earlier than

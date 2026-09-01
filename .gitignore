@@ -147,3 +147,4 @@ next-env.d.ts
 art/marks/
 .scoretest/
 .armshot/
+.profiletest-db/

@@ -20,10 +20,10 @@
 //
 // Exits non-zero on any failure.
 // ============================================================
-import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { spawn, spawnSync } from "child_process";
+import { existsSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { WebSocket } from "ws";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -313,7 +313,55 @@ async function degraded(label) {
   a.close();
 }
 
+/**
+ * THE POOLED/DIRECT SPLIT, checked as arithmetic rather than trusted.
+ *
+ * Neon publishes two hostnames for one database and the rule is that the app
+ * takes the pooled one and schema work takes the direct one. `src/db/index.ts`
+ * derives the second from the first, and it is the kind of string surgery that
+ * looks obviously right and eats a password. These cases are cheap and they are
+ * the reason it is a `URL` rewrite and not a `replace` on the whole string.
+ */
+async function directUrlChecks() {
+  console.log("\n[profiletest] the pooled/direct split");
+  // Compiled here rather than imported from source, the same way every other
+  // tool in this directory reaches into `src/`: one tsc, into a scratch dir
+  // this file owns.
+  const OUT = resolve(ROOT, ".profiletest-db");
+  rmSync(OUT, { recursive: true, force: true });
+  spawnSync("npx", ["tsc", "src/db/index.ts", "--outDir", ".profiletest-db",
+    "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler",
+    "--skipLibCheck"], { cwd: ROOT, encoding: "utf8" });
+  const built = resolve(OUT, "index.js");
+  const mod = existsSync(built)
+    ? await import(pathToFileURL(built).href).catch(() => null)
+    : null;
+  const directUrl = mod?.directUrl;
+  if (!directUrl) {
+    check("the direct-url helper compiles and is reachable", false, "tsc emitted nothing for src/db/index.ts");
+    return;
+  }
+  const pooled = "postgresql://u:p@ep-cool-name-a1b2c3-pooler.us-east-2.aws.neon.tech/db?sslmode=require";
+  check("a Neon pooled host loses only its -pooler",
+    directUrl(pooled).includes("ep-cool-name-a1b2c3.us-east-2.aws.neon.tech")
+    && !directUrl(pooled).includes("-pooler"), directUrl(pooled));
+  const direct = "postgresql://u:p@ep-cool-name-a1b2c3.us-east-2.aws.neon.tech/db?sslmode=require";
+  check("a host that is already direct comes back untouched",
+    directUrl(direct) === direct, directUrl(direct));
+  // The whole reason this is a URL rewrite: a text substitution would eat this.
+  const nasty = "postgresql://u:secret-pooler.hunter2@ep-x-pooler.us-east-2.aws.neon.tech/db";
+  const out = directUrl(nasty);
+  check("a password containing -pooler. survives the rewrite",
+    out.includes("secret-pooler.hunter2") && !out.includes("-pooler.us-east-2"), out);
+  check("a string that is not a URL comes back as itself",
+    directUrl("not a url at all") === "not a url at all");
+  check("Render and local Postgres are untouched",
+    directUrl("postgresql://postgres:postgres@127.0.0.1:5432/app_db")
+      === "postgresql://postgres:postgres@127.0.0.1:5432/app_db");
+}
+
 async function main() {
+  await directUrlChecks();
   if (DB) {
     await boot({ DATABASE_URL: DB });
     await withDatabase();

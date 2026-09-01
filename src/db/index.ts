@@ -19,6 +19,39 @@ import { Pool } from "pg";
 
 const databaseUrl = process.env.DATABASE_URL;
 
+/**
+ * THE DIRECT CONNECTION STRING, for schema work only.
+ *
+ * Neon publishes two hostnames for one database: `...-pooler.<region>...` is
+ * PgBouncer in transaction mode, and the same host without `-pooler` is the
+ * compute itself. The rule is the app takes the pooled one and MIGRATIONS TAKE
+ * THE DIRECT ONE — transaction pooling does not carry session state, and DDL
+ * that assumes a session is the classic way to find that out in production
+ * rather than here.
+ *
+ * `ensureSchema` below is this project's migration step. It was running down
+ * whatever `DATABASE_URL` happened to be, which on Render's own Postgres is
+ * direct and on Neon will be pooled the moment somebody pastes the string the
+ * console shows first.
+ *
+ * Only the HOSTNAME is rewritten, through `URL`, so a password that happens to
+ * contain `-pooler.` cannot be mangled by a text substitution. When there is no
+ * `-pooler` in the host this returns the same string and the caller keeps using
+ * the one pool it already has — Render and a local Postgres behave exactly as
+ * they did.
+ */
+export function directUrl(u: string): string {
+  try {
+    const url = new URL(u);
+    const direct = url.hostname.replace(/-pooler\./, ".");
+    if (direct === url.hostname) return u;
+    url.hostname = direct;
+    return url.toString();
+  } catch {
+    return u;
+  }
+}
+
 type Db = NodePgDatabase<Record<string, never>>;
 
 const globalForDb = globalThis as typeof globalThis & {
@@ -38,7 +71,21 @@ function connect(): Db | null {
       // A free-tier instance has a small connection ceiling and this process
       // is the only client, so a wide pool buys nothing and can lock us out.
       max: 5,
-      connectionTimeoutMillis: 5_000,
+      // TEN SECONDS, NOT FIVE, AND THE REASON IS NEON'S SCALE TO ZERO.
+      //
+      // Render's Postgres is always awake, so five seconds was a generous
+      // ceiling on a connect that either worked immediately or was never going
+      // to. A Neon compute SUSPENDS after five idle minutes by default and
+      // resumes on the next connection, and that resume is a cold start.
+      //
+      // The interaction is what makes this worth changing rather than leaving:
+      // a connect that times out here trips the breaker below, and the breaker
+      // is thirty seconds of the whole game running on device-local gold. On
+      // Render that only ever happened when the database was genuinely down. On
+      // Neon it would happen after any quiet spell — which reads to a player as
+      // "the game forgot my hoard", and reads to whoever debugs it as nothing
+      // at all, because by the time they look the compute is awake.
+      connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 30_000,
       // Neon hands out connection strings ending `&channel_binding=require`,
       // and node-postgres SILENTLY IGNORES IT. `pg-connection-string` parses it
@@ -74,6 +121,36 @@ function connect(): Db | null {
 }
 
 let schemaReady: Promise<boolean> | null = null;
+
+/**
+ * The connection `ensureSchema` runs down, and it is not always the app's.
+ *
+ * When `directUrl` gives back the same string — Render, a local Postgres, or a
+ * Neon string somebody took from the direct tab — this hands back the pool the
+ * app already has and closing it is a no-op, so nothing changes for anyone who
+ * is not on a Neon pooler.
+ *
+ * When it differs, the DDL gets a pool of ONE on the direct host, used for the
+ * one round trip `ensureSchema` costs at boot and then closed. `max: 1` because
+ * this runs once per process and a second idle connection against a compute
+ * that is about to be billed for staying awake is exactly the wrong default.
+ * The channel-binding note on the app pool above applies here for the same
+ * reason and is not repeated.
+ */
+async function schemaDb(app: Db): Promise<{ db: Db; close: () => Promise<void> }> {
+  const direct = databaseUrl ? directUrl(databaseUrl) : null;
+  if (!direct || direct === databaseUrl) return { db: app, close: async () => {} };
+  const pool = new Pool({
+    connectionString: direct,
+    max: 1,
+    connectionTimeoutMillis: 10_000,
+    enableChannelBinding: true,
+  } as ConstructorParameters<typeof Pool>[0] & { enableChannelBinding: boolean });
+  // Same reason as the app pool: an unhandled 'error' on an idle client takes
+  // the process down, and this one is alive across a cold start.
+  pool.on("error", () => { /* the breaker below is the caller's answer */ });
+  return { db: drizzle(pool), close: () => pool.end() };
+}
 
 /**
  * Brings the tables up to date in place.
@@ -311,7 +388,16 @@ export async function getDb(): Promise<Db | null> {
   if (Date.now() < breakerUntil) return null;
   const db = connect();
   if (!db) return null;
-  if (!schemaReady) schemaReady = ensureSchema(db);
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const { db: sdb, close } = await schemaDb(db);
+      try {
+        return await ensureSchema(sdb);
+      } finally {
+        await close().catch(() => { /* the schema pool is disposable */ });
+      }
+    })();
+  }
   const ready = await schemaReady;
   if (!ready) {
     // Retry from scratch after the breaker window: a database that was asleep
