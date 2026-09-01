@@ -161,3 +161,7 @@ art/grade/
 desktop/src-tauri/icons/
 desktop/src-tauri/target/
 desktop/dist/
+# Tauri regenerates these ACL manifests on every build from the config; they are
+# build output, not source. `Cargo.lock` is NOT here on purpose — this crate is
+# an application and pinning its dependency graph is the point of committing it.
+desktop/src-tauri/gen/
