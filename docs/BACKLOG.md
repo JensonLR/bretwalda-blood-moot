@@ -1162,6 +1162,18 @@ VAOs, 53 programs for a one-on-one.
 > `roman_fort`, `danelaw_camp` and `offa_dyke` — and all three "outside the
 > renderer" bugs below were fixed on the way. Everything under this line is kept
 > as the design record.
+>
+> **EXCEPT ONE PIECE, WHICH IS THE PIECE THIS WAVE ARGUED FOR.** The case below
+> is for a cold KEY LIGHT — *"changes every material in the game without touching
+> one of them"* — and no ground has one. `render/moor.ts` records why: *"the
+> arena's rig is a low sun and it multiplies a warm albedo twice over"*, and its
+> first cut *"read as ORANGE SAND, not moor"*, so the moor was made cold by
+> pulling **every material** cold and dark instead. `render/camp.ts` inherits it
+> verbatim. All five grounds share one warm dusk rig, and the cheapest lever this
+> wave named has never been pulled. It is still available, and it is now also the
+> change most likely to disturb the colour grade — a cold key moves the
+> illuminant, which moves the axis the chroma stage expands across.
+> `tools/gradesplit.mjs --gate` is the instrument for that question.
 
 ~~*NOT STARTED, but NOT BLOCKED.*~~ The seam exists (see §0). `MAPS.md` designed
 three and one exists.
