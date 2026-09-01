@@ -192,7 +192,35 @@ not exist this morning.
   unconditionally — a lie on a GPU run, and one that would send the next round
   to buy hardware it already had; it now says which of the two is the problem.
 
-  The full table is in `docs/PERFORMANCE.md`. The four that matter:
+  **AND THE FIRST CUT IS TAKEN — the AO pass was drawing the whole scene twice.**
+  617 of the frame's draws were `GTAOPass`'s own depth/normal prepass, filling a
+  buffer the beauty pass had already computed one pass earlier and discarded.
+  `postfx.ts` had this written down as a known trade and left it *"not worth
+  doing blind"*; the ablation is what made it not blind. The composer's buffers
+  now carry a depth TEXTURE and `setGBuffer` hands it to the pass, which drops
+  the prepass. Same session, same `--secs=25`, tier high, eight-man brawl:
+
+  | | frame p50 | draws | triangles |
+  |---|---|---|---|
+  | as it shipped | 10.10 ms | 1229 | 2764k |
+  | **reusing the beauty depth** | **7.60 ms** | **922** | **1897k** |
+  | | **−25%** | **−25%** | **−31%** |
+
+  Quality held and was measured, not asserted: over 20 frames mean luma moved
+  **+0.15 of 255** and the dark-pixel share **+0.58 points** — the occlusion is
+  if anything a fraction stronger — `gradesplit --gate` holds at 6.1 dH\*, and
+  the close lenses keep their contact shading with no silhouette haloing. The
+  cost is honest and stated in `docs/PERFORMANCE.md`: with no normal buffer the
+  shader reconstructs normals from depth, which is a worse normal at a
+  silhouette.
+
+  **BOTH ARMS MUST BE MEASURED AT ONE RUN LENGTH.** The baseline moves with
+  `--secs` (14.90 at 14 s, 18.70 at 60 s, 10.10 at 25 s), so a number from one
+  length says nothing against another. A first draft of this compared 7.60
+  against 18.70 and would have claimed a 60% cut.
+
+  The full table is in `docs/PERFORMANCE.md`. The four that mattered before that
+  cut:
 
   | removed | ms@p50 | draws |
   |---|---|---|

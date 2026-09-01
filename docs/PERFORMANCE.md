@@ -423,3 +423,91 @@ compilation, a GC that the 10.38 ms p99 above does not support, the capture
 harness itself — are guesses. It wants its own round with the profile phase
 pointed at it, and it is worth one: a seven-second hitch on the summary is
 something a player would report before any of the millisecond columns above.
+
+---
+
+# WAVE D, FIRST CUT — the AO pass was drawing the whole scene a second time
+
+The ablation above prices the AO stage at 8.1 ms and 617 draw calls, and a
+screen-space occlusion pass has no business owning 37% of the draw calls in a
+frame. Those draws were a **second full draw of the scene**: `GTAOPass` renders
+its own depth-and-normal prepass, filling a buffer the beauty pass had already
+computed one pass earlier and thrown away.
+
+`render/postfx.ts` had this written down as a known trade and left it, correctly,
+because it could not be priced: *"the composer's own colour buffers carry a depth
+renderbuffer rather than a depth texture, so there is nothing to sample… that
+trade is worth revisiting; it is not worth doing blind."* The ablation is what
+made it not blind.
+
+The composer's buffers now carry a depth TEXTURE, and `GTAOPass.setGBuffer` is
+handed it, which sets the pass's own `_renderGBuffer` false and removes the
+prepass.
+
+## What it bought — same session, same `--secs=25`, tier high, eight-man brawl
+
+|  | frame p50 | draws | triangles | FBO binds |
+|---|---|---|---|---|
+| the prepass, as it shipped | 10.10 ms | 1229 | 2764k | 46 |
+| **reusing the beauty depth** | **7.60 ms** | **922** | **1897k** | **41** |
+| | **−2.50 ms (−25%)** | **−307 (−25%)** | **−867k (−31%)** | −5 |
+
+**Both arms measured on one machine in one session at one run length**, because
+this file has already recorded that the baseline moves with `--secs` — 14.90 at
+14 s, 18.70 at 60 s, 10.10 at 25 s — so a number from one run length says nothing
+against a number from another. The first draft of this section compared 7.60
+against 18.70 and would have claimed a 60% cut. It is 25%.
+
+And the ablation's own AO row collapses, which is the same finding said twice:
+removing GTAO used to save 1.5 ms and now saves **−0.2 ms**, i.e. nothing. There
+is no longer an expensive half to remove.
+
+## What it costs, stated rather than buried
+
+With no normal buffer the shader's `NORMAL_VECTOR_TYPE` is 0 and it
+**reconstructs normals from depth derivatives**. That is a worse normal at a
+silhouette, where neighbouring depths belong to different surfaces. The occlusion
+is a low-frequency signal, denoised by a Poisson kernel at half resolution, which
+is why it survives — but "why it survives" is an argument, so here is the
+measurement. Twenty frames, four peoples on all five grounds:
+
+    mean luma      63.91 -> 64.06     +0.15 of 255
+    dark pixels    21.95% -> 22.53%   +0.58 points
+
+The occlusion is not weaker; if anything a fraction more of the frame is dark.
+`gradesplit --gate` holds at 6.1 dH\* against a bar of 10, and the close lenses
+(`facecard`, `kitcard`) keep their contact shading under the chin, in the eye
+sockets and through the mail with no silhouette haloing.
+
+## Three things checked in the three.js source rather than assumed
+
+1. **MSAA still resolves the depth.** These buffers are multisampled and a
+   multisampled attachment is not sampleable. `WebGLRenderer`'s resolve blits
+   `DEPTH_BUFFER_BIT` whenever the target has `resolveDepthBuffer` (default true)
+   and a depth buffer, so the texture holds resolved depth before anything reads.
+2. **Both ping-pong buffers get a depth texture, and the pass is aimed at the
+   right one every frame.** `RenderPass` draws the scene into the READ buffer and
+   which that is alternates. Bound once, every other frame would occlude against
+   the previous frame's depth — the occlusion swimming a frame behind the camera.
+3. **`setGBuffer` is called AFTER construction, never through the constructor.**
+   Its last line dereferences `this.normalRenderTarget` unguarded, so passing a
+   depth texture to the constructor throws — the target it reaches for has not
+   been built yet. Constructing normally leaves it there to be dereferenced and
+   then disposed.
+
+## What is still on the table
+
+**`BokehPass` HAS THE IDENTICAL DEFECT and is the obvious next cut.** Its
+`render` does `this.scene.overrideMaterial = this._materialDepth` and then
+`renderer.render(this.scene, this.camera)` — a THIRD full draw of the scene, for
+a depth buffer the beauty pass has already computed. The ablation prices DoF at
+4.6 ms and 241 draws. It is a bigger change than the AO one was, and the reason
+is in the same file: `BokehPass` packs its depth with `RGBADepthPacking` and its
+shader unpacks it, so handing it a raw depth texture means changing how the
+bokeh shader reads depth, not just where it reads it from. Worth doing; not a
+one-liner.
+
+Shadows are then the largest line and they are a real cost rather than a
+duplicated one — 756 draws for four shadow-casting lights on `high`, already
+chipped at once by the per-bone proxy (664 → 539). Props are 8.5 ms for 309
+draws, the worst ratio on the list and the cheapest thing to make a setting.

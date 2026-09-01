@@ -2539,12 +2539,49 @@ function maxColorSamples(renderer: THREE.WebGLRenderer): number {
 //      the read buffer *plus* a full-resolution custom-blend over it; the
 //      multiply below is one full-resolution pass that does both.
 //
-// What is deliberately kept from GTAOPass: the depth/normal prepass. It is a
-// second draw of the scene and it is the expensive half of the stage, but the
-// composer's own colour buffers carry a depth *renderbuffer* rather than a depth
-// texture, so there is nothing to sample without either reallocating the
-// composer's targets or reconstructing normals from a depth buffer that does not
-// exist yet. That trade is worth revisiting; it is not worth doing blind.
+// WHAT USED TO BE KEPT FROM GTAOPass AND IS NOW NOT: the depth/normal prepass.
+//
+// This note used to end "that trade is worth revisiting; it is not worth doing
+// blind", and it was right to wait. It is no longer blind. The first ablation
+// this project ever ran on real hardware (docs/PERFORMANCE.md, 1 Sep 2026)
+// prices the AO stage at **8.1 ms of an 18.7 ms frame and 617 of its 1665 draw
+// calls** — and a screen-space occlusion pass has no business owning 37% of the
+// draw calls in a frame. Those draws are the prepass: a SECOND FULL DRAW OF THE
+// SCENE, purely to fill a depth and normal buffer the beauty pass has already
+// computed and thrown away.
+//
+// So the composer's colour buffers now carry a depth TEXTURE rather than a depth
+// renderbuffer, and GTAOPass is handed it through `setGBuffer`, which sets its
+// own `_renderGBuffer` false and skips the prepass entirely.
+//
+// THREE THINGS THAT MAKE THIS SAFE, each checked in the three.js source rather
+// than assumed:
+//
+//   1. **MSAA still resolves the depth.** These buffers are multisampled, and a
+//      multisampled attachment is not directly sampleable. `WebGLRenderer`'s
+//      multisample resolve blits `DEPTH_BUFFER_BIT` whenever the target has
+//      `resolveDepthBuffer` (default true) and a depth buffer, so the texture
+//      receives the resolved depth before anything reads it.
+//   2. **BOTH buffers get one, and the pass is pointed at the right one each
+//      frame.** The composer ping-pongs, `RenderPass` writes the scene into
+//      whichever is the READ buffer, and which that is alternates. The wrapper
+//      below already receives `read`; it now also aims the depth uniforms at
+//      that buffer's texture, so the AO can never sample last frame's depth.
+//   3. **`setGBuffer` is called AFTER construction, never through the
+//      constructor's `parameters`.** Its last line is
+//      `this.depthRenderMaterial.uniforms.tDepth.value =
+//      this.normalRenderTarget.depthTexture`, unguarded — so handing a depth
+//      texture to the constructor throws, because the normal target it
+//      dereferences has not been made yet. Constructing normally and calling
+//      `setGBuffer` afterwards leaves that target present to be dereferenced and
+//      then disposed.
+//
+// WHAT IT COSTS, and it is a real cost rather than a free win: with no normal
+// buffer, `NORMAL_VECTOR_TYPE` is 0 and the shader RECONSTRUCTS normals from
+// depth derivatives. That is a worse normal at a silhouette, where neighbouring
+// depths belong to different surfaces. The occlusion is a low-frequency signal
+// run through a Poisson denoiser at half resolution, which is why it survives;
+// the captures are the judge and they are in the ledger.
 
 /**
  * Resolution scale of the occlusion buffer, per tier.
@@ -2885,6 +2922,20 @@ export function createPostFx(
         composer.renderTarget2.samples = samples;
       }
 
+      // THE SCENE'S DEPTH, KEPT INSTEAD OF THROWN AWAY. See the AO note above
+      // for why. One per buffer because the composer ping-pongs; `setSize`
+      // resizes a target's depth texture with it, so this survives a resize.
+      // Nearest on both filters: a depth value is a distance, and interpolating
+      // two of them across a silhouette invents a surface that is not there.
+      if (wantAo) {
+        for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+          const d = new THREE.DepthTexture(bufW, bufH);
+          d.minFilter = THREE.NearestFilter;
+          d.magFilter = THREE.NearestFilter;
+          rt.depthTexture = d;
+        }
+      }
+
       composer.addPass(new RenderPass(scene, camera));
       track("render");
       // Listed after the pass whose output it resolves, so the chain reads in the
@@ -2893,6 +2944,20 @@ export function createPostFx(
 
       if (wantAo) {
         gtao = new GTAOPass(scene, camera, aoW, aoH);
+        // Constructed normally FIRST — see point 3 in the note above — then
+        // handed the beauty pass's own depth, which sets `_renderGBuffer` false
+        // and removes the second draw of the scene. The normal target it built
+        // on the way is now dead weight and is released.
+        {
+          // `normalRenderTarget` is real on the pass and absent from the shipped
+          // typings, which is also why `setGBuffer`'s own unguarded dereference
+          // of it is not a type error upstream.
+          const withOwn = gtao as unknown as { normalRenderTarget?: { dispose(): void } };
+          const own = withOwn.normalRenderTarget;
+          const sceneDepth = composer.renderTarget1.depthTexture;
+          if (sceneDepth) gtao.setGBuffer(sceneDepth, undefined);
+          own?.dispose();
+        }
         // A generator, not a filter: it writes its own targets and hands the
         // composer's buffers straight back. `needsSwap` has to come down with
         // `output`, or the composer swaps to a buffer this pass never wrote and
@@ -2943,6 +3008,27 @@ export function createPostFx(
         const gtaoPass = gtao;
         const innerRender = gtaoPass.render.bind(gtaoPass);
         gtaoPass.render = (r, write, read, delta, mask) => {
+          // WHICH DEPTH IS THIS FRAME'S. `RenderPass` draws the scene into the
+          // READ buffer and the composer alternates which that is, so the depth
+          // to occlude against is whatever `read` is carrying right now. Aimed
+          // per frame rather than bound once: bound once, every other frame
+          // would shade against the previous frame's depth, which reads as the
+          // occlusion swimming a frame behind the camera.
+          const depth = (read as THREE.WebGLRenderTarget | null)?.depthTexture;
+          if (depth) {
+            gtaoPass.gtaoMaterial.uniforms.tDepth.value = depth;
+            gtaoPass.pdMaterial.uniforms.tDepth.value = depth;
+          }
+          // The layer drop is now BELT AND BRACES rather than the fix it was.
+          // With the prepass gone there is no geometry render inside this call
+          // to hide anything from — and it turns out there never needed to be
+          // one for the depth's sake: every material on that layer is
+          // `transparent` with `depthWrite: false` (three nameplate materials in
+          // `hud3d.ts`, three particle materials in `vfx.ts`, checked), so they
+          // do not reach a depth buffer at all and the beauty pass's depth holds
+          // opaque geometry only — exactly what the prepass used to draw. Kept
+          // because it costs nothing and because `_renderGBuffer` becoming true
+          // again would silently need it back.
           camera.layers.disable(LAYER_UNOCCLUDED);
           innerRender(r, write, read, delta, mask);
           camera.layers.enable(LAYER_UNOCCLUDED);
