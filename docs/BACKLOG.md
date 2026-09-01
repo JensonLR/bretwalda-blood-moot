@@ -901,10 +901,30 @@ off, because "reads Roman" is a claim about shape.
 
 **A2. The instrument, before A4 can be judged.** **THE WEAPON LENS IS BUILT —
 1 Sep 2026. A4 is unblocked.** The other two items stand.
-- The face card's aim is only correct near −35°; re-measure `AIM.head.right`
-  with `--guides` at 0° and −90°. *Still open — and note `AIM` is MIRRORED in
-  three places (`shot/page.tsx`, `cosmetictest.mjs`, `hairprobe.mjs`), so
-  re-measuring it means changing three constants or hoisting one.*
+- The face card's aim is only correct near −35°. **MEASURED 1 Sep 2026, and the
+  fix is one line that is BLOCKED ON A DESIGN CALL — read this before doing it
+  again.** The mirroring is gone (`CARD_AIM` in `characters.ts` is the one
+  definition; all three readers take it), so the change is now a single edit.
+  **The number: at turn 0 the head's midline sits 119 mm right of where the card
+  aims** — read off `--guides`, whose grid is 50 mm at 1.221 px/mm, in
+  `art/shots/aim0/`. `right` should be **+0.051, not -0.068**;
+  `art/shots/aim0b/` is the same frame with it applied and the head is centred
+  on the aim line. At -90 the residual is 41 mm and `fwd` does not need moving.
+  **WHY IT IS NOT SHIPPED.** The facecard lens is what `cosmetictest` measures
+  silhouettes through, and a correctly-aimed lens moves **every** number in the
+  companion table down about 11% — Bare Head's Long Mane 22.13% -> 19.86%, and
+  so on. One pair crosses a bar doing it: **Braided War-locks (100g) under the
+  Shadow Hood was sitting at EXACTLY 1.00% against a 1.00% bar, and reads 0.87%
+  through the corrected lens.** So the shop's visibility gate has been measured
+  through a mis-aimed lens, and the one item it was passing by a rounding error
+  is a hood-and-hair pair — which is precisely the case `cosmetictest` §3 says
+  is not a harness's to decide: *"whether a draped cowl should hide a mane or
+  let it spill out the front is a design call, and a harness that decided it by
+  fiat would be inventing a defect."* Moving the bar to fit is the one thing
+  that must not happen. **The owner's question, in one line: should the Shadow
+  Hood show more of the War-locks?** Yes -> raise `hoodHemY` or swing the braids
+  and ship the aim fix with it. No -> the pair is honestly below the bar and the
+  bar or the pairing has to change. Either way the aim fix goes in with it.
 - ~~There is no weapon lens.~~ **DONE.** `weaponcard` — 0.35 m of frame at the
   fist, 700x700, a long 12° lens 1.66 m back rather than close and wide, which
   is ~2000 px/m: a 20 mm pommel gets 40 px where the kit card gave it three.
