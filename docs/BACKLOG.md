@@ -836,10 +836,49 @@ the top of `OPEN-DEFECTS.md`, which carries the A/B frames from both trees at
 all three tiers and names seven faults that shipped. The next head wave starts
 from that list. **The head is no longer a merge blocker; it is a wave.**
 
-**A1. THE BODY — the default kit reads Roman.** *NOT STARTED. Outranks every
-individual cosmetic in the shop* (`COSMETICS-AUDIT.md` §4.1), and it is the
-only item here that is wrong on **every player at all times**, bought or not.
-Four separate faults, still exactly as the audit found them:
+**A1. THE BODY — the default kit reads Roman.** **MOSTLY DONE, and this row
+was stale for three of its four faults — corrected 1 Sep 2026.** It said NOT
+STARTED and "still exactly as the audit found them" for all four. Verified
+against the tree, fault by fault:
+
+1. **DONE, and long since.** There is no `lamellar` constant; it is `wallman`,
+   and the warden wears a mail byrnie swept from `wardenByrnieStations` — his
+   own station list, hoisted so `shoulderOut` and the shell read one table. No
+   banded courses, no shin plate.
+2. **DONE by halves, and the other half landed today.** The leg wraps stand
+   14 mm proud in five wound turns with the knee break the brief asked for. The
+   hem WAS already slit front and back into two panels — but at `gap = 0.115`
+   rad, about 35 mm at the hem, which at kit distance still read as one
+   unbroken horizontal, *which is the audit's actual complaint*. **0.22 opens a
+   notch that survives the card**; `art/shots/a1-slit` and `a1-slitback` show
+   two panels parting where `a1-front` shows a kilt line.
+3. **DONE.** The cloak is cut asymmetric — `a0: -0.56π, a1: 0.32π` — and every
+   cut now stops at `a1 <= 0.40π`.
+4. **THE OLIVE IS OFF, and the way it came off is the finding.** See below.
+
+**FAULT 4, AND WHY THE OBVIOUS FIX GOES BACKWARDS.** `tunicDye` pulls hue only
+a FIFTH of the way from the finish's lot toward the class accent, so the accent
+is not the hue lever it looks like: swapping the warden's `0x5a6630` for a cool
+teal moved the tunic from 42 deg to **56 deg — further into yellow-green**.
+What the accent does reach is SATURATION, and the warden was sitting on the
+function's own clamp at 0.60, which is most of what makes the olive read Roman.
+An undyed-fleece accent (`0x565a55`) drops it to about three quarters of the
+lot's saturation and the tunic reads as natural wool over mail — the finish the
+file already calls "what a man is issued". `art/shots/a1-undyed`.
+
+**WHAT IS STILL OPEN ON FAULT 4, and it is an owner call, not a constant.** The
+audit also prescribes a BROWN cloak; the warden still defaults to red. Madder
+red is a documented Anglo-Saxon dye and the "Roman colourway" objection was
+about red-over-yellow-green as a PAIR, which no longer exists. Changing it is a
+taste decision. And moving the tunic off yellow-green by HUE rather than
+saturation cannot be done from this constant at all — it needs the finish's own
+lot or `tunicDye`'s 0.2 weight, and both move all four classes in every finish.
+
+**Also fixed in passing:** `CLASS_TUNIC` was mirrored in `render/anim.ts` and
+`armouryStage.ts` — the same four constants twice, this file's own named
+failure mode. `armouryStage` imports it now.
+
+The audit's original text, kept:
 
 1. `characters.ts:4885` `const lamellar = cls === "warden";` — six rigid
    banded courses plus a shin plate. That is lorica segmentata. **REBUILD as a
