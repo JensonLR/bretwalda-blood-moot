@@ -2002,7 +2002,7 @@ export interface ArmouryOption {
  * `CARDS.weaponcard`.
  */
 export const CARD_AIM = {
-  head: { right: -0.068, fwd: 0.045 },
+  head: { right: 0.051, fwd: 0.045 },
   body: { right: 0, fwd: 0 },
   fist: { right: -0.265, fwd: -0.15 },
 } as const;
@@ -16055,7 +16055,7 @@ export function buildCharacter(
    * and `tools/hoodfall.mjs` §2 read the whole roster's manes ending ~300 mm
    * ABOVE the hem they were supposed to emerge from.
    */
-  const hoodHemY = skullY - R.y * 2.95;
+  const hoodHemY = skullY - R.y * 2.75;
   /**
    * The masked helm's ventail-curtain hem — the same expression the curtain's
    * own `vBot` reads (hoisted here so the two cannot drift). On an uncoifed
