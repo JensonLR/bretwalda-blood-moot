@@ -120,8 +120,11 @@ up to meet it. **Both changes ship as one unit**; neither is correct alone.
 Closed on captures, before and after, four peoples on all five grounds
 (`art/grade/`, and the paired sheets the round was judged on):
 
-* **the board's magenta** — hue drift off its own pigment falls from 14.1° to
-  under a degree, and the board reads garnet in every frame;
+* **the board's magenta** — and the number to quote is the GRADE'S OWN
+  ROTATION, shipped against the same frame with the grade off, because a lit
+  surface is allowed to shift and a graded one is not allowed to shift further:
+  **28.0° before, 0.4° after** (shipped 32.3° / grade-off 32.7°, against a
+  pigment at 26.5°). The board reads garnet in every frame on every ground;
 * **the rose at the sleeves and the byrnie** — the same skew, on the same arc;
 * **the brightness ceiling's Saxon leg wraps** — 1668 dead-channel pixels to
   zero, and the Saxon was the worst of the four.

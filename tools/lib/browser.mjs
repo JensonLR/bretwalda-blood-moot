@@ -85,6 +85,31 @@ export function launchOptions(extraArgs = []) {
 export const launchBrowser = (extraArgs = []) => chromium.launch(launchOptions(extraArgs));
 
 /**
+ * AND THE GPU IS NOT BIT-DETERMINISTIC. THIS IS THE HARD LIMIT ON THE FLAG.
+ *
+ * `tools/cosmetictest.mjs` asserts that two captures of ONE subject are
+ * byte-identical, and on the GPU that claim FAILS: mean 1.53%, area 111%, worst
+ * pixel 27.19% between two renders of the same frame. On SwiftShader it holds
+ * exactly. A software rasteriser evaluates in a fixed order with fixed
+ * precision; a GPU is free to reorder and to use different intermediate
+ * precision between two dispatches of identical work, and the passes here that
+ * accumulate — the occlusion pass, the meter's temporal history — turn a
+ * last-bit difference into a visible one.
+ *
+ * SO THE FLAG SPLITS THE SUITES IN TWO, and the split is not a preference:
+ *
+ *   * A suite that reads a MEAN, a share or a count with a comfortable margin —
+ *     `factionread`, `vatprobe`, `playtest` — may take the GPU.
+ *   * A suite whose claim is REPEATABILITY or a byte comparison — cosmetictest's
+ *     determinism section, and anything diffing against a stored reference —
+ *     MUST run in software, because the GPU will fail it for reasons that are
+ *     not the game.
+ *
+ * cosmetictest is therefore left on the default. The flag is offered to it only
+ * so an iteration loop can be fast; a VERDICT from it must be a software run.
+ */
+
+/**
  * AND THERE IS A SECOND REASON, WHICH IS NOT SPEED AND COST A RUN TO FIND.
  *
  * The software arm prefers the container's `/opt/pw-browsers/chromium`, which is

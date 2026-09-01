@@ -144,7 +144,7 @@
 // Exit codes: 0 all assertions held, 1 an assertion failed, 2 the harness could
 // not measure (transpile failed, server never came up) — never counted as green.
 // ============================================================
-import { launchBrowser as launchChromium, rasteriserNote } from "./lib/browser.mjs";
+import { launchBrowser as launchChromium, rasteriserNote, useGpu } from "./lib/browser.mjs";
 import { spawn, spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -1537,12 +1537,26 @@ const md = [
   "",
 ].join("\n");
 mkdirSync(resolve(ROOT, "docs"), { recursive: true });
-writeFileSync(resolve(ROOT, "docs/COSMETICS-SWEEP.md"), md);
+// A GPU RUN MAY NOT REWRITE THE TABLE, and this is not fussiness. Every number
+// in that file is a MEAN% / AREA% against a threshold, and `tools/lib/browser.mjs`
+// carries the measurement: the GPU is not bit-deterministic, so this suite's own
+// "two captures of one subject are byte-identical" claim FAILS on it. A run that
+// cannot hold its own noise floor at zero must not silently overwrite a table
+// whose bars are multiples of that floor — it would replace a measured baseline
+// with numbers nobody could reproduce, in a tracked file, as a side effect of
+// asking for a fast iteration loop. The GPU is for iterating; the table is a
+// verdict, and a verdict is a software run.
+if (useGpu) {
+  console.log("[cos] the table was NOT written — a GPU run may not overwrite docs/COSMETICS-SWEEP.md");
+  console.log("[cos] (its bars are multiples of a noise floor this rasteriser cannot hold at zero)");
+} else {
+  writeFileSync(resolve(ROOT, "docs/COSMETICS-SWEEP.md"), md);
+}
 
 console.log("\n[cos] ===================================================");
 console.log(`[cos] ${results.filter((r) => r.pass).length}/${results.length} checks passed`);
 console.log(`[cos] ${OPTION_COUNT} options, ${TABLE.pairs.length} adjacent pairs, ${TABLE.companions.length} companion pairings`);
 console.log(`[cos] ${captures} rendered captures, ${wall.toFixed(1)} s wall clock${ALL ? " (--all)" : " (fast default — the gate should use this)"}`);
-console.log(`[cos] table -> docs/COSMETICS-SWEEP.md`);
+console.log(`[cos] table -> ${useGpu ? "NOT WRITTEN (GPU run)" : "docs/COSMETICS-SWEEP.md"}`);
 console.log(`[cos] ${failed ? "FAIL" : "PASS"}`);
 process.exit(failed ? 1 : 0);

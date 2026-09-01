@@ -82,10 +82,23 @@ now the single most expensive defect in these ledgers.** Corrected in
 - **THE INSTRUMENTS.** `?grade=` — a capture-only door in `postfx.ts`, honoured
   on `/shot` only — and `tools/gradesplit.mjs`, which photographs one man with
   one stage of the grade removed and prints HUE DRIFT off his own pigment.
+  **`gradesplit --gate` is the gate that would have caught this**, and nothing
+  in the drawer measured its quantity: the grade's OWN rotation, shipped against
+  the same frame ungraded. It gates dH\* and not the raw angle — the first run
+  proved the angle wrong, calling a C\* 3 neutral swinging 51° the same finding
+  as the magenta board. Standing worst **6.7–7.3 dH\*** (the Danelaw's tunic at
+  90°, the same red arc §7.1 is still red about) against a bar of 10 and a
+  defect that read 15.8. **It cannot see the board** — the shield is not in
+  `buildCharacter`'s group — and it says so on its own verdict line.
 - **THE GPU.** `tools/lib/browser.mjs` puts the rasteriser in one place.
   `BRETWALDA_GPU=1` opts in; **software stays the default**. `factionread` went
-  **8704 s -> 828 s**. The board's mean is identical to the byte across the two;
-  a THRESHOLD COUNT is only comparable within one rasteriser.
+  **8704 s -> 828 s**. The board's mean is identical to the byte across the two.
+  **TWO LIMITS, both measured, both in that file:** a THRESHOLD COUNT is only
+  comparable within one rasteriser, and **the GPU is not bit-deterministic** —
+  cosmetictest's "two captures of one subject are byte-identical" FAILS on it
+  (mean 1.53%, worst pixel 27.19%) and holds exactly in software. A suite whose
+  claim is repeatability or a byte diff must run software; a suite reading a
+  mean or a share may take the GPU.
 - **THE EARNED INSTALL PROMPT** (`client/install.ts` + `InstallInvite`): after a
   won match and never at first load, one ask ever, with an iOS arm because
   Safari has no `beforeinstallprompt` and never will. New storage seam,
@@ -136,7 +149,11 @@ marktest 25/25 · burhtest 19/19 · clipseen PASS · soundtest 46/46 ·
 goretest 36/36 · locktest 6/6 · weightprobe 24/24 · profiletest 22/0
 (degraded; no DB here by the credentials rule) · classmatrix (~3 min, balance
 only) · fighttest 23/23 · benchtest 23/23 · rejointest 12/12 ·
-tourneytest 38/38 · armsprobe 16/16 · bottest 11/11 · **factionread 27/34 —
+tourneytest 38/38 · armsprobe 16/16 · bottest 11/11 ·
+**gradesplit --gate PASS** (worst 6.7 dH\* against a bar of 10) ·
+**cosmetictest 18/19 on the GPU — the one FAIL is its byte-identical claim,
+which is the GPU and not the game; the same claim reads 0.0000% in software** ·
+**factionread 27/34 —
 NOT green and not expected to be**; §7.1 has a written defect behind it.
 
 **`BRETWALDA_GPU=1` works on `factionread`, `cosmetictest` and `vatprobe`.**

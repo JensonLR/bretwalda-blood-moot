@@ -32,9 +32,49 @@
 // what light and a tone curve do. It is NOT allowed to change what colour a
 // thing IS. A drift of 28° is a different pigment.
 //
+// AND WITH `--gate`, IT IS ALSO THE GATE THAT WOULD HAVE CAUGHT THIS.
+//
+// Nothing in the drawer measured the quantity the four entries were about.
+// `factionread` §6 counts CLIPPED pixels and §7 counts pixels in the rose BAND;
+// both were doing their jobs while the board rendered hot magenta, because
+// neither asks whether a surface is still ITS OWN COLOUR. And the answer cannot
+// be "how far is the render from the albedo", because a lit surface is SUPPOSED
+// to shift — the arena's key is warm, and warm light on garnet moves its hue.
+//
+// The quantity that discriminates is THE GRADE'S OWN ROTATION: the same frame,
+// graded and ungraded, and how far apart the same surface's hue lands.
+// Measured on the board, huscarl / armor_steel / 0°:
+//
+//     with the anisotropic skew      grade-off 40.4° -> shipped 12.4°   28.0°
+//     with it a scale, not a skew    grade-off 32.7° -> shipped 32.3°    0.4°
+//
+// Seventy times. A tone curve, a white balance and a chroma expansion may all
+// change how bright and how saturated a thing is; none of them has any business
+// changing WHAT COLOUR IT IS.
+//
+// AND IT IS GATED ON DELTA-H*, NOT ON THE ANGLE, because the angle is the wrong
+// ruler and the first run of this gate proved it. A hue ANGLE is meaningless as
+// a near-neutral: the Briton's trouser reads C* 9 and swung 21.9 degrees for a
+// colour change no eye would call a change of colour, while the magenta board —
+// the actual defect — swung 28. On the angle alone those two are the same
+// finding, which is `docs/PROCESS.md` R4 exactly: the ruler must measure the
+// right question.
+//
+// dH* = 2 sqrt(C1 C2) sin(dh/2) is the hue term of dE, in the same perceptual
+// units as the rest of Lab, and it discounts a neutral by construction because
+// a colour with no chroma has no hue to move. On the same two readings:
+//
+//     the magenta board, as it shipped      dh 28.0 deg    dH* 15.8
+//     the board with the skew removed       dh  0.4 deg    dH*  0.3
+//     the Briton trouser, near-neutral      dh 21.9 deg    dH*  4.0
+//
+// Fifty times between the defect and the fix, and the false positive falls out
+// on its own.
+//
 // WHAT IT IS NOT — docs/PROCESS.md R4.
-//   * NOT A GATE. It prints numbers and returns 0. `factionread` §6/§7 is the
-//     gate and it walks the whole plan; this walks what you name.
+//   * NOT A GATE WITHOUT `--gate`. Bare, it prints numbers and returns 0, and
+//     `factionread` §6/§7 still walks the whole plan where this walks what you
+//     name.
 //   * NOT A PERCEPTUAL MODEL. A mean over a mask. Open the PNGs — it keeps
 //     every one of them, and the standing law of this repo is look at them.
 //   * NOT A VERDICT ON THE LOOK. Removing a stage is a diagnostic, not a
@@ -76,6 +116,21 @@ const ARMS = flag("arms", [
   "off,+chroma", "off,+split", "off,+lift",
   "-balance", "-meter", "-chroma", "-opponent",
 ].join("|")).split("|");
+
+/**
+ * `--gate` — the assertion at the bottom of this file, in dH* (see the header).
+ * `--bar=` moves it, for a round that wants to know how much headroom there is
+ * rather than whether there is any; `--turns=` picks the bearings.
+ *
+ * The bar is taken off the measurement rather than chosen. Swept over four
+ * peoples, every masked surface and three bearings on this tree, the worst
+ * reading is about 5 dH*; the defect this gate exists for read 15.8. A bar has
+ * to sit clear of the standing state and well under the defect, and 8 is the
+ * middle of the room between them.
+ */
+const GATE = process.argv.includes("--gate");
+const DH_BAR = Number(flag("bar", "10"));
+const GATE_TURNS = flag("turns", "0,90,180").split(",").map(Number);
 
 const OUT = resolve(ROOT, "art/grade", `${PEOPLE}-${CLS}-${FINISH}-${TURN}`);
 mkdirSync(OUT, { recursive: true });
@@ -136,10 +191,12 @@ const ctx = await browser.newContext({ viewport: { width: LENS.w, height: LENS.h
 await ctx.addInitScript(installVirtualClock, FRAME_MS);
 const page = await ctx.newPage();
 
-const BASE = `preset=fightcard&clean=1&settle=16&turn=${TURN}&cls=${CLS}&armor=${FINISH}`;
+const baseAt = (t) => `preset=fightcard&clean=1&settle=16&turn=${t}&cls=${CLS}&armor=${FINISH}`;
 
-const cap = async (spec, people) => {
-  const url = `${origin}/shot?${BASE}&people=${people}${spec ? `&grade=${encodeURIComponent(spec)}` : ""}`;
+const cap = (spec, people) => capAt(spec, people, TURN);
+
+const capAt = async (spec, people, turn) => {
+  const url = `${origin}/shot?${baseAt(turn)}&people=${people}${spec ? `&grade=${encodeURIComponent(spec)}` : ""}`;
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 300000 });
   await page.waitForFunction(() => window.__shotReady === true || typeof window.__shotError === "string", null, { timeout: 300000 });
   const st = await page.evaluate(() => ({
@@ -154,7 +211,7 @@ const cap = async (spec, people) => {
     if (!st.m.off?.length) { console.error(`[grade] ?grade=${spec} neutralised nothing`); process.exit(2); }
   } else if (st.m) { console.error("[grade] the shipped arm somehow took the door"); process.exit(2); }
   const buf = await page.screenshot({ timeout: 300000 });
-  writeFileSync(resolve(OUT, `${people}__${(spec || "shipped").replace(/[^a-z0-9+]/gi, "_")}.png`), buf);
+  writeFileSync(resolve(OUT, `${people}__${turn}__${(spec || "shipped").replace(/[^a-z0-9+]/gi, "_")}.png`), buf);
   const px = await page.evaluate(async (b64) => {
     const img = new Image();
     await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
@@ -267,7 +324,98 @@ for (const s of SHOWN) {
 console.log("  A grade may move a surface's LIGHTNESS and its CHROMA — that is what light and a");
 console.log("  tone curve do. HUE DRIFT is the column the four open entries are about: a pigment");
 console.log("  carried tens of degrees off its own hue is a different colour, whatever its ΔE.");
-console.log("\n[grade] a probe, not a gate — factionread §6/§7 is the gate. Now open the PNGs.");
+
+// ---- THE GATE ------------------------------------------------------------
+if (GATE) {
+  console.log(`\n[grade] === THE GRADE'S OWN ROTATION — every people, every surface, ${GATE_TURNS.join("/")}° ===\n`);
+  console.log(`  The bar is ${DH_BAR} dH*. Not a taste: the frame with the grade OFF has already had`);
+  console.log("  the scene's own light on it, so a hue difference between it and the shipped frame");
+  console.log("  is the GRADE turning a material. The magenta board read 15.8; see the header for");
+  console.log("  why this is dH* and not the raw angle, which called a neutral trouser the same");
+  console.log("  finding as the defect.\n");
+  // WHAT THIS GATE DOES NOT COVER, SAID BEFORE ITS VERDICT AND NOT AFTER.
+  //
+  // The masks come from `buildCharacter(...).group`, and the SHIELD is not in
+  // that group — `render/anim.ts` builds it separately and hangs it on the
+  // rig's own `joints.elbowL`. `factionread` carries the same hole as a standing
+  // deferral in its own words ("the shield is NOT in the raster"), and §1's
+  // entry in docs/OPEN-DEFECTS.md is built on it: "factionread §1 measures the
+  // man WITHOUT HIS SHIELD".
+  //
+  // So the surface this whole round is named after — the Danelaw's board — is
+  // the one surface this gate cannot read, and saying so is the point. A gate
+  // that quietly omitted it would be green for the same reason §6 and §7 were
+  // green while the board rendered magenta. The board's own reading is in the
+  // ledger, taken by hand off these same captures (28.0° before, 0.4° after).
+  //
+  // THE NEXT INSTRUMENT STEP, for whoever wants it: attach the shield to the
+  // mask build the way the rig does. It needs the elbow joint, and
+  // `buildCharacter` returns `leftArm` rather than the joint itself, so it is a
+  // small change to what that function hands back — not a change to this file.
+  // Guessing the transform is worse than the deferral: a mask that does not
+  // line up with the pixels measures a different surface and says nothing.
+  const UNCOVERED = SURFACES.filter((x) => !SHOWN.includes(x));
+  console.log(`  NOT COVERED: the shield board — it is not in buildCharacter's group, so no mask`);
+  console.log(`  can be cut for it. See the note at this gate. Also unread at these bearings:`);
+  console.log(`  ${UNCOVERED.filter((x) => x !== "board").join(", ") || "nothing else"}.\n`);
+
+  const bad = [];
+  let worst = { dH: -1 };
+  console.log("  people   surface    bearing   grade OFF             SHIPPED               the grade turned it");
+  console.log("  ---------------------------------------------------------------------------------------------------");
+  // The masks are a function of the BEARING, not of the people —
+  // `surfaceMasks` asserts every people rasterises to the same geometry, which
+  // is the whole reason a sworn frame and its control can be read through one
+  // array. So they are cut once per bearing and not once per cell.
+  const maskAt = new Map();
+  for (const t of GATE_TURNS) {
+    const mk = surfaceMasks({
+      buildGroup: (pp) => buildCharacter(CLS,
+        { ...apFor(pp), armorColor: Number(finish.value) },
+        CLASS_TUNIC[CLS] ?? 0x5a4a2c, undefined, "high", SEED, "none").group,
+      kitOf: kitWithExtras,
+      peoples: [...PEOPLE_IDS], surfaces: SURFACES, lens: LENS, turnDeg: t,
+    });
+    if (mk.problems.length) { console.error(`[grade] the mask cannot be trusted: ${mk.problems[0]}`); process.exit(2); }
+    maskAt.set(t, mk);
+  }
+  for (const people of PEOPLE_IDS) {
+    for (const t of GATE_TURNS) {
+      const mk = maskAt.get(t);
+      const shipped = await capAt("", people, t);
+      const off = await capAt("off", people, t);
+      for (const surf of SURFACES) {
+        if ((mk.counts[surf]?.eroded ?? 0) < MIN) continue;
+        const a = patchLab(shipped.data, mk.masks[surf]);
+        const b = patchLab(off.data, mk.masks[surf]);
+        if (!a.n || !b.n) continue;
+        // No chroma floor is needed any more and that is the point of dH*: a
+        // surface with no chroma cannot produce a large one however far its
+        // angle wanders, so the neutrals discount themselves instead of being
+        // excluded by a threshold somebody had to choose.
+        const Ca = chroma(a.lab), Cb = chroma(b.lab);
+        const dh = hueDrift(hue(a.lab), hue(b.lab));
+        // dH* — the hue term of dE. Signed under the root only through dh, so
+        // the magnitude is what is gated.
+        const dH = 2 * Math.sqrt(Math.max(Ca * Cb, 0)) * Math.abs(Math.sin((dh * Math.PI) / 360));
+        const row = { people, surf, t, off: hue(b.lab), ship: hue(a.lab), dh: Math.abs(dh), dH, Ca, Cb };
+        if (dH > worst.dH) worst = row;
+        if (dH > DH_BAR) bad.push(row);
+        console.log(`  ${people.padEnd(8)} ${surf.padEnd(9)} ${String(t).padStart(6)}°   ${b.hex} ${b.lab[0].toFixed(0).padStart(3)}L C*${Cb.toFixed(0).padStart(3)}   ${a.hex} ${a.lab[0].toFixed(0).padStart(3)}L C*${Ca.toFixed(0).padStart(3)}   ${Math.abs(dh).toFixed(1).padStart(6)}°  ${dH.toFixed(1).padStart(5)} dH*${dH > DH_BAR ? "   OVER" : ""}`);
+      }
+    }
+  }
+  console.log("");
+  if (bad.length) {
+    console.log(`  FAIL  the grade turns a material's hue — ${bad.length} surface-readings over ${DH_BAR} dH*, worst ${worst.dH.toFixed(1)} dH* (${worst.dh.toFixed(1)}°) at ${worst.people}/${worst.surf}@${worst.t}° — ${worst.off.toFixed(1)}° C*${worst.Cb.toFixed(0)} lit -> ${worst.ship.toFixed(1)}° C*${worst.Ca.toFixed(0)} graded`);
+    await browser.close(); proc.kill(); process.exit(1);
+  }
+  console.log(`  PASS  the grade turns no material's hue past ${DH_BAR} dH* — worst ${worst.dH.toFixed(1)} dH* (${worst.dh.toFixed(1)}°) at ${worst.people}/${worst.surf}@${worst.t}°`);
+  console.log(`        — AND THE BOARD IS NOT IN IT. This is a PASS over the surfaces that can be`);
+  console.log(`          masked, not over the man. See NOT COVERED above.`);
+}
+
+console.log("\n[grade] now open the PNGs.");
 
 await browser.close();
 proc.kill();
