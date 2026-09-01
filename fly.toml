@@ -1,0 +1,79 @@
+# BRETWALDA on Fly.io.
+#
+# WHY FLY AND NOT ANOTHER FREE TIER. Render's free Postgres expires at ninety
+# days and takes every profile with it; that is the deadline this file exists to
+# remove. Swapping to a different host's free tier just restarts the same clock,
+# which is the whole point of `docs/PLATFORM-PATH.md` §3: "Persistent machines,
+# cheap". A machine that costs a few pounds a month and never expires is a
+# different kind of thing from a free tier that does.
+#
+# ============================================================================
+# THE ONE SETTING THAT MUST NOT BE CHANGED TO SAVE MONEY
+# ============================================================================
+#
+# `auto_stop_machines` MUST stay "off" and `min_machines_running` MUST stay 1.
+#
+# Every match in this game — the rooms, the sessions, the clock, every deadline
+# — is PROCESS MEMORY in `src/game/engine.mjs`. There is no Redis behind it and
+# no room state in Postgres. A machine that scales to zero does not resume a
+# match when the next packet arrives; it drops every live room, every player in
+# them, and the round they were halfway through.
+#
+# Scale-to-zero is the correct default for almost every web service and it is
+# wrong for this one. `docs/BACKLOG.md` wave H records the same instruction, and
+# it is repeated here because this file is where somebody trimming the bill will
+# actually be looking.
+#
+# ============================================================================
+# REGION
+# ============================================================================
+#
+# `lhr` (London), for two reasons and one of them is gameplay. This is a 20 Hz
+# simulation, so the distance between a player and the machine is parry timing,
+# not a loading bar — `docs/PLATFORM-PATH.md` calls region placement "a gameplay
+# decision". And the Neon database sits in `eu-west-2`, so app-to-database stays
+# in the same part of the world instead of crossing an ocean on every profile
+# read. Move this if the players move.
+
+app = "bretwalda-blood-moot"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  # The Dockerfile EXPOSEs 3000 and `custom-server.mjs` falls back to 3000 when
+  # PORT is unset, so these agree without an env var.
+  internal_port = 3000
+  force_https = true
+
+  # See the note at the top of this file before touching either of these.
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # ONE MACHINE, and that is a correctness constraint rather than thrift. Rooms
+  # are in process memory, so two machines behind one hostname would put half a
+  # war band on a server that has never heard of the other half. Sharing rooms
+  # across machines is a real project (`docs/PLATFORM-PATH.md` §3, "on-demand
+  # room orchestration") and not a scaling slider.
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+  # `/api/health` already exists and is what `fpstest`'s live phase measures.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  # A 20 Hz sim for up to eight men is not heavy, but it is CONTINUOUS — the
+  # tick does not idle between requests the way a web app does. `shared-cpu-1x`
+  # with 512 MB is the smallest that leaves headroom for the Next.js server
+  # sharing the process; drop it only with `tools/fpstest.mjs` numbers in hand.
+  size = "shared-cpu-1x"
+  memory = "512mb"
