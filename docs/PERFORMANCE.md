@@ -521,6 +521,34 @@ sockets and through the mail with no silhouette haloing.
 
 ## What is still on the table
 
+## The tier table after the cut — a SNAPSHOT, and deliberately not a before/after
+
+Apple M5, 640x360, `--secs=25`, `BRETWALDA_GPU=1`. JS ms per frame.
+
+| tier | scene | p50 | p95 | p99 | draws | tris |
+|---|---|---|---|---|---|---|
+| low | one-on-one | 1.80 | 2.90 | 3.20 | 244 | 305k |
+| low | eight-man brawl | 2.90 | 5.00 | 5.80 | 303 | 305k |
+| low | summary stage | 4.20 | 5.90 | 6.30 | 579 | 520k |
+| medium | eight-man brawl | 4.00 | 6.80 | 7.60 | 598 | 920k |
+| medium | summary stage | 5.10 | 7.10 | 7.40 | 885 | 1375k |
+| high | one-on-one | 3.50 | 5.00 | 5.40 | 433 | 802k |
+| high | eight-man brawl | 5.00 | 7.70 | 9.00 | 814 | 1390k |
+| high | summary stage | 6.80 | 8.20 | 8.90 | 891 | 1637k |
+
+**IT IS NOT A BEFORE/AFTER AND MUST NOT BE READ AS ONE.** The earlier tier table
+in this file was taken at `--secs=14` and this at `--secs=25`, and the brawl's
+content depends on how long it is watched — how many men are still standing. The
+tell is `low`, whose draws read 545 then 303: `low` has **no AO at all**
+(`AO_SCALE.low` is 0), so the cut above cannot have touched it, and the whole
+difference is the scene. The only controlled comparison in this file is the
+ablation A/B above, both arms at `--secs=25` in one session.
+
+**AND THESE ARE M5 NUMBERS.** A phone is several times slower and this file's own
+honesty clause has always said so. The device-independent figures are the counts:
+**303 draws and 305k triangles for an eight-man brawl on `low`** is what a phone
+is actually asked for, and that is the number to carry into the mobile wave.
+
 **`BokehPass` HAS THE IDENTICAL DEFECT and is the obvious next cut.** Its
 `render` does `this.scene.overrideMaterial = this._materialDepth` and then
 `renderer.render(this.scene, this.camera)` — a THIRD full draw of the scene, for

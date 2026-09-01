@@ -340,8 +340,16 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
 
 1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
 2. **Verify every row against the tree before working it.** Five were stale.
-3. **Wave D's draw calls** — it was blocked on "get the matrix onto hardware
-   with a GPU" and that block is gone; `fpstest`'s ablation can rank again.
-4. Then splintering shields, then taking a dead man's weapon.
-5. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
-   mechanical and worth a lot of wall clock.
+3. **Wave D continues, and the next cut is named and priced.** `BokehPass` has
+   the identical defect the AO pass had — `overrideMaterial` plus a third full
+   draw of the scene, 4.6 ms and 241 draws — but it packs depth with
+   `RGBADepthPacking`, so reusing the beauty depth means either changing how its
+   shader reads depth or packing ours into its target with one fullscreen quad.
+   The second is the cleaner shape and leaves the bokeh shader untouched.
+4. **The replay→tableau hitch** is located to ten frames and three causes are
+   eliminated; point a profile at `render/summary.ts`.
+5. Then splintering shields, then taking a dead man's weapon.
+6. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
+   mechanical and worth a lot of wall clock. While doing it, give them the
+   stale-server refusal `installseen` has — every one of them will currently
+   adopt a stranger's server on its port and measure an old build.
