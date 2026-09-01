@@ -549,15 +549,40 @@ honesty clause has always said so. The device-independent figures are the counts
 **303 draws and 305k triangles for an eight-man brawl on `low`** is what a phone
 is actually asked for, and that is the number to carry into the mobile wave.
 
-**`BokehPass` HAS THE IDENTICAL DEFECT and is the obvious next cut.** Its
-`render` does `this.scene.overrideMaterial = this._materialDepth` and then
-`renderer.render(this.scene, this.camera)` — a THIRD full draw of the scene, for
-a depth buffer the beauty pass has already computed. The ablation prices DoF at
-4.6 ms and 241 draws. It is a bigger change than the AO one was, and the reason
-is in the same file: `BokehPass` packs its depth with `RGBADepthPacking` and its
-shader unpacks it, so handing it a raw depth texture means changing how the
-bokeh shader reads depth, not just where it reads it from. Worth doing; not a
-one-liner.
+## DEPTH OF FIELD HAS NEVER RENDERED A FRAME — and that is why the next cut is not the next cut
+
+`BokehPass` has the identical defect the occlusion pass had: its `render` sets
+`scene.overrideMaterial = this._materialDepth` and calls
+`renderer.render(scene, camera)` — a THIRD full draw of every mesh, for a depth
+buffer the beauty pass computed two passes earlier. It looked like the obvious
+next cut, and the fix was written: pack the beauty depth into its RGBA-packed
+target with one full-screen quad, leaving the bokeh shader untouched, because
+window-space depth is exactly the `gl_FragCoord.z` that `MeshDepthMaterial`
+would have packed.
+
+**Then the caller was looked for and there is not one.** `dofWanted` is set only
+by `setDepthOfField`, and nothing in `src/` or `tools/` calls it — the whole
+tree's other 118 matches for "dof" are `handoff`, `standoff` and `CloudOff`. So
+`dofBlend` decays to zero, `bokeh.enabled = dofBlend > 0.02` is false for the
+life of every session, and **the pass has never rendered a frame in the shipped
+game.**
+
+Which means three things:
+
+1. **The optimisation was thrown away.** It typechecked and built and it buys
+   nothing, at the price of two reaches into `BokehPass`'s private fields. The
+   recipe is written into `render/postfx.ts` beside the pass for whoever wires
+   the feature up.
+2. **The ablation's "no DoF" row is not a measurement of depth of field.** It
+   removes the pass's CONSTRUCTION and nothing else. The 4.6 ms it showed at
+   `--secs=60` and 2.6 ms at 25 is scene variance, and the earlier table in this
+   file should be read with that correction.
+3. **What DoF costs today is its construction**: a full-resolution RGBA render
+   target allocated on every `high` session, for a blur nobody asks for. Either
+   something should call `setDepthOfField` — the deathcam and the victory
+   tableau are the obvious candidates, and the focus already tracks the subject
+   through the follow camera's lag — or the pass should stop being built.
+   **That is a design call, not a fixer's.**
 
 Shadows are then the largest line and they are a real cost rather than a
 duplicated one — 756 draws for four shadow-casting lights on `high`, already

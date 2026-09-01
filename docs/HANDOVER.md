@@ -340,12 +340,19 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
 
 1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
 2. **Verify every row against the tree before working it.** Five were stale.
-3. **Wave D continues, and the next cut is named and priced.** `BokehPass` has
-   the identical defect the AO pass had — `overrideMaterial` plus a third full
-   draw of the scene, 4.6 ms and 241 draws — but it packs depth with
-   `RGBADepthPacking`, so reusing the beauty depth means either changing how its
-   shader reads depth or packing ours into its target with one fullscreen quad.
-   The second is the cleaner shape and leaves the bokeh shader untouched.
+3. **DEPTH OF FIELD HAS NEVER RENDERED A FRAME, and somebody should decide
+   which way that goes.** `BokehPass` has the identical defect the AO pass had —
+   `overrideMaterial` plus a third full draw of the scene — and the fix was
+   written before the caller was looked for. There is no caller: nothing in the
+   tree calls `setDepthOfField`, so `bokeh.enabled` is false for the life of
+   every session. The whole feature exists — a pass, a tier flag, focus that
+   tracks the subject through the follow camera's lag, an aperture and blur API
+   — and nothing switches it on. Either the deathcam and the victory tableau
+   should ask for it, or the pass should stop being built (it allocates a
+   full-resolution RGBA target on every `high` session). **A design call.** The
+   optimisation was reverted rather than shipped, and the recipe is in
+   `postfx.ts` beside the pass. It also means the ablation's "no DoF" row
+   measures the pass's CONSTRUCTION and not depth of field.
 4. **The replay→tableau hitch** is located to ten frames and three causes are
    eliminated; point a profile at `render/summary.ts`.
 5. Then splintering shields, then taking a dead man's weapon.

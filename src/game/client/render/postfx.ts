@@ -2874,6 +2874,8 @@ export function createPostFx(
 
   const passes: PostFxPassInfo[] = [];
   let composer: EffectComposer | null = null;
+  /** The depth texture of whichever buffer `RenderPass` drew into this frame. */
+  let sceneDepth: THREE.Texture | null = null;
   let gtao: GTAOPass | null = null;
   let aoComposite: AoComposite | null = null;
   let aoRadius = 0;
@@ -2936,7 +2938,28 @@ export function createPostFx(
         }
       }
 
-      composer.addPass(new RenderPass(scene, camera));
+      // WHICH BUFFER HOLDS THIS FRAME'S SCENE DEPTH, recorded once at the pass
+      // that draws it.
+      //
+      // Both composer buffers carry a depth texture and the composer ping-pongs
+      // between them, so "the scene's depth" is a moving target: `RenderPass`
+      // draws into the READ buffer and does not swap, but `AoComposite` DOES
+      // swap, so by the time the bokeh pass runs its own `read` is the other
+      // buffer — holding last frame's depth, or nothing. Reading `read` there
+      // would blur against a depth one frame stale, which is a defect that
+      // looks like the focus lagging the camera and would be very hard to see.
+      //
+      // So the answer is taken from the one pass that knows it: whatever
+      // `RenderPass` drew into this frame.
+      const renderPass = new RenderPass(scene, camera);
+      {
+        const inner = renderPass.render.bind(renderPass);
+        renderPass.render = (r, write, read, delta, mask) => {
+          sceneDepth = (read as THREE.WebGLRenderTarget | null)?.depthTexture ?? null;
+          inner(r, write, read, delta, mask);
+        };
+      }
+      composer.addPass(renderPass);
       track("render");
       // Listed after the pass whose output it resolves, so the chain reads in the
       // order the frame is actually built.
@@ -3014,10 +3037,12 @@ export function createPostFx(
           // per frame rather than bound once: bound once, every other frame
           // would shade against the previous frame's depth, which reads as the
           // occlusion swimming a frame behind the camera.
-          const depth = (read as THREE.WebGLRenderTarget | null)?.depthTexture;
-          if (depth) {
-            gtaoPass.gtaoMaterial.uniforms.tDepth.value = depth;
-            gtaoPass.pdMaterial.uniforms.tDepth.value = depth;
+          // `sceneDepth`, not this pass's own `read`. They are the same buffer
+          // here — GTAO runs before anything swaps — but there is one right
+          // answer to "where is the scene's depth" and one place that knows it.
+          if (sceneDepth) {
+            gtaoPass.gtaoMaterial.uniforms.tDepth.value = sceneDepth;
+            gtaoPass.pdMaterial.uniforms.tDepth.value = sceneDepth;
           }
           // The layer drop is now BELT AND BRACES rather than the fix it was.
           // With the prepass gone there is no geometry render inside this call
@@ -3048,6 +3073,32 @@ export function createPostFx(
       if (settings.depthOfField) {
         bokeh = new BokehPass(scene, camera, { focus: 4.4, aperture: 0.00018, maxblur: 0 });
         bokeh.enabled = false;
+
+        // AND IT IS NEVER TURNED ON. `setDepthOfField` is the only thing that
+        // sets `dofWanted`, and NOTHING IN THE TREE CALLS IT — not `GameCanvas`,
+        // not the camera, not a harness. So `dofBlend` decays to zero, the
+        // `dofBlend > 0.02` line below keeps `bokeh.enabled` false for the life
+        // of the session, and this pass has never rendered a frame in the
+        // shipped game. What it costs today is its construction: a full-
+        // resolution RGBA target allocated on every `high` session for a blur
+        // nobody asks for.
+        //
+        // AN OPTIMISATION FOR IT WAS BUILT AND THROWN AWAY, and the note is
+        // worth more than the code was. `BokehPass.render` draws the whole scene
+        // a THIRD time through an `overrideMaterial` to fill an RGBA-packed
+        // depth buffer — the identical defect the occlusion pass had above — and
+        // it can be fixed the same way, by packing the beauty pass's own depth
+        // into that buffer with one full-screen quad rather than changing how
+        // the bokeh shader reads depth. That was written, typechecked and built
+        // before the missing caller was noticed. It is not here because
+        // optimising a pass that never runs buys nothing and costs two reaches
+        // into `BokehPass`'s privates; the recipe is in `docs/PERFORMANCE.md`
+        // for whoever wires the feature up.
+        //
+        // The ablation's "no DoF" row is therefore NOT a measurement of depth of
+        // field. It removes the pass's construction and nothing else, and the
+        // 2.6-4.6 ms it appears to save across runs is scene variance.
+
         composer.addPass(bokeh);
         bokehInfo = track("bokeh", false);
       }
