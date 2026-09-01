@@ -77,6 +77,7 @@
 // CPU-side and viewport-independent, except where explicitly labelled.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, rasteriserNote, useGpu } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -551,18 +552,21 @@ const MUTE_AUDIO = () => {
 // Browser + page
 // ------------------------------------------------------------------
 async function launch() {
-  const preinstalled = "/opt/pw-browsers/chromium";
-  return chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: [
-      "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--no-sandbox", "--enable-precise-memory-info",
-      // The synthesiser must be allowed to build its graph without a gesture,
-      // or the audio numbers would all be zero and the ablation meaningless.
-      "--autoplay-policy=no-user-gesture-required",
-      "--js-flags=--expose-gc",
-    ],
-  });
+  // THE HONESTY CLAUSE ABOVE HAS A DOOR NOW. The rasteriser is
+  // `tools/lib/browser.mjs`'s choice and software is still the default, so
+  // every number this file has ever printed is reproducible — but on a machine
+  // with a GPU, `BRETWALDA_GPU=1` is the difference between "SwiftShader's fill
+  // rate, which says nothing about a phone" and a frame time that means
+  // something. The CPU-side and GL-boundary numbers this file reports are true
+  // either way; the ABLATION's ranking is what a software rasteriser destroys,
+  // because it prices every cut in units of a fill rate no player has.
+  return chromium.launch(launchOptions([
+    "--enable-precise-memory-info",
+    // The synthesiser must be allowed to build its graph without a gesture,
+    // or the audio numbers would all be zero and the ablation meaningless.
+    "--autoplay-policy=no-user-gesture-required",
+    "--js-flags=--expose-gc",
+  ]));
 }
 
 async function openPage(browser, tier, { patches = [], mute = false } = {}) {
@@ -887,9 +891,24 @@ async function ablation(browser, out) {
           + `${f2(worstNeg)} ms against a best positive of ${f2(bestPos)} ms. That negative IS the noise floor, `
           + `in the same units as the ranking.`);
       }
-      say("  WHAT WOULD FIX IT: this box has no GPU and rasterises through SwiftShader, where one frame "
-        + "takes seconds.\n  Run the matrix on hardware with a real GPU, or raise --secs far enough that "
-        + "every row clears the frame floor.");
+      // R8, AND THE REASON THIS IS CONDITIONAL. This line used to say, flatly,
+      // "this box has no GPU and rasterises through SwiftShader" — which was
+      // true of the box the file was written on and is a LIE on any other. The
+      // first GPU run of this matrix printed that sentence under a refusal it
+      // had nothing to do with, which would have sent the next round to buy
+      // hardware it already had. A gate that explains its own refusal wrongly
+      // is worse than one that refuses without explaining.
+      if (useGpu) {
+        say("  WHAT WOULD FIX IT: this run had a real GPU, so the rasteriser is NOT the reason — "
+          + "the rows are\n  simply too short for the differences in them. Raise --secs until the "
+          + "noise floor above is small\n  against the smallest cut you care about, and re-run. The "
+          + "draw, FBO and kB columns are counts,\n  not timings, and they are trustworthy at any "
+          + "length.");
+      } else {
+        say("  WHAT WOULD FIX IT: this run rasterised in SOFTWARE, where one frame can take seconds "
+          + "and\n  every row is a handful of samples. Re-run with BRETWALDA_GPU=1 on a machine that "
+          + "has a GPU,\n  and raise --secs far enough that every row clears the frame floor.");
+      }
     }
     out.ablation = trustworthy ? ranked : null;
     out.ablationTrust = {

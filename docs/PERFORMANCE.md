@@ -288,3 +288,90 @@ makes them tempting:
 Both are **stage 6**. They change what the player sees, they belong to the owner,
 and they are named in the harness's own output so that they are not reached for
 by accident. Neither was made. The stage-5 answer is costed above instead.
+
+---
+
+# THE FIRST TRUSTWORTHY ABLATION — 1 Sep 2026, on an Apple M5
+
+Every performance number in this file above was taken through SwiftShader, and
+`tools/fpstest.mjs` said so on every run in its own words: *"this box has NO GPU.
+It rasterises through SwiftShader. Any fps number measured here is SwiftShader's
+fill rate and says nothing about a phone."* Its ablation had stopped ranking
+altogether — the noise floor was larger than the best cut in it.
+
+**It ranks now, and it took two things and not one.** That is the correction
+worth leading with, because the obvious reading — "get a GPU and the ablation
+works" — is only half right and was written into a handover before it was
+checked.
+
+| run | rasteriser | `--secs` | noise floor | best cut | ranks? |
+|---|---|---|---|---|---|
+| the standing state | SwiftShader | 14 | — | — | no, 2-11 frames a row |
+| first GPU run | Metal (M5) | 14 | **−4.20 ms** | 7.40 ms | **NO** |
+| second GPU run | Metal (M5) | 60 | **−0.50 ms** | 10.40 ms | **YES** |
+
+Removing work cannot make a frame faster than it was, so the most negative row
+IS the noise floor in the ranking's own units. At `--secs=14` it was more than
+half the best cut and `fpstest` correctly refused. At 60 it is a twentieth.
+**The GPU bought the frames; the seconds bought the ranking.**
+
+`fpstest`'s refusal message used to blame SwiftShader unconditionally, which on a
+GPU run is a lie that would send the next round to buy hardware it already had.
+It now says which of the two is the problem.
+
+## What the frame actually costs — tier high, eight-man brawl, 640x360
+
+Baseline **p50 18.70 ms, p95 26.70, p99 28.90, 1665 draws, 3552k triangles.**
+(The shorter run reads p50 13.70 at 1465 draws; the two differ because the long
+run holds more of the fight. Compare rows within a run, never across two.)
+
+    RANKED BY WHAT THEY COST (baseline minus ablated, JS ms per frame)
+    what was removed              ms@p50   ms@p99   draws    fbo   kB/frame
+    the whole post chain           10.40    17.20     809     41    1445.07
+    shadows                         9.40    15.70     756      9     825.45
+    props (density 0)               8.50    13.60     309      0     835.56
+    AO (GTAO alone)                 8.10    12.20     617     11    1294.61
+    grade + vignette                4.90     4.60     192      0     692.52
+    DoF                             4.60     2.20     241      0     775.57
+    bloom                           4.60     1.50     258      9     762.63
+    particles                       2.40     1.50     -86      0     -38.02
+    3D HUD damage numbers           2.20     1.10       2      0       9.72
+    the audio engine               -0.40     1.90    -153      0     -81.46
+    dynamic torch lights           -0.50     1.30    -209      0     -99.39
+
+**Read the top four together.** The post chain is the single largest line, and
+**AO is 8.1 ms of its 10.4** — GTAO alone is 78% of everything the whole chain
+costs, and it is 617 of the 809 draws the chain adds. Shadows are the next
+9.4 ms for 756 draws, which is the same order and is what the per-bone proxy
+(664 → 539 draw calls) was already chipping at. Props are 8.5 ms for only 309
+draws — a worse ratio than either, and the cheapest thing on this list to make
+a setting.
+
+**Two rows are noise and must not be read as findings.** The audio engine at
+−0.40 ms and the torch lights at −0.50 ms are at the floor; both also show
+NEGATIVE draw deltas, which is the same statement twice.
+
+## The server is not the problem, and now that is measured rather than assumed
+
+    388 snapshots over 20 s against a 20 Hz / 50.00 ms target
+    interval  p50 51.27 ms   p95 55.74   p99 60.34   worst 101.05   mean 51.51
+    ticks more than 25 ms late: 1 of 388 (0.3%)
+
+    live round trip to the production server, GET /api/health x12
+    p50 58.33 ms   p95 174.96   worst 174.96   (the first includes TLS)
+
+## AND THERE IS A MULTI-SECOND STALL NOBODY HAS EXPLAINED
+
+The `worst` column carries numbers three orders of magnitude over their own p50
+and they are not the ablation's business:
+
+    tier high, summary stage        p50 21.60 ms   worst  7705.10 ms
+    ablation baseline               p50 18.70 ms   worst 11240.60 ms
+    ablation, no shadows            p50  9.30 ms   worst  6498.30 ms
+
+A frame is not slow here, it is BLOCKED. Nothing in the session that measured
+this touched any of it, and the obvious candidates — first-use shader
+compilation, a GC that the 10.38 ms p99 above does not support, the capture
+harness itself — are guesses. It wants its own round with the profile phase
+pointed at it, and it is worth one: a seven-second hitch on the summary is
+something a player would report before any of the millisecond columns above.

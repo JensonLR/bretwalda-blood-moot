@@ -133,8 +133,40 @@ now the single most expensive defect in these ledgers.** Corrected in
   honest* — it re-verified itself against `characters.ts:191-285`.
 - **Flags.** *NOT STARTED, verified.* Constrained presets, a moderation
   decision as much as an art one.
-- **Wave D, draw calls.** Was blocked on "get the matrix onto hardware with a
-  GPU". That block is gone.
+- **Wave D, draw calls — HALF unblocked, and the half matters.** The matrix ran
+  on real hardware for the first time (`BRETWALDA_GPU=1 node tools/fpstest.mjs`).
+  Tier high, eight-man brawl: **p50 13.70 ms, p99 22.00 ms, worst 56.60 ms,
+  1465 draws, 2843k tris**. The server tick is healthy — p50 51.27 ms against a
+  50 ms target, 1 of 388 ticks more than 25 ms late.
+
+  **AND THE ABLATION RANKS — the first time it ever has.** It took TWO things,
+  not one, and the difference is the correction worth carrying: a GPU alone did
+  NOT fix it. At the default `--secs=14` the noise floor was −4.20 ms against a
+  best cut of 7.40 and `fpstest` correctly refused; at `--secs=60` it is −0.50
+  against 10.40, a twentieth, and it ranks. **The GPU bought the frames; the
+  seconds bought the ranking.** `fpstest`'s refusal used to blame SwiftShader
+  unconditionally — a lie on a GPU run, and one that would send the next round
+  to buy hardware it already had; it now says which of the two is the problem.
+
+  The full table is in `docs/PERFORMANCE.md`. The four that matter:
+
+  | removed | ms@p50 | draws |
+  |---|---|---|
+  | the whole post chain | **10.40** | 809 |
+  | shadows | **9.40** | 756 |
+  | props (density 0) | **8.50** | 309 |
+  | AO (GTAO alone) | **8.10** | 617 |
+
+  **AO is 8.1 ms of the post chain's 10.4** — 78% of everything the chain costs,
+  and 617 of the 809 draws it adds. Props are 8.5 ms for only 309 draws, a worse
+  ratio than either and the cheapest thing on the list to make a setting. The
+  audio engine (−0.40) and the torch lights (−0.50) are AT THE FLOOR and are not
+  findings.
+
+  **A stall worth its own look: the summary stage reads `worst 7705 ms`** at
+  tier high — three orders of magnitude over its own p50 of 21.60 ms. That is
+  not a rendering cost, it is something blocking; nothing in this session
+  touched it and nothing has explained it.
 
 ### 2. Carrying a measured blocker — do not restart from zero
 
