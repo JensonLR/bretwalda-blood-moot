@@ -340,6 +340,13 @@ const PROBE = () => {
     audio: { built: M.audioNodes, live: M.audioLive, params: M.audioParamOps, contexts: M.contexts },
     kills: w.__probe.kills.slice(),
     ticks: w.__probe.ticks.slice(),
+    // WHEN THE FRAME BUFFER WAS LAST EMPTIED, and it has to travel with the
+    // dump. `reset` clears `M.frames` and does NOT clear `w.__probe.kills` —
+    // the kill feed is the whole session's, on purpose, because the probe is
+    // also how the harness knows a match progressed at all. So a caller that
+    // slices frames by kill times has to know which kills happened AFTER the
+    // frames it holds, and until this was returned it could not.
+    markT: M.markT || 0,
     now: performance.now(),
   });
 };
@@ -657,16 +664,40 @@ async function matrix(browser, results) {
     const killRun = await moot.page.evaluate(() => window.__fps.dump());
     // 1.2 s after each kill: the gore burst, the ragdoll, the kill feed, the
     // audio event and the HUD plate all land inside that window.
-    const windows = killRun.kills.map((k) => [k.t, k.t + 1200]);
+    // ONLY THE KILLS IN THE FRAMES WE ARE HOLDING.
+    //
+    // This read the WHOLE session's kill feed and sliced a freshly-reset frame
+    // buffer with it. Every kill in the eight-man brawl and the fire scene
+    // above happened BEFORE the `reset` on the line above, so every window
+    // closed before the first frame in the dump opened, the filter matched
+    // nothing, and `reduce` returned a row of zeroes over an empty array.
+    //
+    // The matrix then printed `deaths x7` at 0.00 ms on all three tiers — a
+    // scene reported as FREE because it never ran. That is the same shape as a
+    // gate that passes because its case is absent, and it is worse here,
+    // because wave D is a performance wave that would have been planned off a
+    // row saying seven deaths cost nothing.
+    const fresh = killRun.kills.filter((k) => k.t >= (killRun.markT || 0));
+    const windows = fresh.map((k) => [k.t, k.t + 1200]);
     if (windows.length) {
       const death = reduce(killRun, windows);
-      const rest = reduce(killRun, killRun.frames.length
-        ? [[killRun.frames[0].t, killRun.frames[killRun.frames.length - 1].t]] : []);
-      results.push({ tier, scene: `deaths (${windows.length} kills)`, ...death });
-      printRow(`${tier} · deaths x${windows.length}`, death);
-      note(`whole match for comparison: p50 ${f2(rest.js.p50)} ms, p99 ${f2(rest.js.p99)} ms, worst ${f2(rest.js.worst)} ms`);
+      // A reduce over an empty selection returns zeroes, and zeroes in a
+      // performance matrix read as "free". Never print one — and do not skip
+      // the rest of the tier either: the summary stage and the GL census below
+      // are real measurements that have nothing to do with the gore frame.
+      if (!death.frames) {
+        note(`${tier}: ${windows.length} kill window(s) caught no frames, so the gore frame is unmeasured`);
+      } else {
+        const rest = reduce(killRun, killRun.frames.length
+          ? [[killRun.frames[0].t, killRun.frames[killRun.frames.length - 1].t]] : []);
+        results.push({ tier, scene: `deaths (${windows.length} kills)`, ...death });
+        printRow(`${tier} · deaths x${windows.length}`, death);
+        note(`whole match for comparison: p50 ${f2(rest.js.p50)} ms, p99 ${f2(rest.js.p99)} ms, worst ${f2(rest.js.worst)} ms`);
+      }
     } else {
-      note(`${tier}: no kills were recorded, so the gore frame is unmeasured`);
+      note(`${tier}: no kills landed inside the recorded frames (${killRun.kills.length} in the whole `
+        + `session, 0 after the buffer was reset), so the gore frame is unmeasured — `
+        + `REPORTED AS ABSENT, never as zero`);
     }
 
     // ---- the summary stage ----
@@ -741,7 +772,6 @@ async function ablation(browser, out) {
 
   const base = rows.find((x) => x.name === "baseline");
   if (base) {
-    say("\n  RANKED BY WHAT THEY COST (baseline minus ablated, JS ms per frame):");
     const ranked = rows.filter((x) => x !== base)
       .map((x) => ({
         name: x.name,
@@ -750,14 +780,77 @@ async function ablation(browser, out) {
         draws: base.draws - x.draws,
         fbo: base.fbo - x.fbo,
         alloc: base.allocPerFrameKb - x.allocPerFrameKb,
+        frames: x.frames,
       }))
       .sort((a, b) => b.p50 - a.p50);
-    say("  " + "what was removed".padEnd(28) + "  ms@p50   ms@p99   draws    fbo   kB/frame");
-    for (const x of ranked) {
+
+    // ============================================================
+    // AND THE TABLE SAYS WHETHER IT IS AN ORDERING OR A LIST.
+    //
+    // `ablationRows` being EMPTY was the recorded fault and it is fixed — all
+    // eleven ablations run and every patch lands. What replaced it is worse,
+    // because it looks like an answer: eleven rows, sorted by cost, computed
+    // off a handful of frames on a box with no GPU. A sorted table is read as
+    // an attribution whatever the header three hundred lines up says about
+    // SwiftShader, and `docs/BACKLOG.md` wave D is a performance wave that was
+    // going to be planned off this.
+    //
+    // Two tests, and both are properties of the run rather than opinions:
+    //
+    //   SAMPLE   a frame here takes seconds, so a 14 s recording is single
+    //            digits of frames. A p50 over four frames is the second-fastest
+    //            of four.
+    //   SIGN     removing work cannot make the frame slower. Every ablation
+    //            that comes out NEGATIVE is a direct read of the noise floor,
+    //            measured in the same units as the thing being ranked — no
+    //            model needed. When the largest negative is comparable to the
+    //            largest positive, the ordering is the noise's, not the
+    //            renderer's.
+    //
+    // Failing either, the rows still print — they cost twenty minutes and the
+    // draw and FBO columns are exact counts rather than timings, so they are
+    // worth reading — but they print as a LIST, and `out.ablation` is left
+    // null so nothing downstream can quietly sort by it.
+    const ABLATION_MIN_FRAMES = 30;
+    const thin = rows.filter((x) => x.frames < ABLATION_MIN_FRAMES);
+    const worstNeg = Math.min(0, ...ranked.map((x) => x.p50));
+    const bestPos = Math.max(0, ...ranked.map((x) => x.p50));
+    const noiseSwamps = bestPos <= 0 || -worstNeg >= bestPos * 0.5;
+    const trustworthy = thin.length === 0 && !noiseSwamps;
+
+    say(trustworthy
+      ? "\n  RANKED BY WHAT THEY COST (baseline minus ablated, JS ms per frame):"
+      : "\n  NOT A RANKING — the run cannot support one. Rows in run order; read the draw and FBO\n"
+        + "  columns, which are counts, and not the millisecond columns, which are timings:");
+    say("  " + "what was removed".padEnd(28) + "  ms@p50   ms@p99   draws    fbo   kB/frame  frames");
+    for (const x of (trustworthy ? ranked : rows.filter((r) => r !== base).map((r) => ({
+      name: r.name, p50: base.js.p50 - r.js.p50, p99: base.js.p99 - r.js.p99,
+      draws: base.draws - r.draws, fbo: base.fbo - r.fbo,
+      alloc: base.allocPerFrameKb - r.allocPerFrameKb, frames: r.frames,
+    })))) {
       say(`  ${x.name.padEnd(28)} ${f2(x.p50).padStart(7)} ${f2(x.p99).padStart(8)} ` +
-        `${f0(x.draws).padStart(7)} ${f0(x.fbo).padStart(6)} ${f2(x.alloc).padStart(10)}`);
+        `${f0(x.draws).padStart(7)} ${f0(x.fbo).padStart(6)} ${f2(x.alloc).padStart(10)} ${f0(x.frames).padStart(7)}`);
     }
-    out.ablation = ranked;
+    if (!trustworthy) {
+      if (thin.length) {
+        say(`  WHY: ${thin.length} of ${rows.length} rows recorded fewer than ${ABLATION_MIN_FRAMES} frames `
+          + `(fewest ${Math.min(...rows.map((x) => x.frames))}). A p50 over that many frames is an order statistic of a handful.`);
+      }
+      if (noiseSwamps) {
+        say(`  WHY: removing work cannot make a frame slower, and the most NEGATIVE cost here is `
+          + `${f2(worstNeg)} ms against a best positive of ${f2(bestPos)} ms. That negative IS the noise floor, `
+          + `in the same units as the ranking.`);
+      }
+      say("  WHAT WOULD FIX IT: this box has no GPU and rasterises through SwiftShader, where one frame "
+        + "takes seconds.\n  Run the matrix on hardware with a real GPU, or raise --secs far enough that "
+        + "every row clears the frame floor.");
+    }
+    out.ablation = trustworthy ? ranked : null;
+    out.ablationTrust = {
+      trustworthy, minFrames: ABLATION_MIN_FRAMES,
+      fewestFrames: Math.min(...rows.map((x) => x.frames)),
+      worstNegativeMs: worstNeg, bestPositiveMs: bestPos,
+    };
   }
   out.ablationRows = rows;
 }

@@ -1978,6 +1978,35 @@ export interface ArmouryOption {
   swatch?: number;
 }
 
+/**
+ * WHERE A CARD AIMS ON A WARRIOR, in his own frame.
+ *
+ * ONE DEFINITION, and it lives here because here is the only module every
+ * reader can already reach. It was three copies — `src/app/shot/page.tsx`, and
+ * verbatim again in `tools/cosmetictest.mjs` and `tools/hairprobe.mjs`, both of
+ * which compile and import this file anyway. `docs/BACKLOG.md` A2 asks for
+ * `head.right` to be RE-MEASURED with `--guides` at 0 and -90 degrees, and a
+ * number that has to be changed in three places to be changed at all is a
+ * number that will be changed in two: this file records four separate faults of
+ * exactly that shape, and the coif's rim cost a day of them this week.
+ *
+ * `right` is screen-right of the body axis and `fwd` is along his facing; both
+ * are metres. `head` is off-axis because a head is not centred over the spine —
+ * it was read off a calibration frame, which is a 50 mm grid drawn at the
+ * subject's own plane, and `fwd` does nothing head-on and becomes the lateral
+ * term at -90.
+ *
+ * `fist` was measured rather than read off a grid, because where a man holds a
+ * weapon is `STANCE` in `render/anim.ts`, written onto the fist by
+ * `poseWarrior` — no amount of building a character shows it. See the note over
+ * `CARDS.weaponcard`.
+ */
+export const CARD_AIM = {
+  head: { right: -0.068, fwd: 0.045 },
+  body: { right: 0, fwd: 0 },
+  fist: { right: -0.265, fwd: -0.15 },
+} as const;
+
 export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOption[] }> = [
   // WHAT A MATCH PAYS, MEASURED — and this note used to be wrong, said so itself,
   // and was wrong for long enough that docs/COSMETICS-AUDIT.md flags it twice.

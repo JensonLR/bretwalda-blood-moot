@@ -997,12 +997,42 @@ it does not compete for the renderer.
 
 ### Wave C — THE HARNESS THAT MEASURES THE PHONE (one wave)
 
-*NOT STARTED. BLOCKS wave D.*
+**THE FIRST SENTENCE IS STALE AND THE SECOND FAULT IS WORSE — 1 Sep 2026.**
 
-`ablationRows` is empty. All eleven ablations missed the served bundle, so
-nothing in this repo can answer "which effect costs what". Wave D is a
-performance wave, and a performance wave without an attribution instrument is
-eleven guesses.
+`ablationRows` is **not** empty. All eleven ablations run, every patch lands in
+the served bundle, and both recorded causes are fixed in `fpstest.mjs` — the
+`route.fulfill` rejection that took the process down mid-run, and the patches
+missing the bundle. Verified by running it.
+
+**What replaced the empty table is a table that looks like an answer.** Eleven
+rows, sorted by cost, computed off **two to eleven frames** on a box with no
+GPU. Measured on this run: the most NEGATIVE cost is **-4660 ms** against a best
+positive of **1727 ms** — removing particles apparently made the frame four and
+a half seconds slower, which is a direct read of the noise floor in the
+ranking's own units. Wave D is a performance wave that was going to be planned
+off that ordering.
+
+So the tool now decides whether it has an ordering or a list, on two properties
+of the run rather than an opinion: a **frame floor** (a p50 over four frames is
+the second-fastest of four) and a **sign test** (removing work cannot make a
+frame slower, so every negative row is noise measured in the ranking's units).
+Failing either, the rows still print — the draw and FBO columns are exact counts
+and worth reading — but they print as a LIST, `out.ablation` is left null so
+nothing downstream can quietly sort it, and the run says what would fix it.
+
+**AND THE MATRIX WAS REPORTING A SCENE AS FREE.** `deaths x7` read **0.00 ms on
+all three tiers**, which wave D would have read as "seven deaths cost nothing".
+It had never run: `reset()` empties the frame buffer but the kill feed is the
+whole session's on purpose, so the seven kills were all from the brawl and fire
+scenes BEFORE the reset, every window closed before the first held frame opened,
+and `reduce` returned a row of zeroes over an empty array. The dump carries its
+own `markT` now, only kills after it are used, and a reduce that catches no
+frames is reported as UNMEASURED rather than as zero. Same shape as a gate that
+passes because its case is absent.
+
+What remains of this wave is the part no edit here can do: getting the matrix
+onto hardware with a real GPU. The instrument is now honest about being on the
+wrong one.
 
 Also fix the `menu` scene's zero-frame capture, and get the matrix onto
 hardware with a GPU or state plainly on every row that SwiftShader's `jsP50` is

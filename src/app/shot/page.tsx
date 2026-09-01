@@ -26,7 +26,7 @@ import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react
 import GameCanvas from "@/game/client/GameCanvas";
 import type { GamePlayer, WarriorClass, PlayerState, AttackDirection, HitZone, MatchEndData } from "@/game/types";
 import { WARRIOR_STATS } from "@/game/types";
-import { ARMOURY, defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
+import { ARMOURY, CARD_AIM, defaultAppearance, HELM_VALUES, type Appearance } from "@/game/client/characters";
 
 /** Module-load stamp for staged kill-feed rows — see the killFeed note. */
 const BOOT_TS = Date.now();
@@ -220,26 +220,7 @@ const MARK = { x: -7.0, z: 4.6 };
  * subject's own plane — and `fwd`, which does nothing head-on, is checked at
  * −90° where it becomes the lateral term.
  */
-const AIM = {
-  head: { right: -0.068, fwd: 0.045 },
-  body: { right: 0, fwd: 0 },
-  /**
-   * THE FIST, and it is measured rather than guessed.
-   *
-   * A weapon leaves `buildCharacter` pointing out of the hand like a lance;
-   * where a man actually holds it is `STANCE` in `render/anim.ts`, written onto
-   * the fist by `poseWarrior`. So the grip cannot be read off the skeleton — it
-   * has to be read off a POSED rig, three seconds of idle in, the same way
-   * `wearmeasure` §9 reads the rest carry.
-   *
-   * Done that way, the four classes agree far better than their weapons do:
-   * grip y is 0.879 / 0.874 / 0.819 / 0.940 (huscarl, warden, runekeeper,
-   * berserker) and grip x is -0.359 / -0.302 / -0.238 / -0.426, against weapon
-   * bounding boxes that run from a 0.60 m seax to a 1.98 m spear. One aim point
-   * at the mean serves all four; the weapons differ, the fists barely do.
-   */
-  fist: { right: -0.265, fwd: -0.15 },
-};
+const AIM = CARD_AIM;
 
 /**
  * A player's screen, as the reference the fight card is scaled against: 55° of

@@ -208,7 +208,7 @@ const walkDir = (d) => { for (const e of readdirSync(d, { withFileTypes: true })
 if (existsSync(WORK)) walkDir(WORK);
 if (!found[0]) die(`tsc emitted nothing:\n${tsc.stdout || ""}${tsc.stderr || ""}`);
 const CH = await import(pathToFileURL(found[0]).href);
-const { ARMOURY, buildCharacter, defaultAppearance, HELM_VALUES } = CH;
+const { ARMOURY, CARD_AIM, buildCharacter, defaultAppearance, HELM_VALUES } = CH;
 
 /** Query-slot -> the Appearance field it sets. Mirrors `SLOT_FIELD` in /shot. */
 const SLOT_FIELD = {
@@ -258,7 +258,9 @@ const QUARTER = -35;
 /** The two lenses, copied from `CARDS` in src/app/shot/page.tsx. */
 const PLAY = { fovDeg: 55, screenH: 900 };
 const playScaleFov = (h) => (2 * Math.atan((h / PLAY.screenH) * Math.tan((PLAY.fovDeg * Math.PI) / 360)) * 180) / Math.PI;
-const AIM = { head: { right: -0.068, fwd: 0.045 }, body: { right: 0, fwd: 0 } };
+// ONE DEFINITION, read off the module this file already imports. See
+// `CARD_AIM` in characters.ts for why it is not written here.
+const AIM = CARD_AIM;
 const LENS = {
   // Crown to sternum, ~400 px of head. Where a cosmetic is SOLD.
   portrait: { card: "facecard", w: 700, h: 860, dist: 2.05, targetY: 1.76, eyeY: 1.94, fov: 19.5, aim: "head",
