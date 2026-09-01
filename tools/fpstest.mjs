@@ -400,7 +400,25 @@ function reduce(dump, windows) {
   };
 }
 
+/**
+ * ONE ROW OF THE MATRIX — and a row that caught no frames is not a row.
+ *
+ * `reduce` over an empty frame array returns a clean set of zeroes, and zeroes
+ * in a performance matrix read as FREE. That is how `deaths x7` sat at 0.00 ms
+ * on all three tiers claiming seven deaths cost nothing, and `on fire` does the
+ * same on any tier where the recording caught nothing — on this box the high
+ * tier renders a frame in seconds, so a scene can genuinely produce none.
+ *
+ * The guard is HERE rather than at each call site because every scene in the
+ * matrix comes through this function, and the next scene somebody adds will
+ * come through it too. UNMEASURED is a fact about the run; 0.00 ms is a claim
+ * about the game.
+ */
 function printRow(label, r) {
+  if (!r.frames) {
+    say(`  ${label.padEnd(26)}   UNMEASURED — the recording caught no frames on this tier`);
+    return;
+  }
   say(`  ${label.padEnd(26)} ${f2(r.js.p50).padStart(7)} ${f2(r.js.p95).padStart(7)} ` +
     `${f2(r.js.p99).padStart(7)} ${f2(r.js.worst).padStart(8)}  ${f0(r.draws).padStart(6)} ` +
     `${f0(r.tris / 1000).padStart(7)}k ${f0(r.fbo).padStart(5)} ${f0(r.allocPerFrameKb).padStart(7)} ` +
@@ -656,27 +674,35 @@ async function matrix(browser, results) {
     results.push({ tier, scene: `on fire (x${burning})`, ...fire.r });
     printRow(`${tier} · on fire (x${burning})`, fire.r);
 
-    // ---- deaths with gore: recorded continuously, sliced by the kill feed ----
-    await moot.page.evaluate(() => window.__fps.reset());
-    await until(() => moot.page.evaluate(() => window.__probe?.matchEnd || null),
-      "the match to end", 240000).catch(() => note(`${tier}: match did not end in time`));
-    clearInterval(drive);
-    const killRun = await moot.page.evaluate(() => window.__fps.dump());
+    // ---- deaths with gore: SLICED OUT OF THE FIRE RECORDING ----
+    //
+    // This used to reset the frame buffer, wait for the match to end, and slice
+    // the result by the kill feed. It measured nothing on every tier and every
+    // run, and printed `deaths x7` at 0.00 ms while doing it — a scene reported
+    // as FREE in a performance matrix, which is the same shape as a gate that
+    // passes because its case is absent, and worse, because wave D is a
+    // performance wave that would have been planned off a row saying seven
+    // deaths cost nothing.
+    //
+    // TWO REASONS IT COULD NOT WORK, and the second is why moving the slice is
+    // the fix rather than filtering harder:
+    //
+    //   1. the kill feed is the WHOLE SESSION's, on purpose — the probe is also
+    //      how this harness knows a match progressed — so the seven kills were
+    //      all from the brawl and the fire above, every window closed before the
+    //      first held frame opened, and `reduce` returned zeroes over an empty
+    //      array;
+    //   2. `record()` RESETS at its start, so the men are killed inside the fire
+    //      recording and its frames are wiped by the next reset. There is no
+    //      later moment when the frames and the kills coexist — by `matchEnd`
+    //      the killing is long over.
+    //
+    // So the gore frame is taken where the gore is: `fire.dump` holds the frames
+    // of the recording during which `driveIntoTheFire` was burning men down, and
+    // its own `markT` says which kills fall inside it.
+    const killRun = fire.dump;
     // 1.2 s after each kill: the gore burst, the ragdoll, the kill feed, the
     // audio event and the HUD plate all land inside that window.
-    // ONLY THE KILLS IN THE FRAMES WE ARE HOLDING.
-    //
-    // This read the WHOLE session's kill feed and sliced a freshly-reset frame
-    // buffer with it. Every kill in the eight-man brawl and the fire scene
-    // above happened BEFORE the `reset` on the line above, so every window
-    // closed before the first frame in the dump opened, the filter matched
-    // nothing, and `reduce` returned a row of zeroes over an empty array.
-    //
-    // The matrix then printed `deaths x7` at 0.00 ms on all three tiers — a
-    // scene reported as FREE because it never ran. That is the same shape as a
-    // gate that passes because its case is absent, and it is worse here,
-    // because wave D is a performance wave that would have been planned off a
-    // row saying seven deaths cost nothing.
     const fresh = killRun.kills.filter((k) => k.t >= (killRun.markT || 0));
     const windows = fresh.map((k) => [k.t, k.t + 1200]);
     if (windows.length) {
@@ -701,6 +727,11 @@ async function matrix(browser, results) {
     }
 
     // ---- the summary stage ----
+    // The wait for the match to end lives here now: it is what the summary
+    // stage needs, and it was never what the gore frame needed.
+    await until(() => moot.page.evaluate(() => window.__probe?.matchEnd || null),
+      "the match to end", 240000).catch(() => note(`${tier}: match did not end in time`));
+    clearInterval(drive);
     await sleep(2500);
     const summary = await record(moot.page, Math.min(10, SECS));
     results.push({ tier, scene: "summary stage", ...summary.r });
@@ -715,6 +746,21 @@ async function matrix(browser, results) {
     note(`audio: ${summary.dump.audio.built} nodes built all match, ` +
       `${summary.dump.audio.params} param automations, ${summary.dump.audio.contexts} contexts`);
     await moot.ctx.close();
+  }
+
+  // AND THE JSON DOES NOT CARRY A ZERO ROW EITHER.
+  //
+  // `printRow` refuses to draw one, but `art/perf/fpstest.json` is what a later
+  // pass will actually read, and a row of zeroes there is indistinguishable
+  // from a scene that was measured and found free. They come OUT of the array
+  // and are NAMED in the run instead: which scenes failed to record is a fact
+  // about this box worth reading, and it is on the console where a person will
+  // see it, rather than in the file where an average will.
+  const dead = results.filter((r) => !r.frames);
+  if (dead.length) {
+    for (let i = results.length - 1; i >= 0; i--) if (!results[i].frames) results.splice(i, 1);
+    say(`\n  ${dead.length} scene(s) recorded no frames and are reported as UNMEASURED, not as zero: `
+      + dead.map((r) => `${r.tier}/${r.scene}`).join(", "));
   }
 }
 
