@@ -42,7 +42,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // portrait/stance/lineup use an aimed camera; the rest follow the warrior.
 const ALL_PRESETS = ["duel", "arena", "closeup", "brawl", "laststand", "portrait", "stance", "lineup"];
 /** The three audit lenses. Shot on their own, they take slot flags — see the header. */
-const CARD_PRESETS = ["facecard", "kitcard", "fightcard"];
+const CARD_PRESETS = ["facecard", "kitcard", "fightcard", "weaponcard"];
 // Deaths. Off the default run: they are a review of one feature rather than of
 // the game's look, and each one costs a preset's worth of frames on a box with
 // no GPU. Ask for them by name — `npm run shots -- gorehead --out art/shots/gore`.
@@ -287,6 +287,29 @@ const SHEETS = {
   // row is the real one and the front row is there to show what an opponent
   // actually sees. Whole body: this is the one slot in the shop that is not worn
   // on the head, and it is the largest silhouette change a player can buy.
+  // ---- weapon (6) ----
+  // THE SLOT THAT HAD NO SHEET, and the tool has been saying so on every run:
+  // "armoury slots with no sheet: weapon (6)". Six finishes up to 190 gold and
+  // not one picture of any of them, because until `weaponcard` existed there
+  // was no lens that could hold a hilt — `COSMETICS-AUDIT.md` §6 measured a
+  // sword at about 200 px of a 700 px kit card, most of it blade, with the
+  // pommel and the grip wire a dozen pixels each.
+  //
+  // Two rows and they answer different questions. THE GRIP is where every one
+  // of these six finishes actually differs: the pommel's inlay, the wire on the
+  // grip, the pattern in the guard. FIGHT is whether any of that survives to
+  // the distance a man is killed at, which is the second reading every slot in
+  // this file gets and the one that decides whether a finish is worth 190 gold.
+  weaponcards: {
+    file: "weapon-cards.png", card: "weaponcard", slot: "weapon", cols: 6,
+    title: "WEAPON FINISH · the grip and its fittings · 0.35 m of frame, ~2000 px/m",
+    rows: [{ turn: 0 }],
+  },
+  weaponfight: {
+    file: "weapon-fight.png", card: "fightcard", slot: "weapon", cols: 6,
+    title: "WEAPON FINISH · at fight distance · does any of it survive to where a man is killed?",
+    rows: [{ turn: QUARTER }],
+  },
   cloaks: {
     file: "cloaks.png", card: "kitcard", slot: "cloak", cols: 5,
     title: "CLOAKS · full body · from behind, where a cloak is, and from the front, where an opponent is",

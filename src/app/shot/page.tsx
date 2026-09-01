@@ -223,6 +223,22 @@ const MARK = { x: -7.0, z: 4.6 };
 const AIM = {
   head: { right: -0.068, fwd: 0.045 },
   body: { right: 0, fwd: 0 },
+  /**
+   * THE FIST, and it is measured rather than guessed.
+   *
+   * A weapon leaves `buildCharacter` pointing out of the hand like a lance;
+   * where a man actually holds it is `STANCE` in `render/anim.ts`, written onto
+   * the fist by `poseWarrior`. So the grip cannot be read off the skeleton — it
+   * has to be read off a POSED rig, three seconds of idle in, the same way
+   * `wearmeasure` §9 reads the rest carry.
+   *
+   * Done that way, the four classes agree far better than their weapons do:
+   * grip y is 0.879 / 0.874 / 0.819 / 0.940 (huscarl, warden, runekeeper,
+   * berserker) and grip x is -0.359 / -0.302 / -0.238 / -0.426, against weapon
+   * bounding boxes that run from a 0.60 m seax to a 1.98 m spear. One aim point
+   * at the mean serves all four; the weapons differ, the fists barely do.
+   */
+  fist: { right: -0.265, fwd: -0.15 },
 };
 
 /**
@@ -292,6 +308,28 @@ const CARDS: Record<string, CardSpec> = {
   // untouched by where it points.
   fightcard: { w: 520, h: 320, dist: 6.8, targetY: 0.88, eyeY: 2.05, fov: playScaleFov(320), aim: "body",
     note: "play scale: 1:1 with a 55° / 900 px game frame at 6.8 m" },
+  // THE WEAPON LENS, and until now there was not one.
+  //
+  // `COSMETICS-AUDIT.md` §6: a sword on the kit card is about 200 px of a 700 px
+  // frame, most of it blade, and the fittings a player is actually buying — the
+  // pommel, the guard, the grip wrap, the hilt's inlay — are a dozen pixels
+  // each. Six weapon finishes were on sale and NONE of them could be judged,
+  // which is why the audit calls this a blocker on the weapon review rather
+  // than a nice-to-have: there was no picture to argue about.
+  //
+  // 0.35 m of frame at the fist, which is the audit's own number. At 700 px
+  // that is 2000 px/m — a 20 mm pommel gets 40 px, where the kit card gave it
+  // three. The lens is long (12°, 1.66 m back) rather than close and wide: a
+  // hilt photographed from a foot away is a fisheye of a hilt, and the thing
+  // being judged is a silhouette and an inlay, both of which a wide angle
+  // bends. 2 * 1.66 * tan(6°) = 0.349 m.
+  //
+  // Square, because a weapon has no long axis the frame can agree with: the
+  // huscarl carries point-down, the warden's spear is upright, the berserker's
+  // axe lies over his shoulder. A 700x900 card would waste a third of itself on
+  // three of the four.
+  weaponcard: { w: 700, h: 700, dist: 1.66, targetY: 0.86, eyeY: 0.86, fov: 12, aim: "fist",
+    note: "the grip and its fittings, 0.35 m of frame, ~2000 px/m" },
 };
 
 function cardFraming(card: CardSpec, turnDeg: number) {
@@ -579,6 +617,15 @@ const PRESETS: Record<string, {
     matchTimer: 40,
     parametric: true,
     card: "fightcard",
+    settle: 16,
+    poses: [cardPose()],
+  },
+  // The fittings, close enough to argue about. See `CARDS.weaponcard`.
+  weaponcard: {
+    cam: Math.PI,
+    matchTimer: 40,
+    parametric: true,
+    card: "weaponcard",
     settle: 16,
     poses: [cardPose()],
   },

@@ -899,15 +899,35 @@ The audit's original text, kept:
 Size: **several waves.** Judged from `tools/silhouette.mjs` with the material
 off, because "reads Roman" is a claim about shape.
 
-**A2. The instrument, before A4 can be judged.** *NOT STARTED. One wave.*
-Two defects `COSMETICS-AUDIT.md` §6 names, and a third from §0 above:
+**A2. The instrument, before A4 can be judged.** **THE WEAPON LENS IS BUILT —
+1 Sep 2026. A4 is unblocked.** The other two items stand.
 - The face card's aim is only correct near −35°; re-measure `AIM.head.right`
-  with `--guides` at 0° and −90°.
-- **There is no weapon lens.** A sword at kit distance is ~200 px of a 700 px
-  frame. Add a `weaponcard` at 0.35 m of frame at the fist. **This BLOCKS A4
-  entirely** — a weapon cannot be judged at all today.
+  with `--guides` at 0° and −90°. *Still open — and note `AIM` is MIRRORED in
+  three places (`shot/page.tsx`, `cosmetictest.mjs`, `hairprobe.mjs`), so
+  re-measuring it means changing three constants or hoisting one.*
+- ~~There is no weapon lens.~~ **DONE.** `weaponcard` — 0.35 m of frame at the
+  fist, 700x700, a long 12° lens 1.66 m back rather than close and wide, which
+  is ~2000 px/m: a 20 mm pommel gets 40 px where the kit card gave it three.
+  The aim point is MEASURED, not guessed — the grip cannot be read off the
+  skeleton, because where a man holds a weapon is `STANCE` written onto the fist
+  by `poseWarrior`, so it is read off a rig posed three seconds into idle, the
+  way `wearmeasure` §9 reads the rest carry. The four classes' fists agree far
+  better than their weapons do (grip y 0.879 / 0.874 / 0.819 / 0.940 against
+  bounding boxes from a 0.60 m seax to a 1.98 m spear), so one aim serves all
+  four. Two sheets with it: `weaponcards` (the grip) and `weaponfight` (whether
+  any of it survives to killing distance). **The `weapon (6)` slot had NO SHEET
+  and the tool had been printing that warning on every run.**
 - The `menu (DOM + preview)` capture yields zero frames, so the armoury screen
-  has no measured cost. Fold into the same wave.
+  has no measured cost. *Still open.*
+
+**AND THE FIRST PHOTOGRAPH ALREADY PAYS FOR THE LENS.** `art/shots/weapons/weapon-cards.png`
+is the six finishes side by side, which has never existed. Across **0g to 190g**
+they differ mainly in the colour of the grip wire and a faint tint on the guard;
+the pommel and the blade read nearly the same at every rung. That is A4's
+question and it now has a picture instead of an argument. One limitation, named:
+the card frames the GRIP, which is where three of the four classes carry their
+fittings — the berserker's axe head is over his shoulder and out of frame, so
+that rung needs its own bearing.
 
 **A3. The ten helm bowls, and §5's cut/reprice/rebuild.** *NOT STARTED.
 Several waves.* Verified untouched — `characters.ts:191-285` still reads
