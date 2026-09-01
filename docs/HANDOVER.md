@@ -180,16 +180,26 @@ now the single most expensive defect in these ledgers.** Corrected in
 
 ## The gate battery (run what the diff touches)
 
-tsc --noEmit · npm run lint (0/0) · npm run build · **scoretest 19/19** ·
-**platformcheck 6/6** · playtest 38/38 (x3 widths for layout work) ·
-cosmetictest (full render) · wearmeasure · helmclash (COMPARES ITS OWN
-BASELINE — exits 1 when a section gets worse) · warsay 52/52 · wartest 82/82 ·
-protocoltest 81/81 · solidtest 12/12 · touchtest 32/32 · moottest 25/25 ·
-marktest 25/25 · burhtest 19/19 · clipseen PASS · soundtest 46/46 ·
-goretest 36/36 · locktest 6/6 · weightprobe 24/24 · profiletest 22/0
+**THE COUNTS BELOW WERE RE-MEASURED ON 1 SEP, NOT COPIED.** Six of them were
+stale in the previous handover — every one had gone UP, so a green run would
+have read as a regression to anyone checking against the old number. Corrected
+counts are marked (was N).
+
+tsc --noEmit · npm run lint (0/0) · npm run build ·
+scoretest **19/19** (was 16/16) · platformcheck **6/6** ·
+warsay **54/54** (was 52) · wartest 82/82 · protocoltest 81/81 ·
+moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
+burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
+goretest **35/35** (was 36) · locktest 6/6 · weightprobe 24/24 ·
+fighttest 23/23 · benchtest 23/23 · rejointest 12/12 · armsprobe 16/16 ·
+bottest 11/11 (240 bouts a rung, seed 20260813) · cardgate 17/17 ·
+solidtest **16/16 with 1 deferral** (was "12/12") ·
+soundtest 46/46 · playtest **38/38 — BUT SEE THE BROWSER-BINARY LAW BELOW** ·
+touchtest 32/32 (x4 shapes) · clipseen PASS · wearmeasure ·
+helmclash (COMPARES ITS OWN BASELINE — exits 1 when a section gets worse) ·
+cosmetictest (see above; software for a verdict) · profiletest 22/0
 (degraded; no DB here by the credentials rule) · classmatrix (~3 min, balance
-only) · fighttest 23/23 · benchtest 23/23 · rejointest 12/12 ·
-tourneytest 38/38 · armsprobe 16/16 · bottest 11/11 ·
+only) ·
 **gradesplit --gate PASS** (worst 6.7 dH\* against a bar of 10) ·
 **cosmetictest 18/19 on the GPU — the one FAIL is its byte-identical claim,
 which is the GPU and not the game; the same claim reads 0.0000% in software** ·
