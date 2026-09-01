@@ -41,6 +41,23 @@ export const MODE_RATIOS: readonly number[] = [1, 6 / 5, 4 / 3, 3 / 2, 9 / 5];
 export const ROOT_HZ = 73.416;
 
 /**
+ * A Web Audio render quantum, in samples. A DelayNode inside a feedback cycle
+ * cannot be shorter than this, whatever it is set to — see `pluck`.
+ */
+export const RENDER_QUANTUM = 128;
+
+/**
+ * The lyre string's feedback, and the damping filter's Q IN DECIBELS.
+ *
+ * These two multiply, and their product is the loop gain: over 1 and the string
+ * is an oscillator rather than a string. Exported so `tools/soundtest.mjs` can
+ * gate the product instead of trusting that nobody edits one of them alone.
+ * -3 dB is linear Q 0.707, the maximally flat lowpass, whose peak gain is 1.0.
+ */
+export const LYRE_FEEDBACK = 0.94;
+export const LYRE_DAMP_Q = -3;
+
+/**
  * The drum patterns, one bar of 8 steps each, by density rung. `1` is a full
  * stroke, `0.5` a ghost, `0` silence. Rung 0 is the lobby heartbeat; rung 3
  * is the battle pulse. The SHAPE stays related across rungs — each adds
@@ -244,6 +261,57 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
   const lyreGain = ac.createGain();
   lyreGain.gain.value = 0.32;
   lyreGain.connect(bus);
+  /**
+   * THE LOOP GAIN MUST BE UNDER ONE, AND IT WAS NOT. Reported by the owner as
+   * "an awful sound playing randomly during matches ... sounds like an
+   * industrial beeping", and that is exactly what this was.
+   *
+   * A Karplus-Strong string is a delay fed back through a damping filter, and
+   * it decays only while `fb.gain * |H_damp|` stays under 1 at every frequency.
+   * `damp.Q` was never set, so it took the Web Audio default of 1 — and a
+   * BiquadFilter's Q for `lowpass` is read in DECIBELS, so 1 is +1 dB of
+   * RESONANCE, not a flat response. Measured with `getFrequencyResponse`, that
+   * puts the filter's peak at |H| = 1.2533, and 0.965 * 1.2533 = 1.209. The
+   * loop did not ring, it OSCILLATED, and it grew until the note ended.
+   *
+   * Rendered offline, one note, 0.7 s, peak sample amplitude against the 1.0
+   * the mix expects — and the growth of the envelope from 50 ms to 320 ms:
+   *
+   *     written Hz   as it shipped              with this fix
+   *      73.4        0.31      +18.6 dB          0.136   -10.5 dB
+   *     146.8       17.1       +36.9 dB          0.144   -16.8 dB
+   *     220.2      491         +51.6 dB          0.145   -19.5 dB
+   *     293.7    19080         +61.8 dB          0.101   -22.8 dB
+   *
+   * Nineteen thousand is about 86 dB over full scale. It arrived at the master
+   * limiter and the soft clipper as a hard-clipped square, at the loudest level
+   * the graph can physically emit, holding the whole rest of the mix down under
+   * it for the limiter's release — and NOT at the written pitch: the runaway
+   * locks to whichever comb partial sits nearest the damping filter's own
+   * resonance, so a written 293.7 Hz was heard at about 1290 Hz.
+   *
+   * `plan.lyre` in a fight is 0.12 + 0.18 * intensity per bar, so it fired every
+   * six to twenty seconds at random, and the victory and defeat stings run
+   * through this same function, so it also fired at the end of every match.
+   *
+   * TWO NUMBERS FIX IT, and the drone eight lines up already had the first one
+   * right (`droneCut.Q.value = 0.4`):
+   *
+   *   * Q at -3 dB is linear Q = 0.707, the maximally flat lowpass, whose peak
+   *     gain is exactly 1.0 — measured, not assumed.
+   *   * and the feedback comes down to 0.94 so the loop has real margin rather
+   *     than sitting on the boundary. It also makes the string decay inside its
+   *     own note (about 680 ms to -40 dB at 110 Hz, against a fight note of
+   *     630-810 ms) instead of being chopped off by the severing gain below.
+   *
+   * AND THE DELAY MUST CLEAR A RENDER QUANTUM. A DelayNode inside a cycle is
+   * clamped to at least one render quantum — 128 samples, 2.67 ms at 48 kHz and
+   * 2.90 ms at 44.1 kHz. `1 / f` is under that for anything above about 375 Hz,
+   * which is the top of the small-speaker range and every note of both stings
+   * on a phone: they all played at the SAME wrong pitch, whatever was written.
+   * Taking the smallest whole number of periods that clears the quantum keeps f
+   * a resonance of the comb, so the note is the note on every sample rate.
+   */
   const pluck = (ratio: number, when: number, dur: number): void => {
     const f = root * ratio;
     const burst = ac.createBufferSource();
@@ -252,12 +320,14 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
     bg.gain.setValueAtTime(0.5, when);
     bg.gain.exponentialRampToValueAtTime(0.001, when + 1 / f + 0.004);
     const delay = ac.createDelay(0.05);
-    delay.delayTime.value = 1 / f;
+    const period = 1 / f;
+    delay.delayTime.value = Math.ceil((RENDER_QUANTUM / ac.sampleRate + 1e-6) / period) * period;
     const fb = ac.createGain();
-    fb.gain.value = 0.965;
+    fb.gain.value = LYRE_FEEDBACK;
     const damp = ac.createBiquadFilter();
     damp.type = "lowpass";
     damp.frequency.value = Math.min(6500, f * 6);
+    damp.Q.value = LYRE_DAMP_Q;
     const vg = ac.createGain();
     vg.gain.setValueAtTime(1, when);
     vg.gain.setValueAtTime(1, when + Math.max(0.05, dur - 0.25));
@@ -267,7 +337,7 @@ export function createScore(ac: BaseAudioContext, out: GainNode, small: boolean)
     delay.connect(vg).connect(lyreGain);
     burst.start(when); burst.stop(when + 0.05);
     // The loop must not ring forever: sever the feedback when the note ends.
-    fb.gain.setValueAtTime(0.965, when);
+    fb.gain.setValueAtTime(LYRE_FEEDBACK, when);
     fb.gain.setValueAtTime(0, when + dur + 0.05);
   };
 
