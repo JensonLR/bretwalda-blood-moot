@@ -52,11 +52,33 @@ now the single most expensive defect in these ledgers.** Corrected in
 
 | row | said | actually |
 |---|---|---|
-| **Wave E — the second ground** | *NOT STARTED... the biggest visible change per hour* | **DONE 24 Aug.** Its own postscript says so; only the heading was stale. **FIVE grounds ship** — `saxon_village`, `pict_moor` (which IS "cold, open, sky-lit"), `roman_fort`, `danelaw_camp`, `offa_dyke`. |
+| **Wave E — the second ground** | *NOT STARTED... the biggest visible change per hour* | **DONE 24 Aug.** Its own postscript says so; only the heading was stale. **FIVE grounds ship** — `saxon_village`, `pict_moor`, `roman_fort`, `danelaw_camp`, `offa_dyke`. **But one piece of it is NOT built — see below.** |
 | **Rating** | *NOT STARTED — no `rating`/`elo` column* | **ANSWERED by 4.6, 24 Aug, deliberately:** *"the rating IS season points — a second rating would be a second truth."* There is no column BY DECISION. Adding one undoes a ruling. |
 | **Hearths** | *NOT STARTED — no table, no reference* | **DONE 24 Aug** (row 4.4). `src/db/hearths.ts`, warsay 44/44. |
 | **PWA** | *NOT STARTED — no manifest, no service worker* | **Shell DONE 27 Aug** (row 8.9): `app/manifest.ts`, `public/manifest.webmanifest`, `public/sw.js`, forged icons. Only the EARNED prompt was missing — built this session. |
 | **The grade's cause** | `adaptBand` / the metered response | **Wrong stage.** Contrast has been luma-preserving since 22 Aug and removing the meter moves the board's hue the WRONG WAY. It was the anisotropic chroma skew. |
+
+### The one piece of Wave E that is NOT built, and it is the piece it argued for
+
+`docs/MAPS.md` asked ground two for a **cold KEY LIGHT**, and the whole case for
+building it second was that mechanism: *"A ground with a cold key and a wide
+horizon changes every material in the game WITHOUT TOUCHING ONE OF THEM, and it
+is the cheapest way to make map two feel like a different game."*
+
+The moor is cold, open and unmistakable — but it gets there the other way round.
+`render/moor.ts` says so in its own header: *"the arena's rig is a low sun and it
+multiplies a warm albedo twice over"*, and its first cut *"read as ORANGE SAND,
+not moor"*, so **every material was pulled cold and dark by hand** to survive the
+warm key. `render/camp.ts` inherits the finding verbatim — *"Winter fen under the
+dusk rig. The moor's lesson stands."*
+
+So all five grounds share one warm dusk rig, and the cheapest lever this wave
+named has never been pulled. That matters twice now: it is still the largest
+untested change to the look, and **it is the change most likely to disturb the
+grade that landed today** — a cold key moves the white balance's illuminant,
+which moves the opponent axis the chroma stage expands across.
+`tools/gradesplit.mjs --gate` is the instrument for that question, and it did
+not exist this morning.
 
 ## Landed this session
 
