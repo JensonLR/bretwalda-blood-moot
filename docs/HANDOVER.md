@@ -18,22 +18,44 @@ continue from this file alone. Read it, then `docs/BACKLOG.md` (waves 7–8),
 - **Full autonomy; don't stop until everything is complete & merged.**
 - **SECURITY (verbatim, preserve):** Database connection strings are
   credentials — never commit them, never put them in `drizzle.config.json`,
-  keep them in the deployment environment only. **The Neon password was
-  exposed in chat and MUST STILL BE ROTATED** — it is the one item on this
-  page only the owner can close (Neon console; then delete the old Render
-  Postgres). `docs/BACKLOG.md` 6.4 is the row.
-  THE VALUE IS DELIBERATELY NOT REPRINTED HERE. It used to be, inside this
-  very instruction — so the note telling everyone to rotate the secret was
-  handing the secret to every reader of the repository, and to every clone
-  and fork of it. A credential does not need to be quoted to be rotated.
-  (Redacting it here does NOT un-expose it: git history still holds it,
-  which is exactly why rotation, not redaction, is the remedy.)
-  Also: **"Don't use a connector"** (direct user instruction).
-- Every GitHub comment/PR body ends with the Claude Code attribution footer;
-  **no model identifiers** in commits/PRs (use
-  `Co-Authored-By: Claude <noreply@anthropic.com>`).
-- Commit messages via `git commit -qF - << 'MSG'` heredoc (backticks in `-m`
-  get shell-substituted).
+  keep them in the deployment environment only. **THE NEON PASSWORD WAS ROTATED
+  BY THE OWNER ON 1 SEP 2026** — the credential half of `docs/BACKLOG.md` 6.4 is
+  closed. The value is deliberately not reprinted here and never should be: a
+  credential does not need to be quoted to be discussed, and redaction does not
+  un-expose one, which is why rotation was the remedy. What remains of 6.4 is
+  deleting the old Render Postgres, and that waits on the hosting move.
+
+## The owner's rulings, 1 Sep 2026 — these SUPERSEDE what is written elsewhere
+
+1. **Alpha profiles are disposable.** *"any profiles will be fine to be lost,
+   everyone understands this is just an alpha test on Render's hosting."* So the
+   ninety-day Render Postgres clock is NOT urgent and the hosting move is
+   deprioritised. No dump, no restore. `fly.toml` is written and ready in the
+   repo root for whenever it is wanted; `README-deploy.md` Option A has the
+   five commands.
+2. **The destination is DOWNLOADABLE — Steam, and the iOS and Android stores.**
+   *"Final solution I'd want to have as a downloadable game on steam &
+   ios/android stores."*
+
+   **THIS CONTRADICTS A RECORDED DECISION AND THE OWNER'S RULING WINS, but the
+   contradiction must not be silently buried.** `docs/MONETISATION.md` argues
+   "PWA, not app stores" on three grounds: the 30% cut, a review queue on every
+   update, and that this game's real discovery is a group chat rather than store
+   search. That reasoning is not wrong — it is now OVERRULED, and whoever edits
+   that file next should say so there rather than delete the argument.
+
+   What it changes in practice:
+   - **Steam** is already scaffolded and its blocker is named: backlog 7.2 says
+     the Tauri build *"deliberately did NOT land from this container (cannot be
+     compiled or judged here) ... it is §7 step 6, on a machine that can run
+     it."* A Mac is that machine.
+   - **iOS and Android stores are NOT planned anywhere yet.** A PWA does not
+     get you into them. That wants a Capacitor (or equivalent) wrapper, an
+     Apple developer account at $99/yr, a Google Play account at $25 once, and
+     a review queue. Nobody has scoped it. It is a new wave, not a checkbox.
+   - **PWA is still worth building** and is not wasted: it is the cheapest
+     retention win on the board, it ships today with no review queue, and the
+     same service worker and manifest are what a Capacitor shell wraps.
 
 ## Branch topology
 
@@ -90,25 +112,100 @@ helm-land are identical at handover.
   `__forceClip` harness door; `clipseen` PASS (36,829 bytes vp9). **On work
   branches, merge gated as above.**
 
-## The remaining board (in order)
+## The remaining board (in order) — rebuilt 1 Sep 2026 off the ledgers
 
-1. ~~7.9b spectate seats~~ — LANDED after this handover was written (the
-   mead-bench; benchtest 23/23, benchseen 4/4). 7.3 is unblocked.
-2. **7.3 Tournament Moot** — bracketed 1v1s, 4–8 men, on honour_duel; the
-   hall watches the final (sequenced after spectate by the owner's ruling).
-3. **7.7 fight depth** — executions (build on gore + kill-cam), weapon choice
-   per class (2–3 historically right weapons with trade-offs), then
-   directional guard (the 7.1 rebalance was its prerequisite, done).
-4. **8.7 AAA smoothness** — frame-pacing/hitch audit, measured not vibes.
-   The react-doctor CLI's advisory findings (will-change, render-time
-   rebuilds, response-status checks) are folded in here.
-5. **8.9 nothing-left-behind sweep** — reconnect mid-fight, settings surface
-   (sensitivity/shake/colour-blind), loading polish, PWA shell, error-toast
-   language, bot curve sanity.
-6. **Owner-pending**: The Burh's NAME (id `the_burh` is stable; put
-   alternatives to the owner); cloak-rear premium design (taste item,
-   ledgered); the 11-error react-doctor… no — that's done; the Tauri build
-   (needs the owner's machine or CI).
+**74 of 87 numbered backlog rows are closed.** What is left:
+
+### 1. THE GRADE — four open defects with ONE cause. Start here.
+
+`docs/OPEN-DEFECTS.md` carries five open sections. **Four of them are the same
+bug and nobody has framed it that way**, which is why three separate attempts
+have each fixed a symptom:
+
+- the Danelaw's shield board renders `#a7043d` hot magenta where the material
+  is `--garnet` (`#7c1420`) exactly;
+- the Danelaw reads ROSE at the sleeves and the byrnie (reopened — it was once
+  closed without a capture);
+- the Danelaw's rose §1, cause proven and not fixed;
+- the brightness ceiling bounds ONE channel and not the distance between three,
+  and the Saxon's leg wraps are where it shows.
+
+The common cause is already written down in the shield-board entry and it is
+not the albedo: **`adaptBand` in `postfx.ts` meters each frame and stretches
+contrast about that frame's own pivot, and `--garnet` is the most saturated dark
+colour in the game — 1.84 points of chroma per point of value — so it has the
+least headroom, and green is the channel with the least of it.** The albedo is
+correct at every stage this repo owns; the shift happens downstream of all of
+them.
+
+**Judge it on captures with the grade ON and OFF, not on the material.** The
+fifth open section (the nape-guard flare, round three) is unrelated geometry and
+should not be bundled in.
+
+### 2. THE SECOND GROUND — Wave E. Unblocked, cheap, biggest visible change.
+
+*NOT STARTED, but NOT BLOCKED.* The seam exists; `GROUND_BY_TERRITORY` and
+`groundForTerritory` are the resolver every later ground rides, and Offa's Dyke
+proved it. `docs/MAPS.md` designed three and one exists. Build **map two: cold,
+open, sky-lit** — a tidal flat, a frozen fen, a moor under low cloud.
+
+### 3. RATING, then PWA. Both touch the profile that already exists.
+
+- **Rating** — no `rating`/`elo` column and no reference in `src/`. Cheap: the
+  DB exists, `matchHistory` already stores results, and the summary screen
+  already has somewhere to put it.
+- **PWA** — no manifest, no service worker. The install prompt is **earned**:
+  never at first load, after a won match. See the ruling above on why this is
+  still worth doing even though the destination is now the app stores.
+
+### 4. Also unstarted, in rough order of value per hour
+
+- **Splintering shields** — blocks are already typed on the wire
+  (`blocked` / `blocked_heavy`); a shield that visibly wears and finally bursts
+  turns turtling into a decision. All procedural, inside the existing hit pipe.
+- **Taking a dead man's weapon** — `grep -rin pickup src/` is empty. The corpse
+  persists and the sim knows what he carried.
+- **Hearths** (clans) — first cut is a name, a member list, a tag by your name
+  in the kill feed. Not territory, not chat, not war declarations.
+- **A3: the ten helm bowls and §5's reprice** — several waves, untouched.
+- **Flags** — constrained presets, not free-drawn; that is a moderation
+  decision as much as an art one.
+
+### 5. Carrying a measured blocker, do not restart from zero
+
+- **The beards read as a blade in profile.** Lever FOUND: `skin` is the depth
+  the face leg stands off the face, and 19 mm is a shave — 32 mm reads as a
+  beard at profile without becoming a bush at three-quarter, captures in the
+  ledger. **Blocked because `beardShell` is handed a skull and nothing else** —
+  hair has `hairCeil` reading the whole head stack and the beard has no
+  equivalent. A ceiling was built and is necessary but not sufficient; the
+  numbers are in `docs/OPEN-DEFECTS.md`. Four other levers measured INERT and
+  are named there so nobody spends them again.
+- **The helmet flank gap (5.15)** is CLOSED BY RULING, not by a fix: closing it
+  costs 89% of the Braided War-locks' silhouette, and the owner chose the paid
+  hair. Reopen only with a plan that re-roots the braids off that arc.
+
+## WHAT ONLY A LOCAL MACHINE CAN DO — read this before choosing where to run
+
+Three items on this board are blocked on hardware this cloud container does not
+have, and a Mac closes all three:
+
+1. **The Tauri build (Steam).** Backlog 7.2, verbatim: the build *"deliberately
+   did NOT land from this container (cannot be compiled or judged here — the
+   'asserted, never judged' trap); it is §7 step 6, on a machine that can run
+   it."* This is the whole Steam path and it is waiting on exactly that.
+2. **Wave D, draw calls and allocation.** Blocked on Wave C, whose remaining
+   half is *"get the matrix onto hardware with a GPU"*. This box has none — it
+   rasterises through SwiftShader, one frame takes seconds, and `fpstest`'s
+   ablation now REFUSES to rank because of it (2-11 frames a row, and a
+   -4660 ms "cost" that is the noise floor in the ranking's own units).
+3. **Honest performance numbers at all.** Every fps figure measured here is
+   SwiftShader's fill rate and says nothing about a phone.
+
+And two things simply get faster: the browser suites (`cosmetictest` takes ~22
+minutes here and would be minutes on a GPU), and network-dependent work — every
+Neon host, including `mcp.neon.tech`, is refused by this container's egress
+policy with a 403 to CONNECT, and Postgres on 5432 times out with no route.
 
 ## The gate battery (run what the diff touches; all green at handover)
 
@@ -155,5 +252,26 @@ run is silent and looks hung. Two healthy runs were killed for that.
 
 ## Immediate next actions for the new session
 
-1. `git fetch origin && git status` — confirm/recover local vs origin/main.
-2. Begin 7.3, the Tournament Moot (7.9b landed; the bench is its seat).
+1. Read this file, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
+2. **Start on THE GRADE** (section 1 of the board above). Four open defects,
+   one cause, and the cause is already identified — it needs captures with
+   `adaptBand` on and off, not another material change. Three previous attempts
+   each moved a symptom.
+3. Then the second ground, then rating and PWA.
+4. Do not spend a turn re-deriving any of the following; they are measured and
+   written down: the beard's `skin` lever and its four inert siblings; the flank
+   gap's 89% cost; the Wyrm guard's hem/edge separation; that `cheekIn` was one
+   constant moving two things.
+
+## Also true, and easy to trip on
+
+- **Three stale rows were found this session** (A1, A2's aim, Wave C's premise,
+  4.8b) — each asserted work as NOT STARTED that was in fact done, or done that
+  was in fact stale. **Verify a row against the tree before working it.** That
+  is now the single most common defect in these ledgers.
+- The `neon` and `neon-postgres` skills are installed in `.claude/skills/`; they
+  carry the vendor's checklist and were used to find three real DB defects.
+- `.github/workflows/neon_workflow.yml` makes the per-PR Neon branch run
+  `profiletest` against a real, empty Postgres — the first time that gate's
+  database half has ever run in CI. It works on GitHub's runners even though
+  this container cannot reach Neon.
