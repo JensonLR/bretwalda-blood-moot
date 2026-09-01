@@ -1245,16 +1245,29 @@ claims per ground, 12/12 with the fort in the list.
   in `src/` is a `lucide-react` icon or an unrelated boolean. Constrained
   presets, not free-drawn — that is a moderation decision as much as an art
   one. Depends on profiles, which are built.
-- **PWA.** ~~*NOT STARTED*~~ **STALE ROW — CORRECTED 1 Sep 2026: two thirds
-  DONE.** Row 8.9 shipped the PWA shell on 27 Aug and the tree carries all of
-  it: `src/app/manifest.ts` (standalone display, `orientation: "any"` after
-  touchtest found the landscape faults the old portrait pin was hiding),
-  `public/manifest.webmanifest`, forged icons via `tools/mkicon.mjs`, and
-  `public/sw.js` — a worker that caches NOTHING by design, registered from
-  `src/app/page.tsx`. **What is actually left is the EARNED install prompt** —
-  `grep -rn beforeinstallprompt src/` is empty, so the browser's own banner is
-  all there is and it fires whenever the browser feels like it. The row's own
-  rule is unbuilt: never at first load, after a won match.
+- **PWA.** ~~*NOT STARTED*~~ **DONE 1 Sep 2026, and the row was stale in two
+  different directions at once.** Row 8.9 shipped the shell on 27 Aug —
+  `src/app/manifest.ts`, forged icons via `tools/mkicon.mjs`, and `public/sw.js`,
+  a worker that caches NOTHING by design, registered from `src/app/page.tsx`.
+  **What was missing was the EARNED prompt**, and it is built:
+  `src/game/client/install.ts` (a new storage seam, registered in
+  `platformcheck`) plus `InstallInvite` on the summary — after a won match,
+  never at first load, one ask ever, with an iOS arm because Safari has no
+  `beforeinstallprompt` and never will. **SEEN, not asserted**:
+  `tools/installseen.mjs` fights a real duel, wins it and photographs the
+  screen (`art/shots/install-offer-won.png`), with a control that has already
+  answered and is correctly not asked again. 12/12.
+
+  **AND THE MANIFEST THAT SHIPPED WAS NOT `src/app/manifest.ts`.** A second,
+  hand-written `public/manifest.webmanifest` existed, and a file in `public/`
+  SHADOWS the route an `app/manifest.ts` generates — both are
+  `/manifest.webmanifest` and the static one wins. It said
+  `"orientation": "landscape"`, so an installed phone was orientation-locked
+  against the owner's explicit ruling (*"should be supported to be played both
+  landscape & portrait hand held positions"*) while the typed source that
+  records that ruling was served to nobody. The copy is deleted, the route is
+  the one source, and `installseen` gates both that no second copy returns and
+  that the served orientation is `any`.
 
 ---
 
