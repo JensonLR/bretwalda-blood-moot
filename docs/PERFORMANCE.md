@@ -395,10 +395,34 @@ And two candidate causes are dead, so nobody spends them again:
   `MediaRecorder` so `canRecord` is false made the worst frame **671 ms against
   376 ms with it on** — the opposite of the prediction.
 
-It also barely scales with the cast: two men 402 ms, eight men 466 ms. So it is
-a fixed one-off, tier-gated somewhere above `low`, and still unattributed — but
-it is a 0.4 s hitch at a scene change, not a freeze, and it should be priced
-accordingly.
+* **NOT depth of field**, which was the next candidate because `depthOfField` is
+  true on `high` and false on `medium` and `low` — the same tier line the hitch
+  follows — and `BokehPass` draws the whole scene again through an
+  `overrideMaterial`, which would compile a depth program per material the first
+  time it runs. Measured: **`high` 348 ms, `medium` 318 ms.** Thirty
+  milliseconds. Not it.
+
+It also barely scales with the cast: two men 402 ms, eight men 466 ms.
+
+**AND IT IS NOW LOCATED, which is most of the next round's work done.** Marking
+the frame index of `match_end` and of the summary's own mount against the frame
+the hitch lands on:
+
+    match_end seen        frame 466
+    THE HITCH             frame 704   <- 305 ms
+    summary mounted       frame 714
+
+Two hundred and thirty-eight frames after the verdict and **ten frames before
+the summary mounts**. The match-end replay holds 240 frames (`replaytest` §4),
+so the hitch is not in the replay and not in the summary: it is the HANDOVER
+between them — the frame where the replay ends and the victory tableau is
+staged. `render/summary.ts` is where that happens, and it is where the next
+round should point its profile.
+
+So: a fixed ~0.3–0.4 s stutter at the replay→tableau handover, on `medium` and
+`high`, barely scaling with the cast, not shader compilation, not the clip
+recorder and not DoF. A stutter at a scene change, not a freeze, and it should
+be priced accordingly.
 
 **AND `fpstest`'s `worst` COLUMN SHOULD NOT BE READ AS A PLAYER-VISIBLE STALL**
 until somebody attributes it. Its p50/p95/p99 rows agree with an independent

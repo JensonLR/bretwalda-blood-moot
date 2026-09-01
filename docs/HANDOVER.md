@@ -244,9 +244,14 @@ not exist this morning.
   Two candidates are dead and named in `docs/PERFORMANCE.md` so nobody spends
   them again — it is NOT shader compilation (14 ms of blocking link queries in a
   whole session) and NOT the clip recorder (removing `MediaRecorder` made the
-  worst frame WORSE, 671 vs 376 ms). What is left is a fixed ~0.4 s hitch at the
-  transition, tier-gated above `low`, barely scaling with the cast — a stutter
-  at a scene change, not a freeze. **Do not read `fpstest`'s `worst` column as a
+  worst frame WORSE, 671 vs 376 ms). **Three candidates are dead** — not shader
+  compilation, not the clip recorder, and not DoF (`high` 348 ms vs `medium`
+  318 ms, and DoF is the thing that differs between them). **And it is LOCATED:**
+  match_end at frame 466, the hitch at frame 704, the summary mounting at frame
+  714 — the replay holds 240 frames, so the hitch is neither in the replay nor
+  in the summary but in the HANDOVER between them, where the victory tableau is
+  staged. `render/summary.ts` is where the next round should point its profile.
+  A fixed ~0.3–0.4 s stutter at a scene change, on `medium` and `high`. **Do not read `fpstest`'s `worst` column as a
   player-visible stall**; its p50/p95/p99 agree with an independent measurement
   and its `worst` is out by an order of magnitude.
 
