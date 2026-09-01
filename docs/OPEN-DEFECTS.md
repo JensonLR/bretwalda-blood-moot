@@ -3407,6 +3407,56 @@ may be performing, on either route.
 
 ## OPEN — the beards are flat sheets, and the hood swallows a mane
 
+> **HALF CLOSED, AND THE OTHER HALF IS NOW A MEASUREMENT RATHER THAN A
+> COMPLAINT — 1 Sep 2026.**
+>
+> **THE HOOD IS FIXED.** `hoodHemY` exists at `characters.ts` and `hairFall`
+> returns 1 under a hood where it returned 0; `hoodfall` produces a clean sheet
+> with all 120 paid pairs distinct.
+>
+> **THE FLAT SHEET IS REAL AND IT IS A PROFILE DEFECT.** At three-quarter every
+> beard reads correctly — `art/shots/beards/cards/beards-3._Full_Beard_40g_3_4.png`
+> is a beard with volume, a moustache and a jawline. Edge-on it is a blade
+> hanging off a bare chin (`..._profile.png`), which is the owner's *"really
+> sharp & thin / folded in areas ... or just a hole in it"* exactly. The 120g
+> Ringed Braid is the same. Nothing in the shipped gates can see it: `wearmeasure`
+> §7 asks for one connected component and 2 mm of clearance, both of which a
+> sheet satisfies perfectly.
+>
+> **THE LEVER IS `skin`, AND FOUR OTHERS ARE INERT.** `skin` is how far the face
+> leg stands off the skin — the beard's depth — and the full beard's is 19 mm,
+> which is a shave. At **32 mm the profile reads as a beard**
+> (`art/shots/bd-skin/facecard-beardbeard_full-turn-90.png` against
+> `art/shots/beards/cards/beards-3._Full_Beard_40g_profile.png`) and three-quarter
+> does not become a bush (`art/shots/bd-skin-q/`). The four that do nothing,
+> measured, so nobody spends them again:
+> * `cut.mass` carried from 0.90 rad out to 1.16 — it is applied in the FALL
+>   branch alone, below the jawline, so it cannot reach the face.
+> * the `side` thinning's strength.
+> * a height-weighted `side` (thin the cheek, keep the jaw) — right in principle
+>   and invisible at 19 mm of depth.
+> * `uEdge` 1.20 -> 1.45. The beard's azimuth was never what was missing.
+>
+> **WHAT BLOCKS IT, NAMED.** `beardShell` is handed a SKULL and nothing else, so
+> a beard is built in complete ignorance of what the man is wearing — hair has
+> `hairCeil` reading the whole head stack and the beard has no equivalent. At
+> 19 mm that was survivable because the Wyrm's guard covered the jaw. It stops
+> being survivable now that the guard has been walked back to free the face
+> (5.16): at 32 mm, helmclash §5 goes red on **five Wyrm rungs, `hair=shaved`
+> among them**, at 3.1-3.7% of beard 9-17 mm outside the plate at az 52 deg,
+> which is the guard's own new leading edge.
+>
+> A ceiling was built and it is necessary but NOT sufficient, and the numbers are
+> the useful part. Clamping the face leg alone: 3.06% -> 2.06% — two thirds of
+> the breach is the hanging mass, whose standoff is `o` and not `lift`. Clamping
+> the fall as well: 2.49%. Subtracting the skin's proudness the way the hair's
+> own cheek liner does: 2.39%, against a 2.0% bar, **and the total red-row count
+> rises from 5 to 8**. So the next attempt needs the beard fitted against the
+> guard's real surface rather than against an analytic hem, and it should be
+> judged on `cosmetictest` as well as helmclash — a beard crushed to fit is the
+> same failure as a hairstyle deleted to fit, and §5 cannot see either.
+
+
 Reported 2026-08-08 with four screenshots: *"all beards have a similar defect &
 issue where it looks to be really sharp & thin / folded in areas, overlapping
 into the neck or just a hole in it ... the design & display of the beards is
@@ -3635,6 +3685,18 @@ decides. Deferrals now ride on the verdict line in both places they were found.
 ---
 
 ## OPEN — the Wyrm's DEEP cheek guard takes half the face at three-quarter
+
+> **CLOSED 31 Aug 2026 at `cheekIn` 0.85.** `cheekHemAt` and `deepTop` normalised
+> their ramp over the guard's OWN span, so `cheekIn` was never the edge control
+> it reads as — narrowing the span dropped the hem 0.117 rad at 1.12 rad, onto
+> the berserker's war-locks, which is the whole of the 19.7 mm that got the first
+> attempt reverted as "plate and hair competing for the same arc". They were not
+> competing; one constant was moving two things. Ramp anchored to the arc it was
+> tuned on (a no-op on the shipped build by construction), and the face goes
+> **23.4/50.5/53.1% taken -> 4.6/22.4/24.3%, spread 29.7 -> 19.7**, with hair at
+> 0.0 mm through on every helm x hair x class x seed and helmclash §5's red-row
+> set byte-identical to shipped. `art/look/wyrm-before.png` / `wyrm-after.png`.
+
 
 `npm run facecover` measures, per bearing, how much lens-facing face skin the
 helm takes — the head rendered twice, bare and helmed, differenced. Face means
