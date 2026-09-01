@@ -148,3 +148,16 @@ art/marks/
 .scoretest/
 .armshot/
 .profiletest-db/
+.gradesplit/
+art/grade/
+
+# THE DESKTOP BUILD's generated parts (PLATFORM-PATH §8). The icons are FORGED
+# from `public/icon-512.png` by `tauri icon`, which is the same one mark the PWA
+# shell ships — committing the twenty-odd derived files would be a second copy
+# free to go stale behind the first, which is the drift `tools/mkicon.mjs`
+# exists to prevent. `.github/workflows/desktop.yml` regenerates them on every
+# run and so does a local build; `desktop/dist` is the empty frontend directory
+# the bundler insists on for a thin client that loads the live deployment.
+desktop/src-tauri/icons/
+desktop/src-tauri/target/
+desktop/dist/

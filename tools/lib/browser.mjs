@@ -85,6 +85,28 @@ export function launchOptions(extraArgs = []) {
 export const launchBrowser = (extraArgs = []) => chromium.launch(launchOptions(extraArgs));
 
 /**
+ * AND THERE IS A SECOND REASON, WHICH IS NOT SPEED AND COST A RUN TO FIND.
+ *
+ * The software arm prefers the container's `/opt/pw-browsers/chromium`, which is
+ * a FULL browser. A dev machine that runs `npx playwright install chromium`
+ * gets the headless SHELL instead — and the shell has no real pointer-lock
+ * implementation. `tools/playtest.mjs` has three claims about the mouse turning
+ * the camera; on the shell all three go red with
+ *
+ *     WrongDocumentError: The root document of this element is not valid for
+ *     pointer lock
+ *
+ * and the suite reads 35/38 against a 38/38 baseline. Nothing is wrong with the
+ * game. Measured on this Mac, same tree, same commit: shell 35/38, full browser
+ * 38/38. The GPU arm asks for `channel: "chromium"`, so it is also the arm that
+ * has pointer lock — which is why `BRETWALDA_GPU=1` is the right flag for
+ * playtest on a workstation even though the suite is not remotely GPU-bound.
+ *
+ * If a browser suite goes red on claims about INPUT rather than about pixels,
+ * check which binary you are on before you check the diff.
+ */
+
+/**
  * What a tool must print beside its verdict, so a reading can never be compared
  * against a ledger taken on the other rasteriser without somebody noticing.
  */

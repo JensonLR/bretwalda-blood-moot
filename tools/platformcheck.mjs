@@ -97,6 +97,12 @@ console.log("[platform] the dual-platform laws, held mechanically\n");
     "src/game/firstmoot.mjs",      // takes a store; browserStore lives client-side
     "src/game/client/GameHud.tsx", // browserStore(FIRST_MOOT_KEY) + graphics pad prefs
     "src/game/client/factionMap/Dispatch.tsx", // the watermark store (documented)
+    // The install invitation's one key: has this device been asked, and what
+    // did it answer. A NEW SEAM, added here on purpose (1 Sep 2026) rather than
+    // discovered in a component later. A Steam or console wrapper is already
+    // installed by definition, so the seam answers "nothing to offer" there —
+    // which is the swap this law exists to keep to an afternoon.
+    "src/game/client/install.ts",
   ]);
   const files = walk(resolve(ROOT, "src"), [".ts", ".tsx"]);
   const offenders = [];
@@ -129,7 +135,25 @@ console.log("[platform] the dual-platform laws, held mechanically\n");
   const offenders = [];
   for (const f of files) {
     const stripped = read(f).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "");
-    if (/\b(?:window\.)?(alert|confirm|prompt)\s*\(/.test(stripped)) offenders.push(rel(f));
+    // THE THREE GLOBALS, AND ONLY THOSE. This used to be
+    // `\b(?:window\.)?(alert|confirm|prompt)\s*\(`, and `\b` matches straight
+    // after a dot — so it convicted ANY object with a method of one of those
+    // three names. The first one that existed was the install invitation's
+    // `beforeinstallprompt` handle (`e.prompt()`, client/install.ts), which is
+    // the browser's own install dialog and is the OPPOSITE of what this law
+    // forbids: it does not exist in a webview or on a console, so the seam
+    // simply has nothing to offer there and the UI never renders. What the law
+    // is about is the three BLOCKING globals, which hang or vanish. So: a bare
+    // call, or one explicitly on `window`, and not a method on anything else.
+    // ...and a CALL, not a type SIGNATURE. `prompt(): Promise<void>` inside an
+    // interface is a declaration of the DOM event's own method, and it reads to
+    // a naive regex exactly like a bare call to the global. A signature is the
+    // one form whose `(` is closed immediately and followed by a return-type
+    // colon, so that is the shape the lookahead excludes — a real zero-argument
+    // call is `confirm();` and is still caught.
+    if (/(?:\bwindow\s*\.\s*(?:alert|confirm|prompt)\s*\()|(?:(?<![.\w$])(?:alert|confirm|prompt)\s*\((?!\)\s*:))/.test(stripped)) {
+      offenders.push(rel(f));
+    }
   }
   check("no alert/confirm/prompt anywhere in the client",
     offenders.length === 0, offenders.slice(0, 4).join("; ") || "dialogs are the game's own");

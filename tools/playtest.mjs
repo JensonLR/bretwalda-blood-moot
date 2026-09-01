@@ -13,6 +13,7 @@
 // Exits non-zero if any control fails to produce its effect.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, rasteriserNote } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -665,11 +666,12 @@ async function main() {
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
   const preinstalled = "/opt/pw-browsers/chromium";
-  const browser = await chromium.launch({
-    headless: !HEADED,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
-  });
+  // See tools/lib/browser.mjs. Software by default — this suite's 38/38 baseline
+  // was taken that way — and `BRETWALDA_GPU=1` swaps in the FULL browser, which
+  // matters here for more than speed: the headless SHELL ships without a real
+  // pointer-lock implementation, and three of this file's claims are about the
+  // mouse turning the camera.
+  const browser = await chromium.launch({ headless: !HEADED, ...launchOptions() });
   // `--w`/`--h` for the desktop-width matrix — a laptop at 1024, a monitor at
   // 1920 — for the same reason touchtest grew them: a gate that only ever
   // measures one window certifies one window.

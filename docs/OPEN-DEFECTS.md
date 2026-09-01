@@ -136,6 +136,38 @@ its readings before spending a materials pass on it. `§1.2` and `§1.3` are
 **Not a look retune.** Nothing was tuned to taste: `saturation`, `chromaMid`,
 `chromaTilt`, `chromaOpponent`, the split and the meter are all untouched.
 
+### THE GATE WALK, AND THE HONEST HALF OF IT — `factionread` 27/34, 828 s
+
+Against the clocked baseline in this file (22 Aug, 25/33, 8704 s). §0–§5 are
+albedo-only and **cannot** have moved — a grade change is invisible to them, and
+they did not move. §6 and §7 are the lit sections and are the comparison:
+
+| | 22 Aug baseline | this tree |
+|---|---|---|
+| 7.1 whole man | FAIL — 32/120 frames over floor, worst **+12.956** | FAIL — 34/120, worst **+2.754** |
+| 7.1b per surface | FAIL — **170** readings over floor, worst **+29.83** | FAIL — **108**, worst **+13.51** |
+| 7.1c value on the arc | FAIL — **163** readings lifted, worst +30.0 L\* | FAIL — **110**, worst +31.5 L\* |
+| 6.1 clip | PASS | PASS — worst livery 2.19% under a 5.67% bar |
+| 6.0c staged | **FAIL — 3 of 126 wore a different dress** | **PASS — 126 captures, one dress** |
+
+**The worst rose reading fell 4.7x on the identical loadout** (norse/huscarl/Sea
+Queen's Gift@160°, which led both tables), per-surface readings by 36% and the
+worst per-surface by 55%.
+
+**AND §7.1 STILL FAILS, WHICH THIS ENTRY IS NOT ALLOWED TO ROUND OFF.** 34 of
+120 frames are still over their own matched unsworn floor. `docs/GATES.md`: *"a
+red gate with a written defect behind it is the correct state"* — this is that
+state, and what it is red about is a fifth of what it was red about. The owner's
+reported defect (a Viking in dusty pink, a magenta board) is gone from the
+captures; the gate's residue is not, and 7.1c's worst reading is fractionally
+UP even as its count fell by a third. A later round owns that, on this
+instrument, and should start from `tools/gradesplit.mjs` rather than from a vat.
+
+**§1.2 and §1.3 are not this unit's** and did not move for it: they are albedo,
+and their numbers here (ΔC 7.44, −119.64°) differ from row 9's (6.59, −35.65°)
+because the materials and the cross-product changed between 20 Aug and now, not
+because of anything in the grade.
+
 ---
 
 ## THE WINTER CAMP SHIPS — the fourth ground, and the salmon was never the albedo — 24 Aug 2026

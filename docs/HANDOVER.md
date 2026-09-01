@@ -1,8 +1,7 @@
 # SESSION HANDOVER — Bretwalda: Blood Moot
 
-Written 27 Aug 2026 at a context boundary. A fresh session should be able to
-continue from this file alone. Read it, then `docs/BACKLOG.md` (waves 7–8),
-`docs/OPEN-DEFECTS.md`, and `docs/ARMOURY-REVIEW-PLAN.md` for depth.
+Rewritten 1 Sep 2026, on a Mac with a GPU and network. Read this, then
+`docs/BACKLOG.md`, `docs/OPEN-DEFECTS.md`, `docs/ARMOURY-REVIEW-PLAN.md`.
 
 ## Standing instructions (the owner's, every session)
 
@@ -13,8 +12,7 @@ continue from this file alone. Read it, then `docs/BACKLOG.md` (waves 7–8),
 - **Anglo-Saxon theming, never generic medieval fantasy.** Devices sourced to
   a real find or labelled an invention (`docs/FACTIONS.md` §9).
 - **Merge to main** (Render deploys main) — explicitly authorized. **Push
-  after every commit** — container rollbacks have destroyed unpushed work
-  repeatedly (twice more this session; push-discipline saved everything).
+  after every commit.**
 - **Full autonomy; don't stop until everything is complete & merged.**
 - **SECURITY (verbatim, preserve):** Database connection strings are
   credentials — never commit them, never put them in `drizzle.config.json`,
@@ -25,253 +23,158 @@ continue from this file alone. Read it, then `docs/BACKLOG.md` (waves 7–8),
   un-expose one, which is why rotation was the remedy. What remains of 6.4 is
   deleting the old Render Postgres, and that waits on the hosting move.
 
-## The owner's rulings, 1 Sep 2026 — these SUPERSEDE what is written elsewhere
+## The owner's rulings — these SUPERSEDE what is written elsewhere
 
-1. **Alpha profiles are disposable.** *"any profiles will be fine to be lost,
-   everyone understands this is just an alpha test on Render's hosting."* So the
-   ninety-day Render Postgres clock is NOT urgent and the hosting move is
-   deprioritised. No dump, no restore. `fly.toml` is written and ready in the
-   repo root for whenever it is wanted; `README-deploy.md` Option A has the
-   five commands.
-2. **The destination is DOWNLOADABLE — Steam, and the iOS and Android stores.**
-   *"Final solution I'd want to have as a downloadable game on steam &
-   ios/android stores."*
+1. **Alpha profiles are disposable** (1 Sep). *"any profiles will be fine to be
+   lost, everyone understands this is just an alpha test on Render's hosting."*
+   The ninety-day Render Postgres clock is NOT urgent; the hosting move is
+   deprioritised. `fly.toml` is ready in the repo root; `README-deploy.md`
+   Option A has the five commands.
+2. **The destination is DOWNLOADABLE — Steam, and the iOS and Android stores**
+   (1 Sep). *"Final solution I'd want to have as a downloadable game on steam &
+   ios/android stores."* **This overrules `docs/MONETISATION.md`**, which argues
+   "PWA, not app stores" on the 30% cut, the review queue, and this game's
+   discovery being a group chat. That reasoning is not wrong — it is OVERRULED,
+   and whoever edits that file next should say so there rather than delete it.
+   iOS and Android stores are **not scoped anywhere yet**: a Capacitor-style
+   wrapper, $99/yr Apple, $25 once Google, and a review queue. A new wave.
+3. **The industrial beeping** (1 Sep). *"there is an awful sound playing randomly
+   during matches that is really bad & awful playing experience sounds like an
+   industrial beeping."* FIXED — see below.
 
-   **THIS CONTRADICTS A RECORDED DECISION AND THE OWNER'S RULING WINS, but the
-   contradiction must not be silently buried.** `docs/MONETISATION.md` argues
-   "PWA, not app stores" on three grounds: the 30% cut, a review queue on every
-   update, and that this game's real discovery is a group chat rather than store
-   search. That reasoning is not wrong — it is now OVERRULED, and whoever edits
-   that file next should say so there rather than delete the argument.
+## READ THIS BEFORE YOU PLAN ANYTHING — the board was badly stale
 
-   What it changes in practice:
-   - **Steam** is already scaffolded and its blocker is named: backlog 7.2 says
-     the Tauri build *"deliberately did NOT land from this container (cannot be
-     compiled or judged here) ... it is §7 step 6, on a machine that can run
-     it."* A Mac is that machine.
-   - **iOS and Android stores are NOT planned anywhere yet.** A PWA does not
-     get you into them. That wants a Capacitor (or equivalent) wrapper, an
-     Apple developer account at $99/yr, a Google Play account at $25 once, and
-     a review queue. Nobody has scoped it. It is a new wave, not a checkbox.
-   - **PWA is still worth building** and is not wasted: it is the cheapest
-     retention win on the board, it ships today with no review queue, and the
-     same service worker and manifest are what a Capacitor shell wraps.
+The previous handover's "remaining board" was wrong in five places, and four of
+them said NOT STARTED about work that had SHIPPED. Every one was verifiable
+against the tree in under a minute. **Verify a row before working it; this is
+now the single most expensive defect in these ledgers.** Corrected in
+`docs/BACKLOG.md` in place, with the correction marked:
 
-## Branch topology
+| row | said | actually |
+|---|---|---|
+| **Wave E — the second ground** | *NOT STARTED... the biggest visible change per hour* | **DONE 24 Aug.** Its own postscript says so; only the heading was stale. **FIVE grounds ship** — `saxon_village`, `pict_moor` (which IS "cold, open, sky-lit"), `roman_fort`, `danelaw_camp`, `offa_dyke`. |
+| **Rating** | *NOT STARTED — no `rating`/`elo` column* | **ANSWERED by 4.6, 24 Aug, deliberately:** *"the rating IS season points — a second rating would be a second truth."* There is no column BY DECISION. Adding one undoes a ruling. |
+| **Hearths** | *NOT STARTED — no table, no reference* | **DONE 24 Aug** (row 4.4). `src/db/hearths.ts`, warsay 44/44. |
+| **PWA** | *NOT STARTED — no manifest, no service worker* | **Shell DONE 27 Aug** (row 8.9): `app/manifest.ts`, `public/manifest.webmanifest`, `public/sw.js`, forged icons. Only the EARNED prompt was missing — built this session. |
+| **The grade's cause** | `adaptBand` / the metered response | **Wrong stage.** Contrast has been luma-preserving since 22 Aug and removing the meter moves the board's hue the WRONG WAY. It was the anisotropic chroma skew. |
 
-Work on local `helm-land`. Push after every commit to all three:
-`helm-land:main` (deploys), `helm-land:claude/bretwalda-bloot-moot-aaa-9th390`
-(designated), `helm-land:helm-land`. On a container rollback:
-`git reset --hard origin/main` and rebuild — origin holds everything.
+## Landed this session
 
-## State at handover
+- **THE BEEP.** `score.ts`'s lyre is a Karplus-Strong string and `damp.Q` was
+  never set, so it took Web Audio's default of 1 — which for a `lowpass` is
+  **+1 dB of resonance**, not a flat response. Loop gain 0.965 x 1.2533 =
+  **1.2095**: it oscillated. Rendered offline, one note peaked at **19,080**
+  (86 dB over full scale) and was heard at 1290 Hz where 294 Hz was written.
+  Fired every 6-20 s of every fight and at every match end. Fixed with Q at
+  -3 dB (flat, peak 1.0) and feedback 0.94. A second defect fell out of it: a
+  DelayNode in a cycle is clamped to one render quantum, so every note above
+  ~375 Hz — the whole small-speaker range — played at the same wrong pitch.
+  **`scoretest` 16/16 -> 19/19**: it was green because every claim in it was
+  about the PLAN and the defect was in the BINDING.
+- **THE GRADE.** Four OPEN defects, one cause, and it was one line:
+  `offset += (offset - along) * uChromaOpponent` lengthens the chroma AND TURNS
+  IT. Board hue 12.4° against a pigment of 26.5°; with that line a scale rather
+  than a skew, 33.8°. `GAMUT_KEEP` is the other half — the guard used to land
+  the weakest channel on exactly zero. Dead-channel pixels over 20 frames:
+  **1668 -> 0**. `factionread` **27/34** (baseline 27/34); §7.1's worst rose
+  reading **+12.956 -> +2.754**, a 4.7x fall on the identical loadout.
+  **§7.1 still FAILS** and the entry says so.
+- **THE INSTRUMENTS.** `?grade=` — a capture-only door in `postfx.ts`, honoured
+  on `/shot` only — and `tools/gradesplit.mjs`, which photographs one man with
+  one stage of the grade removed and prints HUE DRIFT off his own pigment.
+- **THE GPU.** `tools/lib/browser.mjs` puts the rasteriser in one place.
+  `BRETWALDA_GPU=1` opts in; **software stays the default**. `factionread` went
+  **8704 s -> 828 s**. The board's mean is identical to the byte across the two;
+  a THRESHOLD COUNT is only comparable within one rasteriser.
+- **THE EARNED INSTALL PROMPT** (`client/install.ts` + `InstallInvite`): after a
+  won match and never at first load, one ask ever, with an iOS arm because
+  Safari has no `beforeinstallprompt` and never will. New storage seam,
+  registered in `platformcheck`.
+- **`platformcheck` law 4 was imprecise** — `\b(?:window\.)?(alert|confirm|prompt)\(`
+  matches after a dot, so it convicted any object with a method of that name.
+  Tightened to the three globals, and proven to still convict a real offender.
 
-**Main is current through the 7.9a clips half** — the gating browser pair
-came back green (playtest 38/38, touchtest 32/32) at the very end of the old
-session and everything was merged. Main, the designated branch and
-helm-land are identical at handover.
+## The board, verified against the tree on 1 Sep
 
-## Landed this session (all merged, all gated)
+### 1. What is genuinely open and worth doing next
 
-- **5.5 marks** (earned-only per ruling) + the **save-wipe** and
-  **paid-weapon-finish** defects found under it, fixed and measured.
-- **7.1** heavy rebalanced to 30 stamina, chain multiplier drawn; classmatrix
-  6/6 in band.
-- **Owner's screenshot round**: floating cloak clasp reseated on the cloth
-  itself (all four cuts), shield rim crescents boarded, cape rear gathered,
-  victory-screen volume toggle moved, oath mirror rebuild gate fixed
-  (`sameAppearance` never learned weapon/people — third comparator defect).
-- **8.5** First Moot staged: empty ring, foe walks in at STRIKE (`add_bot`
-  mid-match spawns lawfully via `dealLateSpawn`), pips + LEARNED flash.
-- **8.8** react-doctor: enforced eslint gate 0/0; the capture-harness saga
-  (three instruments, one ordering law) ledgered in OPEN-DEFECTS — /shot's
-  framing globals now write in the lazy initializer BEFORE any child mounts.
-- **cosmetictest hardened**: pins `quality=high` (the instrument was demoting
-  itself), keeps every capture PNG in `.cosmetictest/caps/`.
-- **7.5 banners**: §9-sourced devices planted on all five grounds
-  (`banners.ts`); the Dyke flies both sides; village palisade banners carry
-  the holder's device.
-- **8.6** boundary audit: all five grounds have diegetic edges — closed.
-- **8.4** menu sweep: two corner collisions fixed (armoury sticky label,
-  lobby invite measure); capture-timing artifacts documented.
-- **7.8 forged score** (`score.ts` + `scoretest` 16/16): drone/war-drum/lyre
-  in D dorian pentatonic, scene-driven, drone runs only while audible
-  (soundtest 46/46 restored after the node-budget lesson).
-- **7.6**: `seasonName()` twelve-name cycle on the war map (warsay 52/52);
-  Roll of Honour chips — DEEDS (banner + THIS WEEK filters) and lifetime
-  WINS/KILLS/HONOUR boards (`statRoll`).
-- **7.2 Steam scaffold**: `tools/platformcheck.mjs` (6/6) holds the
-  dual-platform laws mechanically; `steam_id` column + unique index land via
-  `ensureSchema`; door design in `docs/PLATFORM-PATH.md` §8. The Tauri build
-  deliberately does NOT land from a container that can't judge it.
-- **7.4 The Burh** (`burhtest` 19/19): 1–4 defenders vs waves of the here;
-  mode string finally validated; waves via `dealLateSpawn`; fallen rise at
-  62%; wave on every snapshot and the verdict; HUD + summary surfaces.
-- **7.9a clips**: kill replay records itself to WebM through the deathcam
-  lens; SAVE THE CLIP on the summary; feature-detected, low-tier policy with
-  `__forceClip` harness door; `clipseen` PASS (36,829 bytes vp9). **On work
-  branches, merge gated as above.**
-
-## The remaining board (in order) — rebuilt 1 Sep 2026 off the ledgers
-
-**74 of 87 numbered backlog rows are closed.** What is left:
-
-### 1. THE GRADE — four open defects with ONE cause. Start here.
-
-`docs/OPEN-DEFECTS.md` carries five open sections. **Four of them are the same
-bug and nobody has framed it that way**, which is why three separate attempts
-have each fixed a symptom:
-
-- the Danelaw's shield board renders `#a7043d` hot magenta where the material
-  is `--garnet` (`#7c1420`) exactly;
-- the Danelaw reads ROSE at the sleeves and the byrnie (reopened — it was once
-  closed without a capture);
-- the Danelaw's rose §1, cause proven and not fixed;
-- the brightness ceiling bounds ONE channel and not the distance between three,
-  and the Saxon's leg wraps are where it shows.
-
-The common cause is already written down in the shield-board entry and it is
-not the albedo: **`adaptBand` in `postfx.ts` meters each frame and stretches
-contrast about that frame's own pivot, and `--garnet` is the most saturated dark
-colour in the game — 1.84 points of chroma per point of value — so it has the
-least headroom, and green is the channel with the least of it.** The albedo is
-correct at every stage this repo owns; the shift happens downstream of all of
-them.
-
-**Judge it on captures with the grade ON and OFF, not on the material.** The
-fifth open section (the nape-guard flare, round three) is unrelated geometry and
-should not be bundled in.
-
-### 2. THE SECOND GROUND — Wave E. Unblocked, cheap, biggest visible change.
-
-*NOT STARTED, but NOT BLOCKED.* The seam exists; `GROUND_BY_TERRITORY` and
-`groundForTerritory` are the resolver every later ground rides, and Offa's Dyke
-proved it. `docs/MAPS.md` designed three and one exists. Build **map two: cold,
-open, sky-lit** — a tidal flat, a frozen fen, a moor under low cloud.
-
-### 3. RATING, then PWA. Both touch the profile that already exists.
-
-- **Rating** — no `rating`/`elo` column and no reference in `src/`. Cheap: the
-  DB exists, `matchHistory` already stores results, and the summary screen
-  already has somewhere to put it.
-- **PWA** — no manifest, no service worker. The install prompt is **earned**:
-  never at first load, after a won match. See the ruling above on why this is
-  still worth doing even though the destination is now the app stores.
-
-### 4. Also unstarted, in rough order of value per hour
-
-- **Splintering shields** — blocks are already typed on the wire
-  (`blocked` / `blocked_heavy`); a shield that visibly wears and finally bursts
-  turns turtling into a decision. All procedural, inside the existing hit pipe.
-- **Taking a dead man's weapon** — `grep -rin pickup src/` is empty. The corpse
-  persists and the sim knows what he carried.
-- **Hearths** (clans) — first cut is a name, a member list, a tag by your name
-  in the kill feed. Not territory, not chat, not war declarations.
-- **A3: the ten helm bowls and §5's reprice** — several waves, untouched.
-- **Flags** — constrained presets, not free-drawn; that is a moderation
+- **The Tauri build for Steam (7.2).** The scaffold, the CI workflow
+  (`.github/workflows/desktop.yml`) and `platformcheck` all exist; **no tag has
+  ever fired and the build has never been judged**. Rust is now installed on
+  this Mac. This is the Steam path.
+- **`factionread` §7.1's residue.** A fifth of what it was, still red. Start
+  from `tools/gradesplit.mjs`, not from a vat.
+- **Splintering shields.** *NOT STARTED, verified* — `vfx.ts` has a splinter
+  particle and nothing else. Blocks are already typed on the wire.
+- **Taking a dead man's weapon.** *NOT STARTED, verified* — `grep -rin pickup
+  src/` is empty.
+- **A3: the ten helm bowls and §5's reprice.** *NOT STARTED, and that row is
+  honest* — it re-verified itself against `characters.ts:191-285`.
+- **Flags.** *NOT STARTED, verified.* Constrained presets, a moderation
   decision as much as an art one.
+- **Wave D, draw calls.** Was blocked on "get the matrix onto hardware with a
+  GPU". That block is gone.
 
-### 5. Carrying a measured blocker, do not restart from zero
+### 2. Carrying a measured blocker — do not restart from zero
 
 - **The beards read as a blade in profile.** Lever FOUND: `skin` is the depth
-  the face leg stands off the face, and 19 mm is a shave — 32 mm reads as a
-  beard at profile without becoming a bush at three-quarter, captures in the
-  ledger. **Blocked because `beardShell` is handed a skull and nothing else** —
-  hair has `hairCeil` reading the whole head stack and the beard has no
-  equivalent. A ceiling was built and is necessary but not sufficient; the
-  numbers are in `docs/OPEN-DEFECTS.md`. Four other levers measured INERT and
-  are named there so nobody spends them again.
-- **The helmet flank gap (5.15)** is CLOSED BY RULING, not by a fix: closing it
-  costs 89% of the Braided War-locks' silhouette, and the owner chose the paid
-  hair. Reopen only with a plan that re-roots the braids off that arc.
+  the face leg stands off the face; 19 mm is a shave, 32 mm reads as a beard.
+  **Blocked because `beardShell` is handed a skull and nothing else** — hair has
+  `hairCeil` reading the whole head stack and the beard has no equivalent. Four
+  other levers measured INERT and are named in `docs/OPEN-DEFECTS.md`.
+- **The helmet flank gap (5.15) is CLOSED BY RULING**, not by a fix: closing it
+  costs 89% of the Braided War-locks' silhouette and the owner chose the hair.
 
-## WHAT ONLY A LOCAL MACHINE CAN DO — read this before choosing where to run
+## The gate battery (run what the diff touches)
 
-Three items on this board are blocked on hardware this cloud container does not
-have, and a Mac closes all three:
+tsc --noEmit · npm run lint (0/0) · npm run build · **scoretest 19/19** ·
+**platformcheck 6/6** · playtest 38/38 (x3 widths for layout work) ·
+cosmetictest (full render) · wearmeasure · helmclash (COMPARES ITS OWN
+BASELINE — exits 1 when a section gets worse) · warsay 52/52 · wartest 82/82 ·
+protocoltest 81/81 · solidtest 12/12 · touchtest 32/32 · moottest 25/25 ·
+marktest 25/25 · burhtest 19/19 · clipseen PASS · soundtest 46/46 ·
+goretest 36/36 · locktest 6/6 · weightprobe 24/24 · profiletest 22/0
+(degraded; no DB here by the credentials rule) · classmatrix (~3 min, balance
+only) · fighttest 23/23 · benchtest 23/23 · rejointest 12/12 ·
+tourneytest 38/38 · armsprobe 16/16 · bottest 11/11 · **factionread 27/34 —
+NOT green and not expected to be**; §7.1 has a written defect behind it.
 
-1. **The Tauri build (Steam).** Backlog 7.2, verbatim: the build *"deliberately
-   did NOT land from this container (cannot be compiled or judged here — the
-   'asserted, never judged' trap); it is §7 step 6, on a machine that can run
-   it."* This is the whole Steam path and it is waiting on exactly that.
-2. **Wave D, draw calls and allocation.** Blocked on Wave C, whose remaining
-   half is *"get the matrix onto hardware with a GPU"*. This box has none — it
-   rasterises through SwiftShader, one frame takes seconds, and `fpstest`'s
-   ablation now REFUSES to rank because of it (2-11 frames a row, and a
-   -4660 ms "cost" that is the noise floor in the ranking's own units).
-3. **Honest performance numbers at all.** Every fps figure measured here is
-   SwiftShader's fill rate and says nothing about a phone.
-
-And two things simply get faster: the browser suites (`cosmetictest` takes ~22
-minutes here and would be minutes on a GPU), and network-dependent work — every
-Neon host, including `mcp.neon.tech`, is refused by this container's egress
-policy with a 403 to CONNECT, and Postgres on 5432 times out with no route.
-
-## The gate battery (run what the diff touches; all green at handover)
-
-tsc --noEmit · npm run lint (0/0) · npm run build · wearmeasure (all
-sections; standing 5-window deferral) · cosmetictest (full render; PASS) ·
-helmclash (THE TOOL COMPARES ITS OWN BASELINE SINCE 31 Aug — it exits 1 when a
-section gets worse and prints what to tighten when one gets better; the counts
-below are kept as the human-readable copy only) (LAYERS 19/FLESH 24/WRAP 6/CREST 8/PELT 73 (tightened 31 Aug)/
-SEAM 13 — never vs zero) · warsay 52/52 · wartest 82/82 · protocoltest 81/81
-· solidtest 12/12 (standing deferral) · playtest 38/38 (×3 widths for layout
-work) · touchtest 32/32 (×4 shapes; tablet's "lock holds facing" claim
-flickers ONLY with self-reported multi-second stalls — re-measure on quiet
-hardware before believing a red) · moottest 25/25 · marktest 25/25 ·
-scoretest 16/16 · burhtest 19/19 · platformcheck 6/6 · clipseen PASS ·
-soundtest 46/46 · goretest 36/36 · locktest 6/6 · weightprobe 24/24 ·
-profiletest 22/0 (degraded; no DB here by the credentials rule) ·
-classmatrix (~3 min, only for balance changes) · fighttest 23/23 ·
-benchtest 23/23 · rejointest 12/12 · tourneytest 38/38 · armsprobe 16/16
-· bottest 11/11 · benchseen/tourneyseen/armshot (browser probes) ·
-factionread — NOT green and not expected to be: 26/34 is the rose
-settlement's clocked baseline (see OPEN-DEFECTS), the walk costs ~101
-min, and node BLOCK-BUFFERS to pipes: `stdbuf -oL` into a file or the
-run is silent and looks hung. Two healthy runs were killed for that.
+**`BRETWALDA_GPU=1` works on `factionread`, `cosmetictest` and `vatprobe`.**
+The other 32 browser tools still hard-code SwiftShader; routing them through
+`tools/lib/browser.mjs` is a cheap, mechanical, large win.
 
 ## Hard-won laws (do not relearn these)
 
-- **Never run two heavy browser suites concurrently** on this box — capture
-  verdicts flicker (paint flat, locks stall). Serialize; re-run a red alone
-  before believing it.
-- **Look at the pictures.** Two full debugging days were lost to arguing
-  with numbers while the captures showed the wrong scene. cosmetictest keeps
-  its PNGs now; probes must view their own screenshots.
+- **A red on an INPUT claim is probably the wrong BROWSER BINARY.** `playtest`
+  reads **35/38** on Playwright's headless SHELL and **38/38** on the full
+  browser, same tree, same commit: the shell has no real pointer-lock, so its
+  three mouse-look claims fail with `WrongDocumentError`. The container had a
+  full browser at `/opt/pw-browsers/chromium`; a workstation running `npx
+  playwright install chromium` gets the shell. **On a workstation, run playtest
+  with `BRETWALDA_GPU=1`** — that arm asks for `channel: "chromium"`, which is
+  the one with pointer lock. Check the binary before you check the diff.
+- **Never run two heavy things concurrently.** Broken once this session, and
+  it produced a red playtest that vanished on a clean re-run. Serialize; re-run
+  a red alone before believing it.
+- **Never rebuild while a browser suite is running** — the suite is serving out
+  of `.next` and you have just replaced it under it. One factionread run was
+  thrown away for this.
+- **Look at the pictures.** Two full debugging days were once lost arguing with
+  numbers while the captures showed the wrong scene.
 - **A field added to `Appearance` must reach every comparator**: the
   CharacterPreview destructure, armouryStage `sameAppearance`, server
-  `SLOT_FIELD`, and `signatureOf` (note: signatureOf still omits
-  weapon/people — worth checking whether rig caching needs them).
-- **Child effects run before parent effects** — anything a canvas mount
-  reads from `window` must be written in a lazy initializer or before the
-  child renders, never in a parent effect.
-- **The engine stays headless** — platformcheck enforces it; `tuition.mjs`
-  is the one named storage seam in the sim.
-- Evidence dirs under `art/` are gitignored per-directory; ledgers point at
-  them. Scratch capture scripts live in the session scratchpad.
+  `SLOT_FIELD`, and `signatureOf`.
+- **Child effects run before parent effects** — anything a canvas mount reads
+  from `window` must be written in a lazy initializer.
+- **A client-only value belongs in `useSyncExternalStore`**, not in an effect
+  that calls setState (the react gate forbids it) and not in render (hydration).
+- **The engine stays headless** — `platformcheck` enforces it.
+- Evidence dirs under `art/` are gitignored per-directory.
+- node BLOCK-BUFFERS to pipes: `stdbuf -oL` into a file or a long run looks hung.
 
-## Immediate next actions for the new session
+## Immediate next actions
 
-1. Read this file, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
-2. **Start on THE GRADE** (section 1 of the board above). Four open defects,
-   one cause, and the cause is already identified — it needs captures with
-   `adaptBand` on and off, not another material change. Three previous attempts
-   each moved a symptom.
-3. Then the second ground, then rating and PWA.
-4. Do not spend a turn re-deriving any of the following; they are measured and
-   written down: the beard's `skin` lever and its four inert siblings; the flank
-   gap's 89% cost; the Wyrm guard's hem/edge separation; that `cheekIn` was one
-   constant moving two things.
-
-## Also true, and easy to trip on
-
-- **Three stale rows were found this session** (A1, A2's aim, Wave C's premise,
-  4.8b) — each asserted work as NOT STARTED that was in fact done, or done that
-  was in fact stale. **Verify a row against the tree before working it.** That
-  is now the single most common defect in these ledgers.
-- The `neon` and `neon-postgres` skills are installed in `.claude/skills/`; they
-  carry the vendor's checklist and were used to find three real DB defects.
-- `.github/workflows/neon_workflow.yml` makes the per-PR Neon branch run
-  `profiletest` against a real, empty Postgres — the first time that gate's
-  database half has ever run in CI. It works on GitHub's runners even though
-  this container cannot reach Neon.
+1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
+2. **Verify every row against the tree before working it.** Five were stale.
+3. Take the **Tauri build** — it is the Steam path and the toolchain is here.
+4. Then Wave D's draw calls (a GPU exists now), then splintering shields.

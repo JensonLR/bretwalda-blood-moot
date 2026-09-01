@@ -20,6 +20,8 @@ import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // all read the same law; see the header of `marks.mjs`.
 import { MARKS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks, type MarkFacts } from "@/game/marks.mjs";
 import { useFightRail, railStyle } from "@/game/client/fightRail";
+import { watchForInstall, offerFor, askToInstall, dismissOffer,
+  subscribeInstall, installSnapshot, installServerSnapshot } from "@/game/client/install";
 import { createTour, tourIsDue, TOUR_KEY } from "@/game/tour.mjs";
 import { browserStore } from "@/game/tuition.mjs";
 import { MarkGlyph } from "../game/client/MarkGlyph";
@@ -1202,6 +1204,13 @@ export default function Page() {
       navigator.serviceWorker.register("/sw.js").catch(() => { /* not offered: fine */ });
     }
   }, []);
+
+  // AND THE EARNED HALF OF IT. `beforeinstallprompt` fires early, once, and is
+  // never replayed — a listener attached when the summary mounts would miss it
+  // every time — so the handle is captured at boot and the browser's own banner
+  // suppressed with it. `install.ts` decides when it may be spent, and the rule
+  // is the backlog's own: never at first load, after a won match.
+  useEffect(() => watchForInstall(), []);
 
   useEffect(() => () => {
     transportRef.current?.close();
@@ -4222,8 +4231,63 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
             <Flag size={14} className="shrink-0" /> SAVE THE CLIP — THE FINAL KILL, SLOW
           </button>
         )}
+        <InstallInvite won={mine?.isWinner === true} />
       </div>
     </div>
+  );
+}
+
+/**
+ * THE EARNED INSTALL PROMPT — the last third of backlog 8.9 / Wave F.
+ *
+ * Renders under the summary's own buttons and ONLY after a match this man won.
+ * `client/install.ts` holds the rule and the storage; this holds the words.
+ *
+ * It is deliberately the quietest thing on the screen — a row, not a modal —
+ * because the picture behind this overlay is the victor's tableau, and
+ * interrupting that with a dialog is the opposite of having earned the ask.
+ *
+ * TWO ARMS, because there are two kinds of browser. Chromium hands over a real
+ * prompt. Safari on iOS never will — an install there is Share -> Add to Home
+ * Screen, by hand — so the honest offer there is a sentence telling him how,
+ * and a button that pretended otherwise would be a button that does nothing.
+ *
+ * AND IT SAYS HEARTH, NOT "ADD TO HOME SCREEN": the game already calls a kept
+ * place a hearth everywhere it speaks (`heorthwerod`, the hearth-troop, is the
+ * clan), so the invitation uses the word the rest of the game uses.
+ */
+function InstallInvite({ won }: { won: boolean }) {
+  // Through the store, not through an effect. Everything the answer depends on
+  // is client-only — a captured event, a media query, a storage key — so
+  // reading it during render would hydrate a different tree than the server
+  // sent, and reading it in an effect and calling setState is what the react
+  // gate forbids. `useSyncExternalStore` is the shape React provides for
+  // exactly this question, and the server's answer is always "none".
+  const available = useSyncExternalStore(subscribeInstall, installSnapshot, installServerSnapshot);
+  const offer = offerFor(won, available);
+  if (offer === "none") return null;
+  if (offer === "ios") {
+    return (
+      <div className="flex items-center gap-2 rounded border border-amber-400/25 bg-black/40 px-3 py-2 text-[11px] leading-tight text-[#c9ba95]">
+        <span className="flex-1">
+          KEEP THE MOOT BY YOUR HEARTH — <span className="text-amber-200">Share</span>, then{" "}
+          <span className="text-amber-200">Add to Home Screen</span>.
+        </span>
+        <button onClick={dismissOffer} data-snd="back"
+          className="shrink-0 px-2 text-[11px] tracking-widest text-[#8d8168] hover:text-amber-200">
+          NOT NOW
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button
+      data-snd="confirm"
+      data-install="offer"
+      onClick={() => { void askToInstall(); }}
+      className="btn-ghost w-full whitespace-nowrap !min-h-[2.9rem] !px-3 !text-[12px]">
+      KEEP THE MOOT BY YOUR HEARTH
+    </button>
   );
 }
 

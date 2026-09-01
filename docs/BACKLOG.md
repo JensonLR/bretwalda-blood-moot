@@ -1153,7 +1153,17 @@ VAOs, 53 programs for a one-on-one.
 
 ### Wave E — THE SECOND GROUND (several waves, and much cheaper than believed)
 
-*NOT STARTED, but NOT BLOCKED.* The seam exists (see §0). `MAPS.md` designed
+> **STALE HEADING — CORRECTED 1 Sep 2026. READ THE POSTSCRIPT AT THE BOTTOM OF
+> THIS WAVE BEFORE THE TOP OF IT.** This wave is DONE and has been since 24 Aug;
+> its own postscript says so and the heading was never updated, so two successive
+> handovers have carried "the second ground, NOT STARTED, the biggest visible
+> change per hour" as the next thing to build. **FIVE grounds ship** —
+> `saxon_village`, `pict_moor` (which IS this wave's "cold, open, sky-lit"),
+> `roman_fort`, `danelaw_camp` and `offa_dyke` — and all three "outside the
+> renderer" bugs below were fixed on the way. Everything under this line is kept
+> as the design record.
+
+~~*NOT STARTED, but NOT BLOCKED.*~~ The seam exists (see §0). `MAPS.md` designed
 three and one exists.
 
 Build **map two: cold, open, sky-lit** — a tidal flat, a frozen fen, a moor
@@ -1197,25 +1207,42 @@ claims per ground, 12/12 with the fort in the list.
 
 ### Wave F — RETENTION (several waves)
 
-- **Rating.** *NOT STARTED* — no `rating`/`elo` column in `schema.ts`, no
-  reference anywhere in `src/`. Cheap: the DB exists, `matchHistory` already
-  stores results, and the summary screen already has somewhere to show it.
+- **Rating.** ~~*NOT STARTED*~~ **STALE ROW — CORRECTED 1 Sep 2026. This was
+  ANSWERED by 4.6 on 24 Aug and the answer was deliberate:** *"The rating IS
+  season points — the war already runs on one number and a second rating would
+  be a second truth."* The Roll of Honour ships, with the period title each
+  seat's points earned on its own people's ladder. The literal claim below is
+  still true — there is no `rating` column — and that is the POINT of the
+  decision, not evidence against it. Adding one now would undo a recorded
+  ruling. What is genuinely open is only what Matchmaking below is waiting on.
+  Original text: *no `rating`/`elo` column in `schema.ts`, no reference anywhere
+  in `src/`.*
 - **Matchmaking.** **REJECTED for now**, and the reason is arithmetic rather
   than effort: a queue is only as good as its population. Every match today
   starts from a dropped link and has a 100% match rate; a queue at this player
   count has a match rate near zero and teaches the first organic visitor that
   the game is dead. Revisit when concurrent strangers exist. The rating is what
   it will eventually sort on, which is why the rating is not deferred with it.
-- **Hearths** (clans — `heorðwerod`, the hearth-troop). *NOT STARTED* — no
-  table, no reference. First cut: a name, a member list, a tag by your name in
-  the kill feed. Not territory, not chat, not war declarations.
+- **Hearths** (clans — `heorðwerod`, the hearth-troop). ~~*NOT STARTED*~~
+  **STALE ROW — CORRECTED 1 Sep 2026: DONE, and this file says so eleven hundred
+  lines above.** Row 4.4, 24 Aug: found/join/leave on /factions, the season's
+  houses, `war_ledger.hearth_id`, warsay 44/44 including the three refusals that
+  make it fair. `src/db/hearths.ts` is in the tree. The claim below — "no table,
+  no reference" — was false when it was written down here.
 - **Flags.** *NOT STARTED* — no flag column, no flag geometry; every `Flag` hit
   in `src/` is a `lucide-react` icon or an unrelated boolean. Constrained
   presets, not free-drawn — that is a moderation decision as much as an art
   one. Depends on profiles, which are built.
-- **PWA.** *NOT STARTED* — no `public/manifest`, no service worker. Manifest,
-  service worker, and an **earned** install prompt: never at first load, after
-  a won match. The retention floor.
+- **PWA.** ~~*NOT STARTED*~~ **STALE ROW — CORRECTED 1 Sep 2026: two thirds
+  DONE.** Row 8.9 shipped the PWA shell on 27 Aug and the tree carries all of
+  it: `src/app/manifest.ts` (standalone display, `orientation: "any"` after
+  touchtest found the landscape faults the old portrait pin was hiding),
+  `public/manifest.webmanifest`, forged icons via `tools/mkicon.mjs`, and
+  `public/sw.js` — a worker that caches NOTHING by design, registered from
+  `src/app/page.tsx`. **What is actually left is the EARNED install prompt** —
+  `grep -rn beforeinstallprompt src/` is empty, so the browser's own banner is
+  all there is and it fires whenever the browser feels like it. The row's own
+  rule is unbuilt: never at first load, after a won match.
 
 ---
 
