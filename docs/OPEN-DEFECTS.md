@@ -2474,6 +2474,17 @@ hiding numbers.
 
 ## OPEN, AND PRE-EXISTING ON `origin/main` — loose hair commas on the bare cheek under an open-faced helm
 
+> **CLOSED 1 Sep 2026, on this entry's own repro.** Shot exactly as the
+> adversary specified — `facecard, cls=warden, helm=helm_ridge, hair=hair_short,
+> beard=none, turn=-90` — and the cheek between the mouth-corner and the ear is
+> clean: `art/shots/commas/`. No isolated fragments, and nothing straddling the
+> ear's front rim. What remains in front of the ear is an ATTACHED hairline
+> tuft under the helm's rim, which is the thing the cull was always meant to
+> keep. The two changes that did it are 5.13's: the `- 0.16` fudge that had the
+> ceiling reading an analytic mail surface where the coif draws none, and the
+> `HAIR_NAPE_FREE` guard on the cull itself.
+
+
 15 Aug 2026, round ten. An adversary shot
 `/shot?preset=facecard&cls=warden&helm=helm_ridge&hair=hair_short&turn=-90` on
 `helm9` and found five isolated dark hair fragments standing on bare cheek skin
