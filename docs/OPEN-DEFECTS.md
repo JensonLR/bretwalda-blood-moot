@@ -8,6 +8,136 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE MAGENTA WAS ONE SKEWED LINE IN THE GRADE — four entries closed on captures, and the cause was not the one this file named — 1 Sep 2026
+
+Four OPEN entries below are one bug: the Danelaw's shield board rendering
+`#a7043d` against a `--garnet` of `#7c1420`; the Danelaw reading rose at the
+sleeves and the byrnie; the rose §1; and the brightness ceiling bounding one
+channel. They were right that it was one bug. **They named the wrong stage, and
+so did the handover that summarised them.**
+
+### R8 FIRST — what this file said, and what the tree said
+
+The shield-board entry says the cause is *"`adaptBand` in `postfx.ts`, which
+meters each frame and stretches contrast about that frame's own pivot"*, and the
+handover of 1 Sep repeats it as settled. **The metered response has not been the
+mechanism since 22 Aug.** `78b65d6` and `309d600` made contrast luma-preserving
+— `postfx.ts` computes Rec.709 luma, raises THAT to the power, and rescales all
+three channels by one scalar, so hue and chroma ratios survive it exactly — and
+`774bee3` then built a luma FILMIC as well, sampled it, and recorded that it did
+not move the board either. None of that reached this file. Three rounds argued
+from a mechanism the tree had already replaced.
+
+Measured on the shipped tree before any change, the same frame with the metered
+response removed: board C\* 52.9 → 22.7, hue 12.4° → **9.9°**. Taking the meter
+out makes the hue very slightly WORSE. It was never the meter.
+
+### THE INSTRUMENT, WHICH IS WHY THIS ROUND ENDED DIFFERENTLY
+
+Nothing in the drawer could photograph the same man with ONE STAGE of the grade
+removed, so every round had to argue from albedo — and `docs/PROCESS.md` R11
+stage 4 cuts both ways: a material must not be fixed by relighting the scene,
+and a grade must not be fixed by repainting a kingdom. Two things now exist:
+
+* **`?grade=` in `postfx.ts`** — a capture-only door, on the precedent of
+  `?shadowproxy=off`. Every hue-moving stage has a uniform for which it is
+  exactly the identity, so the door neutralises through the LOOK and compiles
+  the shader the game ships: a reading through it cannot be an artefact of a
+  second code path. `?grade=off` is the control; `?grade=off,+chroma` isolates
+  one stage; `?grade=-chroma` is the shipped frame with one stage gone. The page
+  publishes `window.__gradeMask`, so a probe can PROVE the door was taken rather
+  than photograph the shipped frame four times.
+* **`tools/gradesplit.mjs`** — drives it, per surface, off the same
+  `surfacemask.mjs` masks `factionread` §7 and `vatprobe` cut from the client's
+  own scene graph, and prints the column the four entries are about: **HUE
+  DRIFT off the surface's own pigment.**
+
+### THE CAUSE — a skew, where every other stage in that shader is a scale
+
+```glsl
+offset += ( offset - dot( offset, uOpponent ) * uOpponent ) * uChromaOpponent;
+```
+
+The anisotropic chroma expansion. Its intent is sound and is kept: the component
+of a surface's chroma ALONG the key's illuminant axis carries no material
+information, the component across it separates turf from timber, and this is the
+only stage that can push one without the other. But it added the across-component
+back into the colour, which lengthens the offset **and turns it**. An anisotropic
+scale in RGB cannot preserve hue except for a colour lying exactly along the axis
+or exactly across it, and the rotation is largest for a colour nearly
+perpendicular to the key. `--garnet` is such a colour, and it is the most
+saturated dark colour in the game, so it turned furthest and showed it worst —
+which is exactly the sentence the shield-board entry already had, attached to the
+wrong stage.
+
+The Danelaw huscarl's board, `armor_steel`, 0°, one frame, one stage at a time:
+
+| | L\* | C\* | hue |
+|---|---|---|---|
+| albedo `--garnet` `#7c1420` | 26.4 | 48.7 | 26.5° |
+| the grade OFF — exposure, filmic and sRGB only | 24.8 | 20.1 | 40.4° |
+| **SHIPPED, that line skewing** | 29.9 | **52.9** | **12.4°** |
+| shipped minus that one line | 23.0 | 20.5 | 28.0° |
+
+**Twenty-eight degrees of hue and two and a half times the chroma, off a term
+whose own coefficient is 0.22** — because the turn drives the green channel into
+the gamut wall, where it pins at zero and the pixel has no form left in it. The
+albedo was correct at every stage this repo owns, exactly as those entries said.
+
+The fix keeps the intent and drops the skew: the across-component now sets the
+SIZE of the expansion and no longer its DIRECTION. A surface whose chroma is all
+the key's own colour is still left alone; a surface whose chroma is all material
+is still expanded by the full `uChromaOpponent`; and every one of them keeps its
+hue exactly. That is the same move this file's own shader already made for
+contrast (*"the channels scale together"*) and for the metered response (*"a
+scalar gain on luma rather than per channel"*). This was the last stage in it
+that still skewed.
+
+### AND THE SKEW WAS THROTTLING CHROMA BY ACCIDENT — the second half of the unit
+
+Removing it alone is not the whole repair, and the harsh reading is the one that
+found this. The skew drove the weakest channel down, so the gamut guard bit
+sooner; taking it out handed that chroma back to every people at once. Twenty
+frames — four peoples on all five grounds — counting pixels with one channel at
+or under 4 while another is over 60, which is the brightness-ceiling entry's own
+complaint (*"a channel at full scale has no fold shading, no weave and no form
+left in it — and so has a channel at 1"*):
+
+| | dead channel | clipped channel |
+|---|---|---|
+| as it shipped | 1668 | 156 |
+| skew removed, guard to the gamut edge | **2656** | 139 |
+| skew removed, guard at `GAMUT_KEEP` | **0** | 134 |
+
+The middle row is a real regression and it is why `GAMUT_KEEP` exists. The guard
+landed the weakest channel on exactly zero, because zero is the mathematical
+bound — and zero is the defect. It now keeps 8% of the pixel's own luma in every
+channel, stated as a fraction of luma so a genuinely dark pixel is never pushed
+up to meet it. **Both changes ship as one unit**; neither is correct alone.
+
+### WHAT THIS CLOSES, AND WHAT IT DOES NOT
+
+Closed on captures, before and after, four peoples on all five grounds
+(`art/grade/`, and the paired sheets the round was judged on):
+
+* **the board's magenta** — hue drift off its own pigment falls from 14.1° to
+  under a degree, and the board reads garnet in every frame;
+* **the rose at the sleeves and the byrnie** — the same skew, on the same arc;
+* **the brightness ceiling's Saxon leg wraps** — 1668 dead-channel pixels to
+  zero, and the Saxon was the worst of the four.
+
+**NOT closed, and it is a different question:** the brightness ceiling still
+bounds one channel and not the spread between three. The entry's proposed second
+ceiling is a MATERIAL change and remains unbuilt — what has changed is that the
+symptom it was written for is no longer visible, so a later round should re-take
+its readings before spending a materials pass on it. `§1.2` and `§1.3` are
+`factionread`'s and are recorded on this round's own walk below.
+
+**Not a look retune.** Nothing was tuned to taste: `saturation`, `chromaMid`,
+`chromaTilt`, `chromaOpponent`, the split and the meter are all untouched.
+
+---
+
 ## THE WINTER CAMP SHIPS — the fourth ground, and the salmon was never the albedo — 24 Aug 2026
 
 The Danelaw's own ground (`danelaw_camp`, backlog 5.7b's last people) is
@@ -1873,7 +2003,16 @@ Not a fixer's. Three of the four numbers involved are the owner's design:
 
 ---
 
-## OPEN — the brightness ceiling bounds ONE channel and not the distance between three, and the Saxon's leg wraps are where it shows — 20 Aug 2026
+## THE SYMPTOM IS GONE, THE BOUND IS STILL UNBUILT — 1 Sep 2026 — the brightness ceiling bounds ONE channel and not the distance between three, and the Saxon's leg wraps are where it shows — 20 Aug 2026
+
+> **Read the entry at the top of this file before spending a materials pass on this.**
+> The Saxon's leg wraps no longer render `#fdd701`, and dead-channel pixels across
+> four peoples on all five grounds went 1668 -> 0 — WITHOUT any material change. The
+> second ceiling this entry prescribes is still not built, and its analysis of
+> `underMaxChannel` is still exactly right: a colour twice as saturated at the same
+> peak still passes untouched. What has changed is that the frame no longer drives
+> that latitude into a wall, so the readings below must be re-taken before the
+> "round's work" this entry scopes is worth starting.
 
 Reported off a capture: the Saxon's leg wraps render **`#fdd701`** — L\* 86.8,
 C\* 86.9, **blue channel at 1** — with 558 clipped pixels on the man at the back
@@ -1925,7 +2064,15 @@ so no fade this branch shipped can have touched a Saxon.
 
 ---
 
-## OPEN — the Danelaw's shield board renders `#a7043d` and the material is `--garnet` exactly — 20 Aug 2026
+## CLOSED 1 Sep 2026 ON CAPTURES — the Danelaw's shield board renders `#a7043d` and the material is `--garnet` exactly — 20 Aug 2026
+
+> **Closed by the entry at the top of this file, and the diagnosis below is RIGHT about
+> the material and WRONG about the stage.** "The albedo is not the defect and that is
+> the whole entry" holds exactly; so does "`--garnet` is the most saturated dark colour
+> in the game ... so it has the least headroom". The stage it names — `adaptBand` and
+> the metered response — was already luma-preserving when this was written, and
+> removing it moves the board's hue the WRONG WAY by 2.5°. The skew was the
+> anisotropic chroma expansion. Kept whole for its readings and its reasoning.
 
 Reported off a capture: the board reads **`#a7043d`, C\* 61.8** — hot magenta.
 
@@ -2024,7 +2171,15 @@ lights up.
 
 ---
 
-## REOPENED (was CLOSED without a capture) — the Danelaw read ROSE at the sleeves and the byrnie — 20 Aug 2026
+## CLOSED 1 Sep 2026 ON CAPTURES — the Danelaw read ROSE at the sleeves and the byrnie — 20 Aug 2026
+
+> **Closed by the entry at the top of this file.** The albedo half was already gone,
+> as this entry says; the residue it calls inseparable — "the fire on bright iron" —
+> was the grade's own skew on the red arc and not the bonfire. The entry's last
+> section demands that the next round arguing this "must argue about the BONFIRE or
+> about `norse.metal.bias`, and both of those are the owner's decisions". Neither was
+> touched. Kept whole for the class-split table, which is still the cleanest proof
+> that the livery adds nothing to the band on a man without a byrnie.
 
 > **The albedo half of this is genuinely gone** — the owner's `#b9746a` sleeve
 > resolves to `#a89c86`, undyed flax, and no dyed surface of any people is in

@@ -854,6 +854,149 @@ const MOOD_BLEND = 1.4;
 
 const HURT_COLOR: Rgb = [0.62, 0.06, 0.04];
 
+// ---------------------------------------------------------------------------
+// THE GRADE'S HARNESS DOOR — `?grade=`, capture-only
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THIS EXISTS, AND IT IS FOUR OPEN DEFECTS AND THREE FAILED ROUNDS.
+ *
+ * `docs/OPEN-DEFECTS.md` carries four entries that are one question: the
+ * Danelaw's shield board renders `#a7043d` where `--garnet` is `#7c1420`; the
+ * Danelaw reads rose at the sleeves and the byrnie; §1.3's hue cannot be tuned;
+ * and the brightness ceiling bounds one channel instead of three. Every one of
+ * them was argued out of ALBEDO, and every stage between an albedo and a pixel
+ * lives in this file. Three rounds each moved a material and each moved a
+ * symptom, because there was no way to ask the frame which STAGE did it.
+ *
+ * The precedent is `?shadowproxy=off` in `render/anim.ts`, written for exactly
+ * the same reason — "so a lit probe can ask whether the proxy owns a rose
+ * residual without checking out an old tree".
+ *
+ * WHAT IT IS AND IS NOT. It is a diagnostic, not a setting: nothing in the game
+ * reads it, no menu exposes it, and `?grade=` absent is byte-identical to this
+ * file before the door existed. It does not change what ships. It lets a probe
+ * photograph the SAME frame with one stage of the grade removed, which is the
+ * only measurement that can separate "the material is wrong" from "the grade
+ * bends it" — `docs/PROCESS.md` R11 stage 4, which cuts both ways.
+ *
+ * WHY UNIFORMS AND NOT `#define`s. Every hue-moving stage in `GRADE_FRAG` has a
+ * uniform for which it is exactly the identity — a contrast of 1.0, a chroma of
+ * 1.0 with no bump and no tilt, a stretch of 1.0, a split of 0. Neutralising
+ * through the look means the door compiles ONE shader, the same shader the game
+ * ships, so a reading taken through it cannot be an artefact of a second code
+ * path. The two stages with no such uniform — the filmic curve and the sRGB
+ * encode — are the tone map itself; there is no frame without them, and
+ * `render/postfx.ts`'s own ledger records that a luma filmic was built, sampled
+ * and found not to move the board.
+ *
+ * SYNTAX. Comma-separated, in order, each token either a stage name or `all`,
+ * prefixed `-` to remove that stage or `+` to keep it:
+ *
+ *     ?grade=-chroma            everything as it ships, chroma neutralised
+ *     ?grade=-chroma,-balance   two stages out
+ *     ?grade=off                every stage out — exposure, filmic, sRGB only
+ *     ?grade=off,+chroma        ONLY chroma, which is the attribution arm
+ *
+ * `off` is a synonym for `-all`, and `on` for `+all`, so `?grade=off,+chroma`
+ * reads the way it is meant.
+ */
+export const GRADE_STAGES = {
+  /** The white balance that divides the key's illuminant out of the frame. */
+  balance: { balanceStrength: 0 },
+  /** Contrast in scene-linear, about the pivot, on luma. */
+  contrast: { contrast: 0 },
+  /** Highlight crosstalk — colour walked toward its own peak past the knee. */
+  cross: { crosstalk: 0 },
+  /**
+   * The metered response: the per-frame stretch, the pivot lift and local
+   * contrast. `adapt: 0` makes the shader's `stretch` exactly 1, at which the
+   * two power laws collapse to the identity by construction.
+   */
+  meter: { adapt: 0, adaptLift: 0, clarity: 0, clarityAdapt: 0 },
+  /** Saturation, the mid bump, the tilt and the anisotropic expansion. */
+  chroma: { saturation: 1, chromaMid: 0, chromaTilt: 0, chromaOpponent: 0 },
+  /** Only the anisotropic term, a finer cut inside `chroma`. */
+  opponent: { chromaOpponent: 0 },
+  /** The split-tone crossover between the shadow and highlight tints. */
+  split: { splitTone: 0 },
+  /** The print black, added after the encode. */
+  lift: { shadowLift: [0, 0, 0] as Rgb },
+  bloom: { bloomStrength: 0 },
+  vignette: { vignette: 0 },
+  grain: { grain: 0 },
+  ao: { aoIntensity: 0 },
+} as const satisfies Record<string, Partial<GradeLook>>;
+
+export type GradeStage = keyof typeof GRADE_STAGES;
+
+/**
+ * Parse a `?grade=` spec into the set of stages to NEUTRALISE.
+ *
+ * Exported and pure so `tools/gradesplit.mjs` can assert the spec it sent is
+ * the spec the page took, rather than trusting a query string that a typo would
+ * make silently inert — which is `docs/PROCESS.md` R4, the ruler measuring the
+ * right question. An unknown token is returned rather than ignored, so the
+ * probe can refuse instead of photographing the shipped frame four times.
+ */
+export function parseGradeSpec(spec: string): { off: Set<GradeStage>; bad: string[] } {
+  const all = Object.keys(GRADE_STAGES) as GradeStage[];
+  const off = new Set<GradeStage>();
+  const bad: string[] = [];
+  for (const raw of spec.split(",")) {
+    const tok = raw.trim().toLowerCase();
+    if (!tok) continue;
+    const sign = tok[0] === "+" ? "+" : "-";
+    const name = tok[0] === "+" || tok[0] === "-" ? tok.slice(1) : tok;
+    const targets =
+      name === "all" || name === "off" || name === "on" ? all : all.includes(name as GradeStage) ? [name as GradeStage] : null;
+    if (!targets) { bad.push(raw.trim()); continue; }
+    // `off` means remove and `on` means keep, whatever sign was written on them.
+    const remove = name === "off" ? true : name === "on" ? false : sign === "-";
+    for (const t of targets) { if (remove) off.add(t); else off.delete(t); }
+  }
+  return { off, bad };
+}
+
+/**
+ * The stages this page was asked to neutralise, read once from the query string.
+ *
+ * Read once, at module scope, for the same reason the capture harness's framing
+ * globals are written in a lazy initializer: a value a shader reads must not be
+ * able to change between two frames of one capture. Absent, unparseable or
+ * server-side, it is the empty set and this file behaves exactly as it did
+ * before the door existed.
+ */
+function readGradeMask(): { off: Set<GradeStage>; bad: string[]; spec: string } {
+  if (typeof window === "undefined") return { off: new Set(), bad: [], spec: "" };
+  // ON `/shot` AND NOWHERE ELSE. `?shadowproxy=off` is reachable from any route
+  // and can afford to be — it changes which meshes cast shadows. This one can
+  // turn the vignette off, and a corner of the frame that the look deliberately
+  // darkens is a corner a man can be standing in. That is a small competitive
+  // edge in a game whose whole point is a fight, and a diagnostic must not be
+  // one. The capture harness is the only caller there has ever been.
+  if (window.location.pathname !== "/shot") return { off: new Set(), bad: [], spec: "" };
+  const spec = new URLSearchParams(window.location.search).get("grade") ?? "";
+  const { off, bad } = parseGradeSpec(spec);
+  if (spec) {
+    // Published so a probe can prove the door was taken. A silently-ignored
+    // query param is four identical captures reported as an attribution.
+    (window as unknown as Record<string, unknown>).__gradeMask = {
+      spec, off: [...off].sort(), bad,
+    };
+    if (bad.length) console.warn(`[postfx] ?grade= has no stage called ${bad.join(", ")}`);
+  }
+  return { off, bad, spec };
+}
+
+const GRADE_MASK = readGradeMask();
+
+/** The neutral values the door forces, flattened once, or null when it is shut. */
+const GRADE_FORCED: Partial<GradeLook> | null = GRADE_MASK.off.size
+  ? Object.assign({}, ...[...GRADE_MASK.off].map((s) => GRADE_STAGES[s])) as Partial<GradeLook>
+  : null;
+
+
 function lerpLook(a: GradeLook, b: GradeLook, t: number, out: GradeLook): GradeLook {
   const m = (x: number, y: number) => x + (y - x) * t;
   const mc = (x: Rgb, y: Rgb): Rgb => [m(x[0], y[0]), m(x[1], y[1]), m(x[2], y[2])];
@@ -1622,6 +1765,17 @@ function lensSplatTexture(): THREE.DataTexture {
   return lensTex;
 }
 
+/**
+ * How much of a pixel's own luminance the gamut guard leaves in its weakest
+ * channel. See the guard in GRADE_FRAG for the measurement this is taken off.
+ *
+ * Zero is the mathematical bound and the wrong one: it is the value at which a
+ * channel flatlines, which is the same failure as a clipped one at the other
+ * end of the range. Read as a fraction of luma, so it costs a bright saturated
+ * surface a little chroma and costs a dark one nothing at all.
+ */
+const GAMUT_KEEP = 0.08;
+
 const GRADE_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tBloom;
@@ -1904,7 +2058,41 @@ void main() {
   // timber and iron from thatch, and this is the only stage that can push on one
   // without the other. Before the gamut guard, so an expansion that would clip
   // eases back with everything else.
-  offset += ( offset - dot( offset, uOpponent ) * uOpponent ) * uChromaOpponent;
+  //
+  // A SCALE AND NOT A SKEW — and this is the line that drew the magenta shield.
+  //
+  // What stood here was offset += (offset - along) * uChromaOpponent: it added
+  // the across-component back into the colour, which lengthens the offset AND
+  // TURNS IT. An anisotropic scale in RGB cannot preserve hue except for a
+  // colour lying exactly along the axis or exactly across it, and the size of
+  // the rotation is largest for a colour that is nearly perpendicular to the
+  // key — which --garnet #7c1420 is, and it is the most saturated dark colour
+  // in the game, so it turned furthest and showed it worst.
+  //
+  // MEASURED, on the same frame, one stage at a time, through ?grade=
+  // (GRADE_STAGES above) — the Danelaw huscarl's board, armor_steel, 0°:
+  //
+  //     albedo  --garnet          L* 26.4  C* 48.7  hue 26.5°
+  //     grade off (tone only)     L* 24.8  C* 20.1  hue 40.4°   the warm key
+  //     SHIPPED, this line skewing L* 29.9  C* 52.9  hue 12.4°   hot magenta
+  //     shipped minus this line   L* 23.0  C* 20.5  hue 28.0°   garnet again
+  //
+  // Twenty-eight degrees of hue and two and a half times the chroma, off a term
+  // whose own coefficient is 0.22 — because the turn drives the green channel at
+  // the gamut edge, where it pins at zero and the pixel has no form left in it.
+  // Four entries in docs/OPEN-DEFECTS.md were argued out of ALBEDO against
+  // this line. The albedo was right at every stage this repo owns, exactly as
+  // those entries said.
+  //
+  // So the across-component now sets the SIZE of the expansion and no longer its
+  // DIRECTION: a surface whose chroma is all the key's own colour is still left
+  // alone, a surface whose chroma is all material is still expanded by the full
+  // uChromaOpponent, and every one of them keeps its hue exactly. That is the
+  // same move this file already made for contrast ("the channels scale
+  // together") and for the metered response ("a scalar gain on luma rather than
+  // per channel"); this was the last stage in the shader that still skewed.
+  float across = length( offset - dot( offset, uOpponent ) * uOpponent );
+  chroma *= 1.0 + uChromaOpponent * ( across / max( length( offset ), 1e-5 ) );
 
   // Gamut guard. Scaling chroma about luma is exactly luma-preserving, which is
   // why all of this is safe for the capture harness's tonal spread — but past a
@@ -1915,8 +2103,33 @@ void main() {
   // answer: where no channel would have gone negative the bound is enormous and
   // the min is a no-op, and where one would, chroma eases back to the edge of the
   // gamut and the pixel desaturates gracefully instead of clipping.
+  //
+  // AND IT STOPS SHORT OF THE EDGE, BECAUSE THE EDGE IS THE DEFECT.
+  //
+  // The bound above lands the weakest channel on exactly zero, and the entry
+  // this file's magenta belongs to says what that costs in its own words: "a
+  // channel at full scale has no fold shading, no weave and no form left in it
+  // — and so has a channel at 1". Easing back TO the gamut edge and clipping AT
+  // it differ by one code value and by nothing a player can see. So the guard
+  // keeps GAMUT_KEEP of the pixel's own luma in every channel: the weakest
+  // channel still varies with the surface's shading instead of flatlining, and
+  // stating the floor as a fraction of luma rather than as a code value means a
+  // genuinely dark pixel is never pushed up to meet it.
+  //
+  // MEASURED — 20 frames, four peoples on all five grounds, pixels with one
+  // channel at or under 4 while another is over 60:
+  //
+  //     the skew, as it shipped                1668   (and the board magenta)
+  //     skew removed, guard to the edge        2656   hue fixed, form worse
+  //     skew removed, guard at GAMUT_KEEP       SEE THE LEDGER
+  //
+  // The middle row is why this constant exists: the anisotropic skew was
+  // throttling chroma by accident — it drove the weakest channel down, so the
+  // guard bit sooner — and taking the skew out handed that chroma back to every
+  // people at once. The Saxon's weld wraps, which the ceiling entry already
+  // names, were the surface that showed it.
   float lowest = min( offset.r, min( offset.g, offset.b ) );
-  chroma = min( chroma, -luma / min( lowest, -1e-5 ) );
+  chroma = min( chroma, -luma * ( 1.0 - ${glslFloat(GAMUT_KEEP)} ) / min( lowest, -1e-5 ) );
   col = vec3( luma ) + offset * chroma;
 
   // The split-tone, over uTintRange and not over the tonal anchor above. The two
@@ -2804,8 +3017,11 @@ export function createPostFx(
   function applyLook(): void {
     if (!grade) return;
     const u = grade.uniforms;
+    // The harness door wins over both, and only ever exists under `?grade=`.
+    // See GRADE_STAGES: absent, `GRADE_FORCED` is null and this is the same
+    // expression it has always been.
     const pick = <K extends keyof GradeLook>(k: K): GradeLook[K] =>
-      (override[k] ?? current[k]) as GradeLook[K];
+      (GRADE_FORCED?.[k] ?? override[k] ?? current[k]) as GradeLook[K];
 
     // The renderer's exposure stays the single source of truth: sky.ts encodes
     // the fog and background colours against it every frame.

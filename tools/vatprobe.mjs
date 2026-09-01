@@ -57,7 +57,7 @@
 // it just took. The whole-man share is therefore comparable to §7.1's now, and
 // the luminance column is kept beside it for one run's worth of continuity.
 // ============================================================
-import { chromium } from "playwright";
+import { launchBrowser as launchChromium, rasteriserNote } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -122,10 +122,10 @@ for (;;) {
   await new Promise((r) => setTimeout(r, 500));
 }
 console.log(`${useProd ? "production" : "dev"} server on :${PORT}`);
-const browser = await chromium.launch({
-  ...(existsSync("/opt/pw-browsers/chromium") ? { executablePath: "/opt/pw-browsers/chromium" } : {}),
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
-});
+// See tools/lib/browser.mjs. Software by default; this probe's own noise
+// paragraph is a SwiftShader measurement and stays comparable.
+const browser = await launchChromium();
+console.log(rasteriserNote());
 const ctx = await browser.newContext({ viewport: { width: LENS.w, height: LENS.h }, deviceScaleFactor: 1 });
 // THE CLOCK, AT LAST. This probe's header spends a paragraph measuring its
 // own noise — 0.202% vs 0.193% on the whole man, "treat a point of a

@@ -144,7 +144,7 @@
 // Exit codes: 0 all assertions held, 1 an assertion failed, 2 the harness could
 // not measure (transpile failed, server never came up) — never counted as green.
 // ============================================================
-import { chromium } from "playwright";
+import { launchBrowser as launchChromium, rasteriserNote } from "./lib/browser.mjs";
 import { spawn, spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -1053,12 +1053,10 @@ async function renderPass() {
   }
   console.log(`[cos] ${useProd ? "production" : "dev"} server up on :${PORT}`);
 
-  const pre = "/opt/pw-browsers/chromium";
-  const browser = await chromium.launch({
-    ...(existsSync(pre) ? { executablePath: pre } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
-  });
+  // See tools/lib/browser.mjs — software by default, GPU only on request, and
+  // the choice is printed rather than assumed.
+  const browser = await launchChromium();
+  console.log(`[cos] ${rasteriserNote()}`);
   // ONE browser, and ONE page per lens — a page carries its viewport, and a
   // viewport is what a lens is here. Everything else is reused: the context, the
   // GL context, the compiled shaders and the procedural textures. A fresh

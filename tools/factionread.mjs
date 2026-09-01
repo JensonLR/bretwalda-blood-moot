@@ -153,7 +153,7 @@
 //     is upstream of anything a matrix could measure.
 // ============================================================
 import * as THREE from "three";
-import { chromium } from "playwright";
+import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -969,14 +969,10 @@ async function bootServer() {
   if (!useProd) note("NO PRODUCTION BUILD — this is the dev server, and §6 is measuring un-minified output. Run `npm run build` first.");
   return { origin, stop: () => { if (!proc.killed) proc.kill("SIGTERM"); } };
 }
-const launchBrowser = () => {
-  const pre = "/opt/pw-browsers/chromium";
-  return chromium.launch({
-    ...(existsSync(pre) ? { executablePath: pre } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
-  });
-};
+// The rasteriser is `tools/lib/browser.mjs`'s decision, not this file's, and it
+// prints which one it took on the verdict line. Software by default — every
+// reading this file's ledgers carry was taken that way.
+const launchBrowser = () => launchChromium();
 
 // ============================================================
 // 5. THE PAID LADDER SURVIVES SWEARING
