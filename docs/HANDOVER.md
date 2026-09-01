@@ -102,7 +102,22 @@ now the single most expensive defect in these ledgers.** Corrected in
 - **THE EARNED INSTALL PROMPT** (`client/install.ts` + `InstallInvite`): after a
   won match and never at first load, one ask ever, with an iOS arm because
   Safari has no `beforeinstallprompt` and never will. New storage seam,
-  registered in `platformcheck`.
+  registered in `platformcheck`. **SEEN, not asserted** — `tools/installseen.mjs`
+  fights a real duel, wins it, and photographs the summary
+  (`art/shots/install-offer-won.png`), with a control that already answered and
+  is correctly not asked again. 12/12.
+- **AND THE MANIFEST THAT SHIPPED WAS NOT THE ONE THE CODE DOCUMENTS.**
+  `installseen` found it on its first run. `public/manifest.webmanifest` existed
+  as a hand-written copy of `src/app/manifest.ts`, and **a file in `public/`
+  SHADOWS the route an `app/manifest.ts` generates** — both are
+  `/manifest.webmanifest`, and the static one wins. So the served manifest said
+  **`"orientation": "landscape"`** while the typed source said `"any"` and
+  carried the owner's own ruling — *"This game for mobile should be supported to
+  be played both landscape & portrait hand held positions"* — plus the whole
+  touchtest round that found and fixed the two landscape collisions. **An
+  installed phone got a landscape-locked app, which is the exact thing the
+  ruling forbids.** The static copy is deleted, the route is the one source, and
+  `installseen` gates that there is never a second one again.
 - **`platformcheck` law 4 was imprecise** — `\b(?:window\.)?(alert|confirm|prompt)\(`
   matches after a dot, so it convicted any object with a method of that name.
   Tightened to the three globals, and proven to still convict a real offender.
@@ -193,6 +208,7 @@ burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
 goretest **35/35** (was 36) · locktest 6/6 · weightprobe 24/24 ·
 fighttest 23/23 · benchtest 23/23 · rejointest 12/12 · armsprobe 16/16 ·
 bottest 11/11 (240 bouts a rung, seed 20260813) · cardgate 17/17 ·
+**installseen 12/12** · summaryflow 18/18 ·
 solidtest **16/16 with 1 deferral** (was "12/12") ·
 soundtest 46/46 · playtest **38/38 — BUT SEE THE BROWSER-BINARY LAW BELOW** ·
 touchtest 32/32 (x4 shapes) · clipseen PASS · wearmeasure ·
@@ -220,6 +236,15 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
   playwright install chromium` gets the shell. **On a workstation, run playtest
   with `BRETWALDA_GPU=1`** — that arm asks for `channel: "chromium"`, which is
   the one with pointer lock. Check the binary before you check the diff.
+- **REAP STALE SERVERS BEFORE BELIEVING A BROWSER SUITE.** Every tool here picks
+  a port off its own pid and then waits for `/api/health`. If a server from an
+  earlier killed run still holds that port, the spawn dies with EADDRINUSE **and
+  the health check answers anyway, from the stranger** — so the suite measures
+  an OLD BUILD with a live room already in it. Fourteen had accumulated in one
+  session. The failures read as "the manifest 500s" and "the mode menu never
+  opened" and neither had anything to do with the tree. `pkill -f
+  custom-server.mjs` between runs; `installseen` now refuses rather than adopts,
+  and every other tool in the drawer still adopts.
 - **Never run two heavy things concurrently.** Broken once this session, and
   it produced a red playtest that vanished on a clean re-run. Serialize; re-run
   a red alone before believing it.

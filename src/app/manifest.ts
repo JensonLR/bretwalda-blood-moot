@@ -15,6 +15,22 @@ import type { MetadataRoute } from "next";
  *   stops the address bar appearing and disappearing mid-fight as the page
  *   scrolls, which resizes the WebGL canvas while a man is swinging.
  *
+ * AND FOR FIVE DAYS THIS FILE WAS DEAD CODE. 1 Sep 2026: `public/manifest.webmanifest`
+ * existed as well, a hand-written copy of this one, and a file in `public/`
+ * SHADOWS the route `app/manifest.ts` generates — they are both `/manifest.webmanifest`
+ * and the static one wins. So `layout.tsx` linked it, the browser read it, and
+ * it said **`"orientation": "landscape"`**.
+ *
+ * Which means the paragraph below — the owner's own ruling that the game "should
+ * be supported to be played both landscape & portrait hand held positions", and
+ * the touchtest round that found the two landscape collisions and fixed them —
+ * was true of a file nothing served. An installed phone got a landscape-locked
+ * app, which is the exact thing the ruling forbids.
+ *
+ * The static copy is deleted. This is the one manifest, `tools/installseen.mjs`
+ * gates that there is only one, and the reason it is a route and not a file is
+ * that a route cannot be silently shadowed by the thing it duplicates.
+ *
  *   `orientation: "any"`, AND IT USED TO SAY "portrait". The old line was
  *   honest about why — "the touch controls are laid out for a thumb either side
  *   of a portrait screen" — but it was a pin over a layout fault rather than a
