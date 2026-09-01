@@ -111,10 +111,18 @@ now the single most expensive defect in these ledgers.** Corrected in
 
 ### 1. What is genuinely open and worth doing next
 
-- **The Tauri build for Steam (7.2).** The scaffold, the CI workflow
-  (`.github/workflows/desktop.yml`) and `platformcheck` all exist; **no tag has
-  ever fired and the build has never been judged**. Rust is now installed on
-  this Mac. This is the Steam path.
+- **The Steam store page and app id.** The BUILD is no longer the blocker —
+  **7.2's Tauri wrapper was compiled, bundled, verified and RUN on this Mac on
+  1 Sep**: release profile in 1m 48s, a 5.3 MB arm64 `.app` and a 2.3 MB `.dmg`
+  that `hdiutil verify` calls VALID, and it held a window for ten seconds at
+  91 MB RSS with nothing on stderr. What is left is not code: a Steam app id
+  (which the ticket-verify route deliberately waits for — "a door that cannot
+  check tickets must not open"), the store page, and firing
+  `.github/workflows/desktop.yml` for the Windows and Linux installers. **That
+  workflow has never run — this repo has no tags** — and it fires on a
+  `desktop-v*` tag or by hand from the Actions tab. Naming a release is the
+  owner's call. One CI trap is ledgered in 7.2: the first `tauri build` fails in
+  `bundle_dmg.sh` and the retry works once the stale `rw.*.dmg` is deleted.
 - **`factionread` §7.1's residue.** A fifth of what it was, still red. Start
   from `tools/gradesplit.mjs`, not from a vat.
 - **Splintering shields.** *NOT STARTED, verified* — `vfx.ts` has a splinter
@@ -193,5 +201,8 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
 
 1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
 2. **Verify every row against the tree before working it.** Five were stale.
-3. Take the **Tauri build** — it is the Steam path and the toolchain is here.
-4. Then Wave D's draw calls (a GPU exists now), then splintering shields.
+3. **Wave D's draw calls** — it was blocked on "get the matrix onto hardware
+   with a GPU" and that block is gone; `fpstest`'s ablation can rank again.
+4. Then splintering shields, then taking a dead man's weapon.
+5. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
+   mechanical and worth a lot of wall clock.
