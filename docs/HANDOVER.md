@@ -48,14 +48,21 @@ The previous handover's "remaining board" was wrong in five places, and four of
 them said NOT STARTED about work that had SHIPPED. Every one was verifiable
 against the tree in under a minute. **Verify a row before working it; this is
 now the single most expensive defect in these ledgers.** Corrected in
-`docs/BACKLOG.md` in place, with the correction marked:
+`docs/BACKLOG.md` in place, with the correction marked.
+
+Three more of the same kind turned up once the habit was on: **six gate counts**
+in this file's own battery were stale (all but one of them LOW, so a green run
+would have read as a regression); **the shipped manifest was a shadow copy**
+contradicting an owner ruling; and **Wave E's own postscript** contradicted its
+heading. The pattern is always two places holding one fact and one of them
+edited.
 
 | row | said | actually |
 |---|---|---|
 | **Wave E — the second ground** | *NOT STARTED... the biggest visible change per hour* | **DONE 24 Aug.** Its own postscript says so; only the heading was stale. **FIVE grounds ship** — `saxon_village`, `pict_moor`, `roman_fort`, `danelaw_camp`, `offa_dyke`. **But one piece of it is NOT built — see below.** |
 | **Rating** | *NOT STARTED — no `rating`/`elo` column* | **ANSWERED by 4.6, 24 Aug, deliberately:** *"the rating IS season points — a second rating would be a second truth."* There is no column BY DECISION. Adding one undoes a ruling. |
 | **Hearths** | *NOT STARTED — no table, no reference* | **DONE 24 Aug** (row 4.4). `src/db/hearths.ts`, warsay 44/44. |
-| **PWA** | *NOT STARTED — no manifest, no service worker* | **Shell DONE 27 Aug** (row 8.9): `app/manifest.ts`, `public/manifest.webmanifest`, `public/sw.js`, forged icons. Only the EARNED prompt was missing — built this session. |
+| **PWA** | *NOT STARTED — no manifest, no service worker* | **Shell DONE 27 Aug** (row 8.9): `app/manifest.ts`, `public/sw.js`, forged icons. Only the EARNED prompt was missing — built and photographed this session. **And the manifest that shipped was the WRONG ONE** — see below. |
 | **The grade's cause** | `adaptBand` / the metered response | **Wrong stage.** Contrast has been luma-preserving since 22 Aug and removing the meter moves the board's hue the WRONG WAY. It was the anisotropic chroma skew. |
 
 ### The one piece of Wave E that is NOT built, and it is the piece it argued for
