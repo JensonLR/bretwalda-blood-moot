@@ -1017,12 +1017,49 @@ that only happened when the database was genuinely down; on Neon it would happen
 after any quiet spell, read to a player as a lost hoard, and show nothing to
 whoever went looking, because by then the compute is awake. 10 s.
 
-**STILL THE OWNER'S, AND STILL THE CLOCK.** Provisioning cannot be done from
-this container at all: every Neon host — `console.neon.tech`, `api.neon.tech`,
-`neon.com`, `neon.new`, `claimable.neon.tech` — is refused by the environment's
-egress policy with a 403 to CONNECT, which the agent proxy's own README says to
-report rather than route around. An API key does not change that; a network
-policy that allows those hosts would.
+**FIXED 3: the TLS mode was on a timer.** `pg` 8.20 warns at runtime that it
+treats `prefer`, `require` and `verify-ca` as aliases for `verify-full` TODAY,
+and that pg 9 gives them libpq's weaker meaning — encrypt, do not verify the
+certificate. Neon's strings end `?sslmode=require`, so this was one major version
+from silently trusting any certificate on the far end. Same shape as the
+`channel_binding` bug already documented in that file; the difference is it flips
+on a dependency bump rather than on day one. Pinned to what is in force now, so
+it is a no-op today and a guard tomorrow. An explicit `disable` or `verify-full`
+is left alone.
+
+**THE PROJECT IS CONNECTED AND THE PER-PR BRANCH IS NOW A GATE — 1 Sep 2026.**
+The owner linked the repo to Neon, which put `NEON_API_KEY` in repository secrets
+and `NEON_PROJECT_ID` in variables. `.github/workflows/neon_workflow.yml` uses
+them, and it does NOT do what the integration's template does — that creates a
+branch, leaves a commented-out migrate step, and deletes it, which would be a
+moving part with no gate behind it, and there is no migrate script here to
+uncomment. Instead the branch runs **`profiletest`**, whose database half has
+never once run against real Postgres in CI for want of a database to point at.
+A fresh Neon branch is EMPTY, which is exactly the case the boot path has to
+survive. It is handed the POOLED string on purpose, so the direct-host
+derivation above is proven in CI. Fork PRs get no secrets and the branch jobs
+skip rather than fail.
+
+**WHAT IS LEFT, AND IT IS THE OWNER'S — a runbook, since the specifics are now
+known:**
+1. **Rotate the password.** `npg_mfd8e2OJkSnR` has now been exposed in chat
+   twice and is still live. Neon console -> the project -> Roles -> reset.
+   Everything below uses the new one.
+2. Take the **pooled** string (the one with `-pooler`) as Render's
+   `DATABASE_URL`. The app wants pooled; the code derives direct for its own
+   schema work, so only one variable is needed.
+3. `pg_dump` the Render database and `pg_restore` into Neon on the **direct**
+   string, not the pooled one — transaction pooling carries no session state.
+4. Delete the Render Postgres once a fight has been played against Neon and a
+   profile survives a reload. That is what stops the ninety-day clock.
+
+Provisioning still cannot be done from THIS container: every Neon host —
+`console.neon.tech`, `api.neon.tech`, `mcp.neon.tech`, `neon.com`, `neon.new`,
+`claimable.neon.tech` — is refused by the environment's egress policy with a 403
+to CONNECT, and the Postgres endpoint on 5432 times out with no route. Tested,
+not assumed. An API key does not change it and neither does the MCP server; a
+network policy that allows those hosts would, and GitHub's runners already do,
+which is why the gate above lives there.
 
 **Render's free Postgres expires at 90 days and takes every profile with it** —
 every recovery code, every helmet, every gold balance. The repo's first commit
