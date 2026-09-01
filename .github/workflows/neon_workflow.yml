@@ -1,0 +1,108 @@
+# A Neon branch for every pull request — and a REASON for it.
+#
+# The integration's own template creates a branch, leaves a commented-out
+# "Run Migrations" step, and deletes the branch again. That would give this
+# repo a per-PR database nothing ever connects to, which is a moving part with
+# no gate behind it.
+#
+# So the branch is used. `profiletest` is this project's money gate — a profile
+# appearing out of nothing, gold only granted by a fight the server witnessed, a
+# purchase priced from the real ARMOURY, a recovery code carrying a hoard to
+# another device, an old localStorage save crossing exactly once — and its
+# database half only runs when `PROFILE_TEST_DB` is set. It has never run on
+# real Postgres in CI, because there was never a database to point it at.
+#
+# WHAT THIS CATCHES THAT LOCAL RUNS CANNOT. `src/db/index.ts` brings the schema
+# up itself, in idempotent DDL on the first request after a boot, because the
+# deploy is "connect repo, hit deploy" and a migrate step on somebody else's
+# dashboard is a step that gets skipped once and debugged for an hour. That
+# whole path — every CREATE TABLE IF NOT EXISTS, every ALTER ... ADD COLUMN IF
+# NOT EXISTS, the seasons repair, and the unique index that stops two Render
+# instances banking one match twice — is only ever exercised against a real
+# Postgres. A fresh Neon branch per PR is exactly that, and it is empty, which
+# is the case the boot path has to survive.
+#
+# THE POOLED STRING IS PASSED ON PURPOSE. Neon's rule is pooled for the app and
+# DIRECT for schema work, and `src/db/index.ts` derives the direct host from the
+# pooled one itself. Handing it the pooled string is what proves that derivation
+# in CI rather than in production.
+#
+# Secrets are not available to pull requests from forks, so the branch steps are
+# skipped there rather than failing — a fork PR still gets every other gate.
+name: Neon branch per pull request
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Setup
+    outputs:
+      branch: ${{ steps.branch_name.outputs.current_branch }}
+      # Fork PRs cannot see repository secrets. Resolved once here so both jobs
+      # below read one answer instead of each guessing.
+      has_secrets: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get branch name
+        id: branch_name
+        uses: tj-actions/branch-names@v8
+
+  create_neon_branch:
+    name: Create Neon branch and prove the schema comes up on it
+    needs: setup
+    if: |
+      needs.setup.outputs.has_secrets == 'true' && (
+      github.event.action == 'synchronize'
+      || github.event.action == 'opened'
+      || github.event.action == 'reopened')
+    runs-on: ubuntu-latest
+    steps:
+      # Two weeks, so a branch left behind by a PR that is never closed expires
+      # on its own rather than accumulating quietly against the project.
+      - name: Branch expiry, a fortnight out
+        run: echo "EXPIRES_AT=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
+      - name: Create Neon branch
+        id: create_neon_branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          expires_at: ${{ env.EXPIRES_AT }}
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The money gate, against a real and EMPTY Postgres. The URL is only ever
+      # an env var: never echoed, never written to a file, never a step output.
+      - name: profiletest against the branch
+        run: npm run profiletest
+        env:
+          PROFILE_TEST_DB: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
+
+  delete_neon_branch:
+    name: Delete Neon branch
+    needs: setup
+    if: needs.setup.outputs.has_secrets == 'true' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Neon branch
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
+          api_key: ${{ secrets.NEON_API_KEY }}

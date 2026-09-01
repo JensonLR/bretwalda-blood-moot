@@ -358,6 +358,27 @@ async function directUrlChecks() {
   check("Render and local Postgres are untouched",
     directUrl("postgresql://postgres:postgres@127.0.0.1:5432/app_db")
       === "postgresql://postgres:postgres@127.0.0.1:5432/app_db");
+
+  // ---- and the TLS mode, which is on a timer ----
+  //
+  // `pg` treats `require` as `verify-full` TODAY and will adopt libpq's weaker
+  // meaning in v9 — encrypt, do not verify. Neon's strings say `sslmode=require`.
+  // These pin what is in force now so the upgrade cannot quietly loosen it.
+  const pinSslMode = mod?.pinSslMode;
+  if (!pinSslMode) { check("the sslmode pin is reachable", false); return; }
+  check("Neon's own sslmode=require is pinned to verify-full",
+    pinSslMode("postgresql://u:p@h.neon.tech/db?sslmode=require&channel_binding=require")
+      .includes("sslmode=verify-full"));
+  check("channel_binding survives the pin",
+    pinSslMode("postgresql://u:p@h.neon.tech/db?sslmode=require&channel_binding=require")
+      .includes("channel_binding=require"));
+  check("an explicit sslmode=disable is somebody's choice and is left alone",
+    pinSslMode("postgresql://u:p@h/db?sslmode=disable").includes("sslmode=disable"));
+  check("verify-full is already right and is not rewritten",
+    pinSslMode("postgresql://u:p@h/db?sslmode=verify-full").includes("sslmode=verify-full"));
+  check("a URL with no sslmode at all is untouched",
+    pinSslMode("postgresql://postgres@127.0.0.1:5432/app_db")
+      === "postgresql://postgres@127.0.0.1:5432/app_db");
 }
 
 async function main() {

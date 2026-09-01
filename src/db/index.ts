@@ -67,7 +67,7 @@ function connect(): Db | null {
   if (!databaseUrl) return null;
   if (!globalForDb.__bretwaldaPool) {
     const pool = new Pool({
-      connectionString: databaseUrl,
+      connectionString: pinSslMode(databaseUrl),
       // A free-tier instance has a small connection ceiling and this process
       // is the only client, so a wide pool buys nothing and can lock us out.
       max: 5,
@@ -120,6 +120,39 @@ function connect(): Db | null {
   return globalForDb.__bretwaldaDb ?? null;
 }
 
+/**
+ * PINS THE TLS MODE THAT IS IN FORCE TODAY, so a dependency bump cannot quietly
+ * weaken it.
+ *
+ * `pg` 8.20 warns, at runtime, that it currently treats `prefer`, `require` and
+ * `verify-ca` as aliases for `verify-full` — and that **in pg 9 they will adopt
+ * libpq semantics, which have weaker guarantees**: `require` will encrypt the
+ * socket and stop verifying the server's certificate. Neon hands out connection
+ * strings ending `?sslmode=require`, so this deployment is one major version
+ * away from silently accepting any certificate on the far end.
+ *
+ * That is the SAME failure mode as the `channel_binding` note on the pool below
+ * and it is worth the same treatment: a parameter that looks like it is
+ * providing a protection, providing none, and saying nothing. The difference is
+ * that this one is on a timer.
+ *
+ * Only the three aliased modes are rewritten, and they are rewritten to what
+ * they ALREADY mean today — so this is a no-op on every current version and a
+ * guard on the next one. An explicit `disable`, `no-verify` or `verify-full` is
+ * left exactly as written, because those are choices somebody made.
+ */
+export function pinSslMode(u: string): string {
+  try {
+    const url = new URL(u);
+    const mode = url.searchParams.get("sslmode");
+    if (mode !== "prefer" && mode !== "require" && mode !== "verify-ca") return u;
+    url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return u;
+  }
+}
+
 let schemaReady: Promise<boolean> | null = null;
 
 /**
@@ -141,7 +174,7 @@ async function schemaDb(app: Db): Promise<{ db: Db; close: () => Promise<void> }
   const direct = databaseUrl ? directUrl(databaseUrl) : null;
   if (!direct || direct === databaseUrl) return { db: app, close: async () => {} };
   const pool = new Pool({
-    connectionString: direct,
+    connectionString: pinSslMode(direct),
     max: 1,
     connectionTimeoutMillis: 10_000,
     enableChannelBinding: true,
