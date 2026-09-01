@@ -150,6 +150,24 @@ not exist this morning.
 - **`platformcheck` law 4 was imprecise** — `\b(?:window\.)?(alert|confirm|prompt)\(`
   matches after a dot, so it convicted any object with a method of that name.
   Tightened to the three globals, and proven to still convict a real offender.
+- **WAVE D'S FIRST CUT — the occlusion pass was drawing the whole scene twice.**
+  617 of the frame's draws were `GTAOPass`'s own depth/normal prepass, filling a
+  buffer the beauty pass had computed one pass earlier and discarded. The
+  composer's buffers now carry a depth TEXTURE and `setGBuffer` hands it over.
+  Controlled A/B, one session, `--secs=25`, tier high, eight-man brawl:
+  **10.10 → 7.60 ms, 1229 → 922 draws, 2764k → 1897k triangles.** Occlusion
+  measured unchanged (mean luma +0.15 of 255 over 20 frames), cosmetictest 19/19
+  in software, and the suite itself went 3176 s → 2384 s.
+- **AND DEPTH OF FIELD HAS NEVER RENDERED A FRAME.** `BokehPass` has the same
+  defect and the same fix was written — then the caller was looked for and there
+  is not one. Nothing calls `setDepthOfField`, so `bokeh.enabled` is false for
+  the life of every session. The optimisation was **reverted rather than
+  shipped**: optimising a pass that never runs is the same mistake as fixing a
+  gate that cannot fail. See the board below — it is a design call now.
+- **The "multi-second stall" was the ruler**, and this file said otherwise
+  earlier in the day. Measured without `fpstest` in the way: 18 ms worst frame on
+  the phone preset, ~350 ms at tier high, one frame, LOCATED to the
+  replay→tableau handover. Do not read `fpstest`'s `worst` column.
 
 ## The board, verified against the tree on 1 Sep
 
