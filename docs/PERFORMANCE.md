@@ -360,7 +360,55 @@ NEGATIVE draw deltas, which is the same statement twice.
     live round trip to the production server, GET /api/health x12
     p50 58.33 ms   p95 174.96   worst 174.96   (the first includes TLS)
 
-## AND THERE IS A MULTI-SECOND STALL NOBODY HAS EXPLAINED
+## THE MULTI-SECOND STALL IS THE INSTRUMENT — measured, and it is not the game
+
+**R8, against the section below, which was written the same day and is wrong.**
+It read the `worst` column off `fpstest` and called a seven-second hitch on the
+summary "something a player would report before any of the millisecond columns
+above". That claim was made on an unattributed number, which is the exact defect
+this whole session was spent correcting, so it is corrected here rather than
+edited away — the original text is kept underneath.
+
+A dedicated probe fought REAL duels and blood moots through the shipped page
+with no `fpstest` instrumentation in the way, tapping only `linkProgram`,
+`compileShader` and `getProgramParameter`, and timing every frame across the
+match-end → summary transition:
+
+| | worst single frame | frames over 100 ms |
+|---|---|---|
+| phone, 390x844, tier low | **18 ms** | **0** |
+| 640x360, tier high | **~400 ms** (376–671 across runs) | **1** |
+
+**There is no multi-second stall.** What is real is ONE frame of roughly
+four-tenths of a second at tier high, at the transition, and nothing at all on
+the phone preset.
+
+And two candidate causes are dead, so nobody spends them again:
+
+* **NOT shader compilation.** `linkProgram` 98 calls / 1 ms, `compileShader`
+  196 calls / 0 ms, and `getProgramParameter` — the call that BLOCKS until a
+  link finishes — **14 ms over the entire session**, 5 ms of it after the fight
+  began. The profile's `getParameters` and `getProgramCacheKey` rows look like a
+  compile stall and are not one.
+* **NOT the clip recorder**, which was the strongest remaining candidate because
+  it arms on `tier !== "low"` and the stall follows the same tier line. Deleting
+  `MediaRecorder` so `canRecord` is false made the worst frame **671 ms against
+  376 ms with it on** — the opposite of the prediction.
+
+It also barely scales with the cast: two men 402 ms, eight men 466 ms. So it is
+a fixed one-off, tier-gated somewhere above `low`, and still unattributed — but
+it is a 0.4 s hitch at a scene change, not a freeze, and it should be priced
+accordingly.
+
+**AND `fpstest`'s `worst` COLUMN SHOULD NOT BE READ AS A PLAYER-VISIBLE STALL**
+until somebody attributes it. Its p50/p95/p99 rows agree with an independent
+measurement; its `worst` does not, by an order of magnitude, and the difference
+is the harness — it wraps every GL call, records and stops, and reads pixels
+back. That is a defect in the ruler, not in the game.
+
+---
+
+## THE ORIGINAL SECTION, KEPT — a multi-second stall nobody has explained
 
 The `worst` column carries numbers three orders of magnitude over their own p50
 and they are not the ablation's business:

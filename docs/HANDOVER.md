@@ -207,10 +207,20 @@ not exist this morning.
   audio engine (−0.40) and the torch lights (−0.50) are AT THE FLOOR and are not
   findings.
 
-  **A stall worth its own look: the summary stage reads `worst 7705 ms`** at
-  tier high — three orders of magnitude over its own p50 of 21.60 ms. That is
-  not a rendering cost, it is something blocking; nothing in this session
-  touched it and nothing has explained it.
+  **AND THE "MULTI-SECOND STALL" WAS THE INSTRUMENT — I said otherwise earlier
+  today and it was wrong.** `fpstest`'s summary row reads `worst 7705 ms` and
+  the ablation baseline `11240 ms`, and a first draft of this file called that
+  "something a player would report". A dedicated probe then fought real matches
+  with none of `fpstest`'s instrumentation in the way: **18 ms worst frame on
+  the phone preset, ~400 ms at tier high, one frame.** No multi-second anything.
+  Two candidates are dead and named in `docs/PERFORMANCE.md` so nobody spends
+  them again — it is NOT shader compilation (14 ms of blocking link queries in a
+  whole session) and NOT the clip recorder (removing `MediaRecorder` made the
+  worst frame WORSE, 671 vs 376 ms). What is left is a fixed ~0.4 s hitch at the
+  transition, tier-gated above `low`, barely scaling with the cast — a stutter
+  at a scene change, not a freeze. **Do not read `fpstest`'s `worst` column as a
+  player-visible stall**; its p50/p95/p99 agree with an independent measurement
+  and its `worst` is out by an order of magnitude.
 
 ### 2. Carrying a measured blocker — do not restart from zero
 
