@@ -79,7 +79,8 @@
     "shieldtest": "node tools/shieldtest.mjs",
     "taketest": "node tools/taketest.mjs",
     "standardtest": "node tools/standardtest.mjs",
-    "hitchprobe": "node tools/hitchprobe.mjs"
+    "hitchprobe": "node tools/hitchprobe.mjs",
+    "helmrungs": "node tools/helmrungs.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

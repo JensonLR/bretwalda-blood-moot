@@ -2048,13 +2048,24 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       { id: "helm_none", label: "Bare Head", cost: 0, slot: "helm", value: "none" },
       { id: "helm_iron", label: "Iron Spangenhelm", cost: 30, slot: "helm", value: "iron" },
       { id: "helm_nasal", label: "Nasal Helm", cost: 110, slot: "helm", value: "nasal" },
-      { id: "helm_hood", label: "Shadow Hood", cost: 120, slot: "helm", value: "hood" },
+      // REPRICED 2 Sep 2026 (A3, docs/COSMETICS-AUDIT.md §5) against
+      // `tools/helmrungs.mjs`, which measures what each rung adds to the head's
+      // outline over the iron spangenhelm in millimetres, on the seed where it
+      // shows least. The audit's rule: a rung above 200 gold must add ≥40 mm
+      // somewhere on the crown or the jaw. Nasal +71 (the cone's apex), ridge
+      // +53 (the comb), boar +84, wyrm +68 (its crest was rebuilt monotonic)
+      // all clear it and keep their prices. The hood is the only different
+      // silhouette below Sutton Hoo (+59 mm at the nape, +75 wide over the bare
+      // head) and was underpriced. Spectacle +14 and Jarl's Crowned +31 do not
+      // clear it, and 570 gold bought less outline than the 380-gold boar.
+      // Ids unchanged: nobody who bought at the old price loses anything.
+      { id: "helm_hood", label: "Shadow Hood", cost: 200, slot: "helm", value: "hood" },
       { id: "helm_ridge", label: "Ridge Helm", cost: 190, slot: "helm", value: "ridge",
         desc: "A welded crest fore and aft, and a fall of iron off the nape." },
-      { id: "helm_spectacle", label: "Spectacle Helm", cost: 280, slot: "helm", value: "spectacle" },
+      { id: "helm_spectacle", label: "Spectacle Helm", cost: 150, slot: "helm", value: "spectacle" },
       { id: "helm_boar", label: "Boar-Crest Helm", cost: 380, slot: "helm", value: "boar",
         desc: "A bronze boar stands the length of the crown, tusks forward." },
-      { id: "helm_crowned", label: "Jarl's Crowned Helm", cost: 570, slot: "helm", value: "crowned" },
+      { id: "helm_crowned", label: "Jarl's Crowned Helm", cost: 340, slot: "helm", value: "crowned" },
       { id: "helm_wyrm", label: "Wyrm-Crest Helm", cost: 950, slot: "helm", value: "wyrm",
         desc: "A wyrm coiled along the crown, head raised over the brow." },
       { id: "helm_suttonhoo", label: "The Sutton Hoo Helm", cost: 2400, slot: "helm", value: "suttonhoo",

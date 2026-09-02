@@ -936,11 +936,25 @@ the card frames the GRIP, which is where three of the four classes carry their
 fittings — the berserker's axe head is over his shoulder and out of frame, so
 that rung needs its own bearing.
 
-**A3. The ten helm bowls, and §5's cut/reprice/rebuild.** *NOT STARTED.
-Several waves.* Verified untouched — `characters.ts:191-285` still reads
-Nasal 110, Shadow Hood 120, Jarl's Crowned 570, Wyrm-Crest 950, Bronze Scales
-160, Crimson Warplate 120, Bretwalda Gold 510, and both Greybeard and Snow
-White at 30 in **both** the hair and beard tables. Nothing has acted on §5.
+**A3. The ten helm bowls, and §5's cut/reprice/rebuild.** ~~*NOT STARTED.*~~
+**THE ROW WAS STALE IN THREE PLACES, and the reprice is DONE 2 Sep 2026.**
+Verified against the tree: the four bowls ARE built (`HELM` carries
+`shallow`/`cone`/`round`/`tall`, the cone has an apex and no ribs, the shallow
+bowl its four-plate lobes), the ridge's comb and the wyrm's crest lift were
+rebuilt, hair and beard colours had already come down to 10 (not 30), and the
+Greybeard/Snow White CUT is moot — their hexes differ now (`0x8a8578` vs
+`0xe8e4da`). What was left was the REPRICE, which the row's own ordering note
+says comes after the rebuild, and it is now priced against a ruler:
+`tools/helmrungs.mjs` measures what each rung adds to the head's outline over
+the iron spangenhelm, in mm, on the seed where it shows least —
+nasal **+71**, ridge **+53**, spectacle **+14**, boar **+84**, crowned **+31**,
+wyrm **+68**, Sutton Hoo +28 (the mask, not the outline), the hood +59 nape /
++75 wide over the bare head. §5's rule is ≥40 mm above 200 gold, so:
+**Spectacle 280 → 150, Jarl's Crowned 570 → 340, Shadow Hood 120 → 200**; the
+nasal, ridge and wyrm keep their prices because their rebuilds clear the bar
+(the wyrm's 950 stands on §5's own condition, "until its serpent breaks the
+outline" — it does, by 68 mm). Ids unchanged, nobody stranded. Captures:
+`art/shots/sil/sil-helm*.png`. The record: `art/helmrungs.json`.
 
 The physical fact that condemns the ladder: the fight card resolves **127 px
 per metre — 1 px is 7.9 mm** and a head is 34 px. A fitting under ~24 mm cannot

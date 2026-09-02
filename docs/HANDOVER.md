@@ -243,8 +243,12 @@ not exist this morning.
   `bundle_dmg.sh` and the retry works once the stale `rw.*.dmg` is deleted.
 - **`factionread` §7.1's residue.** A fifth of what it was, still red. Start
   from `tools/gradesplit.mjs`, not from a vat.
-- **A3: the ten helm bowls and §5's reprice.** *NOT STARTED, and that row is
-  honest* — it re-verified itself against `characters.ts:191-285`.
+- ~~**A3: the ten helm bowls and §5's reprice.**~~ **DONE 2 Sep 2026, and the
+  row was NOT honest** — its line range pointed at the hair table, the bowls
+  and crests were already built, and the colour reprice had already happened.
+  What remained was the helm reprice, now done against `tools/helmrungs.mjs`
+  (mm of outline over the spangenhelm): Spectacle 280→150, Jarl's Crowned
+  570→340, Shadow Hood 120→200. See the row for the numbers.
 - **Flags.** **DONE 2 Sep 2026 — hearth standards** (`src/game/standards.mjs`,
   `hearthStandard`, the picker in `factionMap/Hearth.tsx`, the glyph beside
   names; standardtest 11/11, warsay 64/64 on a real Postgres). Was: constrained presets, a moderation

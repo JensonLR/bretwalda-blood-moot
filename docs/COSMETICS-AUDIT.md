@@ -782,6 +782,16 @@ Gilded War Cloak's shoulders and hem; the warden's lamellar as a mail byrnie;
 the trousers and leg wraps so they break the silhouette; the shield's dish; the
 sword's rest carry.
 
+**REPRICED 2 Sep 2026, against a ruler.** `tools/helmrungs.mjs` measures each
+rung's addition to the outline over the spangenhelm (mm, worst seed): nasal
++71, ridge +53, spectacle +14, boar +84, crowned +31, wyrm +68. The bowls,
+the comb and the wyrm's crest had been rebuilt by then, so the REBUILD list
+came first as the ordering note asks. Spectacle 280 → 150 and Jarl's Crowned
+570 → 340 (both under the 40 mm line), Shadow Hood 120 → 200. The nasal keeps
+110 (rebuilt, not repriced), the wyrm keeps 950 on this section's own
+condition — its serpent breaks the outline now. The CUT of one of
+Greybeard/Snow White is moot: the hexes were separated in the colour pass.
+
 **The one rung that is right:** the Boar-Crest at 380 gold.
 `art/shots/sil/sil-helm.png` panel 7 is the only crest below Sutton Hoo that
 survives with the material off — 102 mm of animal along the crown, standing
