@@ -37,11 +37,22 @@ def attach_textures(parts, tex_dir):
             m.use_nodes = True
             nt = m.node_tree; bsdf = nt.nodes.get("Principled BSDF")
             if not bsdf: continue
+            # Density: object-space projection at the world tile, or UV repeat.
+            tiles = json.load(open(os.path.join(tex_dir, "tiles.json"))) if os.path.exists(os.path.join(tex_dir, "tiles.json")) else {}
+            tinfo = tiles.get(surface, {"repeat": 1, "worldTile": None})
+            coord = nt.nodes.new("ShaderNodeTexCoord"); mapping = nt.nodes.new("ShaderNodeMapping"); mapping.location = (-1000, 0)
+            if tinfo.get("worldTile"):
+                nt.links.new(coord.outputs["Object"], mapping.inputs["Vector"]); k = 1.0 / float(tinfo["worldTile"])
+            else:
+                nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"]); k = float(tinfo.get("repeat") or 1)
+            mapping.inputs["Scale"].default_value = (k, k, k)
             def img(kind, colorspace):
                 path = os.path.join(tex_dir, f"{surface}-{kind}.png")
                 if not os.path.exists(path): return None
                 im = bpy.data.images.load(path, check_existing=True); im.colorspace_settings.name = colorspace
                 n = nt.nodes.new("ShaderNodeTexImage"); n.image = im; n.location = (-700, 0)
+                if tinfo.get("worldTile"): n.projection = 'BOX'; n.projection_blend = 0.3
+                nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"])
                 return n
             base = img("map", "sRGB")
             if base:

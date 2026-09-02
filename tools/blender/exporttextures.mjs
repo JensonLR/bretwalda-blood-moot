@@ -60,5 +60,15 @@ for (const name of NAMES) {
     writeFileSync(resolve(dir, `${name}-${kind}.png`), png(base, w, h)); files++;
   }
 }
+// THE DENSITY. Two regimes in materials.ts: substances in WORLD_TILE are
+// projected from object space at a tile size in metres (mail rings are 11 cm
+// apart whatever the mesh's UVs say); everything else tiles by the surface's
+// own `repeat` over the mesh's UVs. Both are written for Blender to honour.
+const matSrc = readFileSync(resolve(ROOT, "src/game/client/render/materials.ts"), "utf8");
+const tileBlock = matSrc.slice(matSrc.indexOf("const WORLD_TILE"), matSrc.indexOf("};", matSrc.indexOf("const WORLD_TILE")));
+const worldTile = Object.fromEntries([...tileBlock.matchAll(/(\w+):\s*([\d.]+)/g)].map((m) => [m[1], Number(m[2])]));
+const tiles = {};
+for (const name of NAMES) { let info = null; try { info = lib.info(name); } catch { /* not a surface */ } tiles[name] = { repeat: info?.repeat ?? 1, worldTile: worldTile[name] ?? null }; }
+writeFileSync(resolve(dir, "tiles.json"), JSON.stringify(tiles, null, 1));
 rmSync(OUT, { recursive: true, force: true });
 console.log(`[exporttextures] ${files} maps for ${NAMES.length} surfaces at ${SIZE}px -> art/blender/tex/`);
