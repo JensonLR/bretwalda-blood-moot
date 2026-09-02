@@ -5235,7 +5235,7 @@ than on a wall-clock timer — before either is trusted to gate a release.
 
 ---
 
-## The mute on the war rolls has never met a database
+## ~~The mute on the war rolls has never met a database~~ — CLOSED 2 Sep 2026: it has now. `profiletest` equips `{ muted: true }` against real rows, reads it back, and recovers it onto a second device by the four words (82/82 with `PROFILE_TEST_DB` on a local Postgres). The entry below is the record of what was unproven.
 
 **What is proven.** The mute is remembered on the device — `phonesound` taps the
 toggle at 390x844 and reads `bretwalda.audio.muted=1` back out of localStorage
@@ -5397,7 +5397,7 @@ to ~205/165 and the lump arrives desaturated and pink. It wants roughly
 `0xff8a28` at 2.2–2.4. The comment above the entry reasons from a bloom threshold
 that, per the next entry, the chain cannot reach without clipping first.
 
-## Bloom is unreachable — the threshold sits above where the grade already clips
+## ~~Bloom is unreachable~~ — CLOSED IN THE TREE, noticed 2 Sep 2026: `bloomThreshold` is 2.55 in dusk and 1.3 in the last stand, under the 4.07 / 2.48 clip points this entry measured; the halo below is the record of why it was ever authored
 
 Not visible as an artifact; visible as an absence, and it is why every emissive
 in the game has been tuned by pushing intensity until something goes white.

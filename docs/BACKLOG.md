@@ -1149,7 +1149,11 @@ before trusting the reading.
 
 ### Wave D — DRAW CALLS AND ALLOCATION (several waves) — BLOCKED on C
 
-*NOT STARTED.* Two measured findings:
+~~*NOT STARTED.*~~ **HALF UNBLOCKED AND THE FIRST CUT TAKEN, 1 Sep 2026** — the
+ablation ranks on real hardware at `--secs=60`, and reusing the beauty depth
+for the AO pass took frame p50 10.10 → 7.60 ms and draws 1229 → 922 at tier
+high (docs/PERFORMANCE.md; the handover carries the table). The two findings
+below are the ones that stand. Two measured findings:
 
 1. **1308 draws at `medium`, 1461 at `high`, 283 at `low`.** A phone wants low
    hundreds. `low` is already there, which reframes the question: what does

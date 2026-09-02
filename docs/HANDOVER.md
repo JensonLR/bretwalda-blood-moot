@@ -118,7 +118,13 @@ not exist this morning.
   forces its canvas clicks (a fight canvas under shake is never "stable") and
   closes its browser on failure (it used to hang, twice read as "hung").
 - **The TAKE labels no longer say "the THE GAR".**
-- **The cold key on the moor** (Wave E's unpulled lever): `Mood` `cold`,
+- **A3's helm reprice, against a ruler** (`tools/helmrungs.mjs`, mm of outline
+  over the spangenhelm): Spectacle 280→150, Jarl's Crowned 570→340, Shadow
+  Hood 120→200; the bowls and crests turned out to be built already.
+- **The mute follows the player, proven** on real rows (profiletest 82/82), and
+  the stale "bloom is unreachable" entry closed — the thresholds have been
+  under the clip points for some time.
+- **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
 - **A taken Dane axe is carried over the shoulder on every body**, and a
@@ -382,8 +388,8 @@ workstation: forced canvas clicks, waits for the respawn, declines the tuition
 card) · clipseen PASS · wearmeasure ·
 helmclash (COMPARES ITS OWN BASELINE — exits 1 when a section gets worse) ·
 cosmetictest (see above; software for a verdict) · profiletest 22/0
-(degraded; no DB here by the credentials rule) — **78/78 with `PROFILE_TEST_DB`
-on the local cluster** · classmatrix (~3 min, balance only) ·
+(degraded; no DB here by the credentials rule) — **82/82 with `PROFILE_TEST_DB`
+on the local cluster** (four mute checks added 2 Sep) · classmatrix (~3 min, balance only) ·
 **hitchprobe** (new, 2 Sep; `BRETWALDA_GPU=1`, worst frame after the verdict
 22–36 ms at high and medium; a reading over 100 ms with links in it is the
 handover hitch back) · spectatetest 12/14 (the ledgered count; its node half

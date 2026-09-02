@@ -231,12 +231,24 @@ async function withDatabase() {
   check("and the refusals left the real bindings alone",
     (await post("/api/profile/me", { id, secret })).json?.profile?.bindings?.forward?.[0] === "KeyT");
 
+  // THE MUTE FOLLOWS THE PLAYER (docs/OPEN-DEFECTS.md, "the mute on the war
+  // rolls has never met a database"): the column, the view, the write and the
+  // sync were all in place and nothing had ever equipped `{ muted: true }`
+  // against real rows and read it back — least of all onto a second device.
+  check("a profile starts unmuted",
+    (await post("/api/profile/me", { id, secret })).json?.profile?.muted !== true);
+  const hushed = await post("/api/profile/equip", { id, secret, muted: true });
+  check("a mute is kept on the roll", hushed.json?.profile?.muted === true, JSON.stringify(hushed.json?.profile?.muted));
+  check("and the mute survives a reread", (await post("/api/profile/me", { id, secret })).json?.profile?.muted === true);
+
   const spoken = `  ${profile.recoveryCode.toUpperCase().replace(/ /g, "-")}. `;
   const rec = await post("/api/profile/recover", { recoveryCode: spoken });
   check("four words bring the profile back on another device", rec.json?.profile?.id === id, JSON.stringify(rec.json)?.slice(0, 90));
   check("and the gold comes with it", rec.json?.profile?.gold === paid.goldEarned - 30);
   check("and so do the keys he plays with", rec.json?.profile?.bindings?.forward?.[0] === "KeyT",
     JSON.stringify(rec.json?.profile?.bindings?.forward));
+  check("and the silence he chose comes with it — the second device boots muted", rec.json?.profile?.muted === true,
+    JSON.stringify(rec.json?.profile?.muted));
   check("the old key stops working", (await post("/api/profile/me", { id, secret })).status === 401);
   check("a made-up code finds nobody", (await post("/api/profile/recover", { recoveryCode: "wolf wolf wolf wolf" })).status === 404);
 
