@@ -34,6 +34,7 @@
 //     same moment, so the two cannot drift apart.
 
 import { FIRE, type WarriorClass, type HitZone, type DeathCause, type EmoteId } from "../../types";
+import { isTouchPrimary } from "./quality";
 import type { FrameContext, QualitySettings, QualityTier } from "./quality";
 import { createScore, type ScoreHandle, type ScoreScene } from "./score";
 
@@ -663,7 +664,9 @@ const UNLOCK_EVENTS = ["pointerdown", "touchend", "keydown", "mousedown"] as con
 function detectSpeaker(): SpeakerMode {
   if (typeof window === "undefined" || typeof navigator === "undefined") return "full";
   try {
-    const touch = (navigator.maxTouchPoints ?? 0) > 0;
+    // Touch as the primary pointer, not merely present — a touchscreen laptop
+    // is a desk with speakers (quality.ts, `isTouchPrimary`).
+    const touch = isTouchPrimary();
     const short = Math.min(window.screen?.width ?? 9999, window.screen?.height ?? 9999);
     return touch && short < 950 ? "small" : "full";
   } catch { return "full"; }

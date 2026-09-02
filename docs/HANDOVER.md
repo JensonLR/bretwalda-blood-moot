@@ -25,6 +25,18 @@ Rewritten 1 Sep 2026, on a Mac with a GPU and network. Read this, then
 
 ## The owner's rulings — these SUPERSEDE what is written elsewhere
 
+- **2 Sep 2026 (late): Steam, iOS and Android wait for the Unity + Blender
+  rebuild.** "Steam/iOS/Android won't be ready until we start building in
+  Unity & Blender for improved visuals & animations." So the store rows in
+  BACKLOG stay parked and are not this codebase's next step; the web build
+  and the Tauri wrapper remain the shipping surfaces until then. The
+  monetisation and platform-path documents should be read with this on top.
+- **2 Sep 2026 (late), four findings from the owner's phone and a touchscreen
+  laptop:** touchscreen laptops loaded as mobile; the thumb on the fist reads
+  wrong; beards read thin in parts and unnatural, with and without a helm
+  (and the fix must not disturb armour or other cosmetics); and the graphics
+  panel on the phone was shown at "Fast". All four are worked below.
+
 1. **Alpha profiles are disposable** (1 Sep). *"any profiles will be fine to be
    lost, everyone understands this is just an alpha test on Render's hosting."*
    The ninety-day Render Postgres clock is NOT urgent; the hosting move is
@@ -127,6 +139,14 @@ not exist this morning.
 - **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
+- **The fist's thumb crosses the fingers** and the palm block is rounder
+  (the owner's "thumb looks wrong"). **The beards are fuller, plumb on the
+  throat, thicker-walled and broken at the hem** (three rounds, every seat and
+  clash gate green) — and honestly still one shell: a strand system is a
+  Unity/Blender item, and OPEN-DEFECTS says so.
+- **Touchscreen laptops are desktops again** (`isTouchPrimary`: coarse
+  primary pointer and no hover, not touch merely present) — tier probe, HUD
+  mode, quality ceiling and speaker guess all follow it.
 - **The per-frame garbage halved** (148 → 86 GC/min at low): three was
   re-resolving programs every frame — materials shared between skinned and
   plain meshes (`materials.twin`), and transparent double-sided quads drawn
@@ -489,8 +509,13 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    - **The nape-guard flare / beard profile** — measurement-blocked, unchanged.
    - **`factionread` §7.1's residue** — the leg wraps' lifted value under the
      fire, owner-ruled mechanisms (OPEN-DEFECTS carries the GPU column).
-3. **Owner-bound:** the Steam app id and store page, firing
-   `.github/workflows/desktop.yml` (a `desktop-v*` tag), the iOS/Android wave,
-   Neon's clock half, the §7.1 mechanisms.
-4. The laws above are the ones this session paid for; the two about `pkill`
+3. **Owner-bound, and now PARKED by ruling:** the Steam app id and store
+   page, the desktop tag, the iOS/Android wave — all wait for the Unity +
+   Blender rebuild (owner, 2 Sep). Still the owner's: Neon's clock half, the
+   §7.1 mechanisms.
+4. **Filed to the rebuild rather than pushed further here:** a strand-based
+   beard (OPEN-DEFECTS, "the owner's phone, 2 Sep"); `helmclash` §5's 66
+   pre-existing pelt spills (hair through the hood and the masks — the same
+   66 on the tree before the beard rounds, so not a regression).
+5. The laws above are the ones this session paid for; the two about `pkill`
    and `pgrep -f` cost a run each.

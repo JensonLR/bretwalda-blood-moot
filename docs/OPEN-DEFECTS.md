@@ -8,6 +8,53 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE OWNER'S PHONE, 2 Sep 2026: the beards read thin and unnatural, and the thumb reads wrong — both worked, one of them honestly only half closed
+
+**The fist — CLOSED.** `art/look/beard-before/fist-huscarl-front.png` against
+`beard-after/`: the thumb ran up the grip beside the fingers — 60 mm of travel
+along the shaft for 42 mm of arc around it, a diagonal — and the back of the
+hand was a squared, faceted plate. The thumb now crosses the middle phalanges
+(little travel along the shaft, most of a half-turn around it, the pad on the
+index finger's back) and the closed fist's palm block is a rounder, finer
+section. `wearmeasure` 5/5.
+
+**The beards — IMPROVED, AND WHAT IS LEFT IS STRUCTURAL.** Three rounds on the
+short and full cuts, captured at profile, three-quarter and front, bare and
+under the spangenhelm (`art/look/beard-before` → `beard-after3`): the fall was
+a paddle — a teardrop section 5–7 mm thick closing to a point, leaning 34–42%
+forward off the throat with daylight behind it, its mass dying by 0.9 rad so
+the jaw behind the chin was bare. Now: the cheeks carry to the sideburn, the
+fall is plumb on the throat (clearance 5 → 1 mm), the walls are 9–11 mm, the
+hem is blunt and broken, and the strand ridges are deeper. Every gate held
+throughout — `wearmeasure` §5 seat and §7 throat, `beardcount` one solid per
+style, `helmclash` §5 — so no helm or garment moved.
+
+What a critic will still say from the side is true: **it is one shell**. A
+beard reads as hair through strands — cards or fibres with anisotropic
+shading — and this construction has none; it is an authored surface with a
+tinted skin fade and lengthwise ridges. The owner ruled the same day that the
+visual rebuild happens in Unity and Blender; the beard is the clearest case
+for it and is filed there rather than pushed further as a shell.
+
+---
+
+## TOUCHSCREEN LAPTOPS LOADED AS PHONES — closed 2 Sep 2026
+
+The owner's finding. Every "is this a phone" test in the client was
+`"ontouchstart" in window || navigator.maxTouchPoints > 0` — touch PRESENT —
+and a laptop with a touchscreen answers yes to that, so it got the thumb pads,
+the touch HUD, the medium quality ceiling and the small-speaker mix. The
+question is whether touch is the PRIMARY pointer with no hover, which is what
+the CSS media queries were written to answer: `isTouchPrimary()` in
+`render/quality.ts` reads `(pointer: coarse)` and `(hover: hover)`, keeps the
+user-agent shortcuts for iPhone/iPad/Android and iPadOS's Mac disguise, and
+falls back to the old test only where `matchMedia` is missing. The tier probe,
+the hard ceiling, the canvas's `isMobile`, and the audio engine's speaker guess
+all read it now. `install.ts` keeps its own iOS test — that one is about the
+install prompt, not the pointer.
+
+---
+
 ## THE REPLAY→TABLEAU HITCH: SHADER COMPILATION, WHICH THE LAST RULER HAD RULED OUT — closed 2 Sep 2026
 
 `docs/PERFORMANCE.md` had the frame located (the replay's last, where the

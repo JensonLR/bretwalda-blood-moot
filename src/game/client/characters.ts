@@ -10266,7 +10266,11 @@ function fistGeometry(
     { y: 0.014 * s, hw: 0.044 * s, hd: 0.02 * s, z: 0.03 * s + lift },
     { y: -0.022 * s, hw: 0.045 * s, hd: 0.019 * s, z: 0.032 * s + lift },
     { y: -0.05 * s, hw: 0.037 * s, hd: 0.015 * s, z: 0.028 * s + lift },
-  ], ring + 2, { power: 2.5, capTop: true, capBottom: true }));
+    // A rounder, finer section for the closed fist's palm block than the open
+    // hand's: at `power` 2.5 on nine segments the back of the hand read as a
+    // squared, faceted plate beside the fingers (the same capture). 1.9 is a
+    // knuckle-line's convexity; the extra segments take the facets off it.
+  ], open ? ring + 2 : ring + 6, { power: open ? 2.5 : 1.9, capTop: true, capBottom: true }));
 
   /**
    * The centroid of a built piece, off its own vertices.
@@ -10327,12 +10331,19 @@ function fistGeometry(
     // haft ends up buried in them, and one that scaled with the shaft would
     // swell. The standoff is a finger's thickness, which is what the thumb is
     // actually lying on.
+    // THE THUMB CROSSES THE FINGERS; IT DOES NOT RUN ALONG THE SHAFT. The
+    // owner's capture (2 Sep 2026, "thumb looks wrong") showed it as a
+    // sausage lying up the grip beside the fingers: it travelled 60 mm along
+    // the shaft for 42 mm of arc around it, a diagonal. A closed fist lays
+    // the thumb ACROSS the middle phalanges — little travel along the shaft,
+    // most of a half-turn around it — with the pad pressed onto the index
+    // finger's back, so `v` climbs to a finger's thickness by the tip.
     const THUMB: Array<[number, number, number, number, number]> = [
-      [-0.046, -0.588, -0.0056, 0.0125, 0.0125],
-      [-0.038, 0.142, 0.0011, 0.0118, 0.0115],
-      [-0.024, 0.574, 0.0133, 0.0107, 0.0104],
-      [-0.006, 0.769, 0.0174, 0.0098, 0.0094],
-      [0.014, 0.914, 0.0170, 0.0074, 0.0072],
+      [-0.040, -0.70, -0.0050, 0.0125, 0.0125],
+      [-0.034, 0.05, 0.0030, 0.0118, 0.0115],
+      [-0.022, 0.75, 0.0140, 0.0107, 0.0104],
+      [-0.010, 1.25, 0.0190, 0.0098, 0.0094],
+      [0.000, 1.55, 0.0175, 0.0074, 0.0072],
     ];
     // Open, the thumb is abducted and roughly parallel to the index rather than
     // crossed over it, and it is authored directly: with no shaft there is no
@@ -18128,7 +18139,9 @@ export function buildCharacter(
       // swept inside the torso, the "pale wedge" pass moved it out to its own
       // part, and the only ruler pointed at beards has been tabulating
       // `rig:torso` ever since.
-      const throatR = Math.max(S.neckHW, S.neckHD) * 0.90 + 0.005;
+      // 1 mm of clearance, not 5: the profile captures (2 Sep 2026) showed the
+      // fall hanging with daylight behind it, and a beard lies ON the throat.
+      const throatR = Math.max(S.neckHW, S.neckHD) * 0.90 + 0.001;
       const throatTaper = 0.20;
       // Hanks down the fall and a ragged hem. Both are harmonics in u and both
       // stay inside what `nu` columns can carry: the third that used to live
@@ -18140,8 +18153,12 @@ export function buildCharacter(
       // little noise on it; at 0.30 a ridge stands 30% out of the mass, and —
       // with the `rope` term in `beardShell` tying drop to section — hangs
       // proportionally further down, so the outline breaks into ropes.
-      const hank = (u: number) => 0.30 * Math.cos(u * 7.3 + 0.4) + 0.15 * Math.cos(u * 12.9 - 1.1);
-      const rag = (u: number) => 1 + 0.125 * Math.cos(u * 5.1 + 2.2) + 0.075 * Math.cos(u * 9.7 - 0.6);
+      // Deeper lengthwise ridges than the 30% they were: the fall read as a
+      // smooth slab, and what says "hair" at portrait range is corrugation
+      // along the strands, not colour.
+      const hank = (u: number) => 0.36 * Math.cos(u * 7.3 + 0.4) + 0.18 * Math.cos(u * 12.9 - 1.1) + 0.08 * Math.cos(u * 21.7 + 0.7);
+      // A more broken hem than the 12% it was: a beard's edge is hair, not a cut.
+      const rag = (u: number) => 1 + 0.16 * Math.cos(u * 5.1 + 2.2) + 0.10 * Math.cos(u * 9.7 - 0.6) + 0.05 * Math.cos(u * 15.3 + 0.9);
       const nuB = Math.max(30, lod.shellU + 18);
       // A full face mask takes the cheeks, the lip and the philtrum, so hair
       // that rides on them has nowhere to be: at 19 mm it would push straight
@@ -18168,21 +18185,29 @@ export function buildCharacter(
           skin: 0.0105 * onFace,
           burnY: Y_EYE - 0.190,
           uEdge: 1.14,
+          // REDRAWN 2 Sep 2026 on the owner's phone captures ("thin in parts &
+          // unnatural"): the fall was a paddle — a teardrop section 44 mm out
+          // and 5 mm thick, closing to a point, leaning off the throat — and
+          // the cheeks carried nothing past the jaw corner. A close crop is a
+          // ROUNDED mass: it stands off the chin less, keeps its width to the
+          // hem, tucks under with a blunt curve, and runs fuller along the
+          // jaw toward the sideburn.
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.011, d: 0.008 },
-            { o: 0.021, d: 0.019 },
-            { o: 0.026, d: 0.031 },
-            { o: 0.022, d: 0.042 },
-            { o: 0.012, d: 0.048 },
-            { o: 0.002, d: 0.036 },
-            { o: -0.008, d: 0.015 },
+            { o: 0.012, d: 0.007 },
+            { o: 0.022, d: 0.017 },
+            { o: 0.027, d: 0.028 },
+            { o: 0.027, d: 0.038 },
+            { o: 0.022, d: 0.046 },
+            { o: 0.012, d: 0.049 },
+            { o: 0.001, d: 0.040 },
+            { o: -0.008, d: 0.018 },
             { o: -0.014, d: 0.002 },
           ],
-          mass: (u) => Math.pow(1 - smooth(0.50, 1.02, Math.abs(u)), 0.80),
-          reach: (u) => 0.76 + 0.24 * Math.exp(-Math.pow(u / 0.72, 2)),
-          lean: 0.34,
-          wall: 0.0052,
+          mass: (u) => Math.pow(1 - smooth(0.62, 1.08, Math.abs(u)), 0.70),
+          reach: (u) => 0.84 + 0.16 * Math.exp(-Math.pow(u / 0.80, 2)),
+          lean: 0.04,
+          wall: 0.0090,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
           fade: beardFade(0.80),
         },
@@ -18193,23 +18218,32 @@ export function buildCharacter(
           skin: 0.019 * onFace,
           burnY: Y_EYE - 0.145,
           uEdge: 1.20,
+          // REDRAWN 2 Sep 2026 (see the short cut): the full beard's fall was
+          // the same paddle at twice the length, its mass dying by 0.9 rad so
+          // the jaw behind the chin was bare, and its point hung 42% forward
+          // off the throat with daylight behind it. A full beard is a rounded
+          // mass that fills the jaw from ear to ear, keeps its depth most of
+          // the way down, and ends in a broad, broken hem — not a blade.
           prof: [
             { o: 0.000, d: 0.000 },
-            { o: 0.015, d: 0.009 },
-            { o: 0.033, d: 0.023 },
-            { o: 0.044, d: 0.040 },
-            { o: 0.044, d: 0.058 },
-            { o: 0.035, d: 0.072 },
-            { o: 0.021, d: 0.080 },
-            { o: 0.007, d: 0.068 },
-            { o: -0.004, d: 0.042 },
+            { o: 0.015, d: 0.008 },
+            { o: 0.030, d: 0.020 },
+            { o: 0.040, d: 0.034 },
+            { o: 0.042, d: 0.050 },
+            { o: 0.038, d: 0.064 },
+            { o: 0.028, d: 0.074 },
+            { o: 0.014, d: 0.078 },
+            { o: 0.002, d: 0.068 },
+            { o: -0.007, d: 0.042 },
             { o: -0.012, d: 0.016 },
             { o: -0.015, d: 0.002 },
           ],
-          mass: (u) => Math.pow(1 - smooth(0.34, 0.90, Math.abs(u)), 0.85),
-          reach: (u) => 0.72 + 0.28 * Math.exp(-Math.pow(u / 0.70, 2)),
-          lean: 0.42,
-          wall: 0.0068,
+          mass: (u) => Math.pow(1 - smooth(0.52, 1.06, Math.abs(u)), 0.75),
+          reach: (u) => 0.84 + 0.16 * Math.exp(-Math.pow(u / 0.80, 2)),
+          // Nearly plumb: 0.42 hung the hem 37 mm ahead of the throat with
+          // daylight behind it; a beard falls down the front of the neck.
+          lean: 0.02,
+          wall: 0.0110,
           seatY, seatR, seatFlare, throatR, throatTaper, hank, rag,
           fade: beardFade(0.42),
         },

@@ -18,8 +18,7 @@ import { createReplayBuffer, createKillReplay, REPLAY, runUpOf,
 import { createSpectateAim } from "@/game/spectate.mjs";
 import {
   resolveQuality, configureRenderer,
-  type FrameContext, type Mood, type QualitySettings,
-} from "./render/quality";
+  type FrameContext, type Mood, type QualitySettings, isTouchPrimary } from "./render/quality";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
 import { createSky, type SkyHandle } from "./render/sky";
@@ -636,7 +635,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
     const steps: ReadonlyArray<{ label: string; weight: number; run: () => void }> = [
       {
         label: "WAKING THE FORGE", weight: 6, run: () => {
-          isMobile.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+          // Touch as the PRIMARY pointer, not merely present: a touchscreen
+          // laptop is a desktop (quality.ts, `isTouchPrimary`).
+          isMobile.current = isTouchPrimary();
           quality = resolveQuality();
           try {
             // Context MSAA only earns its keep when the beauty pass reaches the

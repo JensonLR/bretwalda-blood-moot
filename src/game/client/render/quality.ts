@@ -280,6 +280,33 @@ export interface DeviceProbe {
   devicePixelRatio: number;
 }
 
+/**
+ * IS THIS A TOUCH DEVICE, OR A DESKTOP THAT HAPPENS TO HAVE A TOUCHSCREEN?
+ *
+ * `"ontouchstart" in window || maxTouchPoints > 0` says yes to a touchscreen
+ * laptop, and the owner found one loading as a phone (2 Sep 2026): thumb
+ * pads, the touch HUD, the medium ceiling. The question is not "can it be
+ * touched" but "is touch the PRIMARY pointer and is there no hover" — which
+ * is what the CSS media queries were written to answer. A laptop with a
+ * touchscreen has a fine primary pointer and hover; a phone has a coarse
+ * primary pointer and no hover; an iPad with a trackpad still reports coarse
+ * as primary. iPadOS Safari lies about being a Mac, so the Mac-with-many-
+ * touch-points case (which `install.ts` already knows) is caught as well.
+ * Falls back to the old test only where `matchMedia` does not exist.
+ */
+export function isTouchPrimary(): boolean {
+  if (typeof window === "undefined") return false;
+  const nav = navigator as Navigator & { maxTouchPoints?: number; userAgent?: string };
+  const points = nav.maxTouchPoints ?? 0;
+  const ua = nav.userAgent ?? "";
+  if (/iPhone|iPad|iPod|Android|Mobile/i.test(ua)) return true;
+  if (/Macintosh/.test(ua) && points > 1) return true;   // iPadOS in its Mac disguise
+  if (typeof window.matchMedia !== "function") return "ontouchstart" in window || points > 0;
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const hovers = window.matchMedia("(hover: hover)").matches;
+  return coarse && !hovers;
+}
+
 /** Safari reports neither core count nor memory; assume a current phone. */
 const UNKNOWN_CORES = 6;
 const UNKNOWN_MEMORY_GB = 6;
@@ -290,7 +317,7 @@ export function probeDevice(): DeviceProbe {
   }
   const nav = navigator as Navigator & { deviceMemory?: number };
   return {
-    touch: "ontouchstart" in window || navigator.maxTouchPoints > 0,
+    touch: isTouchPrimary(),
     cores: nav.hardwareConcurrency || UNKNOWN_CORES,
     memoryGb: nav.deviceMemory || UNKNOWN_MEMORY_GB,
     width: window.innerWidth,
@@ -738,8 +765,7 @@ const GOVERNOR_BAD_P95_MS = 50;
 const GOVERNOR_GOOD_P50_MS = 20;
 const GOVERNOR_GOOD_P95_MS = 33;
 
-const touchDevice = (): boolean =>
-  typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+const touchDevice = (): boolean => isTouchPrimary();
 
 /**
  * The highest tier NO amount of evidence may cross. Touch stops at `medium`
