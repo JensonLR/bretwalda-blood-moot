@@ -76,7 +76,8 @@
     "armsprobe": "node tools/armsprobe.mjs",
     "rejointest": "node tools/rejointest.mjs",
     "clipseen": "node tools/clipseen.mjs",
-    "shieldtest": "node tools/shieldtest.mjs"
+    "shieldtest": "node tools/shieldtest.mjs",
+    "taketest": "node tools/taketest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

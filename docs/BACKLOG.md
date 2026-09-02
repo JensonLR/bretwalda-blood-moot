@@ -1293,10 +1293,33 @@ claims per ground, 12/12 with the fort in the list.
   ceiling of this decision is unmeasured. `shieldtest` 18/18, protocoltest
   81/81 (one new published field), soundtest 46/46, fighttest 23/23,
   wartest 82/82, bottest 11/11, wearmeasure PASS, cosmetictest 16/16 CPU.
-- **Taking a dead man's weapon.** *NOT STARTED* — `grep -rin pickup src/` is
-  empty. The corpse persists and the sim knows what he carried. A weapon on the
-  ground is a reason to move, and moving is what the shove and the fire already
-  want you doing.
+- **Taking a dead man's weapon.** ~~*NOT STARTED*~~ **DONE 2 Sep 2026 — the
+  floor has weapons on it.** `TAKE` in `engine.mjs` (mirrored in `types.ts`,
+  the mirror gated): every death — steel or fire — leaves the dead man's
+  EFFECTIVE arms where he fell, with the finish he bought (`room.drops`, capped
+  at 8, oldest first, cleared each round, on every snapshot). `take` in the
+  input (`KeyG`, beside the shove; a TAKE pad above the shove pad on a phone
+  that exists only while something is at his feet, so touchtest's map is
+  unchanged) inside 1.5 m puts it in his hands: `taken: {cls, arms}` on the
+  wire, and **the delta rides the weapon** — `armsDeltaOf` reads the dead
+  man's class table, so a runekeeper with a Dane axe has the axe's reach and
+  the haft's guard. A sword comes with its board (a burst huscarl who takes up
+  a dead man's sword-and-board has a whole board again) and an axe slings it.
+  The rig is rebuilt holding it, the weapon prop lies on the ground where he
+  fell at a scattered yaw, the HUD names it in the shop's own words, and his
+  own take-up is voiced. Bots never take. Back to his own arms with a fresh
+  spawn or a new round. **Seen** (`art/shots/take/`): the Dane axe on the
+  turf before a runekeeper, the prompt in the shop's words, the runekeeper
+  holding it in guard, a berserker with a taken sword. **Two cross-class facts,
+  stated so nobody files them as bugs:** a two-hander taken up by a shorter
+  body hangs to the turf at REST (the huscarl's own rest angle on a
+  runekeeper's arm — in guard and in the swing it is right; cosmetic, and a
+  per-class rest lift is the fix if it ever matters); and a man who is not a
+  huscarl taking up a sword-and-board gets the SWORD — the board is a
+  huscarl's kit, `carriesBoard` says so on both sides of the wire, and a
+  berserker with a shield would be a class change. `taketest` 18/18 (new),
+  protocoltest 81/81 (one new published field, one new room list), shieldtest
+  18/18, fighttest 23/23, wartest 82/82, bottest 11/11.
 
 ---
 

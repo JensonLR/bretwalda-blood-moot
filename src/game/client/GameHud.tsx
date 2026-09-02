@@ -14,11 +14,11 @@
 // meet at the swing gesture that input.ts owns.
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Swords, Hammer, Shield, Wind, Sparkles, Zap, KeyRound, RotateCcw, X, Plus, Hand, Gauge, Check } from "lucide-react";
-import type { AttackDirection, GamePlayer } from "../types";
+import type { AttackDirection, GamePlayer, WeaponDrop } from "../types";
 // Types only — erased at compile time. The values come through `loadQualityApi`
 // below, and the comment there is the whole reason this line says `type`.
 import type { QualityChoice, QualityStatus, QualityTier } from "./render/quality";
-import { WARRIOR_STATS, RIPOSTE, EXECUTION } from "../types";
+import { ARMS_LORE, TAKE, WARRIOR_STATS, RIPOSTE, EXECUTION } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
@@ -31,7 +31,7 @@ import { createFirstMoot, FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 import { useFightRail, railStyle, publishReadoutBottom } from "./fightRail";
 import {
   ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
-  getBindings, getServerBindings, subscribeBindings,
+  getBindings, getServerBindings, subscribeBindings, bindingsFor,
   rebind, unbind, resetBindings, resetAction,
   captureBinding, labelForCode, loadKeyboardLayout,
   type ActionId, type BindingCode,
@@ -59,6 +59,8 @@ const GFX_TOP = 172;
 
 
 interface HudRoomState {
+  /** The weapons on the floor (TAKE). */
+  drops?: WeaponDrop[];
   state: string;
   /** "solo" gates the First Moot's beat line — taught lines belong in a
    *  private ring, never over a live opponent. */
@@ -667,6 +669,22 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 export default function GameHud({
   playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe, onMootArm, onMootDone,
 }: GameHudProps) {
+  // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
+  // the nearest drop inside TAKE.range of the local man, named in the shop's
+  // own words. Null when there is nothing to offer, which is almost always.
+  const takeable = (() => {
+    const me = playerId ? roomState?.players?.[playerId] : undefined;
+    const drops = roomState?.drops;
+    if (!me || !drops || !drops.length || me.state === "dead") return null;
+    let best: WeaponDrop | null = null, bestD: number = TAKE.range;
+    for (const d of drops) {
+      const dist = Math.hypot(d.x - me.position.x, d.z - me.position.z);
+      if (dist <= bestD) { best = d; bestD = dist; }
+    }
+    if (!best) return null;
+    const name = ARMS_LORE[best.cls]?.find((a) => a.id === best.arms)?.name ?? best.arms.toUpperCase();
+    return { name };
+  })();
   const localPlayer = roomState?.players[playerId];
   const isAlive = localPlayer && localPlayer.state !== "dead";
   const isFighting = roomState?.state === "fighting" || roomState?.state === "last_stand";
@@ -1308,6 +1326,13 @@ export default function GameHud({
             {/* THE BOARD (SHIELD): only for a man who carries one. Limewood,
                 then scorched, then the garnet of a board about to go — the
                 same three steps the cracks on the shield itself take. */}
+            {/* TAKE UP (TAKE), on the desktop: a line under the bars while a
+                dead man's weapon is within a step. The key is the binding's own. */}
+            {!isMobile.current && takeable && (
+              <div data-hud="take" className="mt-1 rounded-full border border-emerald-400/50 bg-black/60 px-3 py-0.5 text-[10px] font-bold tracking-[0.2em] text-emerald-200">
+                TAKE UP THE {takeable.name} — {labelForCode(bindingsFor("take")[0] ?? "KeyG")}
+              </div>
+            )}
             {typeof localPlayer.shield === "number" && (
               <div className="w-full h-1 bg-black/70 rounded-md border border-amber-950/70 overflow-hidden" data-hud="board">
                 <div className="h-full transition-[width] duration-200"
@@ -1578,6 +1603,20 @@ export default function GameHud({
           onTouchStart={(e) => { e.stopPropagation(); setFlag("shove", true); }}>
           <Hand size={18} /><span className="text-[9px] font-bold">SHOVE</span>
         </button>
+
+        {/* TAKE UP (TAKE): only while a dead man's weapon is at his feet, and
+            above the shove pad it shares a finger with. Never present in the
+            dead-zone sweep — no drops there — so touchtest's map is unchanged. */}
+        {takeable && (
+          <button
+            style={near(124, 268)}
+            className="absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition bg-emerald-800/95 active:bg-emerald-600 border-emerald-300/80"
+            aria-label={`Take up the ${takeable.name}`}
+            data-hud="take"
+            onTouchStart={(e) => { e.stopPropagation(); setFlag("take", true); }}>
+            <Hand size={18} /><span className="text-[9px] font-bold">TAKE</span>
+          </button>
+        )}
 
         {/* POWER */}
         <button

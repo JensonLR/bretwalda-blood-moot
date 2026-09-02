@@ -229,6 +229,8 @@ const PUBLISHED = [
   // THE BOARD: its integrity for a man who carries one, null otherwise. Public
   // because both men have to see it going — see WIRE-PROTOCOL.md §3.
   "shield",
+  // A DEAD MAN'S WEAPON in his hands (TAKE), or null. Public: the rig draws it.
+  "taken",
   "deathZone", "deathDir", "deathHeavy", "deathCause",
 ];
 const PRIVATE = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt", "aiSkill",

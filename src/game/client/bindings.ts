@@ -18,7 +18,7 @@
 export type ActionId =
   | "forward" | "back" | "left" | "right"
   | "sprint" | "dodge" | "crouch"
-  | "attack" | "heavy" | "block" | "ability" | "shove"
+  | "attack" | "heavy" | "block" | "ability" | "shove" | "take"
   | "lockon"
   | "emote1" | "emote2" | "emote3";
 
@@ -50,6 +50,7 @@ export const ACTIONS: readonly ActionMeta[] = Object.freeze([
   { id: "heavy", label: "Heavy attack", hint: "A slower, harder blow" },
   { id: "block", label: "Block", hint: "Raise the shield" },
   { id: "shove", label: "Shove", hint: "Two hands — breaks a guard, drives a man back" },
+  { id: "take", label: "Take up", hint: "A dead man's weapon, from where he fell" },
   { id: "ability", label: "Class deed", hint: "The warrior's own trick" },
   // Off until pressed: desktop mouse-look is unchanged by default and this is
   // the door for anyone who wants the phone's camera. A toggle rather than a
@@ -104,6 +105,9 @@ export const DEFAULT_BINDINGS: Bindings = Object.freeze({
   block: Object.freeze(["Mouse2"]),
   // F sits under the index finger off WASD and nothing else claims it.
   shove: Object.freeze(["KeyF"]),
+  // G sits beside F under the same finger and nothing else in the table
+  // claims it: reach for the shove, reach one more for the axe on the ground.
+  take: Object.freeze(["KeyG"]),
   ability: Object.freeze(["KeyQ"]),
   // R is free, sits under the index finger off WASD, and is where every game
   // in the reference class already puts a lock.

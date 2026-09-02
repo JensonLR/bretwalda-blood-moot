@@ -168,6 +168,7 @@ is a document nobody can check.
 | Heavy | right mouse / `KeyE` / `KeyV` | |
 | Block | right mouse (hold) | The parry is a **timed raise**, not a held state — see below. |
 | Ability | `KeyQ` | |
+| **Take up** | **`KeyG`** | One-shot. Takes up a dead man's weapon from where he fell, when within a step (`TAKE.range` 1.5 m). Free; not while committed. A sword comes with its board, an axe slings it. |
 | **Shove** | **`KeyF`** | One-shot. Beats a raised shield; a dodge beats it; costs 25 stamina and 1.5 s of cooldown. |
 
 **The parry needs no binding of its own, and that is a decision rather than an

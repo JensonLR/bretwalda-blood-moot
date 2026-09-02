@@ -208,6 +208,7 @@ Carried identically by `join`, `lobby_update`, `game_state`, the first
 ```
 code, mode, state, arena, hostId, countdown, matchTimer, maxPlayers,
 players: { [id]: Player }, killFeed: KillFeedEntry[]   // last 10 only
+drops: WeaponDrop[]                      // the weapons on the floor (TAKE); at most TAKE.max, cleared each round
 lastStandTriggered, difficulty, botCount, maxBots, autoStart,
 bestOf, roundIndex, roundTarget, roundWins, roundScoreBy, lastRound, nextRoundAt,
 wave,                                    // the Burh's ladder; 0 elsewhere
@@ -292,6 +293,10 @@ The 55, grouped by what a client does with them:
   shoving`.
 - **Swing** `attackPhase (null|windup|contact|recovery), attackPhaseT, swingT,
   swingDuration, swingHeavy, hitstop, shoveTimer`
+- **A dead man's weapon** `taken` — `{cls, arms}` while he fights with one he
+  took up off the floor (`take` in the input, inside `TAKE.range` of a drop), or
+  null. The delta rides the weapon: a runekeeper with a Dane axe has the axe's
+  reach. Back to null with a fresh spawn or a new round.
 - **The board** `shield` — its integrity, `SHIELD.max` (100) down to 0, for a
   man who carries one (the huscarl, not with the Dane axe); `null` for everyone
   else. Every turned blow wears it; at 0 it has burst — the rig drops the

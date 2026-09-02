@@ -432,6 +432,13 @@ export interface GamePlayer {
    */
   shield?: number | null;
   /**
+   * A DEAD MAN'S WEAPON in his hands (TAKE), or null for his own. The delta —
+   * damage, reach, mass, the haft's guard — rides the weapon, read off the
+   * dead man's class table, and the rig draws that class's weapon in this
+   * man's fist. Back to null with a fresh spawn or a new round.
+   */
+  taken?: { cls: WarriorClass; arms: string } | null;
+  /**
    * Seconds of burn left. Pinned at `FIRE.linger` for as long as he is stood in
    * the flames, then counts down to 0 and takes `burning` with it — so
    * `burnTimer / FIRE.linger` is a 1→0 fade the flames and their light can be
@@ -497,6 +504,30 @@ export const SHIELD = {
   cost: { light: 9, heavy: 24 },
   mismatch: 1.5,
   burstGuard: 0.5,
+} as const;
+
+/**
+ * A weapon on the ground, where a man fell (TAKE). `weapon` is the finish he
+ * bought, so the thing lying there is the thing that was in his hand.
+ */
+export interface WeaponDrop {
+  id: string;
+  x: number;
+  z: number;
+  cls: WarriorClass;
+  arms: string;
+  weapon: string | null;
+  at: number;
+}
+
+/**
+ * Taking up a dead man's weapon, mirrored from `engine.mjs`, which is the
+ * authority. The HUD reads `range` to know when to offer; `tools/taketest.mjs`
+ * diffs this copy against the engine's on every run.
+ */
+export const TAKE = {
+  range: 1.5,
+  max: 8,
 } as const;
 
 /**
@@ -647,6 +678,8 @@ export interface Room {
   maxPlayers: number;
   teamSize: number;
   killFeed: KillFeedEntry[];
+  /** The weapons on the floor (TAKE). Capped at `TAKE.max`; cleared each round. */
+  drops: WeaponDrop[];
   /** A round-level moment — two men left in THIS round. Reset every round. */
   lastStandTriggered: boolean;
   /** Rounds in the match: 1, 3 or 5. Solo training is not a match and is always 1. */

@@ -615,7 +615,12 @@ export function createWarriorRig(
   // it on select_class, a client cannot write it. It picks the weapon, the
   // off hand's burden, whether the board is carried, and the grips the
   // builder fits the fists to.
-  const arms = player.arms;
+  // THE WEAPON IN HIS HANDS (TAKE): a dead man's, if he took one up, and then
+  // it is built off the DEAD MAN'S class — a runekeeper holding a Dane axe is
+  // holding a huscarl's Dane axe, reach and all — while the body stays his own.
+  const held = player.taken ?? null;
+  const arms = held?.arms ?? player.arms;
+  const weaponCls = held?.cls ?? cls;
   const built = buildCharacter(cls, ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, materials, settings.tier, faceIdentity(player.id), team, arms);
   const body = built.group;
 
@@ -641,7 +646,7 @@ export function createWarriorRig(
   // stopped naming the mount, in which case `handOf` has returned a sleeve.
   const gripPitch = rightHand.rotation.x || GRIP_PITCH_FALLBACK;
 
-  const weapon = buildWeaponForClass(cls, materials, ap.weapon, arms);
+  const weapon = buildWeaponForClass(weaponCls, materials, ap.weapon, arms);
   weapon.name = "weapon";
   rightHand.add(weapon);
 
@@ -650,7 +655,7 @@ export function createWarriorRig(
   // the twin bearded axes — one rule, `buildOffhandFor`, shared with the
   // grips the builder already fitted.
   let offhand: THREE.Group | undefined;
-  const off = buildOffhandFor(cls, materials, ap.weapon, arms);
+  const off = buildOffhandFor(weaponCls, materials, ap.weapon, arms);
   if (off) {
     offhand = off;
     offhand.scale.setScalar(0.9);

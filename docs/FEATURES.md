@@ -178,6 +178,8 @@ the picker.
   off each block, the board thrown from his arm, a haft's guard until he stands
   again. `docs/BACKLOG.md` Wave G carries the numbers; `tools/shieldtest.mjs`
   holds the sim half and `art/shots/shield/` the seen half.
-- **Picking up a dead man's weapon.** The corpse persists and the sim knows
-  what he carried. A weapon on the ground is a reason to move, and moving is
-  what the shove and the fire want you doing anyway.
+- **Picking up a dead man's weapon.** BUILT, 2 Sep 2026. Every death leaves
+  the man's arms where he fell; `KeyG` (or the TAKE pad) within a step takes
+  them up, and the numbers ride the weapon — a runekeeper with a Dane axe has
+  the axe's reach. `docs/BACKLOG.md` Wave G carries the numbers;
+  `tools/taketest.mjs` holds the sim half.

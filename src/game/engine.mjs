@@ -682,6 +682,20 @@ export const SHIELD = {
   // it stands, the boards take nothing.
 };
 
+// ---- a dead man's weapon ----
+// FEATURES.md: "The corpse persists and the sim knows what he carried. A weapon
+// on the ground is a reason to move, and moving is what the shove and the fire
+// want you doing anyway." A kill leaves his arms where he fell; any man who
+// walks over them and asks may take them up, and fights with THAT weapon's
+// numbers — a runekeeper with a Dane axe has the axe's reach and the axe's
+// haft-parry, because the delta rides the weapon and not the hand.
+export const TAKE = {
+  /** Centre-to-drop metres a man must be within. A step, not a lunge. */
+  range: 1.5,
+  /** Drops a room keeps; the oldest goes when the ninth falls. */
+  max: 8,
+};
+
 // The floor sequence. ONE clock (`downTimer`) and two states read off it, the
 // same shape as the swing's one clock and three phases — a client that can
 // phase a swing can phase this without new machinery.
@@ -1416,15 +1430,43 @@ export function defaultArmsOf(warriorClass) {
  * for everybody else — a runekeeper with a full shield bar is a lie.
  */
 export function carriesBoard(player) {
-  return player.warriorClass === "huscarl" && (player.arms || defaultArmsOf("huscarl")) !== "dane_axe";
+  return player.warriorClass === "huscarl" && armsHeld(player) !== "dane_axe";
 }
-/** A fresh board, or none, for the man as he now stands. */
-function reboard(p) { p.shield = carriesBoard(p) ? SHIELD.max : null; }
+/** The arms in his hands: a taken weapon outranks the one he chose. */
+export function armsHeld(player) {
+  return (player.taken && player.taken.arms) || player.arms || defaultArmsOf(player.warriorClass);
+}
+/** A fresh board, or none, and his own arms back, for the man as he now stands. */
+function reboard(p) { p.taken = null; p.shield = carriesBoard(p) ? SHIELD.max : null; }
+/**
+ * What a dead man leaves on the ground (TAKE). His EFFECTIVE arms — a weapon
+ * he had himself taken up falls again — with the finish he bought, so the
+ * thing lying there is the thing that was in his hand.
+ */
+function dropArms(room, p) {
+  if (!room.drops) room.drops = [];
+  const cls = (p.taken && p.taken.cls) || p.warriorClass;
+  room.drops.push({
+    id: `${p.id}:${Math.round(room.matchTimer * 100)}`,
+    x: Number(p.position.x.toFixed(2)), z: Number(p.position.z.toFixed(2)),
+    cls, arms: armsHeld(p),
+    weapon: (p.appearance && p.appearance.weapon) || null,
+    at: Number(room.matchTimer.toFixed(2)),
+  });
+  while (room.drops.length > TAKE.max) room.drops.shift();
+}
 
 /** The one resolver. Every weapon-priced read point routes through here;
  *  an unknown or foreign arms id resolves to the class default's empty
  *  delta, so a forged value can only ever give a man his own old weapon. */
 export function armsDeltaOf(player) {
+  // A taken weapon's delta rides the WEAPON: it is read off the dead man's
+  // class table, whatever class the hand belongs to now.
+  if (player.taken) {
+    const t = ARMS[player.taken.cls];
+    const row = t && t[player.taken.arms];
+    if (row) return row.delta || {};
+  }
   const table = ARMS[player.warriorClass];
   const row = table && table[player.arms];
   return (row && row.delta) || {};
@@ -2059,6 +2101,8 @@ export function makeEngine(options = {}) {
       // The board's integrity (SHIELD), or null for a man who carries none.
       // Set properly by `reboard` at every spawn, when class and arms are known.
       shield: null,
+      // A dead man's weapon in his hands (TAKE): `{cls, arms}` or null.
+      taken: null,
       state: "idle", attackDir: "right", blockDir: "right",
       attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
       // The swing, on the wire. `attackTimer` is still the whole stroke's clock;
@@ -2137,6 +2181,8 @@ export function makeEngine(options = {}) {
    * however he got there.
    */
   function placeForRound(room, roundIndex) {
+    // A round's dead take their weapons with them: the floor is cleared.
+    room.drops = [];
     const fighters = [...room.players.values()];
     if (!isTeamMode(room)) {
       const [ring] = spawnLayout([fighters.length], roundIndex);
@@ -2243,6 +2289,9 @@ export function makeEngine(options = {}) {
       public: !!room.public,
       players, hostId: room.hostId, countdown: room.countdown, matchTimer: room.matchTimer,
       maxPlayers: room.maxPlayers, killFeed: room.killFeed.slice(-10), lastStandTriggered: room.lastStandTriggered,
+      // The weapons on the floor (TAKE), capped at TAKE.max. A joiner and a
+      // spectator see the same ground.
+      drops: room.drops || [],
       // Room setup, so a lobby screen can render what it is about to start.
       difficulty: room.difficulty || null, botCount: botsIn(room), maxBots: botCapacity(room),
       autoStart: !!room.autoStart,
@@ -2892,7 +2941,7 @@ export function makeEngine(options = {}) {
       // end — can see a watcher, because none of it iterates this map. They
       // stand up in `resetToLobby`, the one door back onto the floor.
       seats: new Map(),
-      maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], lastStandTriggered: false,
+      maxPlayers: mode === "honour_duel" ? 2 : 8, killFeed: [], drops: [], lastStandTriggered: false,
       // The Burh is one continuous stand, not a best-of: the format IS the
       // waves, and a "round 2" after the burh falls would be a resurrection
       // nobody fought for. The Tournament Moot's format is the BRACKET —
@@ -2999,7 +3048,7 @@ export function makeEngine(options = {}) {
       // but the map exists so every shared path reads one room shape.
       seats: new Map(),
       players: new Map(), hostId: null, countdown: 0, matchTimer: 0,
-      maxPlayers: 1, killFeed: [], lastStandTriggered: false,
+      maxPlayers: 1, killFeed: [], drops: [], lastStandTriggered: false,
       // Training is not a match: it has one endless round and pays nothing out.
       bestOf: 1, roundIndex: 0, roundWins: {}, lastRound: null, nextRoundAt: 0,
       // Sim-ms deadline for whatever this room's current phase is waiting on;
@@ -3492,6 +3541,26 @@ export function makeEngine(options = {}) {
     // The shove may be thrown FROM a raised guard — it is the shield man's own
     // answer to a shield — so it is read before the block branch can re-assert
     // the guard state over it.
+    // TAKING UP A DEAD MAN'S WEAPON. Free — it costs a step to reach it and the
+    // guard he drops to bend for it — and not while committed to anything.
+    if (input.take && !isCommitted(player) && player.state !== "dodging" && player.state !== "shoving" && room.drops && room.drops.length) {
+      let best = null, bestD = TAKE.range;
+      for (const d of room.drops) {
+        const dist = Math.hypot(d.x - player.position.x, d.z - player.position.z);
+        if (dist <= bestD) { best = d; bestD = dist; }
+      }
+      if (best) {
+        room.drops = room.drops.filter((d) => d !== best);
+        player.taken = { cls: best.cls, arms: best.arms };
+        // A sword comes with its board and an axe slings it: a burst huscarl
+        // who takes up a dead man's sword-and-board has a whole board again.
+        if (carriesBoard(player)) { if (player.shield === null || player.shield <= 0) player.shield = SHIELD.max; }
+        else player.shield = null;
+        player.blockTimer = 0;
+        if (player.state === "blocking") player.state = "idle";
+      }
+    }
+
     if (input.shove && !isCommitted(player) && player.state !== "dodging" &&
         player.shoveCooldown <= 0 && player.attackTimer <= 0 && player.stamina >= SHOVE.stamina) {
       player.stamina -= SHOVE.stamina;
@@ -4014,6 +4083,7 @@ export function makeEngine(options = {}) {
       // was removed on the owner's report and the history is in
       // `docs/MERCY-REMOVED.md`. Everything below is the only path a man
       // killed by steel takes.
+      dropArms(room, target);
       target.state = "dead"; target.deaths++;
       target.deadAt = room.matchTimer;
       // The killing blow is marked on the body and not only in the message. The
@@ -4111,6 +4181,7 @@ export function makeEngine(options = {}) {
    * blow chased him in.
    */
   function burnDeath(room, victim) {
+    dropArms(room, victim);
     victim.state = "dead";
     victim.deaths++;
     victim.deadAt = room.matchTimer;

@@ -63,6 +63,8 @@ type Pose = {
    * default (a whole board on a huscarl with one, null for everyone else).
    */
   shield?: number | null;
+  /** A dead man's weapon in his hands (TAKE) — `?taken=cls:arms`. */
+  taken?: { cls: WarriorClass; arms: string } | null;
   /** The killing blow, for staging a dismemberment. Only read when state is "dead". */
   zone?: HitZone;
   heavy?: boolean;
@@ -821,6 +823,7 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false, team: "red" | "b
     // stages the Dane axe (arms ride the player, not the appearance), so the
     // class alone decides here.
     shield: p.shield !== undefined ? p.shield : (p.cls === "huscarl" ? 100 : null),
+    taken: p.taken ?? null,
     stamina: stats.staminaMax * 0.7,
     maxStamina: stats.staminaMax,
     state: p.state,
@@ -1071,6 +1074,14 @@ export default function ShotPage() {
     if (shield !== undefined && shield !== null && !Number.isFinite(shield)) {
       return { preset: base, subject: null, subjectError: `unreadable shield "${shieldToken}"` };
     }
+    // `?taken=cls:arms` — the staged man fights with a dead man's weapon (TAKE).
+    const takenToken = params.get("taken");
+    let taken: { cls: WarriorClass; arms: string } | null | undefined;
+    if (takenToken !== null) {
+      const [tc, ta] = takenToken.split(":");
+      if (!(tc in WARRIOR_STATS) || !ta) return { preset: base, subject: null, subjectError: `unreadable taken "${takenToken}"` };
+      taken = { cls: tc as WarriorClass, arms: ta };
+    }
     const stateToken = params.get("state");
     const STAGEABLE: PlayerState[] = ["idle", "blocking", "attacking", "walking"];
     if (stateToken !== null && !STAGEABLE.includes(stateToken as PlayerState)) {
@@ -1083,6 +1094,7 @@ export default function ShotPage() {
         poses: base.poses.map((p) => ({
           ...p, cls, rot: Math.PI + (deg * Math.PI) / 180, ap: staged.ap,
           ...(shield !== undefined ? { shield } : {}),
+          ...(taken !== undefined ? { taken } : {}),
           ...(stateToken ? { state: stateToken as PlayerState } : {}),
         })),
       },
@@ -1133,6 +1145,18 @@ export default function ShotPage() {
       // Stamped from module load, not from render time: `Date.now()` in a
       // memo is an impure render read (react-doctor), and a capture harness
       // settles within seconds of load anyway, so feed age is indistinguishable.
+      // `?drops=cls:arms` — a dead man's weapon on the floor (TAKE), a step in
+      // front of the staged man, so the prop and the prompt can be photographed.
+      drops: (() => {
+        const tok = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("drops");
+        if (!tok) return [];
+        const me = preset.poses[0];
+        if (!me) return [];
+        const [dc, da] = tok.split(":");
+        if (!dc || !da) return [];
+        return [{ id: "staged", x: me.x + Math.sin(me.rot) * 0.9, z: me.z + Math.cos(me.rot) * 0.9,
+          cls: dc as WarriorClass, arms: da, weapon: null, at: 0 }];
+      })(),
       killFeed: [
         { killerName: "Aethelred", victimName: "Wulfred", timestamp: BOOT_TS },
         { killerName: "Beorn", victimName: "Aelric", timestamp: BOOT_TS },

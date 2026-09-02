@@ -5,10 +5,10 @@
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
 import * as THREE from "three";
-import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone } from "../types";
+import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone, type WeaponDrop } from "../types";
 import GameHud from "./GameHud";
 import { getFeel, sampleInput, useTouchControls, type MobileFlags } from "./input";
-import { setTeamContrast } from "./characters";
+import { setTeamContrast, buildWeaponForClass } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
@@ -187,6 +187,8 @@ function yieldToPaint(): Promise<void> {
 }
 
 interface RoomState {
+  /** The weapons on the floor (TAKE). */
+  drops?: WeaponDrop[];
   code: string;
   mode: string;
   state: string;
@@ -239,6 +241,9 @@ interface Stage {
 }
 
 /** Per-warrior client state that is not the server's business. */
+/** One string for "which weapon is in his hands", so a change is one compare. */
+const takenKeyOf = (p: GamePlayer): string => (p.taken ? `${p.taken.cls}/${p.taken.arms}` : "");
+
 interface WarriorSlot {
   rig: WarriorRig;
   motion: WarriorMotion;
@@ -250,6 +255,8 @@ interface WarriorSlot {
   stepTick: number;
   /** Last frame's `abilityActive`, so the signature fires once and not per-frame. */
   prevAbility: boolean;
+  /** The weapon this rig was built holding (TAKE) — a change rebuilds him. */
+  takenKey: string;
   /**
    * Last frame's `attackPhase`. The whoosh is fired on the windup -> contact
    * edge, which is the instant the server resolves the blow, so this is what
@@ -532,7 +539,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   // up your weapon" prompt.
   const pointerLockedRef = useRef(false);
 
-  const mobileFlags = useRef({ attack: false, heavy: false, block: false, dodge: false, ability: false, sprint: false, shove: false });
+  const mobileFlags = useRef({ attack: false, heavy: false, block: false, dodge: false, ability: false, sprint: false, shove: false, take: false });
+  /** The weapon props on the floor (TAKE), by drop id. */
+  const dropsRef = useRef(new Map<string, THREE.Group>());
   const setFlag = useCallback((flag: keyof MobileFlags, value: boolean) => {
     mobileFlags.current[flag] = value;
   }, []);
@@ -1074,8 +1083,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
             dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,
             prevPhase: p.attackPhase ?? null,
+            takenKey: takenKeyOf(p),
           };
           warriorsRef.current.set(p.id, slot);
+        }
+        // A DEAD MAN'S WEAPON IN HIS HANDS (TAKE). The rig was built holding
+        // one weapon and the wire now says another, so he is rebuilt — the
+        // whole man, because reach, the grip, the offhand and the board all
+        // follow the arms. His own take-up is voiced; another's is seen.
+        if (slot.takenKey !== takenKeyOf(p)) {
+          stage.hud.detach(p.id);
+          slot.rig.dispose();
+          warriorsRef.current.delete(p.id);
+          if (p.id === playerId) stage.audio.ui("confirm");
+          return ensureSlot(p);
         }
         return slot;
       };
@@ -1687,6 +1708,35 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
 
       drainEmotes();
 
+      // THE WEAPONS ON THE FLOOR (TAKE). One prop per drop the wire carries,
+      // built with the dead man's own class weapon and finish and laid on the
+      // ground where he fell; gone the frame the wire stops carrying it.
+      {
+        const live = new Set<string>();
+        for (const d of roomState.drops ?? []) {
+          live.add(d.id);
+          if (dropsRef.current.has(d.id)) continue;
+          const prop = buildWeaponForClass(d.cls, stage.materials, d.weapon ?? undefined, d.arms);
+          const seed = d.id.split("").reduce((h: number, c: string) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+          // Flat, at a scatter of yaws, the way a dropped axe actually lies —
+          // then lifted so its lowest point sits ON the turf rather than the
+          // group's origin, which for a weapon is the grip and not the ground.
+          prop.rotation.set(Math.PI / 2, (seed % 628) / 100, 0.18);
+          prop.position.set(d.x, 0, d.z);
+          prop.updateMatrixWorld(true);
+          const low = new THREE.Box3().setFromObject(prop).min.y;
+          prop.position.y = stage.world.heightAt(d.x, d.z) - low + 0.01;
+          stage.scene.add(prop);
+          dropsRef.current.set(d.id, prop);
+        }
+        for (const [id, prop] of dropsRef.current) {
+          if (live.has(id)) continue;
+          stage.scene.remove(prop);
+          prop.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); });
+          dropsRef.current.delete(id);
+        }
+      }
+
       const activeIds = new Set<string>();
       for (const id of Object.keys(players)) {
         const p = players[id];
@@ -2226,7 +2276,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // Consumed: the latch exists to survive one poll gap, not to stick.
       inp.tapped.clear();
       const mf = mobileFlags.current;
-      mf.heavy = false; mf.dodge = false; mf.ability = false; mf.shove = false;
+      mf.heavy = false; mf.dodge = false; mf.ability = false; mf.shove = false; mf.take = false;
     }, 16);
 
     animRef.current = requestAnimationFrame(loop);

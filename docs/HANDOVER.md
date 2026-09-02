@@ -164,6 +164,16 @@ not exist this morning.
   the life of every session. The optimisation was **reverted rather than
   shipped**: optimising a pass that never runs is the same mistake as fixing a
   gate that cannot fail. See the board below — it is a design call now.
+- **TAKING A DEAD MAN'S WEAPON — the second gameplay feature.** Every death
+  leaves his effective arms on the floor (`room.drops`, capped at 8, cleared
+  each round); `take` (`KeyG`, or a TAKE pad that exists only while something
+  is at his feet) inside 1.5 m puts them in his hands as `taken: {cls, arms}`,
+  and the delta rides the WEAPON — a runekeeper with a Dane axe has the axe's
+  reach and the haft's guard. A sword comes with its board, an axe slings it.
+  Rig rebuilt holding it, prop on the ground, HUD names it, the take-up voiced.
+  Bots never take. `taketest` 18/18. **The fixture's lesson**: a kill leaves the
+  killer in hitstop and `processInput` returns before it reaches anything — a
+  man cannot bend for an axe in the frame his sword stopped.
 - **SPLINTERING SHIELDS — the first gameplay feature of the session, and the
   owner's first-ranked unstarted row.** A huscarl's board is a consumable now:
   integrity 100, worn by every turned blow (light 9, heavy 24, wrong line ×1.5,
@@ -200,8 +210,6 @@ not exist this morning.
   `bundle_dmg.sh` and the retry works once the stale `rw.*.dmg` is deleted.
 - **`factionread` §7.1's residue.** A fifth of what it was, still red. Start
   from `tools/gradesplit.mjs`, not from a vat.
-- **Taking a dead man's weapon.** *NOT STARTED, verified* — `grep -rin pickup
-  src/` is empty.
 - **A3: the ten helm bowls and §5's reprice.** *NOT STARTED, and that row is
   honest* — it re-verified itself against `characters.ts:191-285`.
 - **Flags.** *NOT STARTED, verified.* Constrained presets, a moderation
@@ -302,7 +310,7 @@ have read as a regression to anyone checking against the old number. Corrected
 counts are marked (was N).
 
 tsc --noEmit · npm run lint (0/0) · npm run build ·
-scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) ·
+scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) · **taketest 18/18** (new) ·
 warsay **54/54** (was 52) · wartest 82/82 · protocoltest 81/81 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
@@ -384,7 +392,8 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
    measures the pass's CONSTRUCTION and not depth of field.
 4. **The replay→tableau hitch** is located to ten frames and three causes are
    eliminated; point a profile at `render/summary.ts`.
-5. Then taking a dead man's weapon (splintering shields shipped 1 Sep).
+5. Then A3's helm bowls or flags (splintering shields and the weapon pickup
+   shipped 1–2 Sep).
 6. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
    mechanical and worth a lot of wall clock. While doing it, give them the
    stale-server refusal `installseen` has — every one of them will currently
