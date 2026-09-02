@@ -971,11 +971,21 @@ The two CUTs (one of Greybeard/Snow White; "Bronze Scales" and "Crimson
 Warplate" as names) can go immediately — they cost nothing to remove and one
 of them is two paid options that are the same colour.
 
-**A4. Cloaks and every weapon.** *BLOCKED on A2 (weapon lens) and A1 (the
-cloak's asymmetric cut is A1.3 — A4 is the paid tier on top of it).*
-Several waves. The Gilded War Cloak at 400 is a lampshade; the sword reads as
-a cane and the shield as a plank; the shield needs its dish and the sword its
-rest carry.
+**A4. Cloaks and every weapon.** ~~*BLOCKED on A2 and A1.*~~ **RE-READ AGAINST
+THE TREE 2 Sep 2026 — three of its four faults were already closed, and the
+fourth is now.** `art/shots/sil/sil-cloak.png`: the five cloak rungs are four
+distinct garments (a short cape, a bell, a column with a wolf's tail, a train)
+— `CLOAK_CUTS` in characters.ts, not one cone in five colours. The sword's
+geometry was never the fault (the audit said so: guard, fuller, lobed pommel)
+and the rest carry was reworked in the rest-carry rounds. The spear head is a
+leaf now (`sil-weapons.png`, warden profile). **The shield's dish is the one
+that was still a plank**: 30 mm of crest as stepped flat boxes. It is dished
+70 mm now — every plank and its paint turned to the dome's slope at its
+station, the leather back a shallow dome so the rim closes — and edge-on it
+is a bow with the boss proud of it (`art/shots/sil-before/sil-weapons.png`
+against `sil-weapons.png`; lit, `art/shots/dish/`). Left from the audit's
+list: the fist as a mitten in front of the haft, and the wickerwork read of
+the grain at kit distance — both cosmetic, neither a silhouette.
 
 **Wave A exit:** 8+ on every axis of `VISUAL-BAR.md` §2, from captures
 regenerated after the last commit that touched the file, per the §6 critic

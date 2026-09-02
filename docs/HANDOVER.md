@@ -127,6 +127,8 @@ not exist this morning.
 - **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
+- **The shield board is dished** (70 mm, planks turned to the dome; edge-on a
+  bow, not a plank) — A4's one live fault, the rest of the row was stale.
 - **A taken Dane axe is carried over the shoulder on every body**, and a
   borrowed rest is lifted by the reach the arm lacks; the huscarl's own carry
   had the head in the turf too, hidden behind his board.
@@ -471,10 +473,10 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    every row against the tree before working it** — this session found four
    more stale rows (A3, Wave D, the bloom entry, the mute entry).
 2. **What is genuinely open and NOT owner-bound:**
-   - **A4 — cloaks and every weapon** (BACKLOG). Unblocked by A2's weapon lens
-     on 1 Sep. An art wave: the Gilded War Cloak, the sword's read at the
-     weapon card, the shield's dish. Judge from `npm run shots -- weaponcard`
-     and the cloak cards before touching geometry.
+   - ~~**A4 — cloaks and every weapon**~~ — re-read 2 Sep: the cloaks were
+     rebuilt in an earlier wave, the sword was never the fault, and the
+     shield is dished now. What is left is the fist-as-mitten and the grain's
+     wicker read at kit distance (cosmetic).
    - **Wave D's two findings** (draw calls per tier on a real phone, and the
      per-frame allocation driving GC) — the ablation now ranks, so both are
      measurable; `tools/fpstest.mjs` at `--secs=60` on the GPU arm.

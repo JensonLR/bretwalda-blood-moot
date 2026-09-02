@@ -11724,7 +11724,16 @@ export function buildShield(
   const planks = 7;
   const zf = 0.05;
   const halfW = (R / planks) * 0.97;
-  const crest = 0.03;
+  // THE DISH (docs/COSMETICS-AUDIT.md §Weapons, A4): edge-on the board was "a
+  // flat plank with square ends — 760 mm across and 30 mm of crest", because
+  // the planks were flat boxes STEPPED by the dome and never tilted to it. A
+  // real board is dished 60–80 mm so its profile is a curve. 70 mm now, and
+  // every plank (and its paint) is turned to the dome's own slope at its
+  // station, so the silhouette from the side is the curve and not a staircase.
+  // The leather back is a shallow dome for the same reason: a flat back under
+  // a dished front is daylight between the two inside the rim.
+  const crest = 0.07;
+  const tiltAt = (cx: number): number => Math.atan((2 * crest * cx) / (R * R));
 
   // Hide facing behind the boards, so every seam is a dark line rather than a slot
   // through to the sky. Deliberately the same leather as the grip and not a shade of
@@ -11737,7 +11746,12 @@ export function buildShield(
   // own binding. Invisible while the shield was mounted face-out; the moment
   // anim.ts started carrying it bladed at rest, `probe/closeup.png` showed the
   // turf through it. 6 mm of rawhide backing costs ~70 triangles and no draw call.
-  part.add(new THREE.CylinderGeometry(R * 0.99, R * 0.99, 0.006, 24), leather, xf(0, 0, zf - 0.007, Math.PI / 2));
+  part.add(shell([
+    { y: 0, hw: R * 0.99, hd: R * 0.99 },
+    { y: crest * 0.45, hw: R * 0.80, hd: R * 0.80 },
+    { y: crest * 0.80, hw: R * 0.50, hd: R * 0.50 },
+    { y: crest - 0.006, hw: R * 0.18, hd: R * 0.18 },
+  ], 28, { power: 1.6, capTop: true, capBottom: true }), leather, xf(0, 0, zf - 0.007, Math.PI / 2, 0, 0));
 
   // …and a TIMBER ring in front of that hide, behind the planks. The planks
   // are chords, so between each board's flat top and the round rim there is a
@@ -11781,7 +11795,8 @@ export function buildShield(
     // seven different numbers.
     const du = (i * 0.37) % 1;
     const dv = (i * 0.61 + 0.13) % 1;
-    part.add(retile(box(halfW * 2, edge * 2, 0.019), du, dv, (edge * 2) / PLANK_V), board, xf(cx, 0, zf + dome));
+    const ry = tiltAt(cx);
+    part.add(retile(box(halfW * 2, edge * 2, 0.019), du, dv, (edge * 2) / PLANK_V), board, xf(cx, 0, zf + dome, 0, ry, 0));
     // THE PAINT, CUT PER PLANK — and there are four cuts now, one per people,
     // with the unsworn and the war band keeping the quartering this function
     // has always drawn.
@@ -11811,22 +11826,22 @@ export function buildShield(
     if (pat === "staves") {
       if (i % 2 === 0) {
         part.add(retile(box(halfW * 1.94, edge * 1.94, 0.004), du, dv, (edge * 1.94) / PLANK_V), paint,
-          xf(cx, 0, zf + dome + 0.0115));
+          xf(cx, 0, zf + dome + 0.0115, 0, ry, 0));
       }
     } else if (pat === "check") {
       for (const k of [0, 1]) {
         const flip = (i + k) % 2 === 0 ? 1 : -1;
         part.add(retile(box(halfW * 1.94, edge * 0.62, 0.004), du, dv, (edge * 0.62) / PLANK_V), paint,
-          xf(cx, flip * edge * 0.5, zf + dome + 0.0115));
+          xf(cx, flip * edge * 0.5, zf + dome + 0.0115, 0, ry, 0));
       }
     } else if (pat === "rim") {
       for (const s2 of [-1, 1]) {
         part.add(retile(box(halfW * 1.94, edge * 0.42, 0.004), du, dv, (edge * 0.42) / PLANK_V), paint,
-          xf(cx, s2 * edge * 0.79, zf + dome + 0.0115));
+          xf(cx, s2 * edge * 0.79, zf + dome + 0.0115, 0, ry, 0));
       }
     } else {
       part.add(retile(box(halfW * 1.94, edge, 0.004), du, dv, edge / PLANK_V), paint,
-        xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115));
+        xf(cx, (cx >= 0 ? 1 : -1) * edge * 0.5, zf + dome + 0.0115, 0, ry, 0));
     }
   }
 
