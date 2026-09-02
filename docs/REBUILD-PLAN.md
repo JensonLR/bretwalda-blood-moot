@@ -106,4 +106,11 @@ the spec, in millimetres.
   (`docs/WIRE-PROTOCOL.md`); Unity is a renderer plus input plus a socket, as
   §5 of PLATFORM-PATH says. Nothing about the game's rules moves.
 - First milestone: one class, one ground, one duel against the existing
-  server, at 60 fps on the owner's phone.
+  server, at 60 fps on the owner's phone. **Code written 2 Sep 2026** in the
+  owner's fresh URP project (`BRETWALDA - Blood Moot/Assets/Bretwalda`, its
+  own repository): a WebSocket client speaking the wire, the seven-case
+  switch, `solo` against one AI, `input` at 20 Hz, warriors as capsules with
+  the code's head from the glTF, a follow camera, and a scene built from code
+  (menu *Bretwalda > Build Duel Scene*). It compiles the moment the editor
+  refreshes with glTFast and Newtonsoft resolved; the first play is against
+  `node custom-server.mjs` on port 3000.

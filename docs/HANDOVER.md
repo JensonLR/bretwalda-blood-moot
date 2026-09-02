@@ -139,6 +139,9 @@ not exist this morning.
 - **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
+- **The Unity client's first milestone is written** (in the owner's project
+  repository, not this one): socket, snapshot switch, input, capsule warriors
+  with the code's head, a code-built duel scene. See REBUILD-PLAN.
 - **The rebuild's first asset exists**: the game's head as a real mesh, out
   of the code by `headMesh` → OBJ → Blender (`tools/blender/`), all four
   classes exported, the huscarl rendered with subsurface skin. Blender is
