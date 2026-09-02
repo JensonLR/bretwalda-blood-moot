@@ -48,7 +48,7 @@ const worldOf = (o) => { o.updateWorldMatrix(true, false); const pos = new THREE
 const sockets = { pivots: {}, hands: { HandR: worldOf(handOf(b.rightArm)), HandL: worldOf(handOf(b.leftArm)) } };
 for (const [name, g] of PIVOTS) sockets.pivots[name] = worldOf(g);
 sockets.pivots.Torso = worldOf(b.torso);
-const v = [], vn = [], objects = [], mtl = new Map();
+const v = [], vn = [], vt = [], objects = [], mtl = new Map();
 let base = 1, parts = 0, tris = 0;
 const nm = new THREE.Matrix3(); const p = new THREE.Vector3(); const n = new THREE.Vector3();
 const nameOf = (o) => { const path = []; let x = o; while (x && x !== b.group) { if (x.name) path.unshift(x.name.replace(/[^A-Za-z0-9_.-]/g, "_")); x = x.parent; } return path.join("/") || "part"; };
@@ -60,18 +60,19 @@ b.group.traverse((o) => {
   const mat = mats[0]; const col = mat && mat.color ? mat.color : new THREE.Color(0.7, 0.7, 0.7);
   const mname = (mat && mat.name) || `m_${col.getHexString()}`;
   if (!mtl.has(mname)) mtl.set(mname, { col, rough: mat?.roughness ?? 0.8, metal: mat?.metalness ?? 0, emissive: mat?.emissive });
-  const pos = g.getAttribute("position"), nor = g.getAttribute("normal");
+  const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), uv = g.getAttribute("uv");
   nm.getNormalMatrix(o.matrixWorld);
   const faces = [];
   for (let i = 0; i < pos.count; i++) {
     p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); v.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`);
     n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); vn.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
+    vt.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0");
   }
   const idx = g.index;
   const count = idx ? idx.count : pos.count;
   for (let i = 0; i + 2 < count; i += 3) {
     const a = (idx ? idx.getX(i) : i) + base, c = (idx ? idx.getX(i + 1) : i + 1) + base, d = (idx ? idx.getX(i + 2) : i + 2) + base;
-    faces.push(`f ${a}//${a} ${c}//${c} ${d}//${d}`);
+    faces.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`);
   }
   tris += faces.length; parts++;
   objects.push(`o ${pivotOf(o)}__${nameOf(o)}_${parts}\nusemtl ${mname}\ns 1\n${faces.join("\n")}`);
@@ -82,7 +83,7 @@ const stem = `warrior-${CLS}-${SEED}`;
 const mtlLines = ["# Bretwalda warrior materials — base colours from the code's raw material set"];
 for (const [name, m] of mtl) mtlLines.push(`newmtl ${name}`, `Kd ${m.col.r.toFixed(4)} ${m.col.g.toFixed(4)} ${m.col.b.toFixed(4)}`, `Ks ${(m.metal * 0.5).toFixed(3)} ${(m.metal * 0.5).toFixed(3)} ${(m.metal * 0.5).toFixed(3)}`, `Ns ${Math.round((1 - m.rough) * 200)}`, `Pr ${m.rough.toFixed(3)}`, `Pm ${m.metal.toFixed(3)}`, m.emissive && (m.emissive.r + m.emissive.g + m.emissive.b) > 0 ? `Ke ${m.emissive.r.toFixed(3)} ${m.emissive.g.toFixed(3)} ${m.emissive.b.toFixed(3)}` : "", "");
 writeFileSync(resolve(ROOT, `art/blender/${stem}.mtl`), mtlLines.join("\n"));
-writeFileSync(resolve(ROOT, `art/blender/${stem}.obj`), [`# Bretwalda warrior — ${CLS}, seed ${SEED}; metres, Y up, face toward +Z; rest pose, world space.`, `mtllib ${stem}.mtl`, ...v, ...vn, ...objects].join("\n") + "\n");
+writeFileSync(resolve(ROOT, `art/blender/${stem}.obj`), [`# Bretwalda warrior — ${CLS}, seed ${SEED}; metres, Y up, face toward +Z; rest pose, world space.`, `mtllib ${stem}.mtl`, ...v, ...vn, ...vt, ...objects].join("\n") + "\n");
 writeFileSync(resolve(ROOT, `art/blender/${stem}.sockets.json`), JSON.stringify(sockets, null, 1));
 // THE WEAPONS AND THE SHIELD, built in the fist's own frame the way the game
 // attaches them, so a socket at the hand's world transform places them.
@@ -90,21 +91,21 @@ const { buildWeaponForClass, buildOffhandFor, buildShield } = await import(pathT
 const ARMS = { huscarl: ["sword_board", "dane_axe"], warden: ["gar"], runekeeper: ["twin_seax", "sword_seax"], berserker: ["hand_axes", "twin_beards"] };
 const writeGroup = (group, stemName) => {
   group.updateMatrixWorld(true);
-  const V = [], VN = [], OBJS = []; let base2 = 1, n2 = 0, t2 = 0; const M2 = new Map();
+  const V = [], VN = [], VT = [], OBJS = []; let base2 = 1, n2 = 0, t2 = 0; const M2 = new Map();
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry?.getAttribute("position")) return;
     const g = o.geometry; if (!g.getAttribute("normal")) g.computeVertexNormals();
     const mat = Array.isArray(o.material) ? o.material[0] : o.material; const col = mat?.color ?? new THREE.Color(0.6, 0.6, 0.6);
     const mname = (mat && mat.name) || `m_${col.getHexString()}`; if (!M2.has(mname)) M2.set(mname, { col, rough: mat?.roughness ?? 0.6, metal: mat?.metalness ?? 0 });
-    const pos = g.getAttribute("position"), nor = g.getAttribute("normal"); nm.getNormalMatrix(o.matrixWorld);
-    for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); V.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`); n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); VN.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`); }
+    const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), uv = g.getAttribute("uv"); nm.getNormalMatrix(o.matrixWorld);
+    for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); V.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`); n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); VN.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`); VT.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0"); }
     const idx = g.index, count = idx ? idx.count : pos.count, F = [];
-    for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base2, c = (idx ? idx.getX(i + 1) : i + 1) + base2, d = (idx ? idx.getX(i + 2) : i + 2) + base2; F.push(`f ${a}//${a} ${c}//${c} ${d}//${d}`); }
+    for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base2, c = (idx ? idx.getX(i + 1) : i + 1) + base2, d = (idx ? idx.getX(i + 2) : i + 2) + base2; F.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
     t2 += F.length; n2++; OBJS.push(`o ${stemName}_${n2}\nusemtl ${mname}\ns 1\n${F.join("\n")}`); base2 += pos.count;
   });
   const ML = ["# Bretwalda weapon materials"]; for (const [name, m] of M2) ML.push(`newmtl ${name}`, `Kd ${m.col.r.toFixed(4)} ${m.col.g.toFixed(4)} ${m.col.b.toFixed(4)}`, `Pr ${m.rough.toFixed(3)}`, `Pm ${m.metal.toFixed(3)}`, "");
   writeFileSync(resolve(ROOT, `art/blender/${stemName}.mtl`), ML.join("\n"));
-  writeFileSync(resolve(ROOT, `art/blender/${stemName}.obj`), [`# Bretwalda ${stemName}; fist frame, metres`, `mtllib ${stemName}.mtl`, ...V, ...VN, ...OBJS].join("\n") + "\n");
+  writeFileSync(resolve(ROOT, `art/blender/${stemName}.obj`), [`# Bretwalda ${stemName}; fist frame, metres`, `mtllib ${stemName}.mtl`, ...V, ...VN, ...VT, ...OBJS].join("\n") + "\n");
   return { parts: n2, tris: t2 };
 };
 for (const arms of ARMS[CLS] ?? []) {

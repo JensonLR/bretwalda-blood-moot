@@ -2476,22 +2476,26 @@ export interface CharacterMaterials {
  * PBR maps to show one hauberk. Every call allocates, and the caller is expected
  * to dispose what it built.
  */
+/** A raw material NAMED for its surface, so an export (tools/blender/) can hand it the surface's maps. */
+function rawNamed(surface: string, color: number, roughness: number, metalness: number): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  m.name = `${surface}:${new THREE.Color(color).getHexString()}`;
+  return m;
+}
 const RAW: CharacterMaterials = {
   // Headless probes only; nothing renders RAW, so a shape twin is the material itself.
   twin: (m) => m,
-  armour: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.55 }),
-  tunic: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, metalness: 0 }),
-  hide: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0 }),
-  flesh: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0 }),
-  blade: (c, rough = 0.35) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0.85 }),
-  timber: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, metalness: 0 }),
-  standard: (c, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal }),
-  tinted: (surface, c, opts) => new THREE.MeshStandardMaterial({
-    color: c,
-    roughness: opts?.roughness ?? (surface === "steel" || surface === "iron" ? 0.35 : 0.85),
-    metalness: opts?.metalness ?? (surface === "steel" || surface === "iron" || surface === "mail" || surface === "bronze" ? 0.8 : 0),
-  }),
-  get: () => new THREE.MeshStandardMaterial({ color: 0x66c8ff, emissive: 0x2288dd, emissiveIntensity: 3.5, roughness: 0.4 }),
+  armour: (c) => rawNamed("mail", c, 0.45, 0.55),
+  tunic: (c) => rawNamed("wool", c, 0.95, 0),
+  hide: (c) => rawNamed("leather", c, 0.8, 0),
+  flesh: (c) => rawNamed("skin", c, 0.85, 0),
+  blade: (c, rough = 0.35) => rawNamed("steel", c, rough, 0.85),
+  timber: (c) => rawNamed("oak", c, 0.9, 0),
+  standard: (c, rough = 0.8, metal = 0) => rawNamed("plain", c, rough, metal),
+  tinted: (surface, c, opts) => rawNamed(surface, c,
+    opts?.roughness ?? (surface === "steel" || surface === "iron" ? 0.35 : 0.85),
+    opts?.metalness ?? (surface === "steel" || surface === "iron" || surface === "mail" || surface === "bronze" ? 0.8 : 0)),
+  get: () => { const m = new THREE.MeshStandardMaterial({ color: 0x66c8ff, emissive: 0x2288dd, emissiveIntensity: 3.5, roughness: 0.4 }); m.name = "runeGlow"; return m; },
 };
 
 // Skin is authored as a *set*, not a colour. A single diffuse tone is the thing
