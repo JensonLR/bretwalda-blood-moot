@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { standardOf } from "@/game/standards.mjs";
 import { getDb, withDb } from "./index";
 import { hearths, players, warLedger, seasons } from "./schema";
 import { secretMatches } from "./credentials";
@@ -36,6 +37,8 @@ export interface HearthView {
   name: string;
   people: string;
   members: number;
+  /** The device the house flies, or null. */
+  standard: string | null;
 }
 
 export type HearthOutcome =
@@ -50,7 +53,7 @@ async function viewOf(db: Db, id: number): Promise<HearthView | null> {
   if (!row) return null;
   const members = await db.select({ n: sql<number>`count(*)::int` })
     .from(players).where(eq(players.hearthId, id));
-  return { id: row.id, name: row.name, people: row.people, members: Number(members[0]?.n) || 0 };
+  return { id: row.id, name: row.name, people: row.people, members: Number(members[0]?.n) || 0, standard: row.standard ?? null };
 }
 
 /** The caller's authenticated profile row, or null. The same bearer rule as warSelf. */
@@ -60,6 +63,29 @@ async function ownRow(db: Db, id: unknown, secret: unknown) {
   const found = await db.select().from(players).where(eq(players.id, profileId)).limit(1);
   const row = found[0];
   return row && secretMatches(secret, row.secretHash) ? row : null;
+}
+
+/**
+ * RAISE A STANDARD over the house. Any seated member may — a hearth is a house
+ * and not a fief, and the house survives its founder — and only from his own
+ * kingdom's list: the heraldry law is that a Hearth inherits its colour and
+ * may not choose one, and §9 is that it flies a sourced device or none.
+ */
+export async function hearthStandard(id: unknown, secret: unknown, standard: unknown): Promise<HearthOutcome | null> {
+  return withDb(async (db) => {
+    const row = await ownRow(db, id, secret);
+    if (!row) return { ok: false, message: "That is not your name." };
+    if (!row.hearthId) return { ok: false, message: "Sit at a hearth first — a standard flies over a house." };
+    const house = (await db.select().from(hearths).where(eq(hearths.id, row.hearthId)).limit(1))[0];
+    if (!house) return { ok: false, message: "That hearth is cold." };
+    const wanted = standard === null || standard === undefined || standard === "none" ? null : String(standard);
+    if (wanted !== null && !standardOf(house.people, wanted)) {
+      return { ok: false, message: "That device is not one of your kingdom's. A house flies what its people can source." };
+    }
+    await db.update(hearths).set({ standard: wanted }).where(eq(hearths.id, house.id));
+    const view = await viewOf(db, house.id);
+    return view ? { ok: true, hearth: view } : { ok: false, message: "That hearth is cold." };
+  }, null);
 }
 
 /** Found a Hearth: the founder's people becomes the house's, and he takes a seat. */
@@ -132,6 +158,8 @@ export interface HearthSeat {
   seat: number;
   name: string;
   people: string;
+  /** The device the house flies, or null. */
+  standard: string | null;
   members: number;
   points: number;
   matches: number;
@@ -155,10 +183,11 @@ export async function hearthRoll(limit = 20): Promise<HearthSeat[] | null> {
       matches: sql<number>`count(distinct ${warLedger.matchKey})::int`,
       name: hearths.name,
       people: hearths.people,
+      standard: hearths.standard,
     }).from(warLedger)
       .innerJoin(hearths, eq(hearths.id, warLedger.hearthId))
       .where(and(eq(warLedger.seasonId, s.id), sql`${warLedger.hearthId} is not null`))
-      .groupBy(warLedger.hearthId, hearths.name, hearths.people)
+      .groupBy(warLedger.hearthId, hearths.name, hearths.people, hearths.standard)
       .having(sql`sum(${warLedger.points}) > 0`)
       .orderBy(
         desc(sql`sum(${warLedger.points})`),
@@ -173,7 +202,7 @@ export async function hearthRoll(limit = 20): Promise<HearthSeat[] | null> {
       out.push({
         seat: i + 1,
         name: r.name,
-        people: r.people,
+        people: r.people, standard: r.standard ?? null,
         members: Number(members[0]?.n) || 0,
         points: Number(r.points) || 0,
         matches: Number(r.matches) || 0,

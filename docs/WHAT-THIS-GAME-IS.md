@@ -142,7 +142,10 @@ says "the war layer is done" is worth less than no document at all.
   delivers.
 * **No adjacency.** Any people may contest any territory, whether or not it
   holds a neighbour. The territory table carries no adjacency graph.
-* **No flags or heraldry.** `FACTIONS.md` §6 still stands untouched.
+* ~~**No flags or heraldry.**~~ **A Hearth flies a standard (2 Sep 2026)** —
+  a sourced device from its kingdom's `FACTIONS.md` §9 list, on its kingdom's
+  colour, as a glyph beside its men's names. Not yet a banner planted in the
+  ground.
 * **The map is not live.** `/factions` reads the war when it opens and does not
   poll. "The map moved while you were asleep" is true; "the map is moving while
   you watch" is not.

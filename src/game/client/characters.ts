@@ -126,6 +126,14 @@ export interface Appearance {
    * both show the bare shield rather than a wrong device.
    */
   mark?: string;
+  /**
+   * THE HEARTH'S STANDARD — a device from his kingdom's own §9 list, worn by a
+   * man who sits at a hearth that flies it. Not kit: like `mark`, it rides the
+   * one client-declared bag the wire already carries, and `narrowStandard`
+   * keeps anything foreign to his people off him on every door and every
+   * surface. Optional forever for the `people` reason.
+   */
+  standard?: string;
 }
 
 export interface PlayerAppearanceHolder {
@@ -153,6 +161,7 @@ export function defaultAppearance(cls: WarriorClass): Appearance {
     // adds a livery; it does not repair a hole.
     people: "none",
     mark: "none",
+    standard: "none",
   };
 }
 

@@ -221,7 +221,9 @@ not exist this morning.
   from `tools/gradesplit.mjs`, not from a vat.
 - **A3: the ten helm bowls and §5's reprice.** *NOT STARTED, and that row is
   honest* — it re-verified itself against `characters.ts:191-285`.
-- **Flags.** *NOT STARTED, verified.* Constrained presets, a moderation
+- **Flags.** **DONE 2 Sep 2026 — hearth standards** (`src/game/standards.mjs`,
+  `hearthStandard`, the picker in `factionMap/Hearth.tsx`, the glyph beside
+  names; standardtest 11/11, warsay 64/64 on a real Postgres). Was: constrained presets, a moderation
   decision as much as an art one.
 - **Wave D, draw calls — HALF unblocked, and the half matters.** The matrix ran
   on real hardware for the first time (`BRETWALDA_GPU=1 node tools/fpstest.mjs`).

@@ -315,6 +315,8 @@ export const hearths = pgTable("hearths", {
   name: text("name").notNull(),
   /** The base kingdom: the founder's allegiance at founding. Never changes. */
   people: text("people").notNull(),
+  /** The device the house flies — one of its own kingdom's §9 standards, or null for a bare field. */
+  standard: text("standard"),
   founderId: integer("founder_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [

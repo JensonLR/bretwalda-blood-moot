@@ -366,9 +366,21 @@ export function noteBindingsSynced(bindings: unknown): void {
  * the same way, because they are the same thing to a warrior — unsworn.
  */
 export async function fetchAllegiance(): Promise<string | null> {
-  const reply = await withCreds<{ self: { allegiance: string | null } | null }>("/api/war", {});
+  return (await fetchSworn())?.allegiance ?? null;
+}
+
+/**
+ * The oath AND the house, in one read: a man's people and the standard his
+ * hearth flies, which is what his appearance carries onto the wire (backlog
+ * Wave F). Null when there is no server or no profile.
+ */
+export async function fetchSworn(): Promise<{ allegiance: string | null; standard: string | null } | null> {
+  const reply = await withCreds<{
+    self: { allegiance: string | null } | null;
+    hearth: { standard?: string | null } | null;
+  }>("/api/war", {});
   if (reply.kind !== "server") return null;
-  return reply.value.self?.allegiance ?? null;
+  return { allegiance: reply.value.self?.allegiance ?? null, standard: reply.value.hearth?.standard ?? null };
 }
 
 let lastMuted: boolean | null = null;

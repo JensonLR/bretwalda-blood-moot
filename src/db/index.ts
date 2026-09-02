@@ -366,6 +366,9 @@ async function ensureSchema(db: Db): Promise<boolean> {
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS hearths_people_idx ON hearths (people)`);
     await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS hearth_id integer`);
+    // The house's standard (Wave F, flags): a device id from its own kingdom's
+    // list in src/game/standards.mjs, or null. Same idempotent route.
+    await db.execute(sql`ALTER TABLE hearths ADD COLUMN IF NOT EXISTS standard text`);
     await db.execute(sql`ALTER TABLE war_ledger ADD COLUMN IF NOT EXISTS hearth_id integer`);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS war_ledger_season_hearth_idx

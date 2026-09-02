@@ -18,18 +18,24 @@
 
 import React, { useCallback, useState } from "react";
 import { FIELD, PEOPLE_NAME } from "./territories";
+import { StandardGlyph } from "../StandardGlyph";
+import { standardsFor, TIERS } from "@/game/standards.mjs";
 
 export interface HearthViewData {
   id: number;
   name: string;
   people: string;
   members: number;
+  /** The device the house flies, or null. */
+  standard?: string | null;
 }
 
 export interface HearthSeatData {
   seat: number;
   name: string;
   people: string;
+  /** The device the house flies, or null. */
+  standard?: string | null;
   members: number;
   points: number;
   matches: number;
@@ -51,7 +57,7 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
   const [busy, setBusy] = useState(false);
   const [word, setWord] = useState<string | null>(null);
 
-  const act = useCallback(async (verb: "found" | "join" | "leave") => {
+  const act = useCallback(async (verb: "found" | "join" | "leave" | "standard", standard?: string) => {
     if (!credentials || busy) return;
     setBusy(true);
     setWord(null);
@@ -59,7 +65,7 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
       const res = await fetch("/api/war/hearth", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...credentials, act: verb, name: name.trim() || undefined }),
+        body: JSON.stringify({ ...credentials, act: verb, name: name.trim() || undefined, ...(verb === "standard" ? { standard } : {}) }),
       });
       const body = await res.json() as { ok?: boolean; message?: string };
       if (body.ok) { setName(""); onChanged(); }
@@ -82,7 +88,9 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
       <div className="hearth-own">
         {hearth ? (
           <>
-            <span className="hearth-swatch" style={{ background: field?.field, borderColor: field?.lit }} />
+            <span className="hearth-swatch" style={{ background: field?.field, borderColor: field?.lit }}>
+              <StandardGlyph people={hearth.people} id={hearth.standard} size={14} className="hearth-device" />
+            </span>
             <span className="hearth-own-text">
               <strong>{hearth.name}</strong>
               <em>a hearth of the {PEOPLE_NAME(hearth.people)} · {hearth.members} seat{hearth.members === 1 ? "" : "s"} taken</em>
@@ -106,6 +114,26 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
           </>
         )}
       </div>
+      {/* THE STANDARD (Wave F, flags). The kingdom's own §9 list, each device
+          with its tier in as many words — FIND, TEXT or INVENTION — because a
+          game that says which is which is the only "historically accurate"
+          that survives the evidence. Any seated member may raise one. */}
+      {hearth && (
+        <div className="hearth-standards" role="radiogroup" aria-label="The standard your house flies">
+          {standardsFor(hearth.people).map((s) => {
+            const on = hearth.standard === s.id;
+            return (
+              <button key={s.id} className={`hearth-standard${on ? " is-on" : ""}`} disabled={busy}
+                role="radio" aria-checked={on} title={s.source}
+                onClick={() => void act("standard", on ? "none" : s.id)}>
+                <StandardGlyph people={hearth.people} id={s.id} size={22} title="" />
+                <span className="hearth-standard-name">{s.name}</span>
+                <span className={`hearth-tier hearth-tier-${s.tier}`}>{TIERS[s.tier as keyof typeof TIERS].label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {word && <p className="hearth-word">{word}</p>}
 
       {seats && seats.length > 0 && (
@@ -119,7 +147,9 @@ export default function Hearth({ sworn, hearth, seats, credentials, onChanged }:
               return (
                 <li key={s.seat} className="hearth-seat">
                   <span className="hearth-n">{s.seat}</span>
-                  <span className="hearth-swatch" style={{ background: f?.field, borderColor: f?.lit }} />
+                  <span className="hearth-swatch" style={{ background: f?.field, borderColor: f?.lit }}>
+                    <StandardGlyph people={s.people} id={s.standard} size={13} className="hearth-device" />
+                  </span>
                   <span className="hearth-who">
                     <strong>{s.name}</strong>
                     <em>of the {PEOPLE_NAME(s.people)} · {s.members} seat{s.members === 1 ? "" : "s"}</em>
@@ -147,7 +177,17 @@ const CSS = `
   box-shadow: inset 0 1px 0 rgba(255,232,190,0.08);
 }
 .hearth-own { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.hearth-swatch { width: 1.1rem; height: 1.1rem; border-radius: 0.25rem; border: 1px solid; flex: none; }
+.hearth-swatch { width: 1.1rem; height: 1.1rem; border-radius: 0.25rem; border: 1px solid; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.hearth-device { color: rgba(246,236,214,0.92); }
+.hearth-standards { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.hearth-standard { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.55rem; border-radius: 0.4rem; border: 1px solid rgba(238,226,204,0.18); background: rgba(0,0,0,0.35); color: #e8dcc0; font-size: 0.72rem; cursor: pointer; }
+.hearth-standard:hover { border-color: rgba(238,226,204,0.4); }
+.hearth-standard.is-on { border-color: #f2c76b; background: rgba(242,199,107,0.12); color: #fbe9bd; }
+.hearth-standard-name { font-weight: 700; letter-spacing: 0.02em; }
+.hearth-tier { font-size: 0.58rem; letter-spacing: 0.18em; padding: 0.05rem 0.3rem; border-radius: 0.2rem; border: 1px solid rgba(238,226,204,0.25); color: rgba(238,226,204,0.6); }
+.hearth-tier-find { color: #b9dcb0; border-color: rgba(185,220,176,0.5); }
+.hearth-tier-text { color: #e2c98a; border-color: rgba(226,201,138,0.5); }
+.hearth-tier-invention { color: #d7a2a2; border-color: rgba(215,162,162,0.5); }
 .hearth-own-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
 .hearth-own-text strong { color: #f2e5cb; font-weight: 700; font-size: 0.95rem; }
 .hearth-own-text em { font-style: normal; font-size: 0.7rem; color: rgba(238,226,204,0.5); }

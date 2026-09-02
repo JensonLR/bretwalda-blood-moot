@@ -77,7 +77,8 @@
     "rejointest": "node tools/rejointest.mjs",
     "clipseen": "node tools/clipseen.mjs",
     "shieldtest": "node tools/shieldtest.mjs",
-    "taketest": "node tools/taketest.mjs"
+    "taketest": "node tools/taketest.mjs",
+    "standardtest": "node tools/standardtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

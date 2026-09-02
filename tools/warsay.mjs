@@ -128,7 +128,7 @@ check("the row count and the reasons agree",
 // the unsworn cannot found one, a house is not divided between kingdoms, and
 // one name is one house whatever the capitalisation.
 if (DB) {
-  const { hearthFound, hearthJoin, hearthLeave, hearthRoll } =
+  const { hearthFound, hearthJoin, hearthLeave, hearthRoll, hearthStandard } =
     await import(pathToFileURL(resolve(ROOT, "src/db/hearths.ts")).href);
   const { getDb } = await import(pathToFileURL(resolve(ROOT, "src/db/index.ts")).href);
   const { hashSecret } = await import(pathToFileURL(resolve(ROOT, "src/db/credentials.ts")).href);
@@ -165,6 +165,21 @@ if (DB) {
   const divided = await hearthJoin(norse.id, norse.secret, houseName);
   check("a house is not divided — a Dane cannot sit at a Saxon hearth",
     divided && divided.ok === false && /another kingdom/i.test(divided.message), JSON.stringify(divided));
+
+  // THE STANDARD (Wave F, flags): a seated member raises a device from his
+  // own kingdom's list; a foreign device is refused; "none" lowers it.
+  const foreign = await hearthStandard(saxon.id, saxon.secret, "raven");
+  check("a Saxon house cannot fly the Raven — a device is its own kingdom's or nothing",
+    foreign && foreign.ok === false && /not one of your kingdom/i.test(foreign.message), JSON.stringify(foreign));
+  const raised = await hearthStandard(saxon.id, saxon.secret, "cross_lozenge");
+  check("a seated man raises his kingdom's own device over the house, and the view carries it",
+    raised?.ok === true && raised.hearth.standard === "cross_lozenge", JSON.stringify(raised));
+  const outsider = await hearthStandard(norse.id, norse.secret, "mjolnir");
+  check("a man with no seat has no house to fly anything over",
+    outsider && outsider.ok === false && /sit at a hearth/i.test(outsider.message), JSON.stringify(outsider));
+  const lowered = await hearthStandard(saxon.id, saxon.secret, "none");
+  check("\"none\" lowers it to a bare field",
+    lowered?.ok === true && lowered.hearth.standard === null, JSON.stringify(lowered));
 
   const left = await hearthLeave(saxon.id, saxon.secret);
   check("leaving is free, and the house survives its founder",

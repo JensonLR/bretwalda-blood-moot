@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { clientKey, localMode, rateLimit, readBody, serverOk, tooMany } from "@/db/api";
-import { hearthFound, hearthJoin, hearthLeave } from "@/db/hearths";
+import { hearthFound, hearthJoin, hearthLeave, hearthStandard } from "@/db/hearths";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   const out = act === "found" ? await hearthFound(body.id, body.secret, body.name)
     : act === "join" ? await hearthJoin(body.id, body.secret, body.name)
     : act === "leave" ? await hearthLeave(body.id, body.secret)
+    : act === "standard" ? await hearthStandard(body.id, body.secret, body.standard)
     : { ok: false as const, message: "Unknown act." };
   if (out === null) return localMode();
   return serverOk(out);

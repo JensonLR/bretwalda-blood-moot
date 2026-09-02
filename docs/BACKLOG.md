@@ -1241,10 +1241,22 @@ claims per ground, 12/12 with the fort in the list.
   houses, `war_ledger.hearth_id`, warsay 44/44 including the three refusals that
   make it fair. `src/db/hearths.ts` is in the tree. The claim below — "no table,
   no reference" — was false when it was written down here.
-- **Flags.** *NOT STARTED* — no flag column, no flag geometry; every `Flag` hit
-  in `src/` is a `lucide-react` icon or an unrelated boolean. Constrained
-  presets, not free-drawn — that is a moderation decision as much as an art
-  one. Depends on profiles, which are built.
+- **Flags.** ~~*NOT STARTED*~~ **DONE 2 Sep 2026 — THE HEARTH STANDARDS.**
+  Constrained presets, as this row asked: `src/game/standards.mjs` is the
+  §9 sourcing pass as a table — thirteen devices, four kingdoms, every one
+  tagged FIND / TEXT / INVENTION *in the UI* (§9.0's split, kept visible) and
+  none from §9.2's AVOID list (the gate holds it). A seated member raises one
+  on /factions (`act: "standard"` on the hearth route, `hearths.standard`
+  column via the idempotent DDL); the heraldry law holds by construction —
+  the device goes on the kingdom's own field, chosen from the kingdom's own
+  list, and a foreign id is refused at the route AND narrowed to "none" at
+  every appearance door (`dressFor`, same trust model as `mark`). The house's
+  device rides the appearance blob with the oath (`fetchSworn`), so it shows
+  beside a man's name in the lobby and the summary ledger. Gates:
+  standardtest 11/11, warsay 64/64 (the four standard claims proven against a
+  real Postgres), profiletest 78/78, protocoltest 81/81. Capture
+  `art/shots/standards/hearth-panel.png`. NOT built: 3D standards planted in
+  the grounds (row 4.10's ruling) — the device is a glyph, not geometry, yet.
 - **PWA.** ~~*NOT STARTED*~~ **DONE 1 Sep 2026, and the row was stale in two
   different directions at once.** Row 8.9 shipped the shell on 27 Aug —
   `src/app/manifest.ts`, forged icons via `tools/mkicon.mjs`, and `public/sw.js`,
@@ -1574,7 +1586,7 @@ C  harness ──> D draw calls + allocation ──> E map two ──> F retenti
 E  map three         (BLOCKED on the sim being flat: no jump, x/z only,
                       ARENA_RADIUS a constant — its own project)
 F  matchmaking       (REJECTED until concurrent strangers exist)
-F  flags             (needs profiles — profiles are DONE)
+F  flags             (DONE 2 Sep 2026 — hearth standards; the planted 3D banner of 4.10 is what remains)
 ```
 
 ## 4.3 — THE FACTION KIT, AS BUILT (16 Aug 2026)

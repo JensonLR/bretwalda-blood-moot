@@ -25,6 +25,8 @@ import { watchForInstall, offerFor, askToInstall, dismissOffer,
 import { createTour, tourIsDue, TOUR_KEY } from "@/game/tour.mjs";
 import { browserStore } from "@/game/tuition.mjs";
 import { MarkGlyph } from "../game/client/MarkGlyph";
+import { StandardGlyph } from "../game/client/StandardGlyph";
+import { narrowStandard } from "@/game/standards.mjs";
 // The four bars on the class card, and — the point of the module — the ONE
 // place their maxima come from, which is the roster itself. See the header of
 // `statshape.mjs` for the two warriors this screen used to draw identically.
@@ -50,7 +52,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchAllegiance, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchSworn, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import { readCreds } from "./profileLink";
 import Dispatch, { takeCrownNews, takeWatermark } from "../game/client/factionMap/Dispatch";
@@ -627,11 +629,16 @@ export default function Page() {
    * true rather than for today.
    */
   const adoptAllegiance = useCallback(async () => {
-    const sworn = await fetchAllegiance();
-    const people: Allegiance = isPeople(sworn) ? sworn : "none";
+    const sworn = await fetchSworn();
+    const people: Allegiance = isPeople(sworn?.allegiance ?? null) ? (sworn!.allegiance as Allegiance) : "none";
+    // The house's standard rides with the oath (Wave F): read off the same
+    // reply, narrowed to his own kingdom's list the way the server will narrow
+    // it again at the door.
+    const standard = narrowStandard(people, sworn?.standard ?? "none");
     const current = peopleOf(profileRef.current.appearance);
-    if (current === people) return;
-    const ap = { ...profileRef.current.appearance, people };
+    const currentStandard = profileRef.current.appearance?.standard ?? "none";
+    if (current === people && currentStandard === standard) return;
+    const ap = { ...profileRef.current.appearance, people, standard };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
   }, [saveProfile]);
@@ -1782,6 +1789,10 @@ export default function Page() {
             marks={Object.fromEntries(Object.values(roomState.players).map((p) =>
               [p.id, (p as GamePlayer & { appearance?: Appearance }).appearance?.mark]))}
             onSaveClip={clipSave}
+            standards={Object.fromEntries(Object.values(roomState.players).map((p) => {
+              const ap = (p as GamePlayer & { appearance?: Appearance }).appearance;
+              return [p.id, { people: ap?.people, standard: ap?.standard }];
+            }))}
             // The one refusal a player can undo from here. The oath is taken on
             // the map and the map is its own route, so this goes there rather
             // than growing a second swearing UI — one place decides who you
@@ -2055,6 +2066,8 @@ export default function Page() {
                         {/* His mark, exactly as his client declared it — the
                             `appearance.people` trust model, see `marks.mjs`. */}
                         <MarkGlyph id={(p as GamePlayer & { appearance?: Appearance }).appearance?.mark} size={13} className="text-amber-300/90" />
+                        {/* His house's standard, on the same trust model. */}
+                        <StandardGlyph people={(p as GamePlayer & { appearance?: Appearance }).appearance?.people} id={(p as GamePlayer & { appearance?: Appearance }).appearance?.standard} size={13} className="text-[#f0e4c8]/90" />
                         {p.id === roomState.hostId && <Crown size={13} className="shrink-0 text-amber-400" />}
                         {p.id === playerId && <span className="badge-sky">YOU</span>}
                         {isBot && <span className="badge-stone">AI</span>}
@@ -4035,7 +4048,7 @@ function WarLine({ war, onSwear }: { war: WarOutcomeMsg | null; onSwear?: () => 
   return <div className="badge-stone !text-[10px]" data-war={war.kind}>THE LEDGER IS SHUT — THIS FIGHT WILL NOT COUNT</div>;
 }
 
-function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, onFightAgain, onLeave, onSwear, onSaveClip }: {
+function MatchSummary({ data, playerId, payState, waiting, war, marks, standards, onEmote, onFightAgain, onLeave, onSwear, onSaveClip }: {
   data: MatchEndData;
   playerId: string;
   /**
@@ -4045,6 +4058,8 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
    * draw no mark, which is also what most men wear.
    */
   marks?: Record<string, string | undefined>;
+  /** Each man's house standard and the people it flies on, by id — same source as `marks`. */
+  standards?: Record<string, { people?: string; standard?: string } | undefined>;
   /**
    * Saves the final kill's clip (7.9), recorded through the replay's own
    * tuned lens. Null when no clip exists — no MediaRecorder, low tier, or
@@ -4182,6 +4197,7 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, onEmote, 
                   <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-[#f3ecdc]"}`}>
                     <span className="truncate">{r.name}</span>
                     <MarkGlyph id={marks?.[r.id]} size={12} className="text-amber-300/90" />
+                    <StandardGlyph people={standards?.[r.id]?.people} id={standards?.[r.id]?.standard} size={12} className="text-[#f0e4c8]/90" />
                     {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
                   </div>
                   <div className="text-[10px] leading-tight text-[#a89a7c]">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>

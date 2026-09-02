@@ -4,6 +4,7 @@
 // routes share the same rooms in one process.
 // ============================================================
 import { randomUUID } from "crypto";
+import { narrowStandard } from "./standards.mjs";
 // THE ARENA STOPS BEING A HOLOGRAM. `solidground.mjs` owns the collision maths
 // and `grounds.mjs` declares which props are on which side of the owner's line
 // — "obstacle decoration" blocks, "decoration decoration" does not. This module
@@ -2362,9 +2363,16 @@ export function makeEngine(options = {}) {
    */
   function dressFor(room, appearance) {
     const ap = appearance || null;
-    if (!ap || !room || !room.friendly) return ap;
-    if (!ap.people || ap.people === "none") return ap;
-    return { ...ap, people: "none" };
+    if (!ap) return ap;
+    // THE STANDARD is narrowed at every door the appearance comes through: a
+    // device that is not one of his own kingdom's is "none" — a modified client
+    // can fly nothing it could not have chosen, and a friendly room, which
+    // strips the oath, strips the house's device with it.
+    const friendly = !!(room && room.friendly);
+    const people = friendly ? "none" : (ap.people || "none");
+    const standard = narrowStandard(people, ap.standard);
+    if (people === (ap.people || "none") && standard === (ap.standard || "none")) return ap;
+    return { ...ap, people, standard };
   }
 
   function dealGroundFor(room) {

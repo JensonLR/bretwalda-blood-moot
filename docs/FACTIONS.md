@@ -124,8 +124,11 @@ named territory, and the territory is where the heptarchy's names live on.**
 
 ## 6. What is still open
 
-* **Flags and heraldry.** Scoped in §9. The four field colours exist and the
-  devices do not; §9 is the sourcing pass, done before anything is drawn.
+* ~~**Flags and heraldry.**~~ **The devices exist — 2 Sep 2026.** §9's
+  sourcing pass is now a table, `src/game/standards.mjs`: thirteen devices,
+  each carrying its §9.0 tier, and a Hearth raises one of its own kingdom's
+  over itself on /factions (backlog 4.4/Flags). What §9 refuses is refused by
+  a gate. Still open: the device as *cloth in the ground* (backlog 4.10).
 * **Clans choose a base people**, per the owner: a clan is sworn *within* a
   people and inherits its kit variants.
 * **Per-faction class variants.** Same four classes, same numbers (§3), different
