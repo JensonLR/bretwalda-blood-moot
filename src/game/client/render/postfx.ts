@@ -3074,30 +3074,84 @@ export function createPostFx(
         bokeh = new BokehPass(scene, camera, { focus: 4.4, aperture: 0.00018, maxblur: 0 });
         bokeh.enabled = false;
 
-        // AND IT IS NEVER TURNED ON. `setDepthOfField` is the only thing that
-        // sets `dofWanted`, and NOTHING IN THE TREE CALLS IT — not `GameCanvas`,
-        // not the camera, not a harness. So `dofBlend` decays to zero, the
-        // `dofBlend > 0.02` line below keeps `bokeh.enabled` false for the life
-        // of the session, and this pass has never rendered a frame in the
-        // shipped game. What it costs today is its construction: a full-
-        // resolution RGBA target allocated on every `high` session for a blur
-        // nobody asks for.
+        // IT RUNS NOW — on the deathcam and the victory tableau (GameCanvas
+        // switches it on for those two branches and off for the fight, where a
+        // man has to read every foe at every distance). For its first five days
+        // nothing called `setDepthOfField` and this pass never rendered a frame;
+        // the note that recorded that stood here, and the recipe it kept is
+        // what follows.
         //
-        // AN OPTIMISATION FOR IT WAS BUILT AND THROWN AWAY, and the note is
-        // worth more than the code was. `BokehPass.render` draws the whole scene
-        // a THIRD time through an `overrideMaterial` to fill an RGBA-packed
-        // depth buffer — the identical defect the occlusion pass had above — and
-        // it can be fixed the same way, by packing the beauty pass's own depth
-        // into that buffer with one full-screen quad rather than changing how
-        // the bokeh shader reads depth. That was written, typechecked and built
-        // before the missing caller was noticed. It is not here because
-        // optimising a pass that never runs buys nothing and costs two reaches
-        // into `BokehPass`'s privates; the recipe is in `docs/PERFORMANCE.md`
-        // for whoever wires the feature up.
+        // THE SAME DEFECT THE OCCLUSION PASS HAD, AND THE SAME FIX.
+        // `BokehPass.render` sets `scene.overrideMaterial` to a MeshDepthMaterial
+        // and calls `renderer.render(scene, camera)` — a THIRD full draw of every
+        // mesh, for a depth buffer the beauty pass computed two passes earlier
+        // (the ablation priced it at 4.6 ms and 241 draws while it ran). It
+        // cannot be handed a depth texture the way GTAOPass can, because its
+        // shader reads depth RGBA-PACKED — so rather than change how it reads,
+        // this writes what it wants: one full-screen quad packs the beauty
+        // pass's own depth into the same target in the same encoding, and the
+        // bokeh shader is untouched. Window-space depth in [0,1] is exactly the
+        // `gl_FragCoord.z` MeshDepthMaterial would have packed: a substitution,
+        // not an approximation.
         //
-        // The ablation's "no DoF" row is therefore NOT a measurement of depth of
-        // field. It removes the pass's construction and nothing else, and the
-        // 2.6-4.6 ms it appears to save across runs is scene variance.
+        // `render` is replaced, not wrapped: the original clears its depth
+        // target before drawing, so anything written first is wiped, and the
+        // composite it does after is the half worth keeping. The two private
+        // fields reached for (`_renderTargetDepth`, `_fsQuad`) are named here so
+        // a three.js upgrade knows where to look.
+        const packMat = new THREE.ShaderMaterial({
+          name: "BokehDepthRepack",
+          uniforms: { tDepth: { value: null as THREE.Texture | null } },
+          vertexShader: FS_VERT,
+          fragmentShader: /* glsl */ `
+            #include <packing>
+            uniform sampler2D tDepth;
+            varying vec2 vUv;
+            void main() { gl_FragColor = packDepthToRGBA( texture2D( tDepth, vUv ).x ); }`,
+          depthTest: false,
+          depthWrite: false,
+        });
+        const packQuad = new FullScreenQuad(packMat);
+        const bk = bokeh as unknown as {
+          _renderTargetDepth: THREE.WebGLRenderTarget;
+          _materialDepth: THREE.Material;
+          _fsQuad: { render(r: THREE.WebGLRenderer): void };
+          uniforms: Record<string, { value: unknown }>;
+          renderToScreen: boolean;
+        };
+        const bokehPass = bokeh;
+        bokehPass.render = (r, write, read) => {
+          if (sceneDepth) {
+            // `sceneDepth`, not `read`: AoComposite swaps, so `read` here is the
+            // OTHER buffer, holding last frame's depth.
+            packMat.uniforms.tDepth.value = sceneDepth;
+            r.setRenderTarget(bk._renderTargetDepth);
+            packQuad.render(r);
+          } else {
+            // No depth texture means the AO stage is off and nobody attached
+            // one: the pass's own prepass, rather than blurring against
+            // whatever that buffer held last.
+            scene.overrideMaterial = bk._materialDepth;
+            const oldAuto = r.autoClear;
+            r.autoClear = false;
+            r.setRenderTarget(bk._renderTargetDepth);
+            r.clear();
+            r.render(scene, camera);
+            r.autoClear = oldAuto;
+            scene.overrideMaterial = null;
+          }
+          // The composite half, as the original does it.
+          bk.uniforms.tColor.value = (read as THREE.WebGLRenderTarget).texture;
+          bk.uniforms.nearClip.value = camera.near;
+          bk.uniforms.farClip.value = camera.far;
+          if (bk.renderToScreen) {
+            r.setRenderTarget(null);
+          } else {
+            r.setRenderTarget(write);
+            r.clear();
+          }
+          bk._fsQuad.render(r);
+        };
 
         composer.addPass(bokeh);
         bokehInfo = track("bokeh", false);

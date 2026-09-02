@@ -677,6 +677,10 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
         if (photoFraming) {
           camera.position.set(...photoFraming.position);
           aimAt(...photoFraming.target);
+          // The focus IS the aim. Depth of field measures its plane from
+          // `ctx.focus`, and a framed photograph's subject is what it is
+          // framed on — not wherever the fight last left the follow camera.
+          ctx.focus.set(...photoFraming.target);
           const want = photoFraming.fov ?? FOV_BASE;
           if (camera.fov !== want) {
             camera.fov = want;
@@ -699,6 +703,12 @@ export function createCameraRig(settings: QualitySettings, opts: CameraOptions =
           const [tx, ty, tz] = summaryShot.to;
           camera.position.set(fx + (tx - fx) * e, fy + (ty - fy) * e, fz + (tz - fz) * e);
           aimAt(...summaryShot.target);
+          // The focus IS the aim, at its real height. The deathcam and the
+          // victory tableau both ride this branch, and depth of field measures
+          // its plane from `ctx.focus` — GameCanvas used to seed it on the
+          // ground plane, which at four metres put the sharp plane a little
+          // under the man's boots rather than on his face.
+          ctx.focus.set(...summaryShot.target);
           const want = summaryShot.fov ?? FOV_BASE;
           if (camera.fov !== want) {
             camera.fov = want;

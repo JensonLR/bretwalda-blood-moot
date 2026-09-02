@@ -164,6 +164,15 @@ not exist this morning.
   the life of every session. The optimisation was **reverted rather than
   shipped**: optimising a pass that never runs is the same mistake as fixing a
   gate that cannot fail. See the board below — it is a design call now.
+- **DEPTH OF FIELD — the pass that never ran, now on the two authored shots.**
+  The design call was mine under full reign: on for the deathcam replay and the
+  victory tableau, off in the fight. The rig writes `ctx.focus` to its own aim
+  in the photo/summary branches (the deathcam rides that branch), so the sharp
+  plane sits on the face; blur ceiling 0.0045 not 0.006 (palisade smear, a halo
+  on the victor). Seen in `art/shots/dof/` as a high-vs-medium A/B. And the
+  measured BokehPass cut is taken with it — one full-screen quad packs the beauty
+  depth into the pass's target instead of a third scene draw; reads `sceneDepth`,
+  not `read`, because `AoComposite` swaps.
 - **TAKING A DEAD MAN'S WEAPON — the second gameplay feature.** Every death
   leaves his effective arms on the floor (`room.drops`, capped at 8, cleared
   each round); `take` (`KeyG`, or a TAKE pad that exists only while something
@@ -377,8 +386,9 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
 
 1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
 2. **Verify every row against the tree before working it.** Five were stale.
-3. **DEPTH OF FIELD HAS NEVER RENDERED A FRAME, and somebody should decide
-   which way that goes.** `BokehPass` has the identical defect the AO pass had —
+3. **Depth of field is DECIDED and RUNNING** (deathcam + tableau, off in the
+   fight) with the BokehPass repack cut taken — see `docs/PERFORMANCE.md`. What
+   was here: **DEPTH OF FIELD HAD NEVER RENDERED A FRAME.** `BokehPass` has the identical defect the AO pass had —
    `overrideMaterial` plus a third full draw of the scene — and the fix was
    written before the caller was looked for. There is no caller: nothing in the
    tree calls `setDepthOfField`, so `bokeh.enabled` is false for the life of

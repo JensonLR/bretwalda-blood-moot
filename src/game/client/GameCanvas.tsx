@@ -244,6 +244,14 @@ interface Stage {
 /** One string for "which weapon is in his hands", so a change is one compare. */
 const takenKeyOf = (p: GamePlayer): string => (p.taken ? `${p.taken.cls}/${p.taken.arms}` : "");
 
+/**
+ * The lens on the authored shots (the deathcam and the victory tableau). The
+ * aperture is postfx's own default; the blur ceiling is brought down from
+ * 0.006 because at that height the palisade smeared and a faint halo stood
+ * off the victor's silhouette (art/shots/dof/tableau-high-dof.png, first cut).
+ */
+const DOF_LOOK = { maxBlur: 0.0045 };
+
 interface WarriorSlot {
   rig: WarriorRig;
   motion: WarriorMotion;
@@ -1001,6 +1009,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       if (!roomState) {
         stage.vfx.update(dt, ctx);
         stage.audio.update(dt, ctx);
+        stage.postfx.setDepthOfField(false);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -1490,6 +1499,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         stage.vfx.update(dt, ctx);
         stage.audio.update(dt, ctx);
         stage.hud.update(dt, ctx);
+        // DEPTH OF FIELD, on the tableau. The lens this pass was built for and
+        // never switched on: the subject is staged, the camera is authored, and
+        // the palisade behind him has nothing to say. Off again below the
+        // moment a fight is on — a fight reads its foes at every distance.
+        stage.postfx.setDepthOfField(true, DOF_LOOK);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -1642,6 +1656,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // back without rebuilding one of them.
         stage.hud.setSuppressed(roomState.state === "lobby");
         stage.hud.update(dt, ctx);
+        // And on the kill replay — the deathcam's still lens on a moving
+        // subject is the other authored shot in the game. Not the lobby orbit.
+        stage.postfx.setDepthOfField(killReplayRef.current.playing, DOF_LOOK);
         stage.postfx.render(dt, ctx);
         return;
       }
@@ -2226,6 +2243,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       stage.vfx.setMood(mood);
       stage.postfx.setMood(mood);
 
+      // Never in the fight: a man has to read every foe at every distance.
+      stage.postfx.setDepthOfField(false);
       stage.postfx.render(dt, ctx);
     };
 

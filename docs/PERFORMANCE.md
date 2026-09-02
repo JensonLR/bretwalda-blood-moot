@@ -549,7 +549,42 @@ honesty clause has always said so. The device-independent figures are the counts
 **303 draws and 305k triangles for an eight-man brawl on `low`** is what a phone
 is actually asked for, and that is the number to carry into the mobile wave.
 
-## DEPTH OF FIELD HAS NEVER RENDERED A FRAME — and that is why the next cut is not the next cut
+## DEPTH OF FIELD RUNS NOW — 2 Sep 2026 — and the cut below it is taken
+
+The section under this one is kept as written: for its first five days the pass
+never rendered a frame, because nothing called `setDepthOfField`. That was a
+design call and it has been made: **the lens is on for the two authored shots —
+the deathcam replay and the victory tableau — and off in the fight**, where a
+man has to read every foe at every distance. `GameCanvas` switches it at the
+three render branches; the camera rig now writes `ctx.focus` to its own aim in
+the photo and summary branches (the deathcam rides the summary branch too), so
+the sharp plane sits on the man's face and not, as the old ground-plane seed
+had it, a little under his boots. The blur ceiling is 0.0045 rather than the
+0.006 default: at 0.006 the palisade smeared and a faint halo stood off the
+victor's silhouette.
+
+Seen: `art/shots/dof/` — the tableau at `high` (lens) against `medium` (none),
+and the last stand. The A/B is decisive: with the lens the eye goes to the
+victor and the corpse and the palisade recedes.
+
+**And the BokehPass cut is now taken**, because it now buys something. The
+pass's third full draw of the scene for its RGBA-packed depth is replaced by
+one full-screen quad that packs the beauty pass's own depth into the same
+target in the same encoding (window-space depth IS `gl_FragCoord.z`), reading
+`sceneDepth` and not `read`, because `AoComposite` swaps. The bokeh shader is
+untouched. The pass falls back to its own prepass only when no depth texture
+exists (AO off), which on `high` never happens.
+
+Priced on the same rig as the tables above (`--phases=matrix --tiers=high
+--secs=25`, GPU): **the summary stage — the lens ON — reads p50 4.60 ms, p99
+5.40, 941 draws, 47 FBO binds.** The same row before the lens existed read 891
+draws and 42 binds, so the whole of depth of field is about fifty draws and five
+framebuffer binds a frame — the quad, the blur and the composite — where the
+pass as three.js ships it would have added a third draw of every mesh on the
+stage. A SNAPSHOT against a different run, not an A/B; the draw and bind deltas
+are the numbers to trust.
+
+## THE RECORD AS IT STOOD — depth of field had never rendered a frame
 
 `BokehPass` has the identical defect the occlusion pass had: its `render` sets
 `scene.overrideMaterial = this._materialDepth` and calls
