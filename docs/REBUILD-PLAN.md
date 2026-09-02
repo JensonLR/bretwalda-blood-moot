@@ -75,7 +75,14 @@ the spec, in millimetres.
 
 ## Unity, when the assets exist
 
-- A new repository or a `unity/` folder — decided then, not now.
+- **The owner created the project on 2 Sep 2026**: Unity `6000.4.4f1`, the
+  HDRP outdoors template, in its own repository
+  (`github.com/JensonLR/BRETWALDA---Blood-Moot`), checked out as the folder
+  `BRETWALDA - Blood Moot/` inside this one (ignored here; it is its own
+  repository). **One early call worth making before assets accumulate: HDRP
+  is a desktop and console pipeline and does not ship to phones; a build that
+  must run a duel at 60 fps on the owner's phone wants URP.** Switching later
+  means re-authoring every material; switching now costs a template.
 - The sim stays `src/game/engine.mjs` behind the written protocol
   (`docs/WIRE-PROTOCOL.md`); Unity is a renderer plus input plus a socket, as
   §5 of PLATFORM-PATH says. Nothing about the game's rules moves.
