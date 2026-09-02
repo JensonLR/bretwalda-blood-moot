@@ -89,6 +89,18 @@ export interface MaterialLibrary {
    */
   standard(color: number, roughness?: number, metalness?: number): THREE.MeshStandardMaterial;
   /**
+   * THE SAME MATERIAL FOR A DIFFERENT SHAPE OF OBJECT. three keys a program on
+   * the object as well as the material — skinning, instancing, morphs — and
+   * when one material is drawn by a skinned mesh and a plain one in the same
+   * frame it re-resolves the program on EVERY object, every frame:
+   * `getParameters` and its cache-key join were 39% of all allocation on the
+   * low tier (fpstest `--phases=alloc`, 2 Sep 2026: ~900 kB a frame, 148
+   * collections a minute). A twin is a registered clone for the other shape,
+   * one per source material, adopted and re-adopted with the environment
+   * like everything else here, so each material keeps one program.
+   */
+  twin(m: THREE.Material): THREE.Material;
+  /**
    * Point every PBR material at the sky's PMREM. Called by the orchestrator
    * once sky.ts has an environment to give; until then metals return flat grey.
    */
@@ -487,6 +499,8 @@ export function createMaterialLibrary(
 
   const named = new Map<MaterialName, THREE.Material>();
   const adhoc = new Map<string, THREE.MeshStandardMaterial>();
+  /** Registered clones for the other object shape — see `twin`. */
+  const twins = new Map<string, THREE.Material>();
   const tints = new Map<string, THREE.MeshStandardMaterial>();
   let env: THREE.Texture | null = null;
   let envIntensity = 1;
@@ -636,6 +650,14 @@ export function createMaterialLibrary(
       // is how light spill actually behaves.
       m.blending = THREE.AdditiveBlending;
       m.side = THREE.DoubleSide;
+      // ONE PASS. three draws a transparent double-sided material twice per
+      // object per frame — back faces, then front — and sets `needsUpdate`
+      // before each pass, which re-resolves the program (getParameters and its
+      // cache-key join) twice a frame for every such object. Measured on the
+      // low tier as the largest remaining allocation after the twins
+      // (fpstest --phases=alloc, 2 Sep 2026). An additive glow has no
+      // ordering to preserve; both faces in one pass is the same picture.
+      m.forceSinglePass = true;
       m.toneMapped = true;
     }
     return m;
@@ -751,12 +773,26 @@ export function createMaterialLibrary(
       return m;
     },
 
+    twin(m) {
+      let t = twins.get(m.uuid);
+      if (!t) {
+        t = m.clone();
+        t.name = m.name;
+        const mf = metalFraction.get(m);
+        if (mf !== undefined) metalFraction.set(t, mf);
+        adopt(t);
+        twins.set(m.uuid, t);
+      }
+      return t;
+    },
+
     setEnvironment(next, intensity = 1) {
       env = next;
       envIntensity = intensity;
       for (const m of named.values()) adopt(m);
       for (const m of adhoc.values()) adopt(m);
       for (const m of tints.values()) adopt(m);
+      for (const m of twins.values()) adopt(m);
     },
 
     dispose() {
@@ -766,6 +802,8 @@ export function createMaterialLibrary(
       falloff = null;
       for (const m of named.values()) m.dispose();
       for (const m of adhoc.values()) m.dispose();
+      for (const m of twins.values()) m.dispose();
+      twins.clear();
       for (const m of tints.values()) m.dispose();
       named.clear();
       adhoc.clear();

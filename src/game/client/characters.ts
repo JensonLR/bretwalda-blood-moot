@@ -2459,6 +2459,8 @@ export interface CharacterMaterials {
   standard(color: number, roughness?: number, metalness?: number): THREE.MeshStandardMaterial;
   tinted(surface: CharacterSurface, color: number, opts?: CharacterTint): THREE.MeshStandardMaterial;
   get(name: "runeGlow"): THREE.Material;
+  /** A registered clone for the other object shape — see materials.ts. */
+  twin(m: THREE.Material): THREE.Material;
 }
 
 /**
@@ -2468,6 +2470,8 @@ export interface CharacterMaterials {
  * to dispose what it built.
  */
 const RAW: CharacterMaterials = {
+  // Headless probes only; nothing renders RAW, so a shape twin is the material itself.
+  twin: (m) => m,
   armour: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.55 }),
   tunic: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, metalness: 0 }),
   hide: (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0 }),

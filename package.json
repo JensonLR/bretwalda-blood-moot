@@ -80,7 +80,8 @@
     "taketest": "node tools/taketest.mjs",
     "standardtest": "node tools/standardtest.mjs",
     "hitchprobe": "node tools/hitchprobe.mjs",
-    "helmrungs": "node tools/helmrungs.mjs"
+    "helmrungs": "node tools/helmrungs.mjs",
+    "rekeyprobe": "node tools/rekeyprobe.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

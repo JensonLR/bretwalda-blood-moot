@@ -127,6 +127,11 @@ not exist this morning.
 - **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
+- **The per-frame garbage halved** (148 → 86 GC/min at low): three was
+  re-resolving programs every frame — materials shared between skinned and
+  plain meshes (`materials.twin`), and transparent double-sided quads drawn
+  twice with `needsUpdate` (`forceSinglePass`). `fpstest --phases=alloc` and
+  `tools/rekeyprobe.mjs` are the new rulers.
 - **The shield board is dished** (70 mm, planks turned to the dome; edge-on a
   bow, not a plank) — A4's one live fault, the rest of the row was stale.
 - **A taken Dane axe is carried over the shoulder on every body**, and a
@@ -392,6 +397,7 @@ helmclash (COMPARES ITS OWN BASELINE — exits 1 when a section gets worse) ·
 cosmetictest (see above; software for a verdict) · profiletest 22/0
 (degraded; no DB here by the credentials rule) — **82/82 with `PROFILE_TEST_DB`
 on the local cluster** (four mute checks added 2 Sep) · classmatrix (~3 min, balance only) ·
+**rekeyprobe 3/3** (new, 2 Sep; no material re-keys its program between frames) ·
 **hitchprobe** (new, 2 Sep; `BRETWALDA_GPU=1`, worst frame after the verdict
 22–36 ms at high and medium; a reading over 100 ms with links in it is the
 handover hitch back) · spectatetest 12/14 (the ledgered count; its node half
@@ -477,9 +483,9 @@ tool that spawns a server (50) guards it with `watchBoot`.**
      rebuilt in an earlier wave, the sword was never the fault, and the
      shield is dished now. What is left is the fist-as-mitten and the grain's
      wicker read at kit distance (cosmetic).
-   - **Wave D's two findings** (draw calls per tier on a real phone, and the
-     per-frame allocation driving GC) — the ablation now ranks, so both are
-     measurable; `tools/fpstest.mjs` at `--secs=60` on the GPU arm.
+   - **Wave D's first finding** (which tier `detectTier` puts a real phone on)
+     — needs a phone. The second (per-frame allocation) was attributed and
+     halved on 2 Sep (`fpstest --phases=alloc`, `rekeyprobe`).
    - **The nape-guard flare / beard profile** — measurement-blocked, unchanged.
    - **`factionread` §7.1's residue** — the leg wraps' lifted value under the
      fire, owner-ruled mechanisms (OPEN-DEFECTS carries the GPU column).

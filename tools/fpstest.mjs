@@ -1016,6 +1016,70 @@ async function attribute(browser, out) {
 // ------------------------------------------------------------------
 // PHASE: the server tick. No GPU in this number at all.
 // ------------------------------------------------------------------
+/**
+ * WHO ALLOCATES — the per-frame heap growth, attributed to the functions
+ * that allocate it. `attribute` above samples CPU time and cannot say what
+ * ALLOCATED; the heap sampler can, and per-frame garbage is docs/BACKLOG.md
+ * Wave D's second finding ("785–982 kB allocated per frame, driving 15–75
+ * GC/min", low tier worst per minute because its frames are cheapest).
+ *
+ * The sampler records allocation sites at a 32 kB sampling interval over the
+ * same eight-man brawl the CPU profile watches, then the tree is walked and
+ * self-allocated bytes are credited to the leaf function and to its module
+ * bucket. Bytes here are SAMPLED bytes, so the shares are the reading and the
+ * totals are approximate — and freed-and-collected garbage is included on
+ * purpose, because garbage is the finding.
+ */
+async function allocations(browser, out) {
+  const tier = TIERS.includes("low") ? "low" : TIERS[0];
+  say(`\n=== ALLOCATION — who allocates the per-frame garbage (tier ${tier}, eight-man brawl) ===`);
+  const { ctx, page } = await openPage(browser, tier);
+  try {
+    await raiseMoot(page, "ffa", { port: PORT, until, sleep });
+  } catch (e) {
+    note(`could not raise the moot for the allocation sample — ${String(e).slice(0, 120)}`);
+    await ctx.close();
+    return;
+  }
+  await sleep(2500);
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send("HeapProfiler.enable");
+  await cdp.send("HeapProfiler.startSampling", { samplingInterval: 32768, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+  const t0 = Date.now();
+  await sleep(SECS * 1000);
+  const { profile } = await cdp.send("HeapProfiler.stopSampling");
+  const seconds = (Date.now() - t0) / 1000;
+  await ctx.close();
+  const byFn = new Map();
+  const byBucket = new Map();
+  let total = 0;
+  const walk = (node, stack) => {
+    const cf = node.callFrame || {};
+    const here = [...stack, cf];
+    if (node.selfSize > 0) {
+      const leaf = cf;
+      const key = `${leaf.functionName || "(anonymous)"}  ${(leaf.url || "").split("/").slice(-1)[0]}:${leaf.lineNumber ?? "?"}`;
+      byFn.set(key, (byFn.get(key) || 0) + node.selfSize);
+      const b = bucketOf(leaf.url || "", leaf.functionName || "");
+      byBucket.set(b, (byBucket.get(b) || 0) + node.selfSize);
+      total += node.selfSize;
+    }
+    for (const c of node.children || []) walk(c, here);
+  };
+  walk(profile.head, []);
+  const perSec = total / seconds;
+  say(`  sampled ${f0(total / 1024)} kB over ${seconds.toFixed(1)} s — ${f0(perSec / 1024)} kB/s, about ${f0(perSec / 60 / 1024)} kB per frame at 60 fps`);
+  say("  " + "bucket".padEnd(24) + "   kB sampled    share");
+  for (const [name, bytes] of [...byBucket.entries()].sort((a, b) => b[1] - a[1])) {
+    if (bytes / total < 0.005) continue;
+    say(`  ${name.padEnd(24)} ${f0(bytes / 1024).padStart(11)} ${((bytes / total) * 100).toFixed(1).padStart(8)}%`);
+  }
+  say("\n  the heaviest allocation sites:");
+  const top = [...byFn.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16);
+  for (const [name, bytes] of top) say(`  ${f0(bytes / 1024).padStart(8)} kB  ${((bytes / total) * 100).toFixed(1).padStart(5)}%  ${name}`);
+  out.allocations = { seconds, totalKb: total / 1024, kbPerSec: perSec / 1024, buckets: [...byBucket.entries()], top };
+}
+
 async function serverTicks(browser, out) {
   say("\n=== SERVER TICK — measured in Node, where there is no renderer to blame ===");
   const { ctx, page } = await openPage(browser, "low");
@@ -1106,6 +1170,7 @@ async function main() {
   if (PHASES.includes("matrix")) await matrix(browser, out.matrix);
   if (PHASES.includes("ablation")) await ablation(browser, out);
   if (PHASES.includes("profile")) await attribute(browser, out);
+  if (PHASES.includes("alloc")) await allocations(browser, out);
   if (PHASES.includes("server")) await serverTicks(browser, out);
   if (PHASES.includes("live")) await liveNet(out);
 

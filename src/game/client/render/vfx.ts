@@ -1284,6 +1284,8 @@ class QuadLayer {
       blendDst: THREE.SrcColorFactor,
       fog: true,
       side: billboard === 2 ? THREE.DoubleSide : THREE.FrontSide,
+      // One pass for the double-sided billboards — see materials.ts `glow`.
+      forceSinglePass: true,
       // Decals and ground rings sit millimetres above terrain that has its own
       // slope; the offset is what stops them dashing in and out along a swale.
       polygonOffset: billboard === 2,
@@ -1387,6 +1389,7 @@ class FireLayer {
       blending: THREE.AdditiveBlending,
       fog: true,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     });
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
@@ -2468,6 +2471,7 @@ export function createVfx(
       blending: THREE.AdditiveBlending,
       fog: true,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     });
     ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbonMesh.frustumCulled = false;

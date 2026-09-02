@@ -641,7 +641,7 @@ export function createWarriorRig(
   // Elbows and knees, before anything is hung off a hand: `articulate` moves the
   // hand mounts onto the forearm, and a weapon mounted first would end up on the
   // shoulder while the fist holding it moved.
-  const joints = articulate(built);
+  const joints = articulate(built, (m) => materials.twin(m));
 
   // The hand mounts. Named lookup, not last-child — they hang off the forearm
   // bone now and are no longer the arm pivot's final child.
@@ -1225,6 +1225,7 @@ function hangCloak(
   pivot: THREE.Group,
   base: number,
   bound: Array<{ mesh: THREE.SkinnedMesh; at: THREE.Object3D }>,
+  twin: (m: THREE.Material) => THREE.Material,
 ): { bones: THREE.Bone[]; at: Array<{ x: number; z: number }> } | undefined {
   let lowest = 0;
   let half = 0;
@@ -1272,7 +1273,9 @@ function hangCloak(
   for (const child of pivot.children.slice()) {
     if (!(child instanceof THREE.Mesh)) continue;
     weightDrape(child.geometry, ring, half, base);
-    const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
+    // The skinned TWIN of the cloth's material, so the same material on a
+    // plain mesh elsewhere does not re-key its program every frame.
+    const skinned = new THREE.SkinnedMesh(child.geometry, twin(child.material as THREE.Material));
     skinned.name = child.name;
     // Generous enough to cover the hem at full swing. Left to three, the bind
     // pose is walked once and then cached, and a cloak that has since swung
@@ -1290,7 +1293,7 @@ function hangCloak(
 }
 
 /** Cuts an elbow into each arm and a knee into each leg, and binds the skin. */
-function articulate(built: BuiltCharacter): Articulation {
+function articulate(built: BuiltCharacter, twin: (m: THREE.Material) => THREE.Material): Articulation {
   // Measured off the rig rather than tabled: the fist mount is where the arm
   // ends, and the hip pivot's own height is the length of the leg.
   const gripR = handOf(built.rightArm).position.y;
@@ -1358,7 +1361,7 @@ function articulate(built: BuiltCharacter): Articulation {
     for (const child of limb.pivot.children.slice()) {
       if (!(child instanceof THREE.Mesh)) continue;
       weightLimb(child.geometry, limb.joint, limb.band, iUpper, iUpper + 1, hand);
-      const skinned = new THREE.SkinnedMesh(child.geometry, child.material as THREE.Material);
+      const skinned = new THREE.SkinnedMesh(child.geometry, twin(child.material as THREE.Material));
       skinned.name = child.name;
       // Culled off the bind pose, written by hand. Left alone, three walks every
       // vertex of the limb through the skeleton the first frame the frustum asks
@@ -1384,7 +1387,7 @@ function articulate(built: BuiltCharacter): Articulation {
   // The cloak joins the same skeleton rather than getting one of its own: a
   // second `THREE.Skeleton` is a second bone texture per warrior, and one
   // texture holds the whole man — ten limb bones and seven of cloak.
-  const hung = built.cloak ? hangCloak(built.cloak, bones.length, bound) : undefined;
+  const hung = built.cloak ? hangCloak(built.cloak, bones.length, bound, twin) : undefined;
   if (hung) bones.push(...hung.bones);
 
   // The bind pose. Bone inverses and every mesh's bind matrix are taken at this

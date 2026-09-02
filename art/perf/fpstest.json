@@ -1,17 +1,17 @@
 {
   "matrix": [
     {
-      "tier": "high",
+      "tier": "low",
       "scene": "menu (DOM + preview)",
       "frames": 360,
-      "spanS": 5.9831,
+      "spanS": 5.983,
       "js": {
         "n": 360,
-        "mean": 0.23444444470935397,
-        "p50": 0.20000001788139343,
+        "mean": 0.27000000071194435,
+        "p50": 0.29999998211860657,
         "p95": 0.4000000059604645,
         "p99": 0.4000000059604645,
-        "worst": 0.4000000059604645
+        "worst": 0.5
       },
       "draws": 0,
       "drawsWorst": 0,
@@ -20,12 +20,12 @@
       "fbo": 0,
       "texUpload": 0,
       "shaderMs": 0,
-      "allocPerFrameKb": 10.6031381302521,
-      "allocPerSecMb": 0.6178405621961494,
+      "allocPerFrameKb": 10.71985512955182,
+      "allocPerSecMb": 0.6246520547230826,
       "gcCount": 2,
-      "gcPerMin": 20.056492453744713,
-      "gcFreedMb": 1.4920005798339844,
-      "heapMb": 7.362958908081055,
+      "gcPerMin": 20.0568276784222,
+      "gcFreedMb": 1.5088520050048828,
+      "heapMb": 7.386832237243652,
       "audioLive": 0,
       "audioBuilt": 0,
       "audioParams": 0,
@@ -39,197 +39,349 @@
       }
     },
     {
-      "tier": "high",
+      "tier": "low",
       "scene": "one-on-one",
-      "frames": 1501,
-      "spanS": 24.997600000000002,
+      "frames": 1800,
+      "spanS": 29.982100000000003,
       "js": {
-        "n": 1501,
-        "mean": 3.4491672217448817,
-        "p50": 3.4000000059604645,
-        "p95": 3.9000000059604645,
-        "p99": 4.0999999940395355,
-        "worst": 7
+        "n": 1800,
+        "mean": 2.5475555556350282,
+        "p50": 2.4000000059604645,
+        "p95": 3.699999988079071,
+        "p99": 4.199999988079071,
+        "worst": 8.199999988079071
       },
-      "draws": 444,
-      "drawsWorst": 521,
-      "tris": 917235,
-      "progSwitch": 181,
-      "fbo": 41,
-      "texUpload": 2992,
+      "draws": 242,
+      "drawsWorst": 253,
+      "tris": 302213,
+      "progSwitch": 83,
+      "fbo": 15,
+      "texUpload": 3602,
       "shaderMs": 0,
-      "allocPerFrameKb": 872.769818554551,
-      "allocPerSecMb": 48.79115310505599,
-      "gcCount": 69,
-      "gcPerMin": 165.61589912631612,
-      "gcFreedMb": 18.05698839823405,
-      "heapMb": 67.06161880493164,
+      "allocPerFrameKb": 329.61319647701316,
+      "allocPerSecMb": 18.798739596632824,
+      "gcCount": 48,
+      "gcPerMin": 96.05731419747114,
+      "gcFreedMb": 12.134637753168741,
+      "heapMb": 32.90622901916504,
       "audioLive": 20,
-      "audioBuilt": 1843,
-      "audioParams": 12591,
+      "audioBuilt": 1590,
+      "audioParams": 14706,
       "longTasks": 0,
       "glLive": {
-        "textures": 116,
-        "buffers": 1154,
-        "programs": 67,
-        "fbos": 37,
-        "vaos": 378
+        "textures": 79,
+        "buffers": 924,
+        "programs": 47,
+        "fbos": 23,
+        "vaos": 308
       }
     },
     {
-      "tier": "high",
+      "tier": "low",
       "scene": "eight-man brawl",
-      "frames": 1500,
-      "spanS": 24.9835,
+      "frames": 1800,
+      "spanS": 29.9822,
       "js": {
-        "n": 1500,
-        "mean": 3.9259999999801316,
-        "p50": 4,
-        "p95": 4.5,
-        "p99": 5,
-        "worst": 21.599999994039536
+        "n": 1800,
+        "mean": 3.1968333334227403,
+        "p50": 3.199999988079071,
+        "p95": 3.600000023841858,
+        "p99": 4.0999999940395355,
+        "worst": 14.699999988079071
       },
-      "draws": 718,
-      "drawsWorst": 921,
-      "tris": 1377412,
-      "progSwitch": 159,
-      "fbo": 41,
-      "texUpload": 8181,
+      "draws": 461,
+      "drawsWorst": 571,
+      "tris": 534223,
+      "progSwitch": 131,
+      "fbo": 15,
+      "texUpload": 13905,
       "shaderMs": 0,
-      "allocPerFrameKb": 988.6887509628081,
-      "allocPerSecMb": 54.877548336870596,
-      "gcCount": 79,
-      "gcPerMin": 189.72521864430524,
-      "gcFreedMb": 17.50071117545985,
-      "heapMb": 74.42650318145752,
-      "audioLive": 26,
-      "audioBuilt": 2627,
-      "audioParams": 13903,
+      "allocPerFrameKb": 592.3743209665076,
+      "allocPerSecMb": 33.881082841482936,
+      "gcCount": 43,
+      "gcPerMin": 86.05105696046321,
+      "gcFreedMb": 23.92307920234148,
+      "heapMb": 47.66326427459717,
+      "audioLive": 29,
+      "audioBuilt": 2711,
+      "audioParams": 16429,
       "longTasks": 0,
       "glLive": {
-        "textures": 128,
-        "buffers": 2693,
-        "programs": 54,
-        "fbos": 37,
-        "vaos": 781
+        "textures": 98,
+        "buffers": 2212,
+        "programs": 86,
+        "fbos": 24,
+        "vaos": 822
       }
     },
     {
-      "tier": "high",
+      "tier": "low",
       "scene": "on fire (x0)",
-      "frames": 1422,
-      "spanS": 24.982300000000002,
+      "frames": 1800,
+      "spanS": 29.981699999999982,
       "js": {
-        "n": 1422,
-        "mean": 4.435091420567991,
-        "p50": 4.199999988079071,
-        "p95": 5.299999982118607,
-        "p99": 5.600000023841858,
-        "worst": 196.2999999821186
+        "n": 1800,
+        "mean": 3.841777777969837,
+        "p50": 3.800000011920929,
+        "p95": 4.100000023841858,
+        "p99": 4.300000011920929,
+        "worst": 5.5999999940395355
       },
-      "draws": 941,
-      "drawsWorst": 1037,
-      "tris": 1651517,
-      "progSwitch": 178,
-      "fbo": 44,
-      "texUpload": 9360,
+      "draws": 701,
+      "drawsWorst": 702,
+      "tris": 768697,
+      "progSwitch": 181,
+      "fbo": 16,
+      "texUpload": 14400,
       "shaderMs": 0,
-      "allocPerFrameKb": 1094.0635691923253,
-      "allocPerSecMb": 58.163306734510314,
-      "gcCount": 61,
-      "gcPerMin": 146.503724637043,
-      "gcFreedMb": 23.458839166359823,
-      "heapMb": 99.65145111083984,
-      "audioLive": 36,
-      "audioBuilt": 1863,
-      "audioParams": 9050,
-      "longTasks": 1,
-      "glLive": {
-        "textures": 133,
-        "buffers": 2825,
-        "programs": 77,
-        "fbos": 39,
-        "vaos": 1462
-      }
-    },
-    {
-      "tier": "high",
-      "scene": "deaths (3 kills)",
-      "frames": 191,
-      "spanS": 7.850400000000001,
-      "js": {
-        "n": 191,
-        "mean": 4.1068062833778525,
-        "p50": 3.9000000059604645,
-        "p95": 4.5999999940395355,
-        "p99": 13.300000011920929,
-        "worst": 19.700000017881393
-      },
-      "draws": 746,
-      "drawsWorst": 945,
-      "tris": 1502988,
-      "progSwitch": 171,
-      "fbo": 43,
-      "texUpload": 1103,
-      "shaderMs": 0,
-      "allocPerFrameKb": 1144.1673413495112,
-      "allocPerSecMb": 25.477149514968293,
-      "gcCount": 11,
-      "gcPerMin": 84.0721491898502,
-      "gcFreedMb": 19.395456140691582,
-      "heapMb": 74.70105361938477,
-      "audioLive": 36,
-      "audioBuilt": 831,
-      "audioParams": 4725,
-      "longTasks": 1,
-      "glLive": {
-        "textures": 133,
-        "buffers": 2825,
-        "programs": 77,
-        "fbos": 39,
-        "vaos": 1462
-      }
-    },
-    {
-      "tier": "high",
-      "scene": "summary stage",
-      "frames": 562,
-      "spanS": 9.982899999999994,
-      "js": {
-        "n": 562,
-        "mean": 4.54270462633452,
-        "p50": 4.5999999940395355,
-        "p95": 5.200000017881393,
-        "p99": 5.4000000059604645,
-        "worst": 6.199999988079071
-      },
-      "draws": 941,
-      "drawsWorst": 1037,
-      "tris": 1651561,
-      "progSwitch": 197,
-      "fbo": 47,
-      "texUpload": 4496,
-      "shaderMs": 0,
-      "allocPerFrameKb": 1182.3754437267226,
-      "allocPerSecMb": 62.11164189213266,
-      "gcCount": 24,
-      "gcPerMin": 144.24666179166383,
-      "gcFreedMb": 25.25060510635376,
-      "heapMb": 98.60526275634766,
+      "allocPerFrameKb": 757.1176497880294,
+      "allocPerSecMb": 43.08241745497593,
+      "gcCount": 52,
+      "gcPerMin": 104.06347872202049,
+      "gcFreedMb": 24.76275002039396,
+      "heapMb": 64.75547504425049,
       "audioLive": 9,
-      "audioBuilt": 502,
-      "audioParams": 2102,
+      "audioBuilt": 860,
+      "audioParams": 6227,
       "longTasks": 0,
       "glLive": {
-        "textures": 133,
-        "buffers": 2825,
-        "programs": 77,
-        "fbos": 39,
-        "vaos": 1462
+        "textures": 100,
+        "buffers": 2348,
+        "programs": 89,
+        "fbos": 25,
+        "vaos": 1266
+      }
+    },
+    {
+      "tier": "low",
+      "scene": "summary stage",
+      "frames": 600,
+      "spanS": 9.981400000000024,
+      "js": {
+        "n": 600,
+        "mean": 3.882833333462477,
+        "p50": 3.9000000059604645,
+        "p95": 4.199999988079071,
+        "p99": 4.399999976158142,
+        "worst": 4.5999999940395355
+      },
+      "draws": 701,
+      "drawsWorst": 701,
+      "tris": 768695,
+      "progSwitch": 181,
+      "fbo": 16,
+      "texUpload": 4800,
+      "shaderMs": 0,
+      "allocPerFrameKb": 761.8306486254296,
+      "allocPerSecMb": 43.38004601644987,
+      "gcCount": 17,
+      "gcPerMin": 102.19007353677817,
+      "gcFreedMb": 25.14089292638442,
+      "heapMb": 50.100064277648926,
+      "audioLive": 8,
+      "audioBuilt": 286,
+      "audioParams": 2072,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 100,
+        "buffers": 2348,
+        "programs": 89,
+        "fbos": 25,
+        "vaos": 1266
+      }
+    },
+    {
+      "tier": "medium",
+      "scene": "menu (DOM + preview)",
+      "frames": 360,
+      "spanS": 5.982399999999999,
+      "js": {
+        "n": 360,
+        "mean": 0.28000000019868215,
+        "p50": 0.29999998211860657,
+        "p95": 0.4000000059604645,
+        "p99": 0.5,
+        "worst": 0.5
+      },
+      "draws": 0,
+      "drawsWorst": 0,
+      "tris": 0,
+      "progSwitch": 0,
+      "fbo": 0,
+      "texUpload": 0,
+      "shaderMs": 0,
+      "allocPerFrameKb": 10.614430147058824,
+      "allocPerSecMb": 0.6185709138897276,
+      "gcCount": 2,
+      "gcPerMin": 20.058839261834716,
+      "gcFreedMb": 1.503866195678711,
+      "heapMb": 7.405303955078125,
+      "audioLive": 0,
+      "audioBuilt": 0,
+      "audioParams": 0,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 0,
+        "buffers": 0,
+        "programs": 0,
+        "fbos": 0,
+        "vaos": 0
+      }
+    },
+    {
+      "tier": "medium",
+      "scene": "one-on-one",
+      "frames": 1800,
+      "spanS": 29.9822,
+      "js": {
+        "n": 1800,
+        "mean": 2.99877777773473,
+        "p50": 3,
+        "p95": 3.5,
+        "p99": 3.7000000178813934,
+        "worst": 7.5999999940395355
+      },
+      "draws": 360,
+      "drawsWorst": 432,
+      "tris": 601903,
+      "progSwitch": 131,
+      "fbo": 40,
+      "texUpload": 3601,
+      "shaderMs": 0,
+      "allocPerFrameKb": 521.1457264543061,
+      "allocPerSecMb": 29.416722930908815,
+      "gcCount": 66,
+      "gcPerMin": 132.07836649745516,
+      "gcFreedMb": 13.645514473770604,
+      "heapMb": 84.6548957824707,
+      "audioLive": 20,
+      "audioBuilt": 2108,
+      "audioParams": 15074,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 114,
+        "buffers": 1164,
+        "programs": 59,
+        "fbos": 36,
+        "vaos": 379
+      }
+    },
+    {
+      "tier": "medium",
+      "scene": "eight-man brawl",
+      "frames": 1800,
+      "spanS": 29.9821,
+      "js": {
+        "n": 1800,
+        "mean": 3.8334999995761447,
+        "p50": 3.800000011920929,
+        "p95": 4.300000011920929,
+        "p99": 4.9000000059604645,
+        "worst": 19.400000005960464
+      },
+      "draws": 725,
+      "drawsWorst": 924,
+      "tris": 1228019,
+      "progSwitch": 169,
+      "fbo": 40,
+      "texUpload": 9542,
+      "shaderMs": 0,
+      "allocPerFrameKb": 775.602706201703,
+      "allocPerSecMb": 44.13368751865615,
+      "gcCount": 52,
+      "gcPerMin": 104.06209038059376,
+      "gcFreedMb": 25.084808863126316,
+      "heapMb": 106.36456394195557,
+      "audioLive": 32,
+      "audioBuilt": 3154,
+      "audioParams": 16680,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 137,
+        "buffers": 3012,
+        "programs": 100,
+        "fbos": 37,
+        "vaos": 1017
+      }
+    },
+    {
+      "tier": "medium",
+      "scene": "on fire (x0)",
+      "frames": 1800,
+      "spanS": 29.983000000000015,
+      "js": {
+        "n": 1800,
+        "mean": 4.238777777618832,
+        "p50": 4.200000017881393,
+        "p95": 4.5,
+        "p99": 4.699999988079071,
+        "worst": 5
+      },
+      "draws": 938,
+      "drawsWorst": 1062,
+      "tris": 1535585,
+      "progSwitch": 212,
+      "fbo": 41,
+      "texUpload": 14400,
+      "shaderMs": 0,
+      "allocPerFrameKb": 909.9707627194877,
+      "allocPerSecMb": 51.48162131860884,
+      "gcCount": 62,
+      "gcPerMin": 124.07030650702058,
+      "gcFreedMb": 25.022480564732707,
+      "heapMb": 81.0114049911499,
+      "audioLive": 10,
+      "audioBuilt": 1398,
+      "audioParams": 6582,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 140,
+        "buffers": 3068,
+        "programs": 103,
+        "fbos": 38,
+        "vaos": 1556
+      }
+    },
+    {
+      "tier": "medium",
+      "scene": "summary stage",
+      "frames": 600,
+      "spanS": 9.983,
+      "js": {
+        "n": 600,
+        "mean": 4.253166667173306,
+        "p50": 4.299999982118607,
+        "p95": 4.5,
+        "p99": 4.600000023841858,
+        "worst": 4.700000017881393
+      },
+      "draws": 937,
+      "drawsWorst": 1061,
+      "tris": 1535531,
+      "progSwitch": 211,
+      "fbo": 41,
+      "texUpload": 4800,
+      "shaderMs": 0,
+      "allocPerFrameKb": 910.5675078395328,
+      "allocPerSecMb": 51.484791678201574,
+      "gcCount": 21,
+      "gcPerMin": 126.21456476009216,
+      "gcFreedMb": 24.79761268979027,
+      "heapMb": 94.33352947235107,
+      "audioLive": 8,
+      "audioBuilt": 468,
+      "audioParams": 2197,
+      "longTasks": 0,
+      "glLive": {
+        "textures": 140,
+        "buffers": 3068,
+        "programs": 103,
+        "fbos": 38,
+        "vaos": 1556
       }
     }
   ],
-  "when": "2026-09-02T06:29:12.906Z",
+  "when": "2026-09-02T14:19:13.710Z",
   "prod": true,
   "view": {
     "width": 640,
@@ -240,5 +392,90 @@
     "cores": 10,
     "dpr": 1,
     "mem": true
+  },
+  "allocations": {
+    "seconds": 30.034,
+    "totalKb": 784698.6953125,
+    "kbPerSec": 26127.012562845444,
+    "buckets": [
+      [
+        "VM / native",
+        62501928
+      ],
+      [
+        "other app code",
+        740931176
+      ],
+      [
+        "animation + bodies",
+        98360
+      ]
+    ],
+    "top": [
+      [
+        "ei  0-iekxkrzjnor.js:335",
+        178487232
+      ],
+      [
+        "getParameters  0-iekxkrzjnor.js:357",
+        104131064
+      ],
+      [
+        "et  0-iekxkrzjnor.js:335",
+        93373128
+      ],
+      [
+        "(anonymous)  0-iekxkrzjnor.js:915",
+        64401584
+      ],
+      [
+        "renderBufferDirect  0-iekxkrzjnor.js:381",
+        39541204
+      ],
+      [
+        "er  0-iekxkrzjnor.js:335",
+        38476668
+      ],
+      [
+        "U.render  0-iekxkrzjnor.js:289",
+        23640200
+      ],
+      [
+        "getProgramCacheKey  0-iekxkrzjnor.js:357",
+        19406012
+      ],
+      [
+        "join  :-1",
+        17624492
+      ],
+      [
+        "(anonymous)  0-iekxkrzjnor.js:381",
+        17080628
+      ],
+      [
+        "next  :-1",
+        9538664
+      ],
+      [
+        "assign  :-1",
+        9012852
+      ],
+      [
+        "to  0-iekxkrzjnor.js:357",
+        7275828
+      ],
+      [
+        "e2  0-iekxkrzjnor.js:381",
+        6920508
+      ],
+      [
+        "update  0mu0cvqh-ah4q.js:2465",
+        6883008
+      ],
+      [
+        "sort  :-1",
+        5658256
+      ]
+    ]
   }
 }

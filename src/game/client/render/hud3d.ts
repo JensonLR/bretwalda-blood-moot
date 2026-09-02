@@ -861,7 +861,11 @@ function glyphMaterial(glyphs: Glyphs, what: string): THREE.MeshBasicMaterial | 
   // fog: false everywhere in here. Aerial perspective on a nameplate is how a
   // HUD ends up dissolving exactly when the fight spreads out and you most need
   // to know who is where.
-  return new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide });
+  // `forceSinglePass`: a transparent double-sided material is otherwise drawn
+  // twice per object per frame with `needsUpdate` set before each pass, which
+  // re-resolves its program twice a frame — eight nameplates were a fifth of
+  // the low tier's per-frame garbage (fpstest --phases=alloc, 2 Sep 2026).
+  return new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide, forceSinglePass: true });
 }
 
 /** Manual tracking: canvas letterSpacing is not universally typed or supported. */
@@ -1517,6 +1521,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
+        forceSinglePass: true,
       });
       const bar = new THREE.Mesh(quad, barMat);
       bar.scale.set(BAR_W, BAR_H, 1);
@@ -1537,6 +1542,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
           depthWrite: false,
           depthTest: false,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
         });
         ghost = new THREE.Mesh(quad, ghostMat);
         ghost.scale.copy(bar.scale);

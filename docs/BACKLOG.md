@@ -1169,7 +1169,12 @@ below are the ones that stand. Two measured findings:
    hundreds. `low` is already there, which reframes the question: what does
    `detectTier` put a real phone on, and is `medium` reachable at all on the
    devices the owner's friends carry? Answer that before instancing anything.
-2. **785–982 kB allocated per frame, driving 15–75 GC/min.** The `low` tier is
+2. ~~**785–982 kB allocated per frame, driving 15–75 GC/min.**~~ **ATTRIBUTED
+   AND HALVED, 2 Sep 2026** — see `docs/PERFORMANCE.md` ("the per-frame garbage,
+   halved"): three re-resolving programs every frame, from materials shared
+   across skinned and plain meshes and from transparent double-sided quads
+   drawn in two passes; 148 → 86 GC/min at low, `rekeyprobe` 3/3 as the gate.
+   The original text: the `low` tier is
    the *worst* offender per minute (75/min) because its frames are cheaper, so
    this is not a "turn off effects" fix — something is allocating per frame in
    code that runs at every tier.

@@ -2849,7 +2849,7 @@ function buildSaxonVillage(ctx: GroundBuildContext): void {
         coals.push(place(Math.cos(a) * d, 0.04 + rng() * 0.06, Math.sin(a) * d, rng() * TAU, 0.06 + rng() * 0.09));
       }
       const coalGeo = own(new THREE.IcosahedronGeometry(1, 0));
-      const inst = new THREE.InstancedMesh(coalGeo, materials.get("bonfireFlame"), coals.length);
+      const inst = new THREE.InstancedMesh(coalGeo, materials.twin(materials.get("bonfireFlame")), coals.length);
       for (let i = 0; i < coals.length; i++) inst.setMatrixAt(i, coals[i]);
       inst.instanceMatrix.needsUpdate = true;
       bonfire.add(inst);
@@ -3476,7 +3476,10 @@ export function createWorld(
       }
       return null;
     }
-    const inst = new THREE.InstancedMesh(geo, mat, xforms.length);
+    // The instanced TWIN of the material: an instanced program is a different
+    // program, and a material drawn instanced and plain in one frame re-keys
+    // on every object (materials.ts, `twin`).
+    const inst = new THREE.InstancedMesh(geo, materials.twin(mat), xforms.length);
     for (let i = 0; i < xforms.length; i++) {
       inst.setMatrixAt(i, xforms[i]);
       if (tints) inst.setColorAt(i, tints[i]);

@@ -851,6 +851,8 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // Committed in one piece after the last stage, never across a yield: the
       // frame loop reads `stageRef` and a half-wired stage is a torn frame.
       const stage: Stage = { renderer, scene, quality, textures, materials, sky, lighting, world, vfx, postfx, rig, hud, audio };
+      // The scene, for the same probes that read `__bretwaldaRenderer`.
+      (window as unknown as Record<string, unknown>).__bretwaldaScene = scene;
       stageRef.current = stage;
       disposers.push(() => { stageRef.current = null; });
       wireInput();

@@ -360,6 +360,48 @@ NEGATIVE draw deltas, which is the same statement twice.
     live round trip to the production server, GET /api/health x12
     p50 58.33 ms   p95 174.96   worst 174.96   (the first includes TLS)
 
+## THE PER-FRAME GARBAGE, HALVED — Wave D's second finding, attributed and cut — 2 Sep 2026
+
+`docs/BACKLOG.md` Wave D: "785–982 kB allocated per frame, driving 15–75
+GC/min; the `low` tier is the worst offender per minute". On real hardware
+(`BRETWALDA_GPU=1 node tools/fpstest.mjs --phases=matrix,alloc --tiers=low,medium
+--secs=30`, eight-man brawl) it was worse than the ledger said, and the new
+`alloc` phase — the CDP heap sampler, allocation credited to the function that
+made it — named the site: **`getParameters` and its cache-key join, 39% of all
+sampled bytes**. That is three re-resolving a material's PROGRAM, which it does
+whenever the material's version moves, its lights-state moves, or the object
+shape (skinning, instancing, morphs) differs from the last object that drew it.
+`tools/rekeyprobe.mjs` then looked at the scene instead of the profile and found
+both mechanisms:
+
+1. **Materials shared between skinned and plain meshes.** The rig's limbs and
+   cloak are `SkinnedMesh`es built with the same material objects the plain
+   parts use, so every frame each such material alternated programs object by
+   object. Closed by `materials.twin` — a registered clone for the other object
+   shape, one per source material, re-adopted with the environment — used by
+   the rig's skinning and by the world's instanced meshes.
+2. **Transparent double-sided materials.** three draws them twice per object
+   per frame, back faces then front, and sets `needsUpdate` before each pass —
+   so the eight nameplates and the hearth glow re-resolved their programs
+   twice a frame each. Closed with `forceSinglePass` on the unlit quads
+   (nameplates, damage numbers, ghosts, glow blobs, VFX billboards). The lit
+   cloths are not transparent and were never in it.
+
+| low tier, eight-man brawl | before | twins | + single pass |
+|---|---|---|---|
+| sampled allocation per frame | ~903 kB | 590 kB | **435 kB** |
+| matrix kB/frame (heap growth) | 735 | 647 | **592** |
+| collections per minute | 148 | 94 | **86** |
+| `getParameters` share of bytes | 33% + 6% key | 23% + 4% | 13% |
+| medium: kB/frame · GC/min | 937 · 138 | 643 · 114 | 776 · 104 |
+
+`rekeyprobe` reads 3/3 (no shape sharing, no moving versions, stable lights)
+and is the gate. What is left in the sampler is three's own per-draw work
+(uniform upload and matrices, the `ei`/`et` rows at 22% and 12%) — not
+re-keying, and not ours to cut without forking the renderer. Wave D's FIRST
+finding (which tier `detectTier` puts a real phone on) is still unmeasured;
+it needs a phone.
+
 ## THE HANDOVER HITCH IS CLOSED, AND IT WAS SHADER COMPILATION AFTER ALL — 2 Sep 2026
 
 **R8 against the section below**, which located the hitch correctly and named
