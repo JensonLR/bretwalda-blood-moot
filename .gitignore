@@ -165,3 +165,6 @@ desktop/dist/
 # build output, not source. `Cargo.lock` is NOT here on purpose — this crate is
 # an application and pinning its dependency graph is the point of committing it.
 desktop/src-tauri/gen/
+
+# A Unity/Blender project folder the owner keeps inside this checkout — its own repository, never this one's.
+/BRETWALDA - Blood Moot/
