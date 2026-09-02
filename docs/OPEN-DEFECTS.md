@@ -198,13 +198,22 @@ Against the clocked baseline in this file (22 Aug, 25/33, 8704 s). §0–§5 are
 albedo-only and **cannot** have moved — a grade change is invisible to them, and
 they did not move. §6 and §7 are the lit sections and are the comparison:
 
-| | 22 Aug baseline | this tree |
-|---|---|---|
-| 7.1 whole man | FAIL — 32/120 frames over floor, worst **+12.956** | FAIL — 34/120, worst **+2.754** |
-| 7.1b per surface | FAIL — **170** readings over floor, worst **+29.83** | FAIL — **108**, worst **+13.51** |
-| 7.1c value on the arc | FAIL — **163** readings lifted, worst +30.0 L\* | FAIL — **110**, worst +31.5 L\* |
-| 6.1 clip | PASS | PASS — worst livery 2.19% under a 5.67% bar |
-| 6.0c staged | **FAIL — 3 of 126 wore a different dress** | **PASS — 126 captures, one dress** |
+| | 22 Aug baseline | this tree (1 Sep, software) | 2 Sep, GPU arm, 395 s |
+|---|---|---|---|
+| 7.1 whole man | FAIL — 32/120 frames over floor, worst **+12.956** | FAIL — 34/120, worst **+2.754** | FAIL — 30/120, worst **+2.475** |
+| 7.1b per surface | FAIL — **170** readings over floor, worst **+29.83** | FAIL — **108**, worst **+13.51** | FAIL — **100**, worst +18.92 on a **37-pixel** linen (8 px flipped); the largest REAL surfaces over are the huscarl's leg wraps, +12.58 (pict, Blackened Steel) and +11.36 (norse, Sea Queen's Gift) |
+| 7.1c value on the arc | FAIL — **163** readings lifted, worst +30.0 L\* | FAIL — **110**, worst +31.5 L\* | FAIL — **106**, worst +31.3 L\* |
+| 6.1 clip | PASS | PASS — worst livery 2.19% under a 5.67% bar | PASS |
+| 6.0c staged | **FAIL — 3 of 126 wore a different dress** | **PASS — 126 captures, one dress** | PASS |
+
+**2 Sep, what the residue IS.** The wrap readings carry the answer 7.1c states:
+the sworn wrap is LIGHTER than the unsworn wrap (mean `#886b60` against
+`#583f2f`), and a lighter warm-grey under the bonfire lands in the rose band.
+The vat lifts value, and the bonfire does the rest — the two owner-ruled
+mechanisms this file names above (`norse.metal.bias` and the fire), neither of
+which is fixed at stage 4. GPU and software counts are NOT comparable with each
+other (threshold metric; see `tools/lib/browser.mjs`); the column stands on its
+own as the GPU baseline for the next regression check.
 
 **The worst rose reading fell 4.7x on the identical loadout** (norse/huscarl/Sea
 Queen's Gift@160°, which led both tables), per-surface readings by 36% and the

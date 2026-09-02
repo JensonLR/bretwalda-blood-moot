@@ -3688,6 +3688,18 @@ interface BuildTrait {
   hem: number; bowl: number; gorget: number;
 }
 
+/**
+ * How far a class's fist hangs from its shoulder, relative to the warden's:
+ * stature × limb. `render/anim.ts` reads it to lift a weapon's rest pitch when
+ * a shorter body has taken up a longer class's two-hander (the TAKE feature) —
+ * the huscarl's rest angle on a runekeeper's arm drives the head of a Dane axe
+ * into the turf, because the angle was tuned for an arm that is 10% longer.
+ */
+export function reachOf(cls: WarriorClass): number {
+  const b = BUILD[cls] ?? BUILD.warden;
+  return b.stature * b.limb;
+}
+
 const BUILD: Record<WarriorClass, BuildTrait> = {
   // Short, immensely broad, mailed to the knee, head sunk into a coif. Reads as
   // a wall from any angle.

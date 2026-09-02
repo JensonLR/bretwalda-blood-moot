@@ -40,6 +40,12 @@ const FIELD = PICT_MOOR.field;
 // swatch comes out as desert on the screen. The village survives the same light
 // because its turf is green — a hue the rig cannot push further warm.
 //
+// AND SINCE 2 SEP 2026 THE RIG IS COLD HERE TOO: grounds.mjs declares this
+// ground `climate: "cold"` and the renderer lights it under an overcast sky
+// (`Mood` `cold` in lighting.ts, sky.ts and postfx.ts). The palette below was
+// pulled cold to survive the warm rig and it reads right under the cold one,
+// so nothing here was warmed back; the two changes add rather than cancel.
+//
 // So these are pulled cold and dark. `C_HEATH_DRY` is the term that did the
 // damage and it is now a dun with the red taken out rather than a tan; peat
 // leads instead of following; and the whole field is darker, because a moor at

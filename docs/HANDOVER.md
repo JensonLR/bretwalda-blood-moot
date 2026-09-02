@@ -65,7 +65,15 @@ edited.
 | **PWA** | *NOT STARTED — no manifest, no service worker* | **Shell DONE 27 Aug** (row 8.9): `app/manifest.ts`, `public/sw.js`, forged icons. Only the EARNED prompt was missing — built and photographed this session. **And the manifest that shipped was the WRONG ONE** — see below. |
 | **The grade's cause** | `adaptBand` / the metered response | **Wrong stage.** Contrast has been luma-preserving since 22 Aug and removing the meter moves the board's hue the WRONG WAY. It was the anisotropic chroma skew. |
 
-### The one piece of Wave E that is NOT built, and it is the piece it argued for
+### ~~The one piece of Wave E that is NOT built~~ — BUILT 2 Sep 2026: the cold key
+
+**Done as a third `Mood`, `cold`, chosen by the ground's `climate`** (see the
+Wave E row in BACKLOG for the tables and the two traps). The moor no longer
+reads as orange sand; `gradesplit --gate` on the village was re-run after.
+The camp is the obvious next ground to hand `climate: "cold"`. The section
+below is kept as the argument it was.
+
+### The one piece of Wave E that was NOT built, and it is the piece it argued for
 
 `docs/MAPS.md` asked ground two for a **cold KEY LIGHT**, and the whole case for
 building it second was that mechanism: *"A ground with a cold key and a wide
@@ -110,6 +118,12 @@ not exist this morning.
   forces its canvas clicks (a fight canvas under shake is never "stable") and
   closes its browser on failure (it used to hang, twice read as "hung").
 - **The TAKE labels no longer say "the THE GAR".**
+- **The cold key on the moor** (Wave E's unpulled lever): `Mood` `cold`,
+  chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
+  tables. Before/after in `art/look/cold-*`.
+- **A taken Dane axe is carried over the shoulder on every body**, and a
+  borrowed rest is lifted by the reach the arm lacks; the huscarl's own carry
+  had the head in the turf too, hidden behind his board.
 
 ## Landed this session
 
@@ -378,7 +392,10 @@ loads again after the `@/game` alias fix in the emitted copy) ·
 **cosmetictest 18/19 on the GPU — the one FAIL is its byte-identical claim,
 which is the GPU and not the game; the same claim reads 0.0000% in software** ·
 **factionread 27/34 —
-NOT green and not expected to be**; §7.1 has a written defect behind it.
+NOT green and not expected to be**; §7.1 has a written defect behind it
+(2 Sep, GPU arm: worst +2.475, the residue is the leg wraps' lifted value under
+the fire — the owner-ruled mechanisms; the table in OPEN-DEFECTS carries the
+GPU column).
 
 **`BRETWALDA_GPU=1` works on `factionread`, `cosmetictest` and `vatprobe`.**
 ~~The other 32 browser tools still hard-code SwiftShader~~ — **DONE 2 Sep 2026:

@@ -2,6 +2,8 @@
 // without taking a browser dependency. Same arrangement as `engine.d.ts`, and
 // for the same reason: the module is shared, so its declaration is separate.
 declare module "@/game/grounds.mjs" {
+  /** "cold" lights a ground under an overcast sky; anything else is the dusk. */
+  export function climateOf(groundId: string | null | undefined): "cold" | "warm";
   import type { Passable, RaisedStone, Rick, Solid } from "@/game/solidground.mjs";
 
   export function clamp01(x: number): number;

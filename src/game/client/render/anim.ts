@@ -79,8 +79,7 @@ import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
-  type TeamSide,
-} from "../characters";
+  type TeamSide, reachOf } from "../characters";
 import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
@@ -272,6 +271,14 @@ export interface RigPivots {
 export interface WarriorRig {
   readonly id: string;
   readonly warriorClass: WarriorClass;
+  /**
+   * Whose weapon is in his hands: his own class's, or the class of the dead
+   * man whose weapon he took up (TAKE). The pose carries the weapon on the
+   * weapon's own stance and the body on the body's — see `poseWarrior`.
+   */
+  readonly weaponClass: WarriorClass;
+  /** The arms in the fist — his own, or the taken man's — for the carry. */
+  readonly weaponArms: string;
   /**
    * World transform: position and facing only. The pose never touches it, so
    * the nameplate and health bar the HUD hangs here stay level and at a fixed
@@ -861,6 +868,8 @@ export function createWarriorRig(
   const rig: WarriorRig = {
     id: player.id,
     warriorClass: cls,
+    weaponClass: weaponCls,
+    weaponArms: arms ?? "",
     group,
     mirror,
     body,
@@ -4682,7 +4691,34 @@ export function poseWarrior(
 ): void {
   const piv = rig.pivots;
   const t = ctx.time;
-  const st = STANCE[rig.warriorClass] ?? STANCE.warden;
+  const body = STANCE[rig.warriorClass] ?? STANCE.warden;
+  // THE WEAPON'S STANCE ON THE BODY'S FRAME. A taken weapon is carried the way
+  // its own class carries it — a Dane axe over the shoulder, a spear upright,
+  // a sword point-down — because `rest`, `live`, `slide` and `plumb` are
+  // facts about the object in the fist, while `spread`, `guard` and `sink`
+  // are facts about the man. And a shorter arm lifts the rest pitch by the
+  // reach it lacks: the huscarl's 0.94 rad on the runekeeper's 8%-shorter arm
+  // put the axe head in the turf (backlog Wave G, "a per-class rest lift is
+  // the fix if it ever matters"). 0.55 m is about a two-hander's length from
+  // fist to head, so the lift is the angle that raises the head by the
+  // missing reach; it is never negative — a longer arm just carries it higher.
+  //
+  // AND THE DANE AXE IS CARRIED LIKE AN AXE, whoever holds it. The huscarl's
+  // `rest` of 0.94 was tuned for his sword, point-down in front; the same
+  // pitch on a 1.1 m haft puts the axe head IN the turf — captured on the
+  // warden, the runekeeper and the huscarl himself (`art/look/cold-after`,
+  // 2 Sep 2026: the huscarl's was hidden behind his own board). The berserker
+  // already carries his axe over the shoulder, and that is the carry a long
+  // axe gets on every body.
+  const twoHander = rig.weaponArms === "dane_axe";
+  const st = (() => {
+    const w = STANCE[rig.weaponClass] ?? body;
+    const lack = Math.max(0, reachOf(rig.weaponClass) - reachOf(rig.warriorClass));
+    const lift = Math.min(0.35, lack / 0.55);
+    if (twoHander) return { ...body, rest: STANCE.berserker.rest, live: w.live, slide: w.slide, plumb: STANCE.berserker.plumb };
+    if (rig.weaponClass === rig.warriorClass) return body;
+    return { ...body, rest: w.rest - Math.sign(w.rest || 1) * lift, live: w.live, slide: w.slide, plumb: w.plumb };
+  })();
 
   // Handedness, every frame and on every body. One float compare and, on the
   // frame the player actually flips the switch, one write: the toggle has to

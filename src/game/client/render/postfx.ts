@@ -712,6 +712,30 @@ const DUSK: GradeLook = {
 // now stated separately from the tonal anchor and lifted above the third quartile
 // — see the header — so the ash is ash and the fire is the only thing in frame
 // wearing the key's colour.
+/**
+ * THE COLD LOOK, for a ground lit by an overcast sky (docs/MAPS.md, ground
+ * two). The dusk look with its illuminant swapped: `balance` divides out a
+ * cool grey-blue sky instead of a warm bonfire evening, which also turns the
+ * opponent axis the chroma stage expands across (see `opponentAxis`) — so
+ * heather and lichen gain across the sky's axis the way oak and turf gain
+ * across the fire's. Split tone is eased: a cold ground has no ember to put in
+ * its highlights, and the shadows are already the sky's. Everything else is
+ * the dusk's on purpose, so `tools/gradesplit.mjs` reads one grade in two
+ * illuminants rather than two grades.
+ */
+const COLD: GradeLook = {
+  ...DUSK,
+  white: 7.2,
+  balance: [0.84, 0.92, 1.0],
+  balanceStrength: 0.45,
+  crosstalk: 0.24,
+  contrast: 0.2,
+  saturation: 1.16,
+  shadowTint: [0.82, 0.92, 1.14],
+  highlightTint: [1.04, 1.02, 0.96],
+  splitTone: 0.34,
+};
+
 const LAST_STAND: GradeLook = {
   // Exposure and white point both moved after the captures: at 1.14 over a
   // white of 4.0 the smoke itself — a linear unit of it — landed in the low
@@ -2840,6 +2864,7 @@ export function createPostFx(
   const looks: Record<Mood, GradeLook> = {
     dusk: { ...DUSK, ...opts.looks?.dusk },
     lastStand: { ...LAST_STAND, ...opts.looks?.lastStand },
+    cold: { ...COLD, ...opts.looks?.cold },
   };
 
   let mood: Mood = opts.mood ?? "dusk";

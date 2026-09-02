@@ -404,6 +404,122 @@ interface MoodRig {
   hearthRange: number;
 }
 
+/**
+ * THE COLD KEY — a ground lit by sky rather than fire (docs/MAPS.md, ground
+ * two). Built off the dusk rig by overriding only what an overcast sky
+ * changes: the hemisphere is the light now (a high grey-blue sky over cold
+ * peat), the sun is a low pale disc behind cloud rather than a warm key, the
+ * warm fill and the kick lose their ember, the bounce is the ground's own
+ * cold green-grey, and the face fill is skylight. The peat fire keeps its
+ * warmth and loses reach: it is the one warm thing on the moor, which is the
+ * whole point of putting a fire on a cold ground.
+ */
+const COLD_RIG_OVERRIDES: Partial<MoodRig> = {
+  ambient: 0.40,
+  ambientColor: 0x8fa2b8,
+  hemi: 0.34,
+  hemiSky: 0xb6c6d6,
+  hemiGround: 0x4d5448,
+  key: 2.6,
+  warm: 0.25,
+  rim: 2.4,
+  rimColor: 0xc4d6ee,
+  kick: 0.7,
+  kickColor: 0xc9d6e6,
+  bounce: 1.6,
+  bounceColor: 0x8a9482,
+  face: 0.8,
+  faceColor: 0xc8d2dc,
+  ao: 2.2,
+  aoColor: 0x9fb0c4,
+  hearth: 26,
+  hearthColor: 0xff7a2e,
+  hearthRange: 17,
+};
+
+/** The dusk rig as a value, so `cold` can be built as overrides on it. */
+const DUSK_RIG_FOR_COLD: MoodRig = {
+    ambient: 0.32,
+    ambientColor: 0x6a86a0,
+    hemi: 0.21,
+    hemiSky: 0x8fb4d2,
+    hemiGround: 0x7a5a3c,
+    key: 4.5,
+    warm: 1.05,
+    // The measured defect this answers is crowd readability: in `brawl` a
+    // warrior at twelve metres came back at a red-minus-blue of 108 against a
+    // palisade at 112 — the same hue, so the only thing holding the figure off
+    // the wall was 40 luma of value, and at that distance the haze eats most of
+    // that. The rim is the one term in the rig that lands on a silhouette edge
+    // and provably cannot land on the background behind it, so it is the term
+    // that buys separation back.
+    //
+    // 3.02, down from v7's 3.9 and v8's 3.3, and the edge is *not* down with it
+    // on either step. What a rim puts on a silhouette is
+    // `intensity · cos(elevation) · sin(swing)`; taking the elevation to 3° and
+    // widening the swing to 0.90 holds that product to within 0.1% of v7's while
+    // the three things the level was actually costing come down with the number
+    // — unblockable ground fill, a specular lobe hard enough to read as a
+    // searchlight, and the ground's own *variance*. See RIM_SWING for the last
+    // of those, which is the one this pass found.
+    rim: 3.02,
+    rimColor: 0x9ec8ff,
+    kick: 1.65,
+    kickColor: 0xffbe8c,
+    // Olive rather than gold on purpose. This is light off wet turf, it is the
+    // largest single term on a warrior's front, and making it warm would be a
+    // third orange source in a frame already fighting a sepia cast. A green-grey
+    // fill against an orange sky is also the cheapest separation there is — and
+    // it is pushed a shade further from the sunset here than in v4, for the same
+    // crowd-readability reason as the rim above.
+    //
+    // 2.35, up from 1.7, and it is up for the faces. A light hung *below* the
+    // horizon is the only term in this rig that reaches under a helm brow, and
+    // it is also the only one that can be raised without lifting the turf by a
+    // single unit — an up-facing normal against a downward light clamps to
+    // zero. So it is free contrast and a face fill at the same time, which is
+    // the only combination worth spending on while the ground shadow is the
+    // blocker.
+    bounce: 2.35,
+    bounceColor: 0x93a084,
+    // The olive above is right for turf and wrong for a cheekbone, and until
+    // this pass it was the *only* light a face turned toward the lens received:
+    // measured off `v8/lineup.png`, the huscarl's face came back at luma 33 with
+    // an R:G:B of 54:30:12 against ground at 75. A face is not underexposed
+    // there so much as it is the wrong substance. So the face fill is warm
+    // ivory, sized to add about 0.79 to a camera-facing face — a third again on
+    // top of the bounce — and nothing whatever to the turf. It reads as the
+    // ground and the fire in front of the subject throwing light back up into
+    // him, which at this hour is exactly what would be doing it.
+    face: 0.95,
+    faceColor: 0xd9bfa4,
+    // Cool, and a shade bluer than the hemisphere's sky half. It is standing in
+    // for the whole upper dome, which at dusk is the one large *cold* source in
+    // the arena, and giving it its own hue is what stops a rig with three warm
+    // terms in it turning every up-facing plane sepia.
+    //
+    // It is also, at 2.55, the second largest number in the rig, and that is the
+    // point: it is the only large term a boot can block. 0.85 · 2.55 ·
+    // cos(AO_TILT) ≈ 1.94 is what a contact now removes, against v8's 1.32 and
+    // v7's 1.15 — and unlike either of those it is removed from ground the lens
+    // can actually see, because the light has come off vertical far enough to
+    // throw past its own caster.
+    ao: 2.55,
+    aoColor: 0x9db8d4,
+    // 31 candela at decay 1.35 — see HEARTH_DECAY. Only a fifth up on v6's 26,
+    // and deliberately so: the measured defect was never that the fire was dim,
+    // it was that everything the fire spent landed on the side of a warrior the
+    // lens cannot see. Pushing the candela to fix *that* only blows the hearth
+    // stones, which at 1.75 m are already the hottest ground in the frame. What
+    // the fifth is for is the rest of the ring — at 4.2 m, with the wider beam
+    // under it, a warrior standing round the fire now takes about 4.4 linear
+    // units off it against a whole-rig total near 10, which is the difference
+    // between eight figures near a light source and eight figures near a decal.
+    hearth: 31,
+    hearthColor: 0xff7a2e,
+    hearthRange: 22,
+};
+
 const MOOD_RIG: Record<Mood, MoodRig> = {
   // The hemisphere's ground half is not a fudge and is not small: it is the
   // turf's own bounce, it is the only warm light reaching the underside of a
@@ -574,6 +690,7 @@ const MOOD_RIG: Record<Mood, MoodRig> = {
     hearthColor: 0xff5a1a,
     hearthRange: 28,
   },
+  cold: { ...DUSK_RIG_FOR_COLD, ...COLD_RIG_OVERRIDES } as MoodRig,
 };
 
 /** Matches sky.ts and postfx.ts, so the whole frame changes mood as one thing. */

@@ -44,7 +44,9 @@ screenshot is instantly identifiable.
 and timber halls, a bonfire at the centre. Enclosed and communal: this is a
 moot, a gathering that turned to violence.
 
-**2. Something cold, open and lit by sky rather than fire.** The village's
+**2. Something cold, open and lit by sky rather than fire.** *(Built as the
+moor on 24 Aug; the cold KEY itself was pulled on 2 Sep 2026 — `Mood` `cold`
+off the ground's `climate`, see BACKLOG Wave E.)* The village's
 entire look is a warm key from a bonfire against a dusk sky. A ground with a
 *cold* key and a wide horizon changes every material in the game without
 touching one of them, and it is the cheapest way to make map two feel like a

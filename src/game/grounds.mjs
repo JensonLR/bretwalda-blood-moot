@@ -738,6 +738,12 @@ const MOOR_STONES = Object.freeze([0, 1, 2, 3].map((i) => {
 export const PICT_MOOR = {
   id: "pict_moor",
   name: "The Moor",
+  // THE COLD KEY (docs/MAPS.md, ground two): "something cold, open and lit by
+  // sky rather than fire". The renderer reads this and lights the ground under
+  // an overcast sky instead of the village's bonfire dusk — the cheapest way
+  // to make the second ground a different game, and the one lever the moor's
+  // own header says was never pulled. Sim-side this is inert.
+  climate: "cold",
 
   // The village's, exactly. See the header.
   play: { shape: "disc", radius: 18 },
@@ -1034,6 +1040,11 @@ function campHeightAt(x, z) {
 
 export const DANELAW_CAMP = {
   id: "danelaw_camp",
+  // A winter fen is the cold key's second home (docs/MAPS.md, and the moor's
+  // own precedent): render/camp.ts pulled every surface cold to survive the
+  // warm rig, and under the overcast rig those surfaces read as the frozen
+  // sheet they were drawn as.
+  climate: "cold",
   name: "The Winter Camp",
 
   // The village's, exactly. See the header.
@@ -1248,4 +1259,16 @@ export function groundForTerritory(territoryId, people) {
  */
 export function getGround(id) {
   return GROUNDS[id] ?? SAXON_VILLAGE;
+}
+
+/**
+ * A ground's climate, for the renderer's mood: "cold" lights it under an
+ * overcast sky, anything else under the village's dusk. Unknown grounds are
+ * warm, so a harness that stages a room with no ground still gets the look
+ * every ledger reading was taken under.
+ */
+export function climateOf(groundId) {
+  const all = [SAXON_VILLAGE, PICT_MOOR, ROMAN_FORT, DANELAW_CAMP, OFFA_DYKE];
+  const g = all.find((x) => x && x.id === groundId);
+  return g && g.climate === "cold" ? "cold" : "warm";
 }

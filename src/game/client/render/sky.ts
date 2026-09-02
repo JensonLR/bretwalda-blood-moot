@@ -140,6 +140,12 @@ interface SkyParams {
   cloudShadeGain: number;
   /** Radiance of the crepuscular fan above the sun, as a fraction of the beam. */
   shaftGain: number;
+  /**
+   * Elevation added to the sun's direction, in radians. Zero is the dusk's
+   * own horizon sun; the cold mood lifts it behind a closed cloud deck so the
+   * slant path stops reddening the beam and the light is the sky's, not a disc's.
+   */
+  sunLift: number;
 
   // ---- the near air, in metres and per-metre ----
   // Tuned against the arena's four depth planes, which are fixed by world.ts:
@@ -200,6 +206,7 @@ const DUSK: SkyParams = {
   cloudLitGain: 0.34,
   cloudShadeGain: 1.5,
   shaftGain: 0.13,
+  sunLift: 0,
   // 0.006/m over a 24 m scale height puts 10% of haze on the palisade, 14% on
   // the huts, 28% on the treeline and 62% on the downland: a monotone ramp with
   // every plane a clear step behind the one in front. Measured off a 0.3-radiance
@@ -261,6 +268,7 @@ const LAST_STAND: SkyParams = {
   cloudLitGain: 0.5,
   cloudShadeGain: 1.1,
   shaftGain: 0.21,
+  sunLift: 0,
   // Smoke is heavier than air and it is coming off the arena itself, so the
   // ground layer thickens far more than the column does and it lifts higher —
   // but only by half again on dusk, not by double. At the old numbers a sixth
@@ -305,7 +313,49 @@ const LAST_STAND: SkyParams = {
  */
 const ENV_INTENSITY = 0.42;
 
-const MOOD_PARAMS: Record<Mood, SkyParams> = { dusk: DUSK, lastStand: LAST_STAND };
+/**
+ * THE COLD SKY (docs/MAPS.md, ground two): low cloud, a pale sun behind it,
+ * long low-contrast sightlines with the weather doing the work. Off the dusk
+ * table, changing only what an overcast changes — the beam is cooler and
+ * weaker, the diffuse term greyer and higher, the cloud nearly closed, the
+ * haze deeper so the horizon falls away, the fire's own haze smaller because
+ * a peat fire is not a bonfire. The moon and the stars are the dusk's.
+ */
+const COLD: SkyParams = {
+  ...DUSK,
+  sunIntensity: 11,
+  sunTint: new THREE.Color(0.78, 0.89, 1.0),
+  diffuseGain: 0.16,
+  diffuseDepth: 0.08,
+  diffuseSpectrum: 0.32,
+  diffuseFloor: 0.10,
+  beamFloor: 0.03,
+  nightSky: new THREE.Color(0.012, 0.016, 0.03),
+  groundTint: new THREE.Color(0.10, 0.105, 0.105),
+  // `cover` in the dome is a smoothstep ABOVE this value, so a LOWER number is
+  // more cloud: the dusk's 0.58 is broken cloud and 0.16 is a closed deck.
+  cloudCover: 0.14,
+  cloudGain: 1.0,
+  cloudLitGain: 0.40,
+  cloudShadeGain: 0.85,
+  shaftGain: 0.02,
+  sunLift: 0.30,
+  hazeDensity: 0.0076,
+  hazeHeight: 30,
+  mistDensity: 0.0125,
+  mistHeight: 3.2,
+  mistAlbedo: 0.16,
+  mistSkyShare: 0.12,
+  mistBeam: 0.05,
+  skyDensity: 0.0118,
+  fireHaze: 26,
+  cloudShadow: 0.18,
+  shaftDepth: 0.3,
+  fogDensity: 0.027,
+  fogDesaturate: 0.7,
+};
+
+const MOOD_PARAMS: Record<Mood, SkyParams> = { dusk: DUSK, lastStand: LAST_STAND, cold: COLD };
 /** Seconds for the air to change over. Long enough to read as weather, short enough to land. */
 const MOOD_BLEND = 1.4;
 
@@ -1261,6 +1311,7 @@ function lerpParams(a: SkyParams, b: SkyParams, t: number, out: SkyParams): SkyP
   out.rayleigh = n(a.rayleigh, b.rayleigh);
   out.mie = n(a.mie, b.mie);
   out.mieG = n(a.mieG, b.mieG);
+  out.sunLift = n(a.sunLift, b.sunLift);
   out.sunIntensity = n(a.sunIntensity, b.sunIntensity);
   out.sunTint.copy(a.sunTint).lerp(b.sunTint, t);
   out.diffuseGain = n(a.diffuseGain, b.diffuseGain);
@@ -1354,7 +1405,19 @@ export function createSky(
   const root = new THREE.Group();
   root.name = "sky";
 
+  /** The sun on its arc, before the mood's lift. `setTimeOfDay` spins this. */
+  const sunBase = DUSK_SUN.clone();
+  /** What everything reads: `sunBase` lifted by the current mood's `sunLift`. */
   const sunDirection = DUSK_SUN.clone();
+  const liftSun = (lift: number): void => {
+    sunDirection.copy(sunBase);
+    if (lift !== 0) {
+      // Rotate toward the zenith about the horizontal axis perpendicular to the
+      // sun's azimuth, so its bearing is kept and only its elevation moves.
+      const axis = new THREE.Vector3(-sunBase.z, 0, sunBase.x).normalize();
+      sunDirection.applyAxisAngle(axis, -lift).normalize();
+    }
+  };
   const moonDirection = DUSK_MOON.clone();
   const starFrame = new THREE.Matrix3();
   let timeOfDay = opts.timeOfDay ?? DUSK_TIME;
@@ -1461,6 +1524,7 @@ export function createSky(
 
   /** Rebuilds every uniform and every fog value from `current`. Cheap; not per frame. */
   function refresh(): void {
+    liftSun(current.sunLift);
     air = resolveAir(current, sunDirection, moonDirection);
 
     setVec("uBetaR", air.betaR);
@@ -1660,7 +1724,7 @@ export function createSky(
       if (Math.abs(t - timeOfDay) < 1e-4) return;
       timeOfDay = t;
       const spin = (timeOfDay - DUSK_TIME) * Math.PI * 2;
-      sunDirection.copy(DUSK_SUN).applyAxisAngle(POLE, spin).normalize();
+      sunBase.copy(DUSK_SUN).applyAxisAngle(POLE, spin).normalize();
       moonDirection.copy(DUSK_MOON).applyAxisAngle(POLE, spin).normalize();
       refresh();
     },

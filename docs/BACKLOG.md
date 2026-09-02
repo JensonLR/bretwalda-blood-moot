@@ -1189,6 +1189,26 @@ VAOs, 53 programs for a one-on-one.
 > illuminant, which moves the axis the chroma stage expands across.
 > `tools/gradesplit.mjs --gate` is the instrument for that question.
 
+**THE COLD KEY IS PULLED — 2 Sep 2026.** `Mood` gained `cold`, a GROUND's
+mood rather than a moment's: `grounds.mjs` declares `climate: "cold"` on the
+moor and `GameCanvas` chooses the mood off the room's arena (the last stand
+still overrides). One entry in each mood table — the lighting rig (an
+overcast hemisphere as the light, the sun a pale disc, the warm fill and the
+kick without their ember, the peat fire warm but shorter), the sky (a closed
+deck with `cloudCover` 0.14, a `sunLift` of 0.30 rad so the beam stops
+reddening on the slant path, deeper haze), and the grade (the dusk look with
+its illuminant swapped to a grey-blue sky, which also turns the opponent axis).
+Captures: `art/look/cold-before/` against `cold-after3/` — the moor stopped
+reading as orange sand under a sunset and reads as a cold moor under a lit
+cloud deck, the fire the one warm thing. Two traps the tuning found, for the
+next ground: the dome's `cloudCover` is a smoothstep ABOVE the value (lower is
+MORE cloud), and a sun on the horizon reddens whatever its tint says — lift it.
+The village is untouched by construction (its climate is warm) and
+`gradesplit --gate` was re-run to prove it (6.6 dH\*, unchanged). **And the
+camp took it too** (`danelaw_camp`, "winter fen", the same line): from a
+blown gold sunset over the ice to a fen at dusk with the cauldron fire as its
+only warmth — `art/look/camp-before/` against `camp-after/`.
+
 ~~*NOT STARTED, but NOT BLOCKED.*~~ The seam exists (see §0). `MAPS.md` designed
 three and one exists.
 
@@ -1340,7 +1360,14 @@ claims per ground, 12/12 with the fort in the list.
   stated so nobody files them as bugs:** a two-hander taken up by a shorter
   body hangs to the turf at REST (the huscarl's own rest angle on a
   runekeeper's arm — in guard and in the swing it is right; cosmetic, and a
-  per-class rest lift is the fix if it ever matters); and a man who is not a
+  per-class rest lift is the fix if it ever matters — **DONE 2 Sep 2026, and
+  the capture said the fix was wrong-shaped: the huscarl's own 0.94 rad rest
+  was tuned for his SWORD, and on a 1.1 m haft it put the axe head in the turf
+  on every body including his. The rig now records the weapon's class and
+  arms; the pose carries the weapon on the weapon's stance and the body on the
+  body's, a Dane axe goes over the shoulder on anyone (the berserker's carry),
+  and a shorter arm lifts any other borrowed rest by the reach it lacks.
+  `art/look/cold-after2/taken-runekeeper-daneaxe.png`**); and a man who is not a
   huscarl taking up a sword-and-board gets the SWORD — the board is a
   huscarl's kit, `carriesBoard` says so on both sides of the wire, and a
   berserker with a shield would be a class change. `taketest` 18/18 (new),

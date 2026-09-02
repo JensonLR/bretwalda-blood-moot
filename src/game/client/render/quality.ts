@@ -1037,7 +1037,16 @@ export function setLayerDeep(root: THREE.Object3D, layer: number): void {
 }
 
 /** Arena mood. Drives fog, grade and light colour together, never separately. */
-export type Mood = "dusk" | "lastStand";
+/**
+ * `dusk` is the village's warm bonfire evening and `lastStand` its ember
+ * override. `cold` is a GROUND's mood, not a moment's: docs/MAPS.md asked the
+ * second ground for "a cold key and a wide horizon" because it changes every
+ * material in the game without touching one of them, and `render/moor.ts`
+ * records that the moor was instead pulled cold by hand to survive the warm
+ * key. A ground declares `climate: "cold"` in grounds.mjs and the canvas
+ * chooses this mood for it; the last stand still overrides.
+ */
+export type Mood = "dusk" | "lastStand" | "cold";
 
 export interface FrameContext {
   /** Seconds since the last frame, already scaled by hit-stop. */

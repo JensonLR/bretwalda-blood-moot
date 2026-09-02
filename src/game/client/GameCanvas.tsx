@@ -4,6 +4,7 @@
 // Nothing here knows how anything looks — see render/README.md for who owns
 // what and the order they run in.
 import { useEffect, useRef, useCallback, useState } from "react";
+import { climateOf } from "@/game/grounds.mjs";
 import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone, type WeaponDrop } from "../types";
 import GameHud from "./GameHud";
@@ -989,7 +990,11 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
 
       const roomState = roomStateRef.current;
       const localPlayer = roomState?.players[playerId];
-      const mood: Mood = roomState?.lastStandTriggered ? "lastStand" : "dusk";
+      // THE GROUND'S MOOD, then the moment's. A cold ground is lit cold for
+      // the whole match; the last stand overrides it, because the ember
+      // override is the fight's own signal and reads on any ground.
+      const mood: Mood = roomState?.lastStandTriggered ? "lastStand"
+        : climateOf(roomState?.arena) === "cold" ? "cold" : "dusk";
 
       const ctx: FrameContext = {
         dt,
