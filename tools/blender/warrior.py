@@ -41,8 +41,18 @@ def attach_textures(parts, tex_dir):
             tiles = json.load(open(os.path.join(tex_dir, "tiles.json"))) if os.path.exists(os.path.join(tex_dir, "tiles.json")) else {}
             tinfo = tiles.get(surface, {"repeat": 1, "worldTile": None})
             coord = nt.nodes.new("ShaderNodeTexCoord"); mapping = nt.nodes.new("ShaderNodeMapping"); mapping.location = (-1000, 0)
+            # glTF carries UVs and nothing else, so a world-tiled substance gets
+            # its density BAKED: every part wearing it is cube-projected at the
+            # tile size (metres), and the map then reads at 1:1 over those UVs.
             if tinfo.get("worldTile"):
-                nt.links.new(coord.outputs["Object"], mapping.inputs["Vector"]); k = 1.0 / float(tinfo["worldTile"])
+                tile = float(tinfo["worldTile"])
+                for o2 in parts:
+                    if any(sl.material is m for sl in o2.material_slots):
+                        bpy.ops.object.select_all(action='DESELECT'); o2.select_set(True); bpy.context.view_layer.objects.active = o2
+                        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+                        bpy.ops.uv.cube_project(cube_size=tile, correct_aspect=False, scale_to_bounds=False)
+                        bpy.ops.object.mode_set(mode='OBJECT'); o2.select_set(False)
+                nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"]); k = 1.0
             else:
                 nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"]); k = float(tinfo.get("repeat") or 1)
             mapping.inputs["Scale"].default_value = (k, k, k)
@@ -51,7 +61,6 @@ def attach_textures(parts, tex_dir):
                 if not os.path.exists(path): return None
                 im = bpy.data.images.load(path, check_existing=True); im.colorspace_settings.name = colorspace
                 n = nt.nodes.new("ShaderNodeTexImage"); n.image = im; n.location = (-700, 0)
-                if tinfo.get("worldTile"): n.projection = 'BOX'; n.projection_blend = 0.3
                 nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"])
                 return n
             base = img("map", "sRGB")
