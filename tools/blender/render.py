@@ -6,6 +6,13 @@ NAME = argv[0] if argv else "Head_huscarl"
 OUT = argv[1] if len(argv) > 1 else os.path.expanduser("~/bretwalda-blood-moot/art/blender/render.png")
 obj = bpy.data.objects[NAME]
 scene = bpy.context.scene
+# A parent Empty (the warrior) is measured through its mesh children, in world space.
+class _Wrap:
+    def __init__(self, meshes): self.meshes = meshes
+def _world_verts(o):
+    return [o.matrix_world @ v.co for v in o.data.vertices]
+_meshes = [o] if obj.type == 'MESH' else [c for c in obj.children_recursive if c.type == 'MESH']
+_all_verts = [v for m in _meshes for v in _world_verts(m)]
 for o in list(scene.objects):
     if o.type in {"CAMERA", "LIGHT"}: bpy.data.objects.remove(o, do_unlink=True)
 # Three-quarter portrait. The OBJ importer (forward -Z, up Y) turns the file's
@@ -13,7 +20,7 @@ for o in list(scene.objects):
 # Blender -Y. So: up is Z, the length axis is Y with the face toward -Y, and
 # breadth is X. The sharp-end test below is kept as a printed check on that.
 import mathutils
-vs = [v.co.copy() for v in obj.data.vertices]
+vs = _all_verts
 lo = [min(v[i] for v in vs) for i in range(3)]; hi = [max(v[i] for v in vs) for i in range(3)]
 ext = [hi[i] - lo[i] for i in range(3)]; c = [(hi[i] + lo[i]) / 2 for i in range(3)]
 up, length, breadth = 2, 1, 0
@@ -47,11 +54,12 @@ nose = max(vs, key=lambda v: face_sign * v[length])
 print(f"[render.py] centre {[round(x,3) for x in c]}, sharp vertex {[round(x,3) for x in nose]}, camera angle {math.degrees(ang):.0f}°")
 cam_data = bpy.data.cameras.new("Cam"); cam_data.lens = 85
 cam = bpy.data.objects.new("Cam", cam_data); scene.collection.objects.link(cam)
-cam.location = pt(0.9 * math.cos(ang), 0.9 * math.sin(ang), 0.02); aim(cam, c); scene.camera = cam
+dist = max(0.9, 2.4 * ext[up])   # a head at 0.9 m, a whole man at about 4 m
+cam.location = pt(dist * math.cos(ang), dist * math.sin(ang), 0.02 * ext[up] / 0.27); aim(cam, c); scene.camera = cam
 key = bpy.data.objects.new("Key", bpy.data.lights.new("Key", 'AREA')); key.data.energy = 18; key.data.size = 0.6
-key.location = pt(0.7, -0.5, 0.6); aim(key, c); scene.collection.objects.link(key)
+key.location = pt(0.7 * dist / 0.9, -0.5 * dist / 0.9, 0.6 * dist / 0.9); key.data.energy = 18 * (dist / 0.9) ** 2; aim(key, c); scene.collection.objects.link(key)
 fill = bpy.data.objects.new("Fill", bpy.data.lights.new("Fill", 'AREA')); fill.data.energy = 5; fill.data.size = 1.2; fill.data.color = (0.75, 0.85, 1.0)
-fill.location = pt(0.4, 0.8, 0.2); aim(fill, c); scene.collection.objects.link(fill)
+fill.location = pt(0.4 * dist / 0.9, 0.8 * dist / 0.9, 0.2 * dist / 0.9); fill.data.energy = 5 * (dist / 0.9) ** 2; aim(fill, c); scene.collection.objects.link(fill)
 scene.view_settings.view_transform = 'Standard'
 print(f"[render.py] axes: up {'XYZ'[up]}, length {'XYZ'[length]} face toward {'+' if face_sign > 0 else '-'}{'XYZ'[length]}, breadth {'XYZ'[breadth]}")
 scene.render.engine = 'BLENDER_EEVEE_NEXT' if hasattr(bpy.types, 'RenderSettings') and 'BLENDER_EEVEE_NEXT' in [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties['engine'].enum_items] else 'BLENDER_EEVEE'
@@ -61,6 +69,6 @@ scene.world = scene.world or bpy.data.worlds.new("World")
 scene.world.use_nodes = True
 bg = scene.world.node_tree.nodes.get("Background")
 if bg: bg.inputs[0].default_value = (0.05, 0.045, 0.04, 1); bg.inputs[1].default_value = 1.0
-print(f"[render.py] engine {scene.render.engine}, material {obj.data.materials[0].name if obj.data.materials else 'NONE'}, dims {[round(x,3) for x in obj.dimensions]}")
+print(f"[render.py] engine {scene.render.engine}, {len(_meshes)} mesh(es), extents {[round(x,3) for x in ext]}")
 bpy.ops.render.render(write_still=True)
 print(f"[render.py] {OUT}")

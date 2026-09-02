@@ -83,6 +83,20 @@ that was measured rather than assumed. A background Blender
 (`Blender -b -P script.py`) needs no MCP socket, which matters because the
 add-on serves one client at a time.
 
+## And then the whole man came out the same door — 2 Sep 2026, later
+
+`tools/blender/exportwarrior.mjs` calls `buildCharacter` with the raw material
+set and writes the entire rig-less warrior — 46 named parts on the huscarl:
+helm, face, beard, hair, mail, belt, cloak, wraps, boots — as OBJ + MTL in
+world space, rest pose; `tools/blender/warrior.py` welds, smooths, saves
+`art/blender/warrior-<cls>.blend` and exports `warrior-<cls>.glb`. All four
+classes are out. `art/blender/warrior-huscarl.png` is the judging frame: the
+code's man, recognisably, as a mesh. The Unity client now instantiates these
+per class instead of capsules. What this is NOT yet: rigged (the parts are
+baked at rest), textured (the raw material set is flat colour — the browser's
+procedural textures do not travel), or the strand beard. Those are the next
+three steps, in Blender, on these meshes.
+
 ## Driving Blender from here
 
 The Blender MCP bridge only works from a Claude Code session running ON the
