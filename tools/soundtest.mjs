@@ -45,6 +45,7 @@
 // yet (PENDING — loud, and never counted as green).
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions } from "./lib/browser.mjs";
 import { existsSync, readFileSync } from "fs";
 import { resolve, dirname, join, isAbsolute } from "path";
 import { fileURLToPath } from "url";
@@ -1754,13 +1755,11 @@ async function vocabulary(page, rel) {
 // ------------------------------------------------------------------
 
 async function main() {
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
     // Deliberately NOT --autoplay-policy=no-user-gesture-required: the locked
     // context is the thing being tested.
-    args: ["--no-sandbox"],
+    headless: true,
+    ...launchOptions(),
   });
   const ctx = await browser.newContext();
   await ctx.route(`${ORIGIN}/**`, async (route) => {

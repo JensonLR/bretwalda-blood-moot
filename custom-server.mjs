@@ -46,6 +46,17 @@ wss.on("connection", (ws) => {
   ws.on("error", cleanup);
 });
 
+// A PORT THAT IS ALREADY HELD MUST BE FATAL. Without this the process logs the
+// EADDRINUSE and stays alive on its engine tick, listening to nothing — and
+// every harness in tools/ that waits for /api/health then gets its answer from
+// the STRANGER on the port and measures a build nobody has (the `watchBoot`
+// refusal in tools/lib/browser.mjs depends on this exit). In production a
+// server that cannot listen should die and be restarted, not idle.
+server.on("error", (err) => {
+  console.error(`[BRETWALDA] cannot listen on ${hostname}:${port} — ${err && err.code ? err.code : err}`);
+  process.exit(1);
+});
+
 server.listen(port, hostname, () => {
   console.log(`[BRETWALDA] Server ready on http://${hostname}:${port}`);
   console.log(`[BRETWALDA] WebSocket on /ws + HTTP fallback on /api/game/*`);

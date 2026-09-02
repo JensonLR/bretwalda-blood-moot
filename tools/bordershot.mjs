@@ -24,7 +24,8 @@
 // with `warshot`, which is what the last section of every run says.
 // ============================================================
 import { chromium } from "playwright";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, mkdtempSync } from "fs";
+import { launchOptions } from "./lib/browser.mjs";
+import { mkdirSync, writeFileSync, readFileSync, mkdtempSync } from "fs";
 import { resolve, dirname } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
@@ -115,12 +116,9 @@ svg{display:block;width:${(win.w * scale).toFixed(0)}px;height:${(win.h * scale)
 }
 
 const want = flag("zoom", "all,south,north,middle,wales,kent").split(",");
-const preinstalled = "/opt/pw-browsers/chromium";
 const browser = await chromium.launch({
-  ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-  args: ["--no-sandbox", "--disable-gpu-sandbox", "--use-gl=swiftshader",
-         "--enable-unsafe-swiftshader", "--disable-dev-shm-usage"],
-});
+    ...launchOptions(["--use-gl=swiftshader", "--disable-dev-shm-usage"]),
+  });
 for (const key of want) {
   const win = WINDOWS[key];
   if (!win) { console.log(`[bordershot] no window named ${key}`); continue; }

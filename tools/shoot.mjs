@@ -33,6 +33,7 @@
 //   cd ../shots && npm run shots -- armoury --out <abs path>
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, writeFileSync, statSync, readdirSync } from "fs";
 import { resolve, dirname, join } from "path";
@@ -695,6 +696,7 @@ async function startServer() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "shoot");
   server.stdout.on("data", (d) => process.env.SHOOT_VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.SHOOT_VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`${ORIGIN}/api/health`);
@@ -776,18 +778,9 @@ async function main() {
 
   // Use the pre-installed full Chromium (it has the GL stack the
   // headless shell lacks) rather than letting Playwright download one.
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: [
-      // Software GL so WebGL works on a headless box with no GPU.
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox",
-      "--no-sandbox",
-      "--ignore-gpu-blocklist",
-    ],
+    // Software GL so WebGL works on a headless box with no GPU.
+    ...launchOptions(),
   });
 
   const newContext = async (w, h) => {

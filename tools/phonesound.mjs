@@ -26,6 +26,7 @@
 // Exit 0 all proven, 1 otherwise.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -175,16 +176,15 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "phonesound");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
     // NO --autoplay-policy override. That flag is the reason this bug reaches
     // production: with it, a broken build is indistinguishable from a good one.
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    headless: true,
+    ...launchOptions(),
   });
   const ctx = await browser.newContext({
     viewport: SCREEN, hasTouch: true, isMobile: true, deviceScaleFactor: 3,

@@ -662,6 +662,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           });
           renderer.setSize(window.innerWidth, window.innerHeight);
           configureRenderer(renderer, quality);
+          // A readback for `tools/hitchprobe.mjs` (program cache keys across
+          // the handover). Same idiom as `__bretwaldaCamera`; nothing in the
+          // game reads it.
+          (window as unknown as Record<string, unknown>).__bretwaldaRenderer = renderer;
           scene = new THREE.Scene();
         },
       },
@@ -1421,6 +1425,25 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       }
 
       const verdict = matchEndRef.current;
+      const ensureSummary = () => (summaryRef.current ??= createSummary({
+        scene: stage.scene,
+        rig: stage.rig,
+        groundAt: stage.world.heightAt,
+        douse: (id) => {
+          stage.vfx.setBurning(id, false, 0, false);
+          stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
+        },
+      }));
+      // THE COUNTDOWN IS WHERE THE TABLEAU'S SHADERS COMPILE. Every frame of
+      // a round's countdown — men idle, nothing moving — spends a slice of
+      // itself linking the scene's materials against the tableau's light rig,
+      // and the match-end replay finishes whatever arrived during the fight,
+      // so the handover 240 frames after the verdict links nothing. See `warm`
+      // in render/summary.ts and docs/PERFORMANCE.md.
+      if (roomState.mode !== "solo") {
+        if (roomState.state === "countdown") ensureSummary().warm(stage.renderer, stage.rig.camera, stage.quality, 6);
+        else if (verdict !== null && replaying) ensureSummary().warm(stage.renderer, stage.rig.camera, stage.quality, 3);
+      }
       // AND THE SUMMARY WAITS FOR IT. This is the whole of the match-end half:
       // `render/summary.ts` takes the lens for the victor's portrait on the
       // same frame the match ends, and it took it from the last death of the
@@ -1448,15 +1471,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // bars over men the match has already judged. Cleared on the way out
         // so the rematch gets its plates back without rebuilding one of them.
         stage.hud.setSuppressed(true);
-        summaryRef.current ??= createSummary({
-          scene: stage.scene,
-          rig: stage.rig,
-          groundAt: stage.world.heightAt,
-          douse: (id) => {
-            stage.vfx.setBurning(id, false, 0, false);
-            stage.audio.setBurning(id, false, 0, false, { x: 0, y: 0, z: 0 });
-          },
-        });
+        const summary = ensureSummary();
         // THE SUMMARY IS HANDED A CONTEXT WITH NO WIRE ON IT.
         //
         // `wireEpoch` tells the interpolator that an unchanged record is a
@@ -1478,7 +1493,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // several seconds.
         Object.assign(summaryCtx, ctx);
         summaryCtx.wireEpoch = undefined;
-        summaryRef.current.update(dt, summaryCtx, roomState, verdict, warriorsRef.current, playerId);
+        summary.update(dt, summaryCtx, roomState, verdict, warriorsRef.current, playerId);
         // A press from the summary surface plays on the staged tableau — the
         // motion is shared, so the flourish lands on the man mid-portrait. It
         // is drained AFTER the stage has been built, because who is standing is

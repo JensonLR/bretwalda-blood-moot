@@ -87,6 +87,30 @@ which moves the opponent axis the chroma stage expands across.
 `tools/gradesplit.mjs --gate` is the instrument for that question, and it did
 not exist this morning.
 
+## Landed 2 Sep 2026 (the session after the one below)
+
+- **Hearth standards — the Flags row.** `src/game/standards.mjs` (thirteen
+  §9 devices, each tagged FIND/TEXT/INVENTION in the UI, none from the AVOID
+  list), `hearths.standard`, `act: "standard"`, the picker on /factions, the
+  glyph beside names in the lobby and the summary ledger, narrowed at every
+  appearance door like `mark`. standardtest 11/11, warsay 64/64 on a real
+  Postgres.
+- **The handover hitch, closed.** Shader compilation after all; the countdown
+  now compiles the tableau's programs. `tools/hitchprobe.mjs` is the ruler:
+  22–36 ms where it was 268–337. Three dead ends ledgered in PERFORMANCE.
+- **Every browser tool through `tools/lib/browser.mjs`** (40 more) and every
+  spawning tool (50) guarded by `watchBoot` — which only works because BOTH
+  servers now exit 1 on a held port instead of idling on their engine tick.
+  Proven: a stranger on the port makes `hudshot` exit 2 with the reap line.
+- **A local Postgres for the database halves** (recipe in the laws): warsay's
+  hearth block and profiletest's 78/78 ran on a machine for the first time.
+- **Three instrument fixes**: spectatetest's emitted copy resolves the
+  `@/game` alias (its node half had not loaded since 8.7); touchtest's look-side
+  sweep knows the TAKE pad (it ate 102 points when a drop lay near); bindsync
+  forces its canvas clicks (a fight canvas under shake is never "stable") and
+  closes its browser on failure (it used to hang, twice read as "hung").
+- **The TAKE labels no longer say "the THE GAR".**
+
 ## Landed this session
 
 - **THE BEEP.** `score.ts`'s lyre is a Karplus-Strong string and `damp.Q` was
@@ -301,7 +325,9 @@ not exist this morning.
   staged. `render/summary.ts` is where the next round should point its profile.
   A fixed ~0.3–0.4 s stutter at a scene change, on `medium` and `high`. **Do not read `fpstest`'s `worst` column as a
   player-visible stall**; its p50/p95/p99 agree with an independent measurement
-  and its `worst` is out by an order of magnitude.
+  and its `worst` is out by an order of magnitude. **CLOSED 2 Sep 2026 — see
+  "Immediate next actions" 4 and `docs/PERFORMANCE.md`: it was shader
+  compilation, and the countdown now compiles it.**
 
 ### 2. Carrying a measured blocker — do not restart from zero
 
@@ -322,7 +348,8 @@ counts are marked (was N).
 
 tsc --noEmit · npm run lint (0/0) · npm run build ·
 scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) · **taketest 18/18** (new) ·
-warsay **54/54** (was 52) · wartest 82/82 · protocoltest 81/81 ·
+**standardtest 11/11** (new, 2 Sep) ·
+warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest 82/82 · protocoltest 81/81 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
 goretest **35/35** (was 36) · locktest 6/6 · weightprobe 24/24 ·
@@ -331,11 +358,18 @@ bottest 11/11 (240 bouts a rung, seed 20260813) · cardgate 17/17 ·
 **installseen 12/12** · summaryflow 18/18 ·
 solidtest **16/16 with 1 deferral** (was "12/12") ·
 soundtest 46/46 · playtest **38/38 — BUT SEE THE BROWSER-BINARY LAW BELOW** ·
-touchtest 32/32 (x4 shapes) · clipseen PASS · wearmeasure ·
+touchtest **33/33** (x4 shapes; was 32/32 — the TAKE pad is in its cluster) ·
+**bindsynctest 21/21 with `BRETWALDA_GPU=1 PROFILE_TEST_DB=…`** (first time on a
+workstation: forced canvas clicks, waits for the respawn, declines the tuition
+card) · clipseen PASS · wearmeasure ·
 helmclash (COMPARES ITS OWN BASELINE — exits 1 when a section gets worse) ·
 cosmetictest (see above; software for a verdict) · profiletest 22/0
-(degraded; no DB here by the credentials rule) · classmatrix (~3 min, balance
-only) ·
+(degraded; no DB here by the credentials rule) — **78/78 with `PROFILE_TEST_DB`
+on the local cluster** · classmatrix (~3 min, balance only) ·
+**hitchprobe** (new, 2 Sep; `BRETWALDA_GPU=1`, worst frame after the verdict
+22–36 ms at high and medium; a reading over 100 ms with links in it is the
+handover hitch back) · spectatetest 12/14 (the ledgered count; its node half
+loads again after the `@/game` alias fix in the emitted copy) ·
 **gradesplit --gate PASS** (worst 6.7 dH\* against a bar of 10) ·
 **cosmetictest 18/19 on the GPU — the one FAIL is its byte-identical claim,
 which is the GPU and not the game; the same claim reads 0.0000% in software** ·
@@ -343,8 +377,10 @@ which is the GPU and not the game; the same claim reads 0.0000% in software** ·
 NOT green and not expected to be**; §7.1 has a written defect behind it.
 
 **`BRETWALDA_GPU=1` works on `factionread`, `cosmetictest` and `vatprobe`.**
-The other 32 browser tools still hard-code SwiftShader; routing them through
-`tools/lib/browser.mjs` is a cheap, mechanical, large win.
+~~The other 32 browser tools still hard-code SwiftShader~~ — **DONE 2 Sep 2026:
+every browser tool in the drawer (40 more) now launches through
+`tools/lib/browser.mjs`, so `BRETWALDA_GPU=1` reaches all of them, and every
+tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
@@ -363,8 +399,26 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
   an OLD BUILD with a live room already in it. Fourteen had accumulated in one
   session. The failures read as "the manifest 500s" and "the mode menu never
   opened" and neither had anything to do with the tree. `pkill -f
-  custom-server.mjs` between runs; `installseen` now refuses rather than adopts,
-  and every other tool in the drawer still adopts.
+  custom-server.mjs` between runs — **BUT ONLY WHEN NOTHING IS RUNNING** (see
+  the next law). **Since 2 Sep every tool in the drawer refuses rather than
+  adopts** (`watchBoot` in `tools/lib/browser.mjs`), and that took a fix at the
+  source: **the servers used to log EADDRINUSE and stay alive on their engine
+  tick**, so no exit-based guard — `installseen`'s included — had ever fired.
+  `custom-server.mjs` and `dev-server.mjs` now exit 1 on a listen error, which
+  is also what production wants (die and be restarted, not idle). Proven: a
+  stranger on the port makes `hudshot` exit 2 with the reap command on its
+  second line.
+- **`pkill -f custom-server.mjs` KILLS THE SERVER OF WHATEVER SUITE IS RUNNING.**
+  Broken twice now (a playtest on 1 Sep, a bindsync on 2 Sep — exit 144, a
+  run thrown away). Kill by the PID you started, and reap the drawer only when
+  `ps` shows no suite alive.
+- **The database halves run locally.** `brew install postgresql@16`, then
+  `LC_ALL=C initdb`/`pg_ctl -o "-p 54329 -h 127.0.0.1"` into the scratchpad
+  (the socket path must stay short, and without `LC_ALL=C` the postmaster
+  aborts "became multithreaded during startup"). Then `WAR_TEST_DB=…` for
+  warsay (a bare `DATABASE_URL` trips its no-database claims), `PROFILE_TEST_DB=…`
+  for profiletest and bindsynctest. warsay's whole hearth block had never run
+  on a machine before this.
 - **Never run two heavy things concurrently.** Broken once this session, and
   it produced a red playtest that vanished on a clean re-run. Serialize; re-run
   a red alone before believing it.
@@ -402,11 +456,15 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
    optimisation was reverted rather than shipped, and the recipe is in
    `postfx.ts` beside the pass. It also means the ablation's "no DoF" row
    measures the pass's CONSTRUCTION and not depth of field.
-4. **The replay→tableau hitch** is located to ten frames and three causes are
-   eliminated; point a profile at `render/summary.ts`.
+4. ~~**The replay→tableau hitch**~~ — **CLOSED 2 Sep 2026.** It was shader
+   compilation after all (the earlier ruler timed link *queries*; on Metal the
+   link itself blocks): 18–31 programs recompiling because the tableau's light
+   rig changes every program's light counts. `warm` in `render/summary.ts`
+   compiles them during the round countdown, and `tools/hitchprobe.mjs` reads
+   the handover at **22–36 ms** where it was 268–337. Two dead fixes and the
+   render-target trap are in `docs/PERFORMANCE.md`.
 5. Then A3's helm bowls or flags (splintering shields and the weapon pickup
    shipped 1–2 Sep).
-6. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
-   mechanical and worth a lot of wall clock. While doing it, give them the
-   stale-server refusal `installseen` has — every one of them will currently
-   adopt a stranger's server on its port and measure an old build.
+6. ~~Routing the other 32 browser tools through `tools/lib/browser.mjs`~~ —
+   done 2 Sep, with the refusal, and with the server-side fix that made the
+   refusal possible at all (see the laws).

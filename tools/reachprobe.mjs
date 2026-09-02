@@ -33,8 +33,8 @@
  * to block. The second is what was done here, and the browser phase then ran.
  */
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
 
 const ROOT = process.argv[2];
 const PORT = parseInt(process.argv[3] || "3944", 10);
@@ -52,6 +52,7 @@ const server = spawn("node", ["dev-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "development" },
   stdio: ["ignore", "pipe", "pipe"],
 });
+watchBoot(server, "reachprobe");
 let srvErr = "";
 server.stderr.on("data", (d) => { srvErr += d; });
 
@@ -62,12 +63,10 @@ for (;;) {
   await sleep(700);
 }
 
-const preinstalled = "/opt/pw-browsers/chromium";
 const browser = await chromium.launch({
-  headless: true,
-  ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
-});
+    headless: true,
+    ...launchOptions(),
+  });
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
 const errs = [];
 page.on("pageerror", (e) => errs.push(String(e)));

@@ -153,7 +153,7 @@
 //     is upstream of anything a matrix could measure.
 // ============================================================
 import * as THREE from "three";
-import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser } from "./lib/browser.mjs";
+import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -959,6 +959,7 @@ async function bootServer() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(proc, "factionread");
   const started = Date.now();
   for (;;) {
     try { const r = await fetch(`${origin}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up yet */ }

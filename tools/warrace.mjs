@@ -46,6 +46,7 @@
 // ignore it.
 // ============================================================
 import { spawn, execFileSync } from "child_process";
+import { watchBoot } from "./lib/browser.mjs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chooseServer } from "./lib/freshbuild.mjs";
@@ -95,6 +96,7 @@ async function boot() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: choice.prod ? "production" : "development", DATABASE_URL: DB },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "warrace");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   const started = Date.now();

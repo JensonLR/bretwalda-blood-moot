@@ -13,7 +13,7 @@
 // Exits non-zero if any control fails to produce its effect.
 // ============================================================
 import { chromium } from "playwright";
-import { launchOptions, rasteriserNote } from "./lib/browser.mjs";
+import { launchOptions, rasteriserNote, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -661,6 +661,7 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "playtest");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);

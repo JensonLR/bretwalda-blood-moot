@@ -66,6 +66,17 @@ function lanAddresses() {
   return out;
 }
 
+// A PORT THAT IS ALREADY HELD MUST BE FATAL. Without this the process logs the
+// EADDRINUSE and stays alive on its engine tick, listening to nothing — and
+// every harness in tools/ that waits for /api/health then gets its answer from
+// the STRANGER on the port and measures a build nobody has (the `watchBoot`
+// refusal in tools/lib/browser.mjs depends on this exit). In production a
+// server that cannot listen should die and be restarted, not idle.
+server.on("error", (err) => {
+  console.error(`[BRETWALDA] cannot listen on ${hostname}:${port} — ${err && err.code ? err.code : err}`);
+  process.exit(1);
+});
+
 server.listen(port, hostname, () => {
   console.log("");
   console.log("  \x1b[33m⚔  BRETWALDA: BLOOD MOOT — local playtest\x1b[0m");

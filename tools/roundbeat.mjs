@@ -26,8 +26,8 @@
  *   node tools/roundbeat.mjs [--out art/shots]
  */
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { wireMan, dress, driveIntoTheFire } from "./summarymoot.mjs";
@@ -73,16 +73,15 @@ const server = spawn("node", ["custom-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
   stdio: ["ignore", "pipe", "pipe"],
 });
+watchBoot(server, "roundbeat");
 await until(async () => {
   try { const r = await fetch(`http://127.0.0.1:${PORT}/api/health`); return r.ok || r.status === 404; } catch { return false; }
 }, "the server", 180000);
 
-const preinstalled = "/opt/pw-browsers/chromium";
 const browser = await chromium.launch({
-  headless: true,
-  ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
-});
+    headless: true,
+    ...launchOptions(),
+  });
 const ctx = await browser.newContext({
   viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
   userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",

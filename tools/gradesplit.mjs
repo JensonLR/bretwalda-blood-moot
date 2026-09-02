@@ -90,7 +90,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser } from "./lib/browser.mjs";
+import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser, watchBoot } from "./lib/browser.mjs";
 import { surfaceMasks, patchLab } from "./lib/surfacemask.mjs";
 import { loadClient } from "./lib/clientmodule.mjs";
 import { installVirtualClock, FRAME_MS } from "./lib/vclock.mjs";
@@ -173,6 +173,7 @@ const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   stdio: ["ignore", "ignore", "ignore"],
 });
+watchBoot(proc, "gradesplit");
 for (const t0 = Date.now(); ;) {
   try { const r = await fetch(`${origin}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up */ }
   if (Date.now() - t0 > 240000) { console.error("server never came up"); process.exit(2); }

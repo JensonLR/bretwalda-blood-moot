@@ -16,6 +16,7 @@
 // nothing there does. Writes to art/ui/ alongside it.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -74,6 +75,7 @@ async function main() {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "warshot");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   const started = Date.now();
   for (;;) {
@@ -84,10 +86,8 @@ async function main() {
   console.log(`[warshot] server up on ${PORT}${DB ? " with a war database" : " with NO database"}`);
   console.log(`[warshot] photographing: ${choice.note}`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--no-sandbox", "--disable-gpu-sandbox"],
+    ...launchOptions(),
   });
 
   for (const vp of VIEWPORTS) {

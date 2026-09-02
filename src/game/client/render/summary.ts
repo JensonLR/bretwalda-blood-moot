@@ -77,6 +77,12 @@ export interface SummaryHandle {
   canPerform(id: string): boolean;
   /** Tears the stage down so the next match can raise its own. */
   reset(): void;
+  /**
+   * Spend up to `budgetMs` of this frame compiling the scene's materials
+   * against the tableau's own light rig, so the handover links nothing. Call
+   * it every frame of a quiet moment — the countdown, the replay. See `warm`.
+   */
+  warm(renderer: THREE.WebGLRenderer, camera: THREE.Camera, q: QualitySettings, budgetMs: number): void;
 }
 
 interface CastMember {
@@ -463,6 +469,12 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   let reframeClock = REFRAME_EVERY;
   /** Flourishes turned away because the man asking for one is lying dead. */
   let refused = 0;
+  /** The warmer's rig and ledger — see `warm`. */
+  let warmRig: THREE.Group | null = null;
+  const warmed = new Set<string>();
+  let warmLinks = 0;
+  /** A 4x4 target bound only for the length of a compile — see `warm`. */
+  const warmTarget = new THREE.WebGLRenderTarget(4, 4);
 
   /** A copy deep enough that the sim's lobby reset cannot reach into it. */
   const freeze = (p: GamePlayer): GamePlayer => ({
@@ -996,6 +1008,107 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         (window as unknown as Record<string, unknown>).__summaryEmoteRefused = refused;
       }
       return false;
+    },
+
+    /**
+     * THE HANDOVER HITCH, AND WHERE IT ACTUALLY WAS.
+     *
+     * `docs/PERFORMANCE.md` located a fixed 0.2–0.4 s frame at exactly the
+     * replay's last frame — the frame this module stages the tableau — and
+     * ruled out shader compilation on the strength of `getProgramParameter`
+     * costing 14 ms a session. `tools/hitchprobe.mjs` then read the frame
+     * itself: 196–337 ms, ZERO draw time, and 18–31 `linkProgram` calls with
+     * 18–31 first-use programs, in that one frame and no other. It was shader
+     * compilation after all; the earlier ruler had tapped the wrong call.
+     *
+     * The cause is the rig `raiseLights` adds: two spot lights (one casting)
+     * and a point light into a scene that fought with none of those, and
+     * three keys every program on the counts of each light type, so every lit
+     * material in view recompiles the moment the rig goes in.
+     *
+     * AND `compileAsync` DOES NOT HIDE IT. Tried first: the whole scene
+     * compiled against the rig on the replay's first frame, expecting
+     * KHR_parallel_shader_compile to take the links off the frame. Measured:
+     * 34–46 links, 340–840 ms, in that frame — on ANGLE's Metal backend
+     * `linkProgram` itself is the blocking call, so "asynchronous" only moved
+     * the freeze to the moment of the kill.
+     *
+     * So the links are SPREAD instead. Each call compiles objects against the
+     * rig until `budgetMs` of the frame is spent, one object at least, and
+     * remembers what it has done by material and object shape (skinning,
+     * instancing, morphs — the things three keys a program on beyond the
+     * material). The countdown before a round is where the budget is spent:
+     * men idle, nothing moving, three seconds of frames nobody is judging. The
+     * replay finishes whatever arrived during the fight — a dropped weapon, a
+     * splintered board. By the handover the cache already holds every program
+     * the stage needs, and `buildStage` adds the real rig for free.
+     *
+     * The rig used here is the real builder's, on the real tier's shadow
+     * switch, held in a group that is added to the scene only for the length
+     * of one synchronous `compile` call and removed again — three gathers the
+     * scene's own lights plus it, which is exactly the tableau's light state.
+     */
+    warm(renderer, camera, q, budgetMs) {
+      if (!warmRig) {
+        const was = lights;
+        lights = null;
+        raiseLights(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 1), q);
+        warmRig = lights as THREE.Group | null;
+        lights = was;
+        if (!warmRig) return;
+        deps.scene.remove(warmRig);
+      }
+      const rig = warmRig;
+      // The ledger churns — every environment rebake bumps every material's
+      // version — so it is emptied rather than left to grow for the life of
+      // the tab. A miss costs one cache lookup, not a link.
+      if (warmed.size > 8000) warmed.clear();
+      const t0 = performance.now();
+      let did = 0;
+      const pending: THREE.Object3D[] = [];
+      deps.scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!(m.isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine || (o as THREE.Sprite).isSprite)) return;
+        if (!m.visible) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        const shape = `${(m as THREE.SkinnedMesh).isSkinnedMesh ? "s" : ""}${(m as THREE.InstancedMesh).isInstancedMesh ? "i" : ""}${m.geometry?.morphAttributes && Object.keys(m.geometry.morphAttributes).length ? "m" : ""}`;
+        for (const mat of mats) {
+          if (!mat) continue;
+          // Keyed on the material's VERSION as well: the environment map is
+          // handed to materials after the scene is up, and that bumps the
+          // version and changes the program key — a ledger by uuid alone
+          // warmed round one's programs and then skipped the ones the tableau
+          // actually needs (measured: 30 of 30 warmed keys in the cache, and
+          // 17–31 fresh links at the handover regardless).
+          if (!warmed.has(`${mat.uuid}:${mat.version}:${shape}`)) { pending.push(o); return; }
+        }
+      });
+      for (const o of pending) {
+        if (did > 0 && performance.now() - t0 > budgetMs) break;
+        const m = o as THREE.Mesh;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        const shape = `${(m as THREE.SkinnedMesh).isSkinnedMesh ? "s" : ""}${(m as THREE.InstancedMesh).isInstancedMesh ? "i" : ""}${m.geometry?.morphAttributes && Object.keys(m.geometry.morphAttributes).length ? "m" : ""}`;
+        deps.scene.add(rig);
+        const before = renderer.info.programs?.length ?? 0;
+        // INTO A RENDER TARGET, because the post chain draws the scene into
+        // one and three keys every program on the output colour space that
+        // implies (linear into a target, sRGB onto the canvas). Compiled with
+        // nothing bound, the warmer produced a full set of sRGB programs the
+        // composer never asks for — measured as "30 of 30 warmed keys in the
+        // cache, 31 fresh links at the handover regardless".
+        const prevTarget = renderer.getRenderTarget();
+        renderer.setRenderTarget(warmTarget);
+        try { renderer.compile(o, camera, deps.scene); } finally { renderer.setRenderTarget(prevTarget); deps.scene.remove(rig); }
+        warmLinks += (renderer.info.programs?.length ?? 0) - before;
+        for (const mat of mats) if (mat) warmed.add(`${mat.uuid}:${mat.version}:${shape}`);
+        did++;
+      }
+      // A readback for `tools/hitchprobe.mjs`, the same shape of hook the
+      // camera and the replay hang on the window. Nothing in the game reads it.
+      if (typeof window !== "undefined") {
+        const w = window as unknown as Record<string, unknown>;
+        w.__summaryWarm = { warmed: warmed.size, pending: pending.length - did, calls: ((w.__summaryWarm as { calls?: number } | undefined)?.calls ?? 0) + 1, links: warmLinks };
+      }
     },
 
     reset() {

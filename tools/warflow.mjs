@@ -61,6 +61,7 @@
 // harness that fails for want of a fixture teaches a team to ignore it.
 // ============================================================
 import { spawn, execFileSync } from "child_process";
+import { watchBoot } from "./lib/browser.mjs";
 import { register } from "node:module";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -117,6 +118,7 @@ async function boot() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: choice.prod ? "production" : "development", DATABASE_URL: DB },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "warflow");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   const started = Date.now();

@@ -8,6 +8,59 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE REPLAY→TABLEAU HITCH: SHADER COMPILATION, WHICH THE LAST RULER HAD RULED OUT — closed 2 Sep 2026
+
+`docs/PERFORMANCE.md` had the frame located (the replay's last, where the
+tableau is staged) and the cause wrong: "NOT shader compilation —
+`getProgramParameter` 14 ms over the entire session". That call is the one that
+blocks on a link *query*; on ANGLE's Metal backend the blocking call is
+`linkProgram` itself, and the probe never timed it. `tools/hitchprobe.mjs`
+times every GL call class per frame and fingerprints what the worst frame
+linked: **196–337 ms, zero draw time, 18–31 links**, every one a standard
+material with an environment map and shadows — the tableau's light rig (two
+spots, one casting, a point) changing every program's light counts.
+
+**Closed by compiling them earlier**, not by changing the rig: `warm` in
+`render/summary.ts` spends a slice of each countdown frame (and each replay
+frame) compiling the scene against the rig into a scratch render target. Two
+attempts that did not close it are written into PERFORMANCE so they are not
+tried again — `compileAsync` (the link is synchronous on this driver; it moved
+the freeze to the kill) and a warmer with no render target bound (its programs
+were for sRGB output, which the composer never renders in).
+
+Measured after: **22–36 ms** worst frame at the handover, high and medium, no
+links, no frame over 100 ms. Gate: `npm run hitchprobe` on the GPU arm.
+
+---
+
+## NO EXIT-BASED GUARD HAD EVER FIRED: THE SERVERS IDLE ON A HELD PORT — closed 2 Sep 2026
+
+`docs/HANDOVER.md`'s law said `installseen` "refuses rather than adopts" a
+stranger's server, and every other tool "still adopts". The second half was
+true and the first half was not. The refusal watched the spawned child for a
+non-zero exit; a held port makes `server.listen` emit EADDRINUSE, and BOTH
+servers logged it and **stayed alive** — the engine tick keeps the event loop
+up — so the child never exited, `/api/health` answered from the stranger, and
+the guard sat armed on a condition that could not occur. Proven by holding a
+port and running a guarded tool against it: it captured happily off the
+stranger's build.
+
+**Closed at the source.** `custom-server.mjs` and `dev-server.mjs` now attach
+`server.on("error")` and exit 1 — also what production wants, since a server
+that cannot listen should die and be restarted rather than idle. With that,
+`watchBoot` in `tools/lib/browser.mjs` (the one refusal, shared) fires: a
+stranger on the port makes `hudshot` exit 2 with `REAP IT: pkill -f
+custom-server.mjs` on its second line. All 50 spawning tools carry it, and all
+40 remaining browser tools launch through `launchOptions`, so `BRETWALDA_GPU=1`
+reaches the whole drawer.
+
+Two things learned the hard way while proving it, now laws in the handover:
+`pkill -f custom-server.mjs` also kills the server of any suite that is
+running (a bindsync run was lost to it, exit 144), and a suite left half-dead
+by that keeps its browser alive alongside the next one.
+
+---
+
 ## THE MAGENTA WAS ONE SKEWED LINE IN THE GRADE — four entries closed on captures, and the cause was not the one this file named — 1 Sep 2026
 
 Four OPEN entries below are one bug: the Danelaw's shield board rendering

@@ -31,6 +31,7 @@
 // Exit 0 all proven, 1 a claim failed, 2 the fight was never reached.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -340,19 +341,17 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "soundwire");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
+    // Unlike `phonesound`, the autoplay policy IS waived here. That test is
+    // about the unlock path; this one is about which events the game emits,
+    // and a suspended context would make every measurement below a zero for
+    // the wrong reason.
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox",
-      // Unlike `phonesound`, the autoplay policy IS waived here. That test is
-      // about the unlock path; this one is about which events the game emits,
-      // and a suspended context would make every measurement below a zero for
-      // the wrong reason.
-      "--autoplay-policy=no-user-gesture-required"],
+    ...launchOptions(["--autoplay-policy=no-user-gesture-required"]),
   });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await ctx.addInitScript(RECORD);

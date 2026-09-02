@@ -36,8 +36,9 @@
 // so and exits 0 without it, the same contract `warflow` has.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync, mkdtempSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -72,6 +73,7 @@ async function main() {
            NODE_ENV: choice.prod ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "warseen");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   const started = Date.now();
@@ -81,10 +83,8 @@ async function main() {
     await sleep(400);
   }
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--no-sandbox", "--disable-gpu-sandbox"],
+    ...launchOptions(),
   });
   // A phone, because that is where the defect this panel fixes was reported.
   const ctx = await browser.newContext({

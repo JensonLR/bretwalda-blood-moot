@@ -30,8 +30,9 @@
 // and run it again rather than filing the shot it gives you.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { mkdirSync, existsSync, unlinkSync } from "fs";
+import { mkdirSync, unlinkSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { WebSocket } from "ws";
@@ -73,6 +74,7 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: choice.prod ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "mustershot");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   const started = Date.now();
   for (;;) {
@@ -82,10 +84,8 @@ async function main() {
   }
   console.log(`[mustershot] server up on ${PORT} — ${choice.note}`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--no-sandbox", "--disable-gpu-sandbox"],
+    ...launchOptions(),
   });
 
   for (const vp of VIEWPORTS) {

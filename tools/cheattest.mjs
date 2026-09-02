@@ -23,6 +23,7 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { WebSocket } from "ws";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,6 +55,7 @@ async function boot(env, label) {
     env: { ...process.env, PORT: String(port), NODE_ENV: "production", DATABASE_URL: env.DATABASE_URL ?? "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "cheattest");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   for (let i = 0; i < 200; i++) {
@@ -454,10 +456,8 @@ async function noDatabaseTest(browser) {
 // ---------------------------------------------------------------- run
 
 (async () => {
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   try {
     if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {

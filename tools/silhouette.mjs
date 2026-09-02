@@ -30,6 +30,7 @@
 // threshold sees it. It is not a change to what the geometry is.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -208,6 +209,7 @@ async function startServer() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "silhouette");
   const started = Date.now();
   for (;;) {
     try { const r = await fetch(`${ORIGIN}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up */ }
@@ -287,9 +289,7 @@ void main() {
 async function main() {
   await startServer();
   const browser = await chromium.launch({
-    ...(existsSync("/opt/pw-browsers/chromium") ? { executablePath: "/opt/pw-browsers/chromium" } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
+    ...launchOptions(),
   });
 
   const roster = await (async () => {

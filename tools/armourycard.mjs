@@ -14,6 +14,7 @@
 // photographs as a tasteful gradient and reads as a design choice.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -89,6 +90,7 @@ async function startServer() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "armourycard");
   server.stdout.on("data", () => {});
   server.stderr.on("data", (d) => process.stderr.write(`[srv] ${d}`));
   await waitForServer(`${BASE()}/api/health`);
@@ -106,11 +108,8 @@ const VIEWPORTS = has("desktop-only")
 
 async function main() {
   await startServer();
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
+    ...launchOptions(),
   });
 
   let bad = 0;

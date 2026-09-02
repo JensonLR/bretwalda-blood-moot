@@ -360,6 +360,51 @@ NEGATIVE draw deltas, which is the same statement twice.
     live round trip to the production server, GET /api/health x12
     p50 58.33 ms   p95 174.96   worst 174.96   (the first includes TLS)
 
+## THE HANDOVER HITCH IS CLOSED, AND IT WAS SHADER COMPILATION AFTER ALL — 2 Sep 2026
+
+**R8 against the section below**, which located the hitch correctly and named
+its cause wrongly. It ruled out shader compilation because `getProgramParameter`
+cost 14 ms a session — but on ANGLE's Metal backend the blocking call is
+`linkProgram` itself, which that probe never timed. `tools/hitchprobe.mjs`
+fights a real blood moot against three AI in the shipped page and records,
+for every frame, wall time, GL draw time, `linkProgram` calls, first-use
+programs and framebuffer binds, then fingerprints what the worst frame linked.
+
+| GPU arm, 640x360 | worst frame after the verdict | where | links in it | draw in it |
+|---|---|---|---|---|
+| high, as shipped (2 runs) | **196 / 337 ms** | +240 (the replay's last frame) | 18 / 31 | 0 ms |
+| medium, as shipped | ~325 ms | +241 | 31 | 0 ms |
+| **high, warmed (2 runs)** | **36 / 22 ms** | +241 | **0** | 0.2 ms |
+| **medium, warmed** | **23 ms** | +241 | **0** | 0.1 ms |
+
+The frame that stages the tableau linked 18–31 programs and drew nothing;
+every one of them a `MeshStandardMaterial` — ground, rock, palisade, mail,
+wool, leather, iron, steel, skin, bone, the rune glow — with `USE_ENVMAP` and
+`USE_SHADOWMAP`. The cause is the tableau's light rig: two spot lights (one
+casting) and a point light into a scene that fought with none of those, and
+three keys every program on the count of each light type, so every lit
+material in view recompiled on the frame the rig went in.
+
+**Two fixes that did not work, so nobody spends them again:**
+
+* `renderer.compileAsync` on the replay's first frame — 34–46 links,
+  340–840 ms, in THAT frame. "Async" moved the freeze to the moment of the
+  kill: on this driver the link is synchronous in `linkProgram`.
+* A per-frame warmer compiled with no render target bound — every program it
+  made was for sRGB output, and the composer draws the scene into a linear
+  target, so the keys never matched: "30 of 30 warmed keys in the cache, 31
+  fresh links at the handover regardless". The key also carries the material's
+  VERSION (the environment rebake bumps it), which a ledger by uuid missed.
+
+**What works** (`warm` in `render/summary.ts`): a budgeted warmer, 6 ms a
+frame during every round's countdown and 3 ms a frame during the match-end
+replay, that compiles the scene's objects one at a time against the real light
+rig (added to the scene for the length of one synchronous `compile` and removed
+again) INTO a scratch render target, and remembers what it has done by material
+uuid, material version and object shape. By the handover the cache holds every
+program the stage needs. The `fpstest` ablation is untouched by this: the
+warmer never runs during a fight.
+
 ## THE MULTI-SECOND STALL IS THE INSTRUMENT — measured, and it is not the game
 
 **R8, against the section below, which was written the same day and is wrong.**

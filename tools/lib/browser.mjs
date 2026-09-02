@@ -156,3 +156,37 @@ export async function confirmRasteriser(page) {
   const software = /swiftshader|llvmpipe|software/i.test(renderer);
   return { renderer, software, asked: useGpu ? "gpu" : "swiftshader", mismatch: useGpu && software };
 }
+
+/**
+ * IT MUST BE OUR OWN SERVER, AND THIS COST AN HOUR — twice.
+ *
+ * Every tool in this drawer picks a port off its own pid and then waits for
+ * /api/health to answer. If a server from an earlier, killed run is still
+ * holding that port, the spawn fails with EADDRINUSE — and the health check
+ * answers anyway, from the STRANGER. The tool then measures an old build with a
+ * live room already in it, and its failures read as things that have nothing to
+ * do with the tree ("the manifest 500s", "the mode menu never opened"). Fourteen
+ * such strangers were found on one machine on 1 Sep 2026.
+ *
+ * So the child is required to be alive. Call this on the spawned server; if it
+ * dies inside the boot window the run is aborted with the one command that
+ * fixes it, and if it dies later the run is aborted for the honest reason — a
+ * server that crashed mid-run has invalidated everything after the crash.
+ * A harness that will silently adopt somebody else's server is a harness that
+ * can report on a build nobody has.
+ */
+export function watchBoot(proc, tag, { bootWindowMs = 60000 } = {}) {
+  const born = Date.now();
+  proc.on("exit", (code, signal) => {
+    if (code === 0 || code === null || signal) return;   // our own kill, or a clean end
+    const early = Date.now() - born < bootWindowMs;
+    if (early) {
+      console.error(`[${tag}] the server exited with code ${code} during boot — its port is almost certainly held by a STALE server, and this run must not adopt it.`);
+      console.error(`[${tag}] REAP IT: pkill -f custom-server.mjs`);
+    } else {
+      console.error(`[${tag}] the server exited with code ${code} MID-RUN — everything after this point is invalid.`);
+    }
+    process.exit(2);
+  });
+  return proc;
+}

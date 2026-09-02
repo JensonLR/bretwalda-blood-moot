@@ -9,6 +9,7 @@
 // .armshot/ (the capture-harness law: a probe that deletes its own pictures
 // argues with numbers while the captures show the wrong scene).
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
@@ -28,6 +29,7 @@ const srv = spawn("node", ["custom-server.mjs"], {
   env: { ...process.env, PORT: String(PORT), NODE_ENV: existsSync(resolve(ROOT, ".next/BUILD_ID")) ? "production" : "development" },
   stdio: "pipe",
 });
+watchBoot(srv, "armshot");
 const up = async () => {
   for (let i = 0; i < 240; i++) {
     try { const r = await fetch(`http://127.0.0.1:${PORT}/`); if (r.ok) return; } catch { /* soon */ }
@@ -38,8 +40,9 @@ const up = async () => {
 
 try {
   await up();
-  const pre = "/opt/pw-browsers/chromium";
-  const browser = await chromium.launch({ ...(existsSync(pre) ? { executablePath: pre } : {}) });
+  const browser = await chromium.launch({
+    ...launchOptions(),
+  });
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   page.setDefaultTimeout(180000);
   await page.goto(`http://127.0.0.1:${PORT}/?quality=low`, { waitUntil: "domcontentloaded" });

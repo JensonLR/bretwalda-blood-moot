@@ -77,7 +77,7 @@
 // CPU-side and viewport-independent, except where explicitly labelled.
 // ============================================================
 import { chromium } from "playwright";
-import { launchOptions, rasteriserNote, useGpu } from "./lib/browser.mjs";
+import { launchOptions, rasteriserNote, useGpu, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -1079,6 +1079,7 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "fpstest");
   server.stderr.on("data", (b) => { const s = String(b); if (/error/i.test(s)) note(`server: ${s.trim().slice(0, 160)}`); });
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 

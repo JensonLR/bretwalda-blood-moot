@@ -57,7 +57,7 @@
 // it just took. The whole-man share is therefore comparable to §7.1's now, and
 // the luminance column is kept beside it for one run's worth of continuity.
 // ============================================================
-import { launchBrowser as launchChromium, rasteriserNote } from "./lib/browser.mjs";
+import { launchBrowser as launchChromium, rasteriserNote, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -115,6 +115,7 @@ const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   stdio: ["ignore", "ignore", "ignore"],
 });
+watchBoot(proc, "vatprobe");
 const t0 = Date.now();
 for (;;) {
   try { const r = await fetch(`${origin}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up */ }

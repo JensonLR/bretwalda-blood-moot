@@ -142,6 +142,7 @@
 // Exits non-zero if any claim fails.
 // ============================================================
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { spawn, spawnSync } from "child_process";
@@ -279,7 +280,14 @@ async function loadCamera() {
   if (existsSync(BUILD)) walk(BUILD);
   for (const f of emitted) {
     const src = readFileSync(f, "utf8");
-    const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
+    const fixed = src
+      .replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c))
+      // `@/game/...` is the app's tsconfig alias (camera.ts reaches boom.mjs and
+      // solidground.mjs through it since 8.7). tsc leaves the specifier alone
+      // and node has no idea what it means, so the emitted copy pointed at a
+      // package called "@/game" and this half of the suite failed to load at
+      // all. Resolve it to the real tree, absolutely.
+      .replace(/(from\s+")@\/game\/([^"]*)(")/g, (m, a, b, c) => a + pathToFileURL(resolve(ROOT, "src/game", b)).href + c);
     if (fixed !== src) writeFileSync(f, fixed);
   }
   const file = emitted.find((f) => f.endsWith("render/camera.js"));
@@ -1037,6 +1045,7 @@ async function phaseMatch() {
   }
   const server = spawn("node", ["--import", SEED_DIE, "custom-server.mjs"],
     { cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" }, stdio: "ignore" });
+  watchBoot(server, "spectatetest");
   let browser;
   try {
     await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
@@ -1051,9 +1060,8 @@ async function phaseMatch() {
     const preinstalled = "/opt/pw-browsers/chromium";
     const usedBinary = existsSync(preinstalled) ? preinstalled : "playwright's own";
     browser = await chromium.launch({
-      ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-      args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
-    });
+    ...launchOptions(),
+  });
     DEFERRALS.push(`§2 ran against the chromium at ${usedBinary}, on SwiftShader through ANGLE.`);
     const ctx = await browser.newContext({ viewport: { width: 800, height: 500 } });
     await ctx.addInitScript(PROBE);

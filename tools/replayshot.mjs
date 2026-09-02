@@ -63,6 +63,7 @@ import { existsSync, mkdirSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { WebSocket } from "ws";
 // The beat's own length, so the observability floor is stated against the thing
 // under test rather than against a number copied into this file.
@@ -612,15 +613,14 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "replayshot");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   say(`  browser: ${browser.version()}   viewport ${VIEW.w}x${VIEW.h}`);
 

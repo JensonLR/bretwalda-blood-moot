@@ -38,6 +38,7 @@
 // Frames land in art/shots/roundbeat/.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
@@ -143,15 +144,14 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "roundbeatshot");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   // 800x500 and not 1280x800: the shutter is the slow part on a software
   // rasteriser and the beat is 2.2 s long, so the frame has to be cheap enough

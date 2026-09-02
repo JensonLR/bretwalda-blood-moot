@@ -20,6 +20,7 @@
 // Exits non-zero if any of it fails.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -383,7 +384,11 @@ function shortestAngle(from, to) {
 }
 
 /** The cluster a touch on the look side is allowed to land on. */
-const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power", "Shove"];
+// "Take up" is the TAKE pad (weapon pickup, 2 Sep 2026): it exists only while
+// a dead man's weapon lies within reach, so it is absent from the empty-ring
+// act and can be present in the lock act — the sweep saw it eat 102 points on
+// the day it was not listed here. A control the player deliberately presses.
+const CLUSTER = ["Slash", "Heavy attack", "Block", "Dodge", "Power", "Shove", "Take up"];
 
 /**
  * Every point on the look side must reach either the canvas — where a drag
@@ -1446,15 +1451,14 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "touchtest");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
 
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
     headless: !HEADED,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   // hasTouch is what the game reads to decide it is on a phone
   // (navigator.maxTouchPoints), and it is also what makes the CSS pixels the

@@ -8,8 +8,9 @@
 // Run: node tools/storeshots.mjs   (writes store/steam/screenshots/*.png)
 // One browser suite at a time — the standing law.
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -32,16 +33,14 @@ const SHOTS = [
 const srv = spawn("node", ["custom-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" }, stdio: "pipe",
 });
+watchBoot(srv, "storeshots");
 for (let i = 0; i < 240; i++) {
   try { const r = await fetch(`http://127.0.0.1:${PORT}/`); if (r.ok) break; } catch { /* soon */ }
   await new Promise((r) => setTimeout(r, 500));
 }
-const pre = "/opt/pw-browsers/chromium";
 const browser = await chromium.launch({
-  ...(existsSync(pre) ? { executablePath: pre } : {}),
-  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-    "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
-});
+    ...launchOptions(),
+  });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 page.setDefaultTimeout(600000);
 let wrote = 0;

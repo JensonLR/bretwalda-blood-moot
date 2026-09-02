@@ -12,6 +12,7 @@
 // Writes to art/ui/ so it can never overwrite the render gallery.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, statSync, readdirSync } from "fs";
 import { resolve, dirname, join } from "path";
@@ -114,6 +115,7 @@ async function startServer() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "uishots");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`${BASE()}/api/health`);
@@ -144,11 +146,8 @@ async function waitForStyles(page) {
 
 async function main() {
   await startServer();
-  const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
+    ...launchOptions(),
   });
 
   for (const vp of VIEWPORTS) {

@@ -21,6 +21,7 @@
 // Exits non-zero on any failure.
 // ============================================================
 import { spawn, spawnSync } from "child_process";
+import { watchBoot } from "./lib/browser.mjs";
 import { existsSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -69,6 +70,7 @@ async function boot(env) {
     env: { ...process.env, PORT: String(port), NODE_ENV: useProd ? "production" : "development", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "profiletest");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer();

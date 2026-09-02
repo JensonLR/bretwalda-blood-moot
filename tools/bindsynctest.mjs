@@ -33,6 +33,7 @@
 // actually told — rather than the row. `holdAndMeasure` is the instrument, and
 // every behavioural claim is made in terms of what came out of it.
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -125,6 +126,7 @@ async function reachFight(page) {
  * both.
  */
 async function holdAndMeasure(page, key, ms = 1200) {
+  await awaitAlive(page);
   await page.evaluate(() => { window.__probe.sent.length = 0; });
   const before = await me(page);
   await page.keyboard.down(key);
@@ -152,7 +154,31 @@ async function holdAndMeasure(page, key, ms = 1200) {
 /** Open the bindings panel from inside the fight. Pointer lock has to go first
  *  — a locked canvas is handed every mouse event in the document, so the KEYS
  *  button is not clickable until the player presses Escape. */
+/**
+ * The testgrounds keep one AI at minimum and he kills a man who stands still
+ * remapping keys; solo respawns every five seconds. Both the panel button (the
+ * deathcam hides the HUD) and a travel measurement need him on his feet, so
+ * every step that touches him waits for that first. Read as 4/8 twice on 2 Sep
+ * 2026 with "74/74 samples carried movement, travelled 0.00 units" — the wire
+ * was right and the man was dead.
+ */
+async function awaitAlive(page, ms = 20000) {
+  await page.waitForFunction(() => {
+    const s = window.__probe?.lastState;
+    const mine = s && Object.values(s.players).find((p) => !String(p.id).startsWith("bot_"));
+    return !!mine && mine.state !== "dead" && mine.health > 0;
+  }, null, { timeout: ms });
+  await page.waitForTimeout(300);
+}
+
 async function openKeysInFight(page) {
+  await awaitAlive(page);
+  // The first-moot tuition card raises itself over the fight after a spell of
+  // training and swallows every click under its backdrop — read as
+  // "locator.click: Timeout" on the Key bindings button, 2 Sep 2026. This
+  // harness is not the moot; it declines.
+  const decline = page.getByText("I know the fight", { exact: false }).first();
+  if (await decline.isVisible().catch(() => false)) { await decline.click(); await page.waitForTimeout(400); }
   await page.evaluate(() => document.exitPointerLock?.());
   await page.waitForTimeout(200);
   await page.getByRole("button", { name: "Key bindings" }).first().click({ timeout: 20000 });
@@ -179,6 +205,8 @@ const me = (page, afterSeq = -1) => page.evaluate(async (seq) => {
   return mine && { x: mine.position.x, z: mine.position.z, seq: window.__probe.states };
 }, afterSeq);
 
+/** Module-level so the failure path can close it: a suite that throws with its browser open never exits, and that read as "hung" twice on 2 Sep 2026. */
+let browser = null;
 async function main() {
   if (!DB) throw new Error("PROFILE_TEST_DB is required — this test is about the database path");
   const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
@@ -187,14 +215,13 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development", DATABASE_URL: DB },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "bindsynctest");
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer();
 
-  const preinstalled = "/opt/pw-browsers/chromium";
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
 
   // ---------------------------------------------------------------- context A
@@ -259,7 +286,11 @@ async function main() {
   await b.goto(`${BASE}/?quality=low`, { waitUntil: "domcontentloaded" });
   await reachFight(b);
   const canvas = b.locator("canvas");
-  await canvas.click({ position: { x: 640, y: 400 } });
+  // `force`: Playwright's actionability wants the element "stable" across two
+  // animation frames, and a fight canvas under screen shake never is — on a
+  // workstation this click timed out at 30 s on both rasterisers and the
+  // suite read 4/8 twice for a reason that was not the game (2 Sep 2026).
+  await canvas.click({ position: { x: 640, y: 400 }, force: true });
   await b.waitForTimeout(400);
 
   const before = await me(b);
@@ -299,7 +330,7 @@ async function main() {
   await bindInPanel(b, "Crouch", "KeyB", 1);
   await b.getByLabel("Close key bindings").click();
   await b.waitForTimeout(250);
-  await canvas.click({ position: { x: 640, y: 400 } });
+  await canvas.click({ position: { x: 640, y: 400 }, force: true });
   await b.waitForTimeout(400);
 
   // THE SECOND KEY. A table read as `bindings[action][0]` passes every check
@@ -326,7 +357,7 @@ async function main() {
   await b.getByLabel("Unbind Y from Forward").click();
   await b.waitForTimeout(250);
   await b.getByLabel("Close key bindings").click();
-  await canvas.click({ position: { x: 640, y: 400 } });
+  await canvas.click({ position: { x: 640, y: 400 }, force: true });
   await b.waitForTimeout(400);
   const dropped = await holdAndMeasure(b, "KeyY");
   check("a key unbound mid-fight stops reaching the server at all",
@@ -504,4 +535,7 @@ async function main() {
 
 main()
   .catch((e) => { console.error("[bindsync] failed:", e); process.exitCode = 1; })
-  .finally(() => { if (server && !server.killed) server.kill("SIGKILL"); });
+  .finally(async () => {
+    if (browser) await browser.close().catch(() => {});
+    if (server && !server.killed) server.kill("SIGKILL");
+  });

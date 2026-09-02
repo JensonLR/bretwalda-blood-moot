@@ -144,7 +144,7 @@
 // Exit codes: 0 all assertions held, 1 an assertion failed, 2 the harness could
 // not measure (transpile failed, server never came up) — never counted as green.
 // ============================================================
-import { launchBrowser as launchChromium, rasteriserNote, useGpu } from "./lib/browser.mjs";
+import { launchBrowser as launchChromium, rasteriserNote, useGpu, watchBoot } from "./lib/browser.mjs";
 import { spawn, spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -1045,6 +1045,7 @@ async function renderPass() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "cosmetictest");
   const started = Date.now();
   for (;;) {
     try { const r = await fetch(`${ORIGIN}/api/health`); if (r.ok || r.status === 404) break; } catch { /* not up */ }

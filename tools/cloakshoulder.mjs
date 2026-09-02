@@ -16,6 +16,7 @@
 // capture-harness law) in art/cloakshoulder/.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
@@ -35,6 +36,7 @@ const srv = spawn("node", ["custom-server.mjs"], {
   env: { ...process.env, PORT: String(PORT), NODE_ENV: existsSync(resolve(ROOT, ".next/BUILD_ID")) ? "production" : "development" },
   stdio: "pipe",
 });
+watchBoot(srv, "cloakshoulder");
 let out = "";
 srv.stdout.on("data", (d) => { out += d; });
 srv.stderr.on("data", (d) => { out += d; });
@@ -55,9 +57,7 @@ const main = async () => {
   // headless shell that is not there.
   const preinstalled = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-      "--disable-gpu-sandbox", "--no-sandbox", "--ignore-gpu-blocklist"],
+    ...launchOptions(),
   });
   // Desktop, because the armoury's preview panel is largest there and the
   // defect is a ~20 px patch: photographing it on a phone crop is

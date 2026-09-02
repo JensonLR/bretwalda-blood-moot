@@ -11,6 +11,7 @@
 // storage worlds), one server, `?quality=low` because this box draws at a
 // crawl and every claim here is about state, not paint fidelity.
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -28,6 +29,7 @@ const srv = spawn("node", ["custom-server.mjs"], {
   env: { ...process.env, PORT: String(PORT), NODE_ENV: existsSync(resolve(ROOT, ".next/BUILD_ID")) ? "production" : "development" },
   stdio: "pipe",
 });
+watchBoot(srv, "benchseen");
 const up = async () => {
   for (let i = 0; i < 240; i++) {
     try { const r = await fetch(`http://127.0.0.1:${PORT}/`); if (r.ok) return; } catch { /* soon */ }
@@ -38,8 +40,9 @@ const up = async () => {
 
 try {
   await up();
-  const pre = "/opt/pw-browsers/chromium";
-  const browser = await chromium.launch({ ...(existsSync(pre) ? { executablePath: pre } : {}) });
+  const browser = await chromium.launch({
+    ...launchOptions(),
+  });
 
   // THE HOST raises a moot against one recruit and starts it.
   const hostCtx = await browser.newContext({ viewport: { width: 800, height: 500 } });

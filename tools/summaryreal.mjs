@@ -31,8 +31,9 @@
 //   team  a 2v2 WAR BAND: the blue side walks into the fire, so the whole red
 //         side stands and the whole blue side lies.
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
@@ -221,12 +222,11 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "summaryreal");
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
-  const preinstalled = "/opt/pw-browsers/chromium";
   browser = await chromium.launch({
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   const only = arg("only", null);
   for (const shot of SHOTS) {

@@ -105,6 +105,7 @@
 
  */
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
@@ -546,11 +547,10 @@ async function main() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "hudspace");
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
-  const pre = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(pre) ? { executablePath: pre } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   let data = null, hits = null;
   let shotsWritten = 0;

@@ -19,8 +19,8 @@
 // Every one of them is fought: wire men walk into the bonfire and an AI does
 // the rest. Nothing here poses anybody.
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
@@ -577,12 +577,11 @@ async function main() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "summaryflow");
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
-  const preinstalled = "/opt/pw-browsers/chromium";
   browser = await chromium.launch({
     headless: true,
-    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
   const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
   // THE DUEL GOES FIRST, and it is a timing test as much as a picture one: the

@@ -56,8 +56,9 @@
 // Exits non-zero if any claim fails.
 // ============================================================
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
@@ -202,6 +203,7 @@ async function startServer() {
     env: { ...process.env, PORT: String(PORT), NODE_ENV: "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "cardgate");
   server.stdout.on("data", (d) => process.env.VERBOSE && process.stdout.write(`[srv] ${d}`));
   server.stderr.on("data", (d) => process.env.VERBOSE && process.stderr.write(`[srv] ${d}`));
   await waitForServer(`${BASE()}/api/health`);
@@ -461,11 +463,9 @@ function sourceScan() {
 
 // ==================================================================== the run
 await startServer();
-const preinstalled = "/opt/pw-browsers/chromium";
 const browser = await chromium.launch({
-  ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
-  args: ["--no-sandbox", "--disable-gpu-sandbox"],
-});
+    ...launchOptions(),
+  });
 
 const VIEWPORTS = [
   { tag: "phone", width: 390, height: 844, touch: true },

@@ -96,6 +96,7 @@
  * green. R3: the person who writes the fix does not get to move the threshold.
  */
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn, spawnSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
@@ -1142,12 +1143,11 @@ async function main() {
       cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    watchBoot(server, "freezetest");
     await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
-    const pre = "/opt/pw-browsers/chromium";
     const browser = await chromium.launch({
-      ...(existsSync(pre) ? { executablePath: pre } : {}),
-      args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
-    });
+    ...launchOptions(),
+  });
     try { result.freeze = await phaseFreeze(browser); }
     finally {
       await browser.close().catch(() => {});

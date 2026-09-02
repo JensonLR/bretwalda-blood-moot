@@ -672,6 +672,8 @@ export default function GameHud({
   // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
   // the nearest drop inside TAKE.range of the local man, named in the shop's
   // own words. Null when there is nothing to offer, which is almost always.
+  /** "THE GAR" is already articled in ARMS_LORE; "DANE AXE" is not. One rule, no "the the". */
+  const takeUp = (name: string) => (/^THE\b/i.test(name) ? name : `THE ${name}`);
   const takeable = (() => {
     const me = playerId ? roomState?.players?.[playerId] : undefined;
     const drops = roomState?.drops;
@@ -1330,7 +1332,7 @@ export default function GameHud({
                 dead man's weapon is within a step. The key is the binding's own. */}
             {!isMobile.current && takeable && (
               <div data-hud="take" className="mt-1 rounded-full border border-emerald-400/50 bg-black/60 px-3 py-0.5 text-[10px] font-bold tracking-[0.2em] text-emerald-200">
-                TAKE UP THE {takeable.name} — {labelForCode(bindingsFor("take")[0] ?? "KeyG")}
+                TAKE UP {takeUp(takeable.name)} — {labelForCode(bindingsFor("take")[0] ?? "KeyG")}
               </div>
             )}
             {typeof localPlayer.shield === "number" && (
@@ -1611,7 +1613,7 @@ export default function GameHud({
           <button
             style={near(124, 268)}
             className="absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition bg-emerald-800/95 active:bg-emerald-600 border-emerald-300/80"
-            aria-label={`Take up the ${takeable.name}`}
+            aria-label={`Take up ${takeUp(takeable.name)}`}
             data-hud="take"
             onTouchStart={(e) => { e.stopPropagation(); setFlag("take", true); }}>
             <Hand size={18} /><span className="text-[9px] font-bold">TAKE</span>

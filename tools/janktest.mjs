@@ -94,6 +94,7 @@
  * declines to rule it says so on the verdict line, `docs/PROCESS.md` R4.
  */
 import { chromium } from "playwright";
+import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
@@ -927,11 +928,10 @@ async function main() {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchBoot(server, "janktest");
   await waitForServer(`http://127.0.0.1:${PORT}/api/health`);
-  const pre = "/opt/pw-browsers/chromium";
   const browser = await chromium.launch({
-    ...(existsSync(pre) ? { executablePath: pre } : {}),
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
+    ...launchOptions(),
   });
 
   try {
