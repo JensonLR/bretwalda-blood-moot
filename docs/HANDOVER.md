@@ -465,33 +465,24 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 - Evidence dirs under `art/` are gitignored per-directory.
 - node BLOCK-BUFFERS to pipes: `stdbuf -oL` into a file or a long run looks hung.
 
-## Immediate next actions
+## Immediate next actions (rewritten 2 Sep 2026, end of session)
 
-1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`.
-2. **Verify every row against the tree before working it.** Five were stale.
-3. **Depth of field is DECIDED and RUNNING** (deathcam + tableau, off in the
-   fight) with the BokehPass repack cut taken — see `docs/PERFORMANCE.md`. What
-   was here: **DEPTH OF FIELD HAD NEVER RENDERED A FRAME.** `BokehPass` has the identical defect the AO pass had —
-   `overrideMaterial` plus a third full draw of the scene — and the fix was
-   written before the caller was looked for. There is no caller: nothing in the
-   tree calls `setDepthOfField`, so `bokeh.enabled` is false for the life of
-   every session. The whole feature exists — a pass, a tier flag, focus that
-   tracks the subject through the follow camera's lag, an aperture and blur API
-   — and nothing switches it on. Either the deathcam and the victory tableau
-   should ask for it, or the pass should stop being built (it allocates a
-   full-resolution RGBA target on every `high` session). **A design call.** The
-   optimisation was reverted rather than shipped, and the recipe is in
-   `postfx.ts` beside the pass. It also means the ablation's "no DoF" row
-   measures the pass's CONSTRUCTION and not depth of field.
-4. ~~**The replay→tableau hitch**~~ — **CLOSED 2 Sep 2026.** It was shader
-   compilation after all (the earlier ruler timed link *queries*; on Metal the
-   link itself blocks): 18–31 programs recompiling because the tableau's light
-   rig changes every program's light counts. `warm` in `render/summary.ts`
-   compiles them during the round countdown, and `tools/hitchprobe.mjs` reads
-   the handover at **22–36 ms** where it was 268–337. Two dead fixes and the
-   render-target trap are in `docs/PERFORMANCE.md`.
-5. Then A3's helm bowls or flags (splintering shields and the weapon pickup
-   shipped 1–2 Sep).
-6. ~~Routing the other 32 browser tools through `tools/lib/browser.mjs`~~ —
-   done 2 Sep, with the refusal, and with the server-side fix that made the
-   refusal possible at all (see the laws).
+1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`, and **verify
+   every row against the tree before working it** — this session found four
+   more stale rows (A3, Wave D, the bloom entry, the mute entry).
+2. **What is genuinely open and NOT owner-bound:**
+   - **A4 — cloaks and every weapon** (BACKLOG). Unblocked by A2's weapon lens
+     on 1 Sep. An art wave: the Gilded War Cloak, the sword's read at the
+     weapon card, the shield's dish. Judge from `npm run shots -- weaponcard`
+     and the cloak cards before touching geometry.
+   - **Wave D's two findings** (draw calls per tier on a real phone, and the
+     per-frame allocation driving GC) — the ablation now ranks, so both are
+     measurable; `tools/fpstest.mjs` at `--secs=60` on the GPU arm.
+   - **The nape-guard flare / beard profile** — measurement-blocked, unchanged.
+   - **`factionread` §7.1's residue** — the leg wraps' lifted value under the
+     fire, owner-ruled mechanisms (OPEN-DEFECTS carries the GPU column).
+3. **Owner-bound:** the Steam app id and store page, firing
+   `.github/workflows/desktop.yml` (a `desktop-v*` tag), the iOS/Android wave,
+   Neon's clock half, the §7.1 mechanisms.
+4. The laws above are the ones this session paid for; the two about `pkill`
+   and `pgrep -f` cost a run each.

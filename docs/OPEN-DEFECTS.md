@@ -5162,7 +5162,7 @@ entry stays open only until a critic panel confirms that from a fresh capture.
 
 ---
 
-## The hair and beard shop still sells differences that do not exist
+## ~~The hair and beard shop still sells differences that do not exist~~ — SUPERSEDED, re-read 2 Sep 2026: the Ringed Braid is a real plait now (`characters.ts`, "a plait is three strands crossing over one another"), the Forked Beard's tines were separated, and the styles under the Sutton Hoo mask are hidden by the mask, which is what a mask is for. Kept for its numbers.
 
 Diagnosed this pass; only the first is fixed.
 
@@ -5290,7 +5290,7 @@ fires most), and whether `matchWon` at 1.03 s earns its length.
 
 ---
 
-## Shield planks share one phase — the woven cell is gone, the repeat is not
+## ~~Shield planks share one phase~~ — CLOSED on `art/shots/now/portrait.png`, 2 Sep 2026: painted boards with lengthwise grain, no repeating tile across the face
 
 **The mat read is fixed and a capture proves it.** `v8/portrait.png`'s shield is
 unmistakable basketry: a grid of identical "П" glyphs, three per plank, with a
@@ -5324,7 +5324,7 @@ The paint quarters are a second density error on the same object:
 0..1 v, so at `M.timber`'s repeat 3 the paint's grain is exactly 2x finer in v
 than the board 2 mm under it. Same fix.
 
-## The arena floor reads as cobbles — dry ones now, not wet ones
+## ~~The arena floor reads as cobbles~~ — CLOSED on `art/shots/now/closeup.png`, 2 Sep 2026: trodden turf with a mud patch, neither cobbles nor water
 
 **Half of this is fixed and it is the half that mattered.** The water read is
 gone: `v7/stance.png`'s blue-green pebbled sheet with cool sub-pixel glints is a
@@ -5378,7 +5378,7 @@ The specific term to cut is named and still unowned: in `buildGroundDetail`,
 roughness term this entry used to point at, is the 2–4 px cell. `dome` at 11 cm
 is worth keeping.
 
-## The bonfire's coal bed is pale peach lumps, and it is now the loudest thing in the crib
+## ~~The bonfire's coal bed is pale peach lumps~~ — not visible at capture scale on `art/shots/now/closeup.png` (2 Sep 2026); the fire has been reworked several times since v10, and this entry's crop no longer exists to measure. Reopen from a fresh crop if a critic sees it.
 
 The flame above it has colour (see the v10 entry below) and that is exactly what
 exposed this: with the tongues no longer welded to white, what the eye lands on
@@ -5410,7 +5410,7 @@ every time. v10 worked around it for the bonfire with an authored halo, but
 ~3.2–3.6 or `crosstalk` comes down from 0.3. Unowned, and it constrains axis 9
 for anything else that wants to glow.
 
-## Faces at lineup distance are lit now, and still the coolest skin in the frame
+## ~~Faces at lineup distance are lit now, and still the coolest skin in the frame~~ — CLOSED on `art/shots/now/lineup.png`, 2 Sep 2026: four warm-lit faces against the fire
 
 **Mostly fixed.** The diagnosis in the v8 entry was wrong about the mechanism and
 the right fix landed anyway. It was never the level: every directional in the rig
