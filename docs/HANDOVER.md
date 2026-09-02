@@ -503,9 +503,13 @@ tool that spawns a server (50) guards it with `watchBoot`.**
      rebuilt in an earlier wave, the sword was never the fault, and the
      shield is dished now. What is left is the fist-as-mitten and the grain's
      wicker read at kit distance (cosmetic).
-   - **Wave D's first finding** (which tier `detectTier` puts a real phone on)
-     — needs a phone. The second (per-frame allocation) was attributed and
-     halved on 2 Sep (`fpstest --phases=alloc`, `rekeyprobe`).
+   - ~~**Wave D's first finding**~~ — answered from the owner's phone
+     screenshot (2 Sep): "Fast" there was the browser's stored choice, and
+     `detectTier` puts a current iPhone on Balanced. The graphics panel now
+     prints what Automatic would pick in the "Your choice" state too, so no
+     device is needed to read it again. The second (per-frame allocation)
+     was attributed and halved on 2 Sep (`fpstest --phases=alloc`,
+     `rekeyprobe`).
    - **The nape-guard flare / beard profile** — measurement-blocked, unchanged.
    - **`factionread` §7.1's residue** — the leg wraps' lifted value under the
      fire, owner-ruled mechanisms (OPEN-DEFECTS carries the GPU column).

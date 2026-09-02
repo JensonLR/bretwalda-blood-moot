@@ -545,7 +545,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
           <div className="mt-0.5 text-[11px] leading-relaxed text-[#a89a7c]">
             {!status ? "Reading this device…"
               : status.pinned ? `Pinned by ?quality=${status.pinned} on the address bar — that beats this control, and clearing it needs the address bar too.`
-              : status.choice !== "auto" ? "Your choice, kept for this browser."
+              : status.choice !== "auto" ? `Your choice, kept for this browser. On its own reckoning this is a ${TIER_WORD[status.detected]} device — Automatic would pick that.`
               : status.measured ? "Automatic, from frame time measured on this device."
               : "Automatic, from what this device reports about itself."}
           </div>
