@@ -139,6 +139,11 @@ not exist this morning.
 - **The cold key on the moor and the camp** (Wave E's unpulled lever): `Mood` `cold`,
   chosen by `grounds.mjs`'s `climate`; one entry in each of the three mood
   tables. Before/after in `art/look/cold-*`.
+- **The rebuild's first asset exists**: the game's head as a real mesh, out
+  of the code by `headMesh` → OBJ → Blender (`tools/blender/`), all four
+  classes exported, the huscarl rendered with subsurface skin. Blender is
+  driven headless in the background (`Blender -b -P`); the MCP add-on takes
+  one client at a time and another session held it.
 - **The fist's thumb crosses the fingers** and the palm block is rounder
   (the owner's "thumb looks wrong"). **The beards are fuller, plumb on the
   throat, thicker-walled and broken at the hem** (three rounds, every seat and

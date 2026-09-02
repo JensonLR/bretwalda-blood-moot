@@ -5065,6 +5065,43 @@ function faceNormalTrue(K: Skull, u: number, v: number, out: THREE.Vector3): THR
  */
 export interface HeadProbe { [k: string]: number }
 
+/**
+ * THE HEAD AS A MESH, for the rebuild (docs/REBUILD-PLAN.md): the same
+ * displacement field every helm, hair and beard is sampled through, walked on
+ * a latitude-longitude grid and returned as positions, normals and quads.
+ * `tools/blender/exporthead.mjs` writes it as OBJ; Blender takes it from
+ * there. Not a render path — nothing in the game calls this.
+ */
+export function headMesh(cls: WarriorClass, seed: number, nu = 96, nv = 64): {
+  positions: number[]; normals: number[]; quads: number[][];
+} {
+  const S = skeleton(BUILD[cls]);
+  const K: Skull = { R: S.headR, F: faceTraits(seed) };
+  const p = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const positions: number[] = [];
+  const normals: number[] = [];
+  for (let j = 0; j <= nv; j++) {
+    const v = (j / nv) * Math.PI - Math.PI / 2;
+    for (let i = 0; i < nu; i++) {
+      const u = (i / nu) * Math.PI * 2;
+      faceSurface(K, dirOf(u, v, d), p);
+      faceNormalTrue(K, u, v, n);
+      positions.push(p.x, p.y, p.z);
+      normals.push(n.x, n.y, n.z);
+    }
+  }
+  const quads: number[][] = [];
+  for (let j = 0; j < nv; j++) {
+    for (let i = 0; i < nu; i++) {
+      const a = j * nu + i, b = j * nu + ((i + 1) % nu);
+      quads.push([a, b, b + nu, a + nu]);
+    }
+  }
+  return { positions, normals, quads };
+}
+
 export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   const S = skeleton(BUILD[cls]);
   const K: Skull = { R: S.headR, F: faceTraits(seed) };

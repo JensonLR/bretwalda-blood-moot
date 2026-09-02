@@ -64,6 +64,25 @@ The same discipline as the code: a capture, a number, a gate.
   run them as a script on export: hair through iron is a boolean).
 - VISUAL-BAR 8+ from regenerated captures, judged by the harsh-critic protocol.
 
+## Step 1 has started: the base head is out of the code — 2 Sep 2026
+
+`headMesh(cls, seed)` in `characters.ts` walks the displacement field every
+helm, hair and beard is sampled through and returns it as a quad mesh;
+`tools/blender/exporthead.mjs` writes it as OBJ (metres, Y up); and
+`tools/blender/head.py`, run in a background Blender, welds the seam, smooths,
+subdivides once, gives it a warm subsurface skin, saves
+`art/blender/bretwalda.blend` and exports `head-<cls>.glb`.
+`tools/blender/render.py` makes the judging frames. All four classes' heads
+are exported (seed 13); the huscarl's is rendered: brow, orbits, nose, lips,
+chin and cheekbones, the code's face as a real mesh. The eyes, ears, mouth
+interior and hair are separate parts in the code and are the next things to
+bring across. Two laws paid for on the way: Blender's OBJ importer turns the
+file's Y-up into Z-up (file +Z, the face, lands on −Y), and a look-at must be
+given the world's up explicitly — three renders were of the occiput before
+that was measured rather than assumed. A background Blender
+(`Blender -b -P script.py`) needs no MCP socket, which matters because the
+add-on serves one client at a time.
+
 ## Driving Blender from here
 
 The Blender MCP bridge only works from a Claude Code session running ON the

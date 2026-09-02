@@ -168,3 +168,6 @@ desktop/src-tauri/gen/
 
 # A Unity/Blender project folder the owner keeps inside this checkout — its own repository, never this one's.
 /BRETWALDA - Blood Moot/
+
+# Blender working files and exports (the rebuild) — binaries stay out of git; the scripts that make them are in tools/blender/.
+art/blender/
