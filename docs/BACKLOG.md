@@ -1273,11 +1273,26 @@ claims per ground, 12/12 with the fort in the list.
 
 ### Wave G — FIGHTS WORTH REPEATING (several waves)
 
-- **Splintering shields.** *NOT STARTED* — `vfx.ts:409` has a splinter
-  *particle*, and that is all. Blocks are already typed on the wire
-  (`blocked` / `blocked_heavy`); a shield that visibly wears and finally bursts
-  turns turtling into a decision and heavies into shield-breakers. All
-  procedural, all inside the existing hit pipeline.
+- **Splintering shields.** ~~*NOT STARTED*~~ **DONE 1 Sep 2026 — the board is
+  a consumable.** `SHIELD` in `engine.mjs` (mirrored in `types.ts`, the mirror
+  gated): a huscarl's board has integrity 100; every turned blow wears it
+  (light 9, heavy 24, the wrong line ×1.5 — the rim, not the boss; nothing
+  under SHIELD WALL); at zero it BURSTS — a `shield_burst` hit follows the blow
+  that broke it, cause then effect like the knockdown, he staggers 1.5× a heavy's
+  worth with both men in hitstop, the rig drops the boards from his arm, and his
+  guard leaks like a haft (`burstGuard` 0.5, the Dane axe's own price) until a
+  fresh spawn or a new round. The Dane axe carries none (`null` on the wire,
+  not zero); so does everyone else. **Seen, not asserted**: three cracks appear
+  across the field at a third, six tenths and 85% gone (`art/shots/shield/`),
+  limewood splinters fly off every block past half, the burst throws the board
+  as debris with a spark off the boss, a crack-split-rattle sound graded 1.98
+  JND clear of a plain block, and a strip under the stamina bar for the man who
+  carries one. Bots behind splinters stop turtling. Measured over a thousand
+  bouts a cell: **classmatrix 6/6 in band**, with its own caveat that only 6.6%
+  of duel damage meets a raised guard under the bot brain, so the *human*
+  ceiling of this decision is unmeasured. `shieldtest` 18/18, protocoltest
+  81/81 (one new published field), soundtest 46/46, fighttest 23/23,
+  wartest 82/82, bottest 11/11, wearmeasure PASS, cosmetictest 16/16 CPU.
 - **Taking a dead man's weapon.** *NOT STARTED* — `grep -rin pickup src/` is
   empty. The corpse persists and the sim knows what he carried. A weapon on the
   ground is a reason to move, and moving is what the shove and the fire already

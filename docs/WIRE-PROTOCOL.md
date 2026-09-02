@@ -292,6 +292,11 @@ The 55, grouped by what a client does with them:
   shoving`.
 - **Swing** `attackPhase (null|windup|contact|recovery), attackPhaseT, swingT,
   swingDuration, swingHeavy, hitstop, shoveTimer`
+- **The board** `shield` — its integrity, `SHIELD.max` (100) down to 0, for a
+  man who carries one (the huscarl, not with the Dane axe); `null` for everyone
+  else. Every turned blow wears it; at 0 it has burst — the rig drops the
+  boards, his guard leaks like a haft, and a `shield_burst` hit follows the
+  blow that did it. Restored only by a fresh spawn or a new round.
 - **Weight** `balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo` —
   the five fields the weight wave added, and every one of them is public
   because a player has to be able to SEE it:
@@ -341,6 +346,7 @@ riposte?, knockback?, window?}`
 | `blocked_heavy` | yes | Guard broken: half reduction (direction-scaled the same way), and the target staggers for 0.6 s. |
 | `parry` | **no** — `damage:0` | Guard raised inside `PARRY_WINDOW`; the *attacker* staggers, and a riposte window opens on him. Carries `window` (seconds). |
 | `shove` | **no** — `damage:0` | Position, not damage. Sets `lastHitBy` so the bonfire pays the shover. |
+| `shield_burst` | **no** — `damage:0` | His board just went. **Always arrives AFTER the `blocked`/`blocked_heavy` that broke it** — cause then effect. He is staggered for `1.5 × STAGGER_DURATION` and both men take a heavy hitstop. |
 | `knockdown` | **no** — `damage:0` | His poise ran out and he is on the ground. `attackerId` is whoever spent the last of it. **Always arrives AFTER the `hit` that caused it** — cause then effect, in the order they left the server. |
 
 The four wounding kinds also carry:

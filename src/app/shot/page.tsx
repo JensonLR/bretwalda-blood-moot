@@ -57,6 +57,12 @@ type Pose = {
   hp?: number;
   /** 0..1 through the attack animation; converted to attackTimer */
   swing?: number;
+  /**
+   * THE BOARD (SHIELD). Its integrity for the photograph — `?shield=0` stages a
+   * burst board, `?shield=40` a cracked one — or undefined for the class's own
+   * default (a whole board on a huscarl with one, null for everyone else).
+   */
+  shield?: number | null;
   /** The killing blow, for staging a dismemberment. Only read when state is "dead". */
   zone?: HitZone;
   heavy?: boolean;
@@ -810,6 +816,11 @@ function makePlayer(p: Pose, isLocal: boolean, revived = false, team: "red" | "b
     velocity: moving ? { x: Math.sin(p.rot) * speed, y: 0, z: Math.cos(p.rot) * speed } : { x: 0, y: 0, z: 0 },
     health: stats.maxHealth * (p.hp ?? 1),
     maxHealth: stats.maxHealth,
+    // The same law `engine.mjs`'s `carriesBoard` keeps: a huscarl has boards,
+    // nobody else does, and the wire says null not zero. A photograph never
+    // stages the Dane axe (arms ride the player, not the appearance), so the
+    // class alone decides here.
+    shield: p.shield !== undefined ? p.shield : (p.cls === "huscarl" ? 100 : null),
     stamina: stats.staminaMax * 0.7,
     maxStamina: stats.staminaMax,
     state: p.state,
@@ -1053,11 +1064,26 @@ export default function ShotPage() {
     const staged = restage(params, base.poses[0]?.ap ?? {});
     if ("error" in staged) return { preset: base, subject: null, subjectError: staged.error };
 
+    // `?shield=` and `?state=` — so a cracked board, a burst one and the guard
+    // it is held in can be photographed rather than asserted (SHIELD).
+    const shieldToken = params.get("shield");
+    const shield = shieldToken === null ? undefined : shieldToken === "null" ? null : parseFloat(shieldToken);
+    if (shield !== undefined && shield !== null && !Number.isFinite(shield)) {
+      return { preset: base, subject: null, subjectError: `unreadable shield "${shieldToken}"` };
+    }
+    const stateToken = params.get("state");
+    const STAGEABLE: PlayerState[] = ["idle", "blocking", "attacking", "walking"];
+    if (stateToken !== null && !STAGEABLE.includes(stateToken as PlayerState)) {
+      return { preset: base, subject: null, subjectError: `unstageable state "${stateToken}"` };
+    }
+
     return {
       preset: {
         ...base,
         poses: base.poses.map((p) => ({
           ...p, cls, rot: Math.PI + (deg * Math.PI) / 180, ap: staged.ap,
+          ...(shield !== undefined ? { shield } : {}),
+          ...(stateToken ? { state: stateToken as PlayerState } : {}),
         })),
       },
       // Off the merged appearance rather than off the query string, so what is

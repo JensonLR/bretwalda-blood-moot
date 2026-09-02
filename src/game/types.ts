@@ -424,6 +424,14 @@ export interface GamePlayer {
    */
   burning?: boolean;
   /**
+   * THE BOARD. Its integrity, `SHIELD.max` down to 0, for a man who carries one;
+   * `null` for everybody else (only the huscarl, and not with the Dane axe).
+   * Every turned blow wears it and at 0 it has BURST — the rig drops the boards,
+   * the guard leaks like a haft-parry, and it comes back only with a fresh
+   * spawn. Public because the whole point is that both men can see it going.
+   */
+  shield?: number | null;
+  /**
    * Seconds of burn left. Pinned at `FIRE.linger` for as long as he is stood in
    * the flames, then counts down to 0 and takes `burning` with it — so
    * `burnTimer / FIRE.linger` is a 1→0 fade the flames and their light can be
@@ -476,6 +484,19 @@ export const FIRE = {
   dpsInside: 22,
   /** Health per second for the tail after. */
   dpsAfter: 4,
+} as const;
+
+/**
+ * The board, mirrored from `engine.mjs`, which is the authority — nothing here
+ * decides anything. The rig reads `max` to place the cracks and the HUD reads
+ * it to scale the strip; `tools/shieldtest.mjs` diffs this copy against the
+ * engine's on every run, so the two cannot drift.
+ */
+export const SHIELD = {
+  max: 100,
+  cost: { light: 9, heavy: 24 },
+  mismatch: 1.5,
+  burstGuard: 0.5,
 } as const;
 
 /**

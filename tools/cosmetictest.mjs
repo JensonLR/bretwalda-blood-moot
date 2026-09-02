@@ -1546,9 +1546,15 @@ mkdirSync(resolve(ROOT, "docs"), { recursive: true });
 // with numbers nobody could reproduce, in a tracked file, as a side effect of
 // asking for a fast iteration loop. The GPU is for iterating; the table is a
 // verdict, and a verdict is a software run.
-if (useGpu) {
-  console.log("[cos] the table was NOT written — a GPU run may not overwrite docs/COSMETICS-SWEEP.md");
-  console.log("[cos] (its bars are multiples of a noise floor this rasteriser cannot hold at zero)");
+// AND NEITHER MAY A `--no-render` RUN. The CPU sections are a subset of the
+// sheet, and the first one after the guard above went in replaced a
+// 31-capture, 19-claim table with "0 rendered captures, 16 of 16" — a partial
+// run quietly overwriting the whole record in a tracked file. Same rule: the
+// fast arms are for iterating, the table is a verdict, and a verdict is the
+// full run in software.
+if (useGpu || !RENDER) {
+  console.log(`[cos] the table was NOT written — a ${useGpu ? "GPU" : "--no-render"} run may not overwrite docs/COSMETICS-SWEEP.md`);
+  console.log(`[cos] (${useGpu ? "its bars are multiples of a noise floor this rasteriser cannot hold at zero" : "the CPU sections are a subset of the sheet, not the sheet"})`);
 } else {
   writeFileSync(resolve(ROOT, "docs/COSMETICS-SWEEP.md"), md);
 }
@@ -1557,6 +1563,6 @@ console.log("\n[cos] ===================================================");
 console.log(`[cos] ${results.filter((r) => r.pass).length}/${results.length} checks passed`);
 console.log(`[cos] ${OPTION_COUNT} options, ${TABLE.pairs.length} adjacent pairs, ${TABLE.companions.length} companion pairings`);
 console.log(`[cos] ${captures} rendered captures, ${wall.toFixed(1)} s wall clock${ALL ? " (--all)" : " (fast default — the gate should use this)"}`);
-console.log(`[cos] table -> ${useGpu ? "NOT WRITTEN (GPU run)" : "docs/COSMETICS-SWEEP.md"}`);
+console.log(`[cos] table -> ${useGpu || !RENDER ? "NOT WRITTEN (partial or GPU run)" : "docs/COSMETICS-SWEEP.md"}`);
 console.log(`[cos] ${failed ? "FAIL" : "PASS"}`);
 process.exit(failed ? 1 : 0);

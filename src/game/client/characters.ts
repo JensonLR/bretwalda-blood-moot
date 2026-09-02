@@ -11847,6 +11847,22 @@ export function buildShield(
   }
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
+  // THE CRACKS (SHIELD). Three splits across the field, hidden until the boards
+  // have taken enough — `poseWarrior` shows them by wear, and the burst drops
+  // the whole group. Separate meshes on purpose: the boards are one merged
+  // geometry per material, and a crack that has to appear later cannot live
+  // inside a merge. Three tiny draws, and only while a board is cracked.
+  const CRACKS: ReadonlyArray<readonly [number, number, number]> = [
+    [0.06, 0.36, 0.55], [-0.14, 0.30, -0.35], [0.20, 0.26, 0.95],
+  ];
+  CRACKS.forEach(([x, len, rot], i) => {
+    const crack = new THREE.Mesh(box(0.006, len, 0.004), leather);
+    crack.position.set(x, 0, zf + crest + 0.016);
+    crack.rotation.z = rot;
+    crack.name = `crack${i}`;
+    crack.visible = false;
+    g.add(crack);
+  });
   return g;
 }
 

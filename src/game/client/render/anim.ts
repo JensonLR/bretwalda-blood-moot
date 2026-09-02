@@ -74,7 +74,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
-import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId } from "../../types";
+import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId, SHIELD } from "../../types";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -4660,6 +4660,13 @@ export function carryGore(rig: WarriorRig, dx: number, dz: number): void {
 // Pose
 // ---------------------------------------------------------------------------
 
+/**
+ * At what wear each crack across the board shows. Three cracks, the first at a
+ * third gone, the last when it is about to burst — so a man can read how much
+ * turtle his foe has left off the shield itself, before the HUD says a word.
+ */
+const CRACK_AT = [0.34, 0.6, 0.85];
+
 export function poseWarrior(
   rig: WarriorRig,
   motion: WarriorMotion,
@@ -4882,9 +4889,26 @@ export function poseWarrior(
   if (motion.wMove > 0.001) gaitLayer(motion, Math.max(spd, 1.4), legLen, dt, motion.wMove, gaitArms);
   motion.land = Math.max(0, motion.land - dt * 7);
 
-  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, !!rig.shield, motion.wAction);
-  if (motion.wBlock > 0.001) blockLayer(!!rig.shield, clamp01(player.blockTimer / 0.22), motion.wBlock);
-  if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), !!rig.shield, smooth(clamp01(motion.actT / 0.06)));
+  // THE BOARD HE HAS, NOT THE BOARD HE WAS BUILT WITH. A burst shield is gone
+  // from his arm — the boards drop, the pose becomes the shieldless guard, and
+  // the wear before that shows as cracks across the field. `null` and
+  // `undefined` both mean "not a thing this man has a number for" — a fabricated
+  // portrait warrior, or a class that carries none — and keep the built rig.
+  const boards = player.shield;
+  const carried = !!rig.shield && !(typeof boards === "number" && boards <= 0);
+  if (rig.shield) {
+    // Gone from his arm once the boards have burst. Not touched when the gore
+    // has already dropped it — that shield is a prop on the ground now.
+    if (!rig.gore.dropped.has(rig.shield)) rig.shield.visible = carried;
+    const wear = typeof boards === "number" ? 1 - boards / SHIELD.max : 0;
+    for (const c of rig.shield.children) {
+      if (!c.name.startsWith("crack")) continue;
+      c.visible = carried && wear > CRACK_AT[Number(c.name.slice(5))];
+    }
+  }
+  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction);
+  if (motion.wBlock > 0.001) blockLayer(carried, clamp01(player.blockTimer / 0.22), motion.wBlock);
+  if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), carried, smooth(clamp01(motion.actT / 0.06)));
 
   // The emote rides on top of idle, walk and guard, and is simply dropped by
   // anything that owns the body — a man who starts a swing mid-flourish is a
@@ -4896,7 +4920,7 @@ export function poseWarrior(
       motion.emoteT += dt;
       const ph = motion.emoteT / EMOTE_SECONDS;
       if (ph >= 1) motion.emote = null;
-      else emoteLayer(motion.emote, ph, !!rig.shield);
+      else emoteLayer(motion.emote, ph, carried);
     }
   }
 

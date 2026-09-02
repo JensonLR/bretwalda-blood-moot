@@ -87,6 +87,8 @@ export type UiSound =
 export const WIRE_HIT_TYPES = [
   "light", "heavy", "blocked", "blocked_heavy",
   "parry", "shove", "knockdown",
+  // The board going. Follows the turned blow's own `hit`; damage 0.
+  "shield_burst",
 ] as const;
 
 export type WireHitType = (typeof WIRE_HIT_TYPES)[number];
@@ -1191,6 +1193,40 @@ class AudioEngine implements AudioHandle {
    *  4. WHOSE IT IS — a blow on the local warrior takes the near bus, ducks the
    *     other seven men, and is never the voice that gets stolen.
    */
+  /**
+   * THE BOARD BURSTING. Not a knock — the shield material above is a board
+   * TURNING a blow, and this is the board failing to. Three things a player
+   * has to hear, in order: the crack (a bright noise snap, high-passed, over in
+   * 40 ms), the boards splitting (two partials that START where a shield knock
+   * lives and fall away as the wood lets go), and the rattle of the pieces
+   * landing (three quick low knocks, each quieter). Then his stagger.
+   * CRITICAL when it is yours: your guard just ended and the mix must say so
+   * over anything else it is playing.
+   */
+  private splinter(e: AudioEvent): void {
+    const s = this.spatial(e); if (!s) return;
+    const ac = this.ac; if (!ac) return;
+    const mine = e.local === true;
+    const out = this.claim(mine ? PRIORITY.CRITICAL : PRIORITY.IMPORTANT, 0.9, mine);
+    if (!out) return;
+    const t = ac.currentTime;
+    const dest = this.sink(out, s);
+    // the crack
+    {
+      const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1800; hp.Q.value = -3;
+      const g = ac.createGain();
+      this.noiseAt(t, 0.05, 1).connect(hp); hp.connect(g); g.connect(dest);
+      envelope(g.gain, t, 0.55, 0.002, 0.04);
+    }
+    // the boards letting go: from a shield's own partials, down and out
+    this.body(dest, t + 0.008, 279, 92, 0.34, 0.006, 0.26, "triangle");
+    this.body(dest, t + 0.012, 186, 61, 0.30, 0.008, 0.34, "triangle");
+    // the pieces landing
+    for (const [dt, a] of [[0.14, 0.16], [0.23, 0.11], [0.31, 0.07]] as const) {
+      this.body(dest, t + dt, 210, 160, a, 0.003, 0.07, "triangle");
+    }
+  }
+
   impact(e: ImpactEvent): void {
     const s = this.spatial(e); if (!s) return;
     const ac = this.ac; if (!ac) return;
@@ -1524,6 +1560,7 @@ class AudioEngine implements AudioHandle {
     }
     if (e.type === "shove") { this.shove({ position: e.position, local: e.local, shield: e.shield === true, phase: "contact" }); return; }
     if (e.type === "knockdown") { this.knockdown({ position: e.position, local: e.local }); return; }
+    if (e.type === "shield_burst") { this.splinter({ position: e.position, local: e.local }); return; }
 
     this.impact({
       position: e.position,

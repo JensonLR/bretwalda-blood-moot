@@ -1305,6 +1305,19 @@ export default function GameHud({
               <div className="h-full bg-gradient-to-r from-cyan-400 to-sky-300 transition-[width] duration-200"
                 style={{ width: `${Math.max(0, (localPlayer.stamina / localPlayer.maxStamina) * 100)}%` }} />
             </div>
+            {/* THE BOARD (SHIELD): only for a man who carries one. Limewood,
+                then scorched, then the garnet of a board about to go — the
+                same three steps the cracks on the shield itself take. */}
+            {typeof localPlayer.shield === "number" && (
+              <div className="w-full h-1 bg-black/70 rounded-md border border-amber-950/70 overflow-hidden" data-hud="board">
+                <div className="h-full transition-[width] duration-200"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, localPlayer.shield))}%`,
+                    background: localPlayer.shield > 50 ? "linear-gradient(90deg,#8a6a3e,#c9a56a)" :
+                      localPlayer.shield > 25 ? "linear-gradient(90deg,#9a5a2a,#d08a3a)" : "linear-gradient(90deg,#7a1e14,#c8402a)",
+                  }} />
+              </div>
+            )}
             {/* THE CHAIN, SAID OUT LOUD — backlog 7.1. The combo multiplier
                 has been real since the engine existed (×1.15 per linked light
                 inside 0.8 s, capped ×1.6) and never drawn, so the fast button

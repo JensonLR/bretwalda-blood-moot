@@ -226,6 +226,9 @@ const PUBLISHED = [
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",
   "burning", "burnTimer", "burnInside",
+  // THE BOARD: its integrity for a man who carries one, null otherwise. Public
+  // because both men have to see it going — see WIRE-PROTOCOL.md §3.
+  "shield",
   "deathZone", "deathDir", "deathHeavy", "deathCause",
 ];
 const PRIVATE = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt", "aiSkill",

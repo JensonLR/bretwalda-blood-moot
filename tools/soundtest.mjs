@@ -1666,6 +1666,7 @@ const WIRE_EXTRA = {
   parry: {},
   shove: {},
   knockdown: {},
+  shield_burst: {},
 };
 
 async function vocabulary(page, rel) {

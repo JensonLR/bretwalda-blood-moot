@@ -2011,6 +2011,18 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
               // shoulder, and the rig is where that fact lives.
               shield: !!attacker?.rig.shield,
             });
+            // THE BOARD, SEEN GOING. Splinters off every block once the boards
+            // are past half — the wear has to be visible on the man and not
+            // only on his own HUD strip — and at the burst, the whole board.
+            // Limewood, not the paint: what flies off a shield is the wood
+            // under the field.
+            const boards = m.targetId ? players[m.targetId]?.shield : undefined;
+            if (m.type === "shield_burst") {
+              stage.vfx.burst({ position: { x: at.x, y: 1.15, z: at.z }, color: 0xa8865a, count: 26, spread: 6, up: 4.5, gravity: 9, kind: "debris" });
+              stage.vfx.burst({ position: { x: at.x, y: 1.2, z: at.z }, color: 0xffe28a, count: 6, spread: 5, up: 4, gravity: 8, kind: "spark" });
+            } else if ((m.type === "blocked" || m.type === "blocked_heavy") && typeof boards === "number" && boards < 66) {
+              stage.vfx.burst({ position: { x: at.x, y: 1.2, z: at.z }, color: 0xa8865a, count: boards < 33 ? 6 : 3, spread: 3.5, up: 2.5, gravity: 8, kind: "debris" });
+            }
           }
         }
       }

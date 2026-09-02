@@ -173,10 +173,11 @@ the picker.
   button on the summary screen — same room, same men, go — converts the exact
   moment of highest intent. If only one thing from this document gets built,
   it should be this.
-- **Splintering shields.** Blocks are already typed on the wire
-  (`blocked` / `blocked_heavy`); a shield that visibly wears and finally
-  bursts turns turtling into a decision and heavies into shield-breakers, all
-  procedural, all within the existing hit pipeline.
+- **Splintering shields.** BUILT, 1 Sep 2026. A huscarl's board wears with
+  every blow it turns and bursts at zero — cracks across the field, splinters
+  off each block, the board thrown from his arm, a haft's guard until he stands
+  again. `docs/BACKLOG.md` Wave G carries the numbers; `tools/shieldtest.mjs`
+  holds the sim half and `art/shots/shield/` the seen half.
 - **Picking up a dead man's weapon.** The corpse persists and the sim knows
   what he carried. A weapon on the ground is a reason to move, and moving is
   what the shove and the fire want you doing anyway.

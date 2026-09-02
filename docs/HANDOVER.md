@@ -164,6 +164,19 @@ not exist this morning.
   the life of every session. The optimisation was **reverted rather than
   shipped**: optimising a pass that never runs is the same mistake as fixing a
   gate that cannot fail. See the board below — it is a design call now.
+- **SPLINTERING SHIELDS — the first gameplay feature of the session, and the
+  owner's first-ranked unstarted row.** A huscarl's board is a consumable now:
+  integrity 100, worn by every turned blow (light 9, heavy 24, wrong line ×1.5,
+  nothing under SHIELD WALL), bursting at zero with a `shield_burst` wire event
+  after the blow that broke it, a 1.5× stagger, the board dropped off the rig,
+  and a haft's guard (×0.5) until he respawns. Cracks at a third, six tenths and
+  85% gone; splinters off every block past half; a graded crack-split-rattle
+  sound; a strip under stamina. Bots stop turtling behind splinters. `SHIELD`
+  lives in `engine.mjs` and is mirrored in `types.ts` with the mirror gated in
+  `shieldtest`. **classmatrix 6/6 in band** — with its standing caveat that the
+  bot brain lets only 6.6% of duel damage meet a raised guard, so what this
+  does to a HUMAN turtle is the thing to watch in play. Everything
+  photographed in `art/shots/shield/`.
 - **The "multi-second stall" was the ruler**, and this file said otherwise
   earlier in the day. Measured without `fpstest` in the way: 18 ms worst frame on
   the phone preset, ~350 ms at tier high, one frame, LOCATED to the
@@ -187,8 +200,6 @@ not exist this morning.
   `bundle_dmg.sh` and the retry works once the stale `rw.*.dmg` is deleted.
 - **`factionread` §7.1's residue.** A fifth of what it was, still red. Start
   from `tools/gradesplit.mjs`, not from a vat.
-- **Splintering shields.** *NOT STARTED, verified* — `vfx.ts` has a splinter
-  particle and nothing else. Blocks are already typed on the wire.
 - **Taking a dead man's weapon.** *NOT STARTED, verified* — `grep -rin pickup
   src/` is empty.
 - **A3: the ten helm bowls and §5's reprice.** *NOT STARTED, and that row is
@@ -291,7 +302,7 @@ have read as a regression to anyone checking against the old number. Corrected
 counts are marked (was N).
 
 tsc --noEmit · npm run lint (0/0) · npm run build ·
-scoretest **19/19** (was 16/16) · platformcheck **6/6** ·
+scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) ·
 warsay **54/54** (was 52) · wartest 82/82 · protocoltest 81/81 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
@@ -373,7 +384,7 @@ The other 32 browser tools still hard-code SwiftShader; routing them through
    measures the pass's CONSTRUCTION and not depth of field.
 4. **The replay→tableau hitch** is located to ten frames and three causes are
    eliminated; point a profile at `render/summary.ts`.
-5. Then splintering shields, then taking a dead man's weapon.
+5. Then taking a dead man's weapon (splintering shields shipped 1 Sep).
 6. Routing the other 32 browser tools through `tools/lib/browser.mjs` is
    mechanical and worth a lot of wall clock. While doing it, give them the
    stale-server refusal `installseen` has — every one of them will currently

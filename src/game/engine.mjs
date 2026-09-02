@@ -656,6 +656,32 @@ const BALANCE = {
   offGuard: 2.0,
 };
 
+// ---- the board ----
+// The owner's list, and FEATURES.md's own words: "a shield that visibly wears
+// and finally bursts turns turtling into a decision and heavies into
+// shield-breakers." A limewood board is a consumable, and the huscarl who
+// stands behind one is spending it every time he raises it.
+//
+// INTEGRITY is the board's poise. Every blow it turns takes some; nothing gives
+// it back until he stands again on a fresh one. At zero it BURSTS: the boards
+// go, he staggers with his arm full of splinters, and his guard is a haft-parry
+// for the rest of his life — the same leak the Dane axe already prices.
+export const SHIELD = {
+  max: 100,
+  // What a turned blow costs the boards. A heavy is an axe driven into limewood
+  // and costs nearly three lights; eleven turned lights or four turned heavies
+  // is a board's life, which is a long turtle and a short one.
+  cost: { light: 9, heavy: 24 },
+  // A blow taken on the wrong line lands on the rim and the edge, not the boss:
+  // the guard is worth less (GUARD.mismatch) AND the board pays more.
+  mismatch: 1.5,
+  // A burst board halves the guard, exactly the Dane axe's haft penalty — the
+  // huscarl without his board is a man holding a sword the wrong way round.
+  burstGuard: 0.5,
+  // SHIELD WALL is "the unbreakable wall" in its own blurb, and it is: while
+  // it stands, the boards take nothing.
+};
+
 // The floor sequence. ONE clock (`downTimer`) and two states read off it, the
 // same shape as the swing's one clock and three phases — a client that can
 // phase a swing can phase this without new machinery.
@@ -1384,6 +1410,17 @@ export function defaultArmsOf(warriorClass) {
   return table ? Object.keys(table)[0] : "sword_board";
 }
 
+/**
+ * Whether this man has boards on his arm at all. Only the huscarl carries one,
+ * and not with the Dane axe (two hands, the board slung). `null` on the wire
+ * for everybody else — a runekeeper with a full shield bar is a lie.
+ */
+export function carriesBoard(player) {
+  return player.warriorClass === "huscarl" && (player.arms || defaultArmsOf("huscarl")) !== "dane_axe";
+}
+/** A fresh board, or none, for the man as he now stands. */
+function reboard(p) { p.shield = carriesBoard(p) ? SHIELD.max : null; }
+
 /** The one resolver. Every weapon-priced read point routes through here;
  *  an unknown or foreign arms id resolves to the class default's empty
  *  delta, so a forged value can only ever give a man his own old weapon. */
@@ -2019,6 +2056,9 @@ export function makeEngine(options = {}) {
       latestInput: null, inputAt: 0,
       health: stats.maxHealth, maxHealth: stats.maxHealth,
       stamina: stats.staminaMax, maxStamina: stats.staminaMax,
+      // The board's integrity (SHIELD), or null for a man who carries none.
+      // Set properly by `reboard` at every spawn, when class and arms are known.
+      shield: null,
       state: "idle", attackDir: "right", blockDir: "right",
       attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
       // The swing, on the wire. `attackTimer` is still the whole stroke's clock;
@@ -3085,6 +3125,7 @@ export function makeEngine(options = {}) {
     p.rotation = Math.atan2(-p.position.x, -p.position.z);
     p.health = p.maxHealth;
     p.stamina = p.maxStamina;
+    reboard(p);
     p.state = "idle";
     p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
     p.deadAt = 0; p.lastHitBy = "";
@@ -3134,6 +3175,9 @@ export function makeEngine(options = {}) {
         // floor — it has no floor at all, only the fraction.
         p.health = Math.min(p.maxHealth, Math.round(p.health + p.maxHealth * BURH_MEND));
         p.stamina = p.maxStamina;
+        // A wave's respite is a new board too: the stand is the fantasy, and a
+        // stand behind splinters from wave two is not one.
+        reboard(p);
       }
     });
     // THE HERE IS SIZED AGAINST THE BURH'S SEATS, NOT AGAINST WHO TURNED UP.
@@ -3359,6 +3403,7 @@ export function makeEngine(options = {}) {
     room.players.forEach((p) => {
       p.health = p.maxHealth;
       p.stamina = p.maxStamina;
+      reboard(p);
       p.state = "idle";
       // NO GRACE ARMED HERE. It used to be, and the timer it set is decremented
       // in exactly one place — `stepRoom` — which `gameTick` skips for any room
@@ -3803,13 +3848,34 @@ export function makeEngine(options = {}) {
         const shieldWall = target.abilityActive && target.warriorClass === "huscarl";
         // The guard's own arms lean (7.7b), clamped: a delta can never make
         // steel free (0.95 is SHIELD WALL's ceiling) nor a guard heal.
+        // THE BOARD (SHIELD). A burst board guards like a haft — the Dane
+        // axe's own penalty, because that is exactly what he is now holding.
+        const board = typeof target.shield === "number";
+        const burst = board && target.shield <= 0;
         const guarded = Math.max(0, Math.min(0.95,
-          blockStats.blockReduction + (armsDeltaOf(target).blockReduction || 0)));
+          blockStats.blockReduction + (armsDeltaOf(target).blockReduction || 0))) * (burst ? SHIELD.burstGuard : 1);
         // THE DIRECTIONAL GUARD (7.7c): the parry above has already had its
         // timing say; what remains is the held guard, and it holds its full
         // worth only against the stroke it faces. See the GUARD constant.
         const matched = target.blockDir === attacker.attackDir;
         const eff = shieldWall ? 0.95 : matched ? guarded : guarded * GUARD.mismatch;
+        // What this blow costs the boards, once it has been turned. Nothing
+        // under SHIELD WALL, nothing on a board already gone, and the wrong
+        // line costs the rim more than the boss.
+        const wearBoards = () => {
+          if (!board || burst || shieldWall || target.state === "dead") return;
+          const cost = (isHeavy ? SHIELD.cost.heavy : SHIELD.cost.light) * (matched ? 1 : SHIELD.mismatch);
+          target.shield = Math.max(0, target.shield - cost);
+          if (target.shield > 0) return;
+          // THE BURST. Cause then effect, in the order they left the server —
+          // the turned blow's own `hit` has gone out already, this follows it,
+          // the same law the knockdown keeps. He staggers longer than a heavy
+          // rocks him: his arm is full of splinters and his guard is gone.
+          target.state = "staggered";
+          target.staggerTimer = Math.max(target.staggerTimer || 0, STAGGER_DURATION * 1.5);
+          applyHitstop(attacker, target, HITSTOP.heavy);
+          broadcast(room, { type: "hit", data: { type: "shield_burst", attackerId: attacker.id, targetId: target.id, damage: 0, hitstop: HITSTOP.heavy } });
+        };
         if (!isRiposte && target.blockTimer > 0 && target.blockTimer < PARRY_WINDOW) {
           attacker.state = "staggered"; attacker.staggerTimer = STAGGER_DURATION * 1.5;
           // THE WINDOW. The parried man is open, to THIS parrier and nobody
@@ -3839,6 +3905,7 @@ export function makeEngine(options = {}) {
           target.stamina -= 10;
           applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff)), "blocked", hitZone, { offGuard, riposte: isRiposte });
         }
+        wearBoards();
         return;
       }
       // A clean heavy rocks him. Applied BEFORE the blow resolves, because
@@ -4701,7 +4768,9 @@ export function makeEngine(options = {}) {
     // committed, and only believe the guard if the man is actually blocking
     // after the message. `guardHabit` is his own — a shield-man and a
     // hand-shy man at one difficulty.
-    if (readable && !bot.isBlocking && !isCommitted(bot) && dist < theirReach * 1.15 &&
+    // A bot behind a burst board does not raise it: the guard is a haft now
+    // and the player has to be able to SEE the turtle stop turtling.
+    if (readable && bot.shield !== 0 && !bot.isBlocking && !isCommitted(bot) && dist < theirReach * 1.15 &&
         Math.random() < (0.22 + bot.aiSkill * 0.3) * (bot.guardHabit ?? 1)) {
       // WHERE the guard goes is a READ now (7.7c), and reading is skill: a
       // jarl answers the stroke he sees, a recruit covers the line he
