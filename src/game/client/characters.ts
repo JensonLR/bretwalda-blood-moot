@@ -1022,6 +1022,13 @@ const FACTION: Readonly<Record<PeopleId, FactionLivery>> = {
       // untouched. The pale shin band is still the palest thing on him and
       // still the only one of the four with it, because the band's floor is
       // 0.52 and his cloth's ceiling is 0.54.
+      // TRIED AND REVERTED, 2 Sep 2026: sat 0.34 ("woad the pale band so the
+      // fire cannot warm it onto the red arc"). Measured by factionread §7.1
+      // it was WORSE — 41 of 120 frames over the matched floor against 30,
+      // 7.1b 114 readings against 100 — because the woad lifted chroma on
+      // surfaces the fire then pushed further, and the arc is wide. The lift
+      // itself is the Pict's tell at range and stays; what is left of §7.1 is
+      // the bonfire on any lifted pale, which is a look decision, not a dial.
       wrap:    { sat: 0.12, bias: 1.02, lo: 0.52, hi: 0.74 },
       leather: { sat: 0.46, bias: 0.90, lo: 0.11, hi: 0.36 },
       // Least armour: his metal goes dark and nearly colourless.

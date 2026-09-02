@@ -253,6 +253,17 @@ they did not move. §6 and §7 are the lit sections and are the comparison:
 | 6.1 clip | PASS | PASS — worst livery 2.19% under a 5.67% bar | PASS |
 | 6.0c staged | **FAIL — 3 of 126 wore a different dress** | **PASS — 126 captures, one dress** | PASS |
 
+**2 Sep, late — A NEGATIVE RESULT, so nobody spends it again.** On the owner's
+"just fix it", the Pict wrap's `sat` went 0.12 → 0.34 (the theory: a woaded
+pale band leaves the red arc, a warmed grey does not). `factionread` on the
+GPU arm read it WORSE — 7.1 41/120 frames over the floor against 30, 7.1b 114
+readings against 100, 7.1c 120 lifted against 106 — and it was reverted the
+same hour. The lift to a pale band is the Pict's tell at fight distance (§1)
+and stays. What remains is the bonfire warming any lifted pale surface toward
+the arc: the two honest options are to cut the lift (and lose the tell) or to
+accept the residue as the look. That is the owner's choice, written here so
+it can be made in one line.
+
 **2 Sep, what the residue IS.** The wrap readings carry the answer 7.1c states:
 the sworn wrap is LIGHTER than the unsworn wrap (mean `#886b60` against
 `#583f2f`), and a lighter warm-grey under the bonfire lands in the rose band.

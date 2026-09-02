@@ -1066,7 +1066,7 @@ skip rather than fail.
 
 **WHAT IS LEFT, AND IT IS THE OWNER'S — a runbook, since the specifics are now
 known:**
-1. **Rotate the password.** `npg_mfd8e2OJkSnR` has now been exposed in chat
+1. **Rotate the password.** `[the old password — rotated by the owner on 1 Sep 2026, and never to be reprinted]` has now been exposed in chat
    twice and is still live. Neon console -> the project -> Roles -> reset.
    Everything below uses the new one.
 2. Take the **pooled** string (the one with `-pooler`) as Render's
@@ -1074,6 +1074,10 @@ known:**
    schema work, so only one variable is needed.
 3. `pg_dump` the Render database and `pg_restore` into Neon on the **direct**
    string, not the pooled one — transaction pooling carries no session state.
+   **`tools/neonmove.mjs` does this step (2 Sep 2026):** run it on your own
+   machine with `RENDER_URL` and `NEON_DIRECT_URL` in the environment; it
+   dumps, restores, and compares every table's row count before saying so.
+   The strings never leave your shell.
 4. Delete the Render Postgres once a fight has been played against Neon and a
    profile survives a reload. That is what stops the ninety-day clock.
 

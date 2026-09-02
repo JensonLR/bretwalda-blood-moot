@@ -517,7 +517,10 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    page, the desktop tag, the iOS/Android wave — all wait for the Unity +
    Blender rebuild (owner, 2 Sep). Still the owner's: Neon's clock half, the
    §7.1 mechanisms.
-4. **Filed to the rebuild rather than pushed further here:** a strand-based
+4. **The rebuild has a plan: `docs/REBUILD-PLAN.md`** — Blender first
+   (head, strand hair and beard, hands, helmets, weapons, kit, grounds, in
+   that order, as glTF), then Unity as a renderer over the existing sim.
+   **Filed to the rebuild rather than pushed further here:** a strand-based
    beard (OPEN-DEFECTS, "the owner's phone, 2 Sep"); `helmclash` §5's 66
    pre-existing pelt spills (hair through the hood and the masks — the same
    66 on the tree before the beard rounds, so not a regression).
