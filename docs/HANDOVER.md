@@ -530,6 +530,13 @@ tool that spawns a server (50) guards it with `watchBoot`.**
   playwright install chromium` gets the shell. **On a workstation, run playtest
   with `BRETWALDA_GPU=1`** — that arm asks for `channel: "chromium"`, which is
   the one with pointer lock. Check the binary before you check the diff.
+- **REBUILD BEFORE BELIEVING PLAYTEST.** It starts `custom-server.mjs` on the
+  PRODUCTION bundle whenever `.next/BUILD_ID` exists, and that bundle is
+  whatever `npm run build` last made — on 3 Sep it was a day old, and the
+  suite "passed" the mouse-look fix while running the code before it (the
+  turn's sign in its own PASS line said so: rotation rising on a rightward
+  sweep). `npm run build` first, then `BRETWALDA_GPU=1 npm run playtest`, and
+  read the numbers in the PASS lines, not just the word.
 - **REAP STALE SERVERS BEFORE BELIEVING A BROWSER SUITE.** Every tool here picks
   a port off its own pid and then waits for `/api/health`. If a server from an
   earlier killed run still holds that port, the spawn dies with EADDRINUSE **and
