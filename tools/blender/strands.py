@@ -28,6 +28,8 @@ def strand_mesh(src, kind):
     bm = bmesh.new(); bm.from_mesh(src.data); bm.faces.ensure_lookup_table()
     mw = src.matrix_world; nm = mw.to_3x3().inverted().transposed()
     zlo, zhi = zrange(src); span = max(1e-3, zhi - zlo)
+    ys = [(mw @ v.co).y for v in src.data.vertices]; ylo, yhi = min(ys), max(ys)
+    front_y = ylo + 0.42 * (yhi - ylo)                  # the face is -Y: roots forward of this line are over the brow
     verts, faces, cols = [], [], []
     gravity = Vector((0, 0, -1))
     density = 11000.0 if kind == "beard" else 5200.0     # strands per m² of shell
@@ -58,9 +60,9 @@ def strand_mesh(src, kind):
             # eyes; it is swept back instead, and the fringe is cut short. Beard
             # strands on the cheeks (normals sideways) are kept short so they do
             # not stand out as whiskers.
-            if kind == "hair" and n.y < -0.25:
-                if depth < 0.45 and random.random() < 0.6: continue      # a fringe, thinned
-                tang = (tang + Vector((0, 0.9, 0))).normalized()
+            if kind == "hair" and (p.y < front_y or n.y < -0.25):
+                if random.random() < 0.7: continue                       # a fringe, thinned
+                tang = (tang + Vector((0, 1.3, 0))).normalized()          # swept back over the crown
             if kind == "beard":
                 length = 0.014 + 0.058 * depth ** 1.3 + random.uniform(-0.005, 0.007)
                 if abs(n.x) > 0.6: length *= 0.55
@@ -68,7 +70,7 @@ def strand_mesh(src, kind):
                 w0 = 0.0011
             else:
                 length = 0.025 + 0.045 * depth + random.uniform(-0.006, 0.010)
-                if n.y < -0.25: length *= 0.6
+                if p.y < front_y or n.y < -0.25: length *= 0.5
                 d = (tang * 0.85 + n * 0.06 + Vector((random.uniform(-0.15, 0.15), random.uniform(-0.15, 0.15), 0))).normalized()
                 w0 = 0.0013
             segs = 5; seg = length / segs; pts = [p.copy()]; dirs = [d]
