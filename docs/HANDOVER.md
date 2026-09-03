@@ -595,8 +595,7 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    duel over the real wire with menu, HUD, hit feedback, the real ground
    and the game's dusk. Next in Blender: the strand beard and hair (the
    owner's finding), hands, then helmets as separate glTFs; in Unity: a
-   a strand texture with alpha so ribbons stop reading as ribbons close up;
-   and **cosmetics over the wire** — the snapshot republishes each player's
+   **cosmetics over the wire** — the snapshot republishes each player's
    `appearance` (`{helm, hairStyle, hairColor, beardStyle, beardColor, cloak,
    armorColor, warPaint, weapon}`), but the Unity men ship the class default
    only. Carrying it needs helm/beard/cloak variants as separate props on
@@ -606,8 +605,9 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    variant with the head subtree diffed by material against the bare build,
    written as `helm-<id>.glb` through prop.py, and `WarriorView` hiding the
    baked default by material and attaching the chosen prop. Not started;
-   sized here so the next session does not re-derive it. Sound (in code),
-   the class portraits and the drape chain in the clips are done. Unity compiles
+   sized here so the next session does not re-derive it. Done today in
+   Unity: sound (in code), the class portraits, the drape chain in the
+   clips, the cut-out strand alpha. Unity compiles
    only when the owner's editor has focus — watch `~/Library/Logs/Unity/
    Editor.log` for `error CS`; the shadergraph GUID errors in it are old and
    Unity's own. Original plan text follows. Blender first
