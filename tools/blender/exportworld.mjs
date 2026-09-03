@@ -50,6 +50,13 @@ const cssColor = (c) => {
   m = /^rgba?\(([^)]+)\)$/i.exec(c.trim()); if (m) { const a = m[1].split(",").map(Number); return [a[0] | 0, a[1] | 0, a[2] | 0, Math.round((a[3] ?? 1) * 255)]; }
   return [128, 128, 128, 255];
 };
+// A REAL canvas when @napi-rs/canvas is installed (it is, as a dev
+// dependency): the banners' painted devices are drawn with paths, and only
+// a real 2D context takes those. The byte-buffer stand-in below remains
+// the fallback, and gives plain cloth.
+let napiCanvas = null;
+try { napiCanvas = (await import("@napi-rs/canvas")).createCanvas; } catch { /* stand-in */ }
+if (napiCanvas) globalThis.document ??= { createElement: (tag) => (tag === "canvas" ? napiCanvas(300, 150) : {}) };
 globalThis.document ??= { createElement: (tag) => {
   if (tag !== "canvas") return {};
   const cv = { width: 300, height: 150, data: null, fillStyle: "#000", strokeStyle: "#000" };
@@ -89,7 +96,13 @@ const dumped = new Map();
 const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 const dump = (tex, stem, tint) => {
-  if (!tex || !tex.image || !tex.image.data) return null;
+  if (!tex || !tex.image) return null;
+  // A canvas image (the banner cloth): read its pixels once into the shape a DataTexture has.
+  if (typeof tex.image.getContext === "function") {
+    const cv = tex.image; const ctx = cv.getContext("2d"); const id = ctx.getImageData(0, 0, cv.width, cv.height);
+    tex.image = { width: cv.width, height: cv.height, data: new Uint8Array(id.data.buffer, id.data.byteOffset, id.data.length) };
+  }
+  if (!tex.image.data) return null;
   const key = `${tex.uuid}:${tint ? tint.map((x) => x.toFixed(3)).join(",") : ""}`;
   if (dumped.has(key)) return dumped.get(key);
   const { width: w, height: h } = tex.image; let data = tex.image.data;
