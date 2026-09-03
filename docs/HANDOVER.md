@@ -617,7 +617,9 @@ scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18**
 warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest 82/82 · protocoltest 85/85 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
-goretest **35/35** (was 36) · locktest 6/6 · weightprobe 24/24 ·
+goretest **35/35** (was 36) · locktest **10/10** (was 6/6 — four claims pin the flick's sign) · weightprobe 24/24 ·
+**portraittest 9/9** (new, 4 Sep — the class picker's four men are men and not a missing texture; run it after any change under `art/blender/`) ·
+**palettesync 17/17** (new, 4 Sep — the web and Unity clients wear ONE palette. Run it after touching `globals.css` or `Palette.cs`; it fails on a one-digit drift and names both sides) ·
 fighttest 23/23 · benchtest 23/23 · rejointest 12/12 · armsprobe 16/16 ·
 bottest 11/11 (240 bouts a rung, seed 20260813) · cardgate 17/17 ·
 **installseen 12/12** · summaryflow 18/18 ·
