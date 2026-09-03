@@ -93,6 +93,9 @@ interface GameHudProps {
    * below, which is the same fact as state.
    */
   pointerLocked: React.RefObject<boolean>;
+  /** Put the pointer's lock down, or pick it up. Absent on a caller that has
+   *  no canvas to lock — the card then behaves as it always did. */
+  setPointerLock?: (want: boolean) => void;
   /** Read for button labels; never written — writes go through setFlag. */
   mobileFlags: React.RefObject<MobileFlags>;
   setFlag: (flag: keyof MobileFlags, value: boolean) => void;
@@ -671,7 +674,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe, onMootArm, onMootHold, onMootDone,
+  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, setPointerLock, onMootFoe, onMootArm, onMootHold, onMootDone,
 }: GameHudProps) {
   // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
   // the nearest drop inside TAKE.range of the local man, named in the shop's
@@ -1008,11 +1011,46 @@ export default function GameHud({
     const m = ensureMoot();
     m.open();
     if (mootHeldRef.current) { mootHeldRef.current = false; onMootHoldRef.current?.(false); }
+    // The lock comes back with the fight. He answered the card; he should be
+    // looking about him again on the same press that answered it, not hunting
+    // for the glass to click.
+    setPointerLockRef.current?.(true);
     setMootUp((p) => ({
       ...p, card: null,
       line: m.beat ? (isMobile.current ? m.beat.touch : m.beat.desk) : null,
     }));
   };
+
+  /* THE CARD AND THE POINTER (owner, 3 Sep 2026).
+     Mouse-look holds the pointer. A card is a button on the glass. Holding
+     one while asking for the other is how a man ends up pressing Escape to
+     read a tutorial, and the owner reported exactly that: "having to escape &
+     click multiple times just in tutorial."
+     So a card that comes up puts the pointer down, and SPACE or ENTER answers
+     it without aiming at anything — the same two keys every other card in
+     every other game answers to. The button stays, because a man reaching for
+     the mouse should find it works; it is no longer the only way through.
+     A phone is untouched: there is no lock to hold and the finger is already
+     where the button is. */
+  const setPointerLockRef = useRef(setPointerLock);
+  useEffect(() => { setPointerLockRef.current = setPointerLock; });
+  const cardUp = !!mootUp.card;
+  useEffect(() => {
+    if (!cardUp || isMobile.current) return;
+    setPointerLockRef.current?.(false);
+  }, [cardUp, isMobile]);
+  const openMootRef = useRef(openMoot);
+  useEffect(() => { openMootRef.current = openMoot; });
+  useEffect(() => {
+    if (!cardUp) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " && e.key !== "Enter" && e.key !== "Spacebar") return;
+      e.preventDefault();
+      openMootRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cardUp]);
 
   const slash = useSwingButton("attack", true, setFlag, onCommit);
   const heavy = useSwingButton("heavy", false, setFlag, onCommit);
@@ -1257,6 +1295,12 @@ export default function GameHud({
                 <button onClick={openMoot} data-snd="confirm"
                   className="btn-primary mt-6 w-full !min-h-[3.25rem]">
                   I AM READY
+                  {/* The key is NAMED on the button rather than left to be
+                      discovered. A man who has just been told the pointer is
+                      his head does not guess that space is his hand. */}
+                  {!isMobile.current && (
+                    <span className="ml-2 text-[10px] font-bold tracking-[0.18em] text-black/45">SPACE</span>
+                  )}
                 </button>
                 <button onClick={skipMoot} data-snd="back"
                   className="mt-2 w-full py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d7057] transition hover:text-[#a89a7c]">

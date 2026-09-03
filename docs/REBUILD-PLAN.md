@@ -226,7 +226,9 @@ Drape1…), the hand mounts, and per part either its rigid bone or its
 per-vertex [bone, weight] pairs. `tools/blender/rig.py` builds the
 armature, binds every part by vertex group with those weights, parents
 the mounts to the wrists, dresses the materials, exports a skinned glTF:
-25 joints, ~46 skinned meshes, ~30k triangles a man. `posetest.py` bends
+25 joints, ~46 skinned meshes, ~31k triangles a man BEFORE the strands and
+45k after them (measured on the shipped glTFs: runekeeper 39,638, warden
+45,150, huscarl 45,194, berserker 47,426). `posetest.py` bends
 an elbow, a knee, the spine and the head in a render; the weights hold.
 
 The rigged men rendered white, and that took four experiments to place:
@@ -297,7 +299,9 @@ and mail in place, hides the baked role parts and hangs the chosen prop on
 the Head bone. `WarriorView` dresses once per distinct appearance.
 
 Budget line, honest: each prop embeds its surface maps, so the 64 come to
-about 150 MB in `Models~` and again in StreamingAssets; shared textures
+about 150 MB in `Models~` and again in StreamingAssets — SUPERSEDED the same
+day by the image-stripping below; the props are 42.4 MB of geometry now, and
+what remains large is the strand ribbons, not the maps. Shared textures
 across props (glTF cannot; a Unity-side texture cache could) are the next
 saving if it matters. The owner's console also found the day's one compile
 error (a Transform where a GameObject was wanted) and eight glTFast

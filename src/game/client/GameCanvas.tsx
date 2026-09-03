@@ -277,6 +277,32 @@ interface WarriorSlot {
 export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onMootArm, onMootHold, onMootDone, onClip }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  /**
+   * THE POINTER'S SWITCH, lent to the HUD.
+   *
+   * Mouse-look holds the pointer, which is right in a fight and wrong the
+   * moment the glass asks the player for something. The owner, 3 Sep 2026:
+   * "During tutorial on desktop, users have to click escape to get pointer
+   * back to then click their option to acknowledge & proceed... having to
+   * escape & click multiple times just in tutorial."
+   *
+   * He was right, and the trap is structural: the canvas takes the lock on
+   * mousedown, and the rite's card is a DOM button ABOVE the canvas, so the
+   * cursor that would press it does not exist and the click that would make
+   * one never reaches this listener. Escape was the only way out.
+   *
+   * So the lock is a thing the HUD can put down and pick up. It puts it down
+   * when a card comes up and takes it back when the card goes, and neither
+   * costs the player a press. Only ever called for a real pointer — a phone
+   * has no lock to hold, and asking for one there throws.
+   */
+  const setPointerLock = useCallback((want: boolean) => {
+    const canvas = canvasRef.current;
+    if (!canvas || isMobile.current) return;
+    if (want) { if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.(); }
+    else if (document.pointerLockElement === canvas) document.exitPointerLock?.();
+  }, []);
   const [glError, setGlError] = useState<string | null>(null);
 
   const stageRef = useRef<Stage | null>(null);
@@ -2353,6 +2379,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         glError={glError}
         isMobile={isMobile}
         pointerLocked={pointerLockedRef}
+        setPointerLock={setPointerLock}
         mobileFlags={mobileFlags}
         setFlag={setFlag}
         joyOrigin={touch.origin}

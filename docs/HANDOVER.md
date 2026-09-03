@@ -163,7 +163,8 @@ not exist this morning.
   shader). `MoodLighting` is the dusk rig and cold override of `lighting.ts`
   over π, sky.ts's FogExp2, ACES + bloom through a runtime Volume.
   `HearthFire` stands a particle fire and the rig's hearth light where the
-  bonfire is. Unity repo through `4862015`; SceneBuilder version 10.
+  bonfire is. SceneBuilder version 13 by the end of the day (the version is
+  bumped whenever the scene's wiring changes, or a stale scene is not rebuilt).
 - **Reference frames of the moor, fort, camp and village** were shot off the
   real `/shot` route (a scratch script over `tools/lib/browser.mjs`) and read
   against the Blender renders: geometry and materials match; the darkness
@@ -174,7 +175,8 @@ not exist this morning.
   `tools/blender/exportrig.mjs` calls `createWarriorRig` on a stand-in
   player and writes bones (named by identity) and the game's own weights;
   `rig.py` builds the armature and exports a skinned glTF (25 joints, ~46
-  skinned meshes, ~30k triangles a man); `strands.py` grows on it; `clips.py`
+  skinned meshes, ~31k triangles before strands and ~45k after); `strands.py`
+  grows on it; `clips.py`
   authors nine clips (idle, walk, run, attack, heavy, block, dodge, hit, die)
   in the man's own terms and exports them as glTF animations; Unity's
   `ClipDriver` plays them by fight state. Judged frame by frame in
@@ -499,7 +501,7 @@ counts are marked (was N).
 tsc --noEmit · npm run lint (0/0) · npm run build ·
 scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) · **taketest 18/18** (new) ·
 **standardtest 11/11** (new, 2 Sep) ·
-warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest 82/82 · protocoltest 81/81 ·
+warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest 82/82 · protocoltest 85/85 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
 goretest **35/35** (was 36) · locktest 6/6 · weightprobe 24/24 ·
@@ -620,13 +622,16 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    game's skeleton, strand beards and hair, nine clips driven by fight
    state, weapons on the wrist mounts, and sound made in code. **None of
    today's C# has been seen running** — it compiles (`tools/unitycheck.sh`,
-   17 scripts, 0 errors), but the owner's editor is the only Play there is.
+   21 scripts, 0 errors — plus `npm run unitywire`, 10/10, which reads the
+   Unity client against the engine and fails on any word it waits for that the
+   server never says), but the owner's editor is the only Play there is.
    First thing when it has focus: press Play, TRAIN, and judge — the ground
    under the dusk, the men moving, the sound. Expect tuning, not surprises.
 3. **Open on the men:** cosmetics over the wire are BUILT (64 props,
    `Cosmetics.cs`; REBUILD-PLAN's last section) but unseen; the props' size
-   (~150 MB, textures embedded per prop) is a budget line; the strand count
-   is unbudgeted in a sixteen-man moot; the walk's stride rate and the clip
+   (42.4 MB across the 64, GEOMETRY not textures since the images were
+   stripped — the strand ribbons are what is heavy) is a budget line; the
+   strand count is unbudgeted in a sixteen-man moot; the walk's stride rate and the clip
    speeds are guesses until seen.
 4. **Open on the grounds:** the banners fly plain cloth (the painted devices
    are drawn with canvas paths the byte-buffer stand-in cannot take); the
