@@ -174,11 +174,11 @@ for src, kind in (([(beard, "beard")] if beard else []) + ([(pelt, "hair")] if p
     made.append(ob); print(f"[strands] {kind}: {len(ob.data.polygons)} ribbons off {src.name}")
 if PROP:
     bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=True)
+    bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{CLS}.glb"), use_selection=True, export_format='GLB', export_image_format='NONE', export_apply=True)
     print(f"[strands] prop {CLS}.glb written"); sys.exit(0)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"warrior-{CLS}.blend"))
 root = bpy.data.objects["Warrior_" + CLS]
 bpy.ops.object.select_all(action='DESELECT'); root.select_set(True)
 for o in root.children_recursive: o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=(arm is None), export_skins=True, export_def_bones=False)
+bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_image_format='NONE', export_apply=(arm is None), export_skins=True, export_def_bones=False)
 print(f"[strands] warrior-{CLS}.glb rewritten")

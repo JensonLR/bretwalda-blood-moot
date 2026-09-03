@@ -43,7 +43,15 @@ def attach_textures(parts, tex_dir):
                         bpy.ops.object.mode_set(mode='OBJECT'); o2.select_set(False)
                 nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"]); k = 1.0
             else:
+                # UV repeat is BAKED into the UVs too (not left on a Mapping node):
+                # the glTFs ship no images now, and Unity builds the material from
+                # the shared maps with no texture transform to carry.
                 nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"]); k = float(tinfo.get("repeat") or 1)
+                if abs(k - 1.0) > 1e-6:
+                    for o2 in parts:
+                        if any(sl.material is m for sl in o2.material_slots) and o2.data.uv_layers:
+                            for d in o2.data.uv_layers.active.data: d.uv = (d.uv[0] * k, d.uv[1] * k)
+                k = 1.0
             mapping.inputs["Scale"].default_value = (k, k, k)
             def img(kind, colorspace):
                 path = os.path.join(tex_dir, f"{surface}-{kind}.png")

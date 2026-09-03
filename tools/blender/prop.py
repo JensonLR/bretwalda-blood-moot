@@ -69,5 +69,5 @@ for o in parts:
 attach_textures(parts, os.path.join(D, 'tex'))
 bpy.ops.object.select_all(action='DESELECT'); root.select_set(True)
 for o in parts: o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{STEM}.glb"), use_selection=True, export_format='GLB', export_apply=True)
+bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{STEM}.glb"), use_selection=True, export_format='GLB', export_image_format='NONE', export_apply=True)
 print(f"[prop.py] {STEM}: {len(parts)} parts")

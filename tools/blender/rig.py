@@ -74,5 +74,5 @@ for name, bone in (("HandR", "RightWrist"), ("HandL", "LeftWrist")):
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"warrior-{CLS}.blend"))
 bpy.ops.object.select_all(action='DESELECT'); arm.select_set(True)
 for o in arm.children_recursive: o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=False, export_skins=True, export_def_bones=False)
+bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_image_format='NONE', export_apply=False, export_skins=True, export_def_bones=False)
 print(f"[rig.py] {CLS}: {len(arm_data.bones)} bones, {len(parts)} parts -> warrior-{CLS}.glb")
