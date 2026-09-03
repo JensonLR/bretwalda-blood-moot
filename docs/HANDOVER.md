@@ -581,10 +581,11 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    17 scripts, 0 errors), but the owner's editor is the only Play there is.
    First thing when it has focus: press Play, TRAIN, and judge — the ground
    under the dusk, the men moving, the sound. Expect tuning, not surprises.
-3. **Open on the men:** cosmetics over the wire (sized in "Landed 3 Sep"
-   above — helm/beard/cloak variants as props on the bones; not started);
-   the strand count is unbudgeted in a sixteen-man moot; the walk's stride
-   rate and the clip speeds are guesses until seen.
+3. **Open on the men:** cosmetics over the wire are BUILT (64 props,
+   `Cosmetics.cs`; REBUILD-PLAN's last section) but unseen; the props' size
+   (~150 MB, textures embedded per prop) is a budget line; the strand count
+   is unbudgeted in a sixteen-man moot; the walk's stride rate and the clip
+   speeds are guesses until seen.
 4. **Open on the grounds:** the banners fly plain cloth (the painted devices
    are drawn with canvas paths the byte-buffer stand-in cannot take); the
    bonfire's static flame is hidden under the particle fire.
