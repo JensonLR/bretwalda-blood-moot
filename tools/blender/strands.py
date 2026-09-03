@@ -11,13 +11,27 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"; SEED = int(argv[1]) if len(argv) > 1 else 7
 D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
 random.seed(SEED)
+# PROP MODE: a beard-<cls>-<style> or hair-<cls>-<style> OBJ from
+# exportcosmetics.mjs (a hair-material shell in the head's frame) is
+# imported fresh, grown on, and exported as its own glTF for Unity to hang
+# on the Head bone. No armature, no parent.
+PROP = CLS.startswith(("beard-", "hair-"))
+if PROP:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from blendlib import attach_textures
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.obj_import(filepath=os.path.join(D, f"{CLS}.obj"), forward_axis='NEGATIVE_Z', up_axis='Y')
+    _parts = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    attach_textures(_parts, os.path.join(D, "tex"))
 # Two kinds of file: the pivot build (an Empty named Head with the parts
 # under it) and the rigged build (an armature with a Head bone; the parts
 # are the armature's children, bound by vertex group).
 arm = next((o for o in bpy.data.objects if o.type == 'ARMATURE'), None)
 head = bpy.data.objects.get("Head") if arm is None else arm
+if PROP: head = None
 def is_hair(c): return c.type == 'MESH' and c.material_slots and c.material_slots[0].material and c.material_slots[0].material.name.startswith("hair:")
-if arm is None: hairparts = [c for c in head.children_recursive if is_hair(c)]
+if PROP: hairparts = [o for o in bpy.data.objects if is_hair(o)]
+elif arm is None: hairparts = [c for c in head.children_recursive if is_hair(c)]
 else: hairparts = [c for c in arm.children_recursive if is_hair(c) and any(g.name == "Head" for g in c.vertex_groups)]
 if not hairparts: print("[strands] no hair parts"); sys.exit(0)
 face = bpy.data.objects.get("Warrior_" + CLS)
@@ -25,6 +39,8 @@ face = bpy.data.objects.get("Warrior_" + CLS)
 def zrange(o): return (min((o.matrix_world @ v.co).z for v in o.data.vertices), max((o.matrix_world @ v.co).z for v in o.data.vertices))
 parts = sorted(hairparts, key=lambda o: zrange(o)[1])
 beard = parts[0]; pelt = parts[-1] if len(parts) > 1 else None
+if PROP and CLS.startswith("hair-"): beard, pelt = None, parts[-1]
+if PROP and CLS.startswith("beard-"): pelt = None
 hexcol = beard.material_slots[0].material.name.split(":")[1]
 base = Vector((int(hexcol[0:2], 16), int(hexcol[2:4], 16), int(hexcol[4:6], 16))) / 255.0
 lin = Vector(tuple((c / 12.92) if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in base))
@@ -135,9 +151,10 @@ if "Specular IOR Level" in bsdf.inputs: bsdf.inputs["Specular IOR Level"].defaul
 if "Sheen Weight" in bsdf.inputs: bsdf.inputs["Sheen Weight"].default_value = 0.0
 mat.use_backface_culling = False
 made = []
-for src, kind in ([(beard, "beard")] + ([(pelt, "hair")] if pelt else [])):
+for src, kind in (([(beard, "beard")] if beard else []) + ([(pelt, "hair")] if pelt else [])):
     ob = strand_mesh(src, kind); ob.data.materials.append(mat)
-    ob.parent = head; ob.matrix_parent_inverse = head.matrix_world.inverted()
+    ob.name = f"{kind}__strands"
+    if head is not None: ob.parent = head; ob.matrix_parent_inverse = head.matrix_world.inverted()
     if arm is not None:
         vg = ob.vertex_groups.new(name="Head"); vg.add(list(range(len(ob.data.vertices))), 1.0, 'REPLACE')
         mod = ob.modifiers.new("Armature", 'ARMATURE'); mod.object = arm
@@ -155,6 +172,10 @@ for src, kind in ([(beard, "beard")] + ([(pelt, "hair")] if pelt else [])):
     bpy.context.view_layer.objects.active = src; bpy.ops.object.select_all(action='DESELECT'); src.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT'); bpy.ops.transform.shrink_fatten(value=-0.001); bpy.ops.object.mode_set(mode='OBJECT')
     made.append(ob); print(f"[strands] {kind}: {len(ob.data.polygons)} ribbons off {src.name}")
+if PROP:
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=True)
+    print(f"[strands] prop {CLS}.glb written"); sys.exit(0)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"warrior-{CLS}.blend"))
 root = bpy.data.objects["Warrior_" + CLS]
 bpy.ops.object.select_all(action='DESELECT'); root.select_set(True)

@@ -43,6 +43,23 @@ const parent = new THREE.Group();
 const player = { id: `rig-${SEED}`, name: "Rig", warriorClass: CLS, arms: ARMS[CLS] ?? "sword_board", team: "none", x: 0, z: 0, rotationY: 0, health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, alive: true };
 const rig = createWarriorRig(parent, player, materials, settings);
 const body = rig.body; body.updateMatrixWorld(true);
+// ROLES, by difference. The head's parts carry no names, so what is a helm,
+// a beard or the hair is found by building the same man WITHOUT each and
+// seeing which parts go missing: signature = material, vertex count, size.
+const { defaultAppearance } = await import(pathToFileURL(find("characters.js")).href);
+const sigOf = (o) => { const g = o.geometry; g.computeBoundingBox(); const bb = g.boundingBox; const m = Array.isArray(o.material) ? o.material[0] : o.material; return `${m?.name ?? ""}|${g.getAttribute("position").count}|${[bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map((x) => x.toFixed(3)).join(",")}`; };
+const shown = (o) => { for (let x = o; x; x = x.parent) if (!x.visible) return false; return true; };
+const sigsOf = (r) => { const set = new Set(); r.body.traverse((o) => { if (o.isMesh && shown(o) && o.geometry?.getAttribute("position")) set.add(sigOf(o)); }); return set; };
+const without = (patch) => { const ap = { ...defaultAppearance(CLS), ...patch }; const r = createWarriorRig(new THREE.Group(), { ...player, appearance: ap }, materials, settings); r.body.updateMatrixWorld(true); return sigsOf(r); };
+const bareHelm = without({ helm: "none" }), bareBeard = without({ beardStyle: "none" }), bareHair = without({ hairStyle: "shaved" });
+const roleOf = (o) => {
+  const sig = sigOf(o);
+  if (!bareHelm.has(sig)) return "helm";
+  if (!bareBeard.has(sig)) return "beard";
+  if (!bareHair.has(sig)) return "hair";
+  for (let x = o; x; x = x.parent) if (x === rig.pivots.cloak) return "cloak";
+  return "part";
+};
 // NAMES for the game's anonymous bones and groups, by identity.
 const pv = rig.pivots; const names = new Map();
 const nameIt = (o, n) => { if (o) names.set(o, n); };
@@ -94,8 +111,9 @@ body.traverse((o) => {
   const idx = g.index, count = idx ? idx.count : pos.count, F = [];
   for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base, c = (idx ? idx.getX(i + 1) : i + 1) + base, d = (idx ? idx.getX(i + 2) : i + 2) + base; F.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
   np++; tris += F.length;
-  const oname = `part_${np}`;
-  const part = { obj: oname, material: mname, vertices: pos.count, first: base - 1 };
+  const role = roleOf(o);
+  const oname = `${role}_${np}`;
+  const part = { obj: oname, material: mname, vertices: pos.count, first: base - 1, role };
   if (o.isSkinnedMesh && g.getAttribute("skinIndex")) {
     const si = g.getAttribute("skinIndex"), sw = g.getAttribute("skinWeight"); const boneNames = o.skeleton.bones.map((b) => names.get(b) ?? "Hips");
     const weights = []; for (let i = 0; i < pos.count; i++) { const row = []; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > 0.001) row.push(boneNames[si.getComponent(i, k)], Math.round(w * 1000) / 1000); } weights.push(row); }
@@ -111,4 +129,5 @@ writeFileSync(resolve(ROOT, `art/blender/${stem}.mtl`), ML.join("\n"));
 writeFileSync(resolve(ROOT, `art/blender/${stem}.obj`), [`# Bretwalda warrior ${CLS} with the game's skeleton; metres, Y up, face +Z, rest pose, world space`, `mtllib ${stem}.mtl`, ...v, ...vn, ...vt, ...objects].join("\n") + "\n");
 writeFileSync(resolve(ROOT, `art/blender/${stem}.json`), JSON.stringify({ cls: CLS, bones, hands, parts, headTop: rig.headTop, reach: rig.reach }, null, 0));
 const skinned = parts.filter((x) => x.skin).length;
-console.log(`[exportrig] ${CLS}: ${bones.length} bones, ${parts.length} parts (${skinned} skinned), ${tris} triangles -> art/blender/${stem}.obj/.json`);
+const roles = {}; for (const x of parts) roles[x.role] = (roles[x.role] ?? 0) + 1;
+console.log(`[exportrig] ${CLS}: ${bones.length} bones, ${parts.length} parts (${skinned} skinned), ${tris} triangles, roles ${JSON.stringify(roles)} -> art/blender/${stem}.obj/.json`);
