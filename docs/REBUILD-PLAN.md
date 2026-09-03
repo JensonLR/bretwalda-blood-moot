@@ -176,3 +176,38 @@ In Unity: `GroundView` loads `ground-<arena>.glb` when the join names the
 arena and re-dresses every vertex-tinted mesh in `Bretwalda/Ground`, a URP
 shader that does what `render/world.ts` does per pixel (detail tiled in
 metres, near and wide tap, exposure roll, times the vertex tint).
+
+## Step 2 is in: the strand beard and hair — 3 Sep 2026
+
+The owner's phone photographed the beard as "thin in parts and unnatural"
+and it was: a closed shell in the hair material, cut with a hard edge. It
+could not be fixed in the code because a shell is what the code draws.
+`tools/blender/strands.py` grows hair off that shell in Blender: strands
+root on every face by area (11,000/m² on the beard, 5,200 on the pelt),
+lie along the surface (gravity projected onto the tangent plane, lifted a
+hair off it), fall in clumps that share a sway, and taper over five
+segments from 1.1 mm. The shell stays as an underfur, 1 mm in and
+darkened. The strands' colour rides per vertex — roots shadowed, tips lit
+— off the material's own hex; Unity's `WarriorView` reads that hex off
+the material name because glTFast's material does not read vertex colour.
+
+Five passes, each judged in a 35 mm head render before the next:
+
+1. Quills — 800 strands, 2.8 mm, straight out along the normal, and white.
+   The white was the finding: the data was right (dark brown per vertex),
+   the Principled sheen was turning edge-on ribbons to frost. Sheen off,
+   specular down.
+2. Fibre with stray bristles — four times the density, a third the width,
+   tangent-hugging roots. Better; cheeks bristled sideways.
+3. Cheeks shortened, tips darkened; but pelt strands fell over the eyes.
+4. A normal-keyed sweep-back for the brow. Fixed three men; the
+   runekeeper's crown faces up and still shed strands over the eyes.
+5. Position-keyed: roots forward of the pelt's 42 % line are the fringe —
+   thinned to a third, swept back, half the length.
+
+Judged: the huscarl, warden and berserker read as bearded men at 35 mm;
+the felt shell is gone from all four. Still visible, filed for the next
+pass rather than pretended away: ribbons read as ribbons close up (a
+strand texture with alpha would take that), the moustache is short, and
+the strand count (3,000–5,000 beard, 4,000–6,000 pelt) is a budget line
+Unity has not yet been asked to pay in a sixteen-man moot.
