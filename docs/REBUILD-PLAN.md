@@ -270,3 +270,13 @@ wind under everything. Not yet carried over from audio.ts: the impact
 material table by hit zone, the UI sounds, the mute law and the quality
 budget. Nothing here has been heard — the owner's editor compiles when it
 has focus; the bank is judged by ear the first time Play is pressed.
+
+## The compile check — 3 Sep 2026
+
+`tools/unitycheck.sh` compiles every script under `Assets/Bretwalda` here,
+with Roslyn from the .NET SDK against Unity's own engine and editor
+modules, its netstandard 2.1 reference set and the package assemblies the
+owner's last editor compile left in `Library/ScriptAssemblies`. Seventeen
+scripts, no errors, four warnings, at the end of this day's work. It is
+the only compile available until the owner's editor regains focus, and it
+says nothing about what Play shows.
