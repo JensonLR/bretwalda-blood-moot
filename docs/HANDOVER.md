@@ -125,10 +125,14 @@ not exist this morning.
   swords beneath) or BY HEARTH (every house across the kingdoms, largest
   first, wearing its kingdom's swatch), with a search box and the viewer's
   row and house marked. Unity has the roster too (`RosterPanel`, off the
-  same API, opened from the menu's WHO IS WHO); the tour and the rite have
-  no Unity counterpart yet — the Unity client has no onboarding, the web
-  is where a new arrival learns, and that is the next first-experience gap
-  on the Unity side.
+  same API, from the menu's WHO IS WHO) and THE FIRST MOOT (`FirstMoot.cs`:
+  a first arrival's TRAIN is the rite — empty ring, the foe walked in held,
+  four phases with their cards, `hold_bots` while a card is up, beats read
+  off the snapshot; REPLAY THE FIRST MOOT afterwards). The web's third-act
+  tour has no Unity counterpart because the Unity menu is one screen with
+  nothing below the fold. Gates: moottest 41/41, protocoltest 85/85 (four
+  `hold_bots` claims, solo-only), warsay's three roster claims on a local
+  Postgres, warshot of /factions judged (four columns, free swords carded).
 - **Mouse right turns right (owner's finding, both clients).** The web rig's
   yaw grows toward the man's LEFT (forward is (sin yaw, cos yaw) in a
   right-handed Y-up world), and the mouse path was adding the mouse's

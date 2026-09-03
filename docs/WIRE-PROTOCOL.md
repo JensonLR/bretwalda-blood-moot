@@ -848,6 +848,7 @@ C2S loaded
 C2S set_appearance
 C2S add_bot
 C2S arm_bots
+C2S hold_bots
 C2S remove_bot
 C2S set_bots
 C2S set_rounds

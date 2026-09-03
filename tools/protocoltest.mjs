@@ -980,6 +980,40 @@ const muster = (() => {
   return host;
 })();
 
+console.log("\n-- the rite's pause --");
+{
+  // `hold_bots` (owner, 3 Sep 2026): the First Moot's card physically stops
+  // the foe. Honoured only in a room sealed to other humans.
+  const eng = makeEngine({ autoTick: false });
+  const open = (label) => {
+    const c = { label, byType: new Map() };
+    c.sid = eng.connect((str) => { const m = JSON.parse(str); if (!c.byType.has(m.type)) c.byType.set(m.type, []); c.byType.get(m.type).push(m.data); });
+    c.send = (type, data) => eng.message(c.sid, { type, data: data || {} });
+    c.last = (t) => { const arr = c.byType.get(t) || []; return arr[arr.length - 1]; };
+    return c;
+  };
+  const solo = open("solo");
+  solo.send("solo", { name: "Novice", warriorClass: "huscarl", botCount: 0, autoStart: false });
+  const code = solo.last("join")?.code;
+  solo.send("add_bot", { difficulty: "normal", hold: true });
+  const room = code && eng._rooms.get(code);
+  const bot = () => room && [...room.players.values()].find((p) => p.bot || String(p.id).startsWith("bot_"));
+  check("a solo room's held foe walks in as a pell", !!bot() && bot().holdHand === true, JSON.stringify({ code, bot: bot() && { id: bot().id, holdHand: bot().holdHand } }));
+  solo.send("hold_bots", { hold: false });
+  check("`hold_bots {hold:false}` drops the hold in a solo room", !!bot() && bot().holdHand === false);
+  solo.send("hold_bots", { hold: true });
+  check("`hold_bots {hold:true}` raises it again — the card is up, the foe stands", !!bot() && bot().holdHand === true);
+  const host = open("host");
+  host.send("create", { name: "Alpha", bestOf: 1 });
+  const code2 = host.last("join")?.code;
+  host.send("add_bot", { difficulty: "normal" });
+  host.send("hold_bots", { hold: true });
+  const room2 = code2 && eng._rooms.get(code2);
+  const bot2 = room2 && [...room2.players.values()].find((p) => p.bot || String(p.id).startsWith("bot_"));
+  check("...and is IGNORED in a room that can hold other humans — a hold that could reach a live opponent is a way to freeze him",
+    !!bot2 && !bot2.holdHand, JSON.stringify({ code2, bot2: bot2 && { id: bot2.id, holdHand: bot2.holdHand } }));
+}
+
 console.log("\n-- the document held --");
 {
   const seen = new Set([...a.host.byType.keys(), ...a.guest.byType.keys(), ...muster.byType.keys()]);
