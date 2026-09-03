@@ -133,6 +133,63 @@ which moves the opponent axis the chroma stage expands across.
 `tools/gradesplit.mjs --gate` is the instrument for that question, and it did
 not exist this morning.
 
+## Landed 4 Sep 2026 — the design system, and the two things the screenshot showed
+
+The owner photographed his Unity editor: four magenta faces in the class picker
+and two class names with their first and last letters cut off. Both are closed,
+and the second one corrects an earlier misdiagnosis of mine.
+
+**The magenta.** `attach_textures` loads the maps by absolute path;
+`save_as_mainfile` remaps paths as RELATIVE by default, so a warrior blend
+carries `//tex/skin-map.png` and resolves only while it sits in
+`art/blender/`. Rendered from a copy anywhere else every image misses — and the
+material still lights and shades, so Blender EXITS ZERO and hands back a
+properly-lit pink man. Reproduced deliberately: beside the blend, 0.0% of the
+lit pixels are magenta; from a copy, 44.9%.
+
+The deeper fault was that the four PNGs had **no maker**. Rendered once by hand,
+copied into StreamingAssets, left behind when the blends were fixed.
+`tools/blender/exportportraits.mjs` is the maker now — it renders beside the
+blend and refuses to ship one whose pixels say the textures missed — and
+`tools/portraittest.mjs` is the gate. Proven in both directions before it was
+trusted. The portraits are 512 px now, not 900: the tile is drawn at 100.
+
+**The cut letters.** An earlier pass blamed these on the INVERT MOUSE X toggle
+laid across the class row and moved the toggle. That overlap was real and worth
+fixing, but *it was never what cut the letters*. Four names across 420 px is
+105 px a cell and 18 pt bold writes RUNEKEEPER at about 115; IMGUI clips a
+button's text from both ends rather than shrinking it, which is exactly the
+first-and-last-letter loss in the photograph, and exactly why HUSCARL and WARDEN
+were whole. `FitFont` measures and steps the size down. The menu now also lays
+itself out down ONE RUNNING CURSOR — no band states an absolute offset — so the
+overlap class of bug cannot be written again by arithmetic.
+
+**The design system.** The owner asked for one system across the game at an AAA
+bar. The web client already had one (`docs/SUTTON-HOO.md`, ~90 component
+classes off a stated rhythm); two places did not wear it.
+
+- The seven phone thumb pads were six framework hues belonging to no palette.
+  They are now seven pads over five hue families with **zero new hues**, every
+  one drawn from a family `globals.css` already ships. Their differing hues are
+  WAYFINDING — seven targets pressed without being looked at — so flattening
+  them to one metal would have been prettier and worse. BATTLE FOCUS was purple,
+  a colour this game has nowhere; it wears the gilt of the pad it describes.
+- The Unity client wore none of it. `Palette.cs` carries the colours with the
+  hex each was copied from, `Skin.cs` paints IMGUI out of them, and
+  **`tools/palettesync.mjs` fails the build when the two clients part** — the
+  only reason a second copy of a palette may be trusted at all.
+
+`art/design/` holds the canvas the system answers to (Foundations, Components,
+the menu and the HUD). **The boards describe the game; they do not govern it.**
+If a board and `globals.css` disagree, the stylesheet is right and the board is
+stale.
+
+**STILL THE OWNER'S, and stated plainly:** IMGUI cannot reach those boards — no
+layout engine, no transitions, no letter-spacing, no type of its own. The step
+past it is UI Toolkit, which takes these tokens almost directly and wants
+someone at the keyboard to watch it come up. Nothing in this seat can press
+Play.
+
 ## Landed 3 Sep 2026, the launch pass — what an alpha visitor meets
 
 Measured, not assumed. `docs/PERFORMANCE.md` carries the numbers.
