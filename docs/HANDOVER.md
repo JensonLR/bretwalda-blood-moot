@@ -3,6 +3,32 @@
 Rewritten 1 Sep 2026, on a Mac with a GPU and network. Read this, then
 `docs/BACKLOG.md`, `docs/OPEN-DEFECTS.md`, `docs/ARMOURY-REVIEW-PLAN.md`.
 
+## THE LAUNCH BLOCKER, and it is not in this repository — 3 Sep 2026
+
+The owner is about to promote the game on X.com to bring in alpha testers.
+Measured twice against the deployed game, an hour apart:
+
+| | GET / |
+|---|---|
+| cold | **43.5 s** |
+| warm | 0.29 s |
+
+The host puts an idle instance to sleep and takes the better part of a minute
+to wake it. **Nothing in this repository can shorten that** — the server is not
+running, so there is no code of ours to be faster. A visitor who follows the
+launch post during that window sees a blank tab, leaves, and the instance goes
+back to sleep before the next one arrives. On a slow trickle of traffic, which
+is what a first promotion is, close to every visitor gets the cold path.
+
+THIS IS THE OWNER'S TO FIX and it is a hosting plan, not a code change: an
+instance that does not sleep. `tools/keepwarm.mjs` is the stopgap — one GET
+every ten minutes from any machine that stays on — and it is not a substitute,
+because a laptop that closes is an instance that sleeps.
+
+Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
+itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
+warm first load is 1.66 MB over 23 requests in 5.3 s.
+
 ## Standing instructions (the owner's, every session)
 
 - **AAA quality** (`docs/VISUAL-BAR.md` 8+), harsh-critic discipline. R1 pull
