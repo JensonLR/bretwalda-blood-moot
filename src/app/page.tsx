@@ -1872,7 +1872,22 @@ export default function Page() {
           className={matchResults && !replay?.playing ? "absolute right-3 top-3 z-40" : "z-30"} />
         {roomState?.mode === "solo" && (
           <button
-            onClick={() => { leaveRoom(); setScreen("muster"); }}
+            onClick={() => {
+              // A MAN IN THE RITE LEAVES BY THE RITE'S OWN DOOR. END from a
+              // First Moot room used to drop him on the testgrounds' spar-setup
+              // screen — a configuration form, to a player who has not yet been
+              // told what a moot is — and leave the session flag set behind him.
+              // The rite's exit is the war room, with the third act armed, and
+              // it is the same exit whether he finished or walked out.
+              if (mootSessionRef.current) {
+                mootSessionRef.current = false;
+                tourIsDue(browserStore(TOUR_KEY).save);
+                leaveRoom(); setMatchResults(null);
+                window.location.href = "/factions?oath=first";
+                return;
+              }
+              leaveRoom(); setScreen("muster");
+            }}
             data-snd="back"
             style={railStyle("end", rail, lefty, soloEnd)}
             className="pointer-fine:left-1/2 pointer-fine:right-auto pointer-fine:-translate-x-1/2 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur"

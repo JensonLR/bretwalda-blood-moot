@@ -966,6 +966,10 @@ export default function GameHud({
       // card down, not from here: a hold must end on the player's word.
       const wantHold = !!moot.card && moot.armed && !moot.done;
       if (wantHold && !mootHeldRef.current) { mootHeldRef.current = true; onMootHoldRef.current?.(true); }
+      // ...and the symmetric drop, so a hold cannot outlive the card that took
+      // it by any route — a rite that ends, a round that turns over, a card
+      // dismissed by something other than the button.
+      else if (!wantHold && mootHeldRef.current) { mootHeldRef.current = false; onMootHoldRef.current?.(false); }
       if (!mootDoneSentRef.current && moot.done && mootPrevAtRef.current > 0) {
         mootDoneSentRef.current = true;
         onMootDoneRef.current?.();
@@ -993,10 +997,26 @@ export default function GameHud({
     }, STEP * 1000);
     return () => { clearTimeout(t0); clearInterval(id); if (flashTimer) clearTimeout(flashTimer); };
   }, [mootEligible, ensureMoot, isMobile]);
+  /**
+   * "I know the fight — take me to the war."
+   *
+   * Two things had to be said here and neither was. THE HOLD: a card is up
+   * when this button is pressed, which means `hold_bots {true}` has gone out
+   * and every bot in the room is standing still. Ending the rite without the
+   * release left them frozen for the rest of the session — the man skips the
+   * tutorial and is handed a ring of statues. THE HANDOFF: `onMootDone` is
+   * what sends him to the war room and arms the tour, and the tick that fires
+   * it is guarded on a beat having retired, so a man who skipped on the FIRST
+   * card — the returning player this button exists for — was dropped nowhere
+   * at all, with the rite marked done forever.
+   */
   const skipMoot = useCallback(() => {
     ensureMoot().skip();
+    if (mootHeldRef.current) { mootHeldRef.current = false; onMootHoldRef.current?.(false); }
+    if (!mootDoneSentRef.current) { mootDoneSentRef.current = true; onMootDoneRef.current?.(); }
+    setPointerLock?.(true);
     setMootUp((p) => ({ line: null, at: p.at, total: p.total, card: null }));
-  }, [ensureMoot]);
+  }, [ensureMoot, setPointerLock]);
   /**
    * Take the card down and begin the phase. THE PAUSE POINT ends here.
    *
@@ -1014,7 +1034,7 @@ export default function GameHud({
     // The lock comes back with the fight. He answered the card; he should be
     // looking about him again on the same press that answered it, not hunting
     // for the glass to click.
-    setPointerLockRef.current?.(true);
+    setPointerLock?.(true);
     setMootUp((p) => ({
       ...p, card: null,
       line: m.beat ? (isMobile.current ? m.beat.touch : m.beat.desk) : null,
@@ -1032,13 +1052,11 @@ export default function GameHud({
      the mouse should find it works; it is no longer the only way through.
      A phone is untouched: there is no lock to hold and the finger is already
      where the button is. */
-  const setPointerLockRef = useRef(setPointerLock);
-  useEffect(() => { setPointerLockRef.current = setPointerLock; });
   const cardUp = !!mootUp.card;
   useEffect(() => {
     if (!cardUp || isMobile.current) return;
-    setPointerLockRef.current?.(false);
-  }, [cardUp, isMobile]);
+    setPointerLock?.(false);
+  }, [cardUp, isMobile, setPointerLock]);
   const openMootRef = useRef(openMoot);
   useEffect(() => { openMootRef.current = openMoot; });
   useEffect(() => {

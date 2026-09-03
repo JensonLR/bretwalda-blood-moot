@@ -28,7 +28,7 @@ import { StandardGlyph } from "../StandardGlyph";
 export interface RosterRow {
   name: string;
   people: string;
-  hearth: { id: number; name: string; standard: string | null } | null;
+  hearth: { id: number; name: string; standard: string | null; people?: string } | null;
   points: number;
   matches: number;
   kills: number;
@@ -67,7 +67,11 @@ export default function Roster({ roster, selfName, selfHearthId }: {
     (b.kills + b.wins * 3) - (a.kills + a.wins * 3) || b.points - a.points || a.name.localeCompare(b.name);
   for (const r of rows) {
     if (r.hearth) {
-      const h = houses.get(r.hearth.id) ?? { ...r.hearth, people: r.people, men: [] };
+      // THE HOUSE'S OWN KINGDOM, off `hearths.people`, never off a member's.
+      // A man may re-swear without leaving his hearth, so the first member to
+      // sort is not the house's colour — reading it that way filed a whole
+      // house under a kingdom it does not belong to and stripped its device.
+      const h = houses.get(r.hearth.id) ?? { ...r.hearth, people: r.hearth.people ?? r.people, men: [] };
       h.men.push(r); houses.set(r.hearth.id, h);
     } else {
       const list = free.get(r.people) ?? []; list.push(r); free.set(r.people, list);
@@ -135,7 +139,10 @@ export default function Roster({ roster, selfName, selfHearthId }: {
           </div>
           <input className="roster-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a man or a house…" aria-label="Find a man or a house" />
         </div>
-        <p className="roster-note">{roster.length} sworn · {houses.size} house{houses.size === 1 ? "" : "s"} · kills and wins of all time, and the season&rsquo;s points where any are banked</p>
+        {/* Both halves of this line describe the SAME set. Counting the sworn
+            off the whole roster while counting houses off the search-filtered
+            rows read "40 sworn · 1 house" the moment anybody typed a name. */}
+        <p className="roster-note">{rows.length} sworn · {houses.size} house{houses.size === 1 ? "" : "s"} · kills and wins of all time, and the season&rsquo;s points where any are banked</p>
       </div>
 
       {by === "kingdom" ? (

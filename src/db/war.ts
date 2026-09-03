@@ -939,7 +939,7 @@ export async function warRoll(
 export interface WarRosterRow {
   name: string;
   people: string;
-  hearth: { id: number; name: string; standard: string | null } | null;
+  hearth: { id: number; name: string; standard: string | null; people: string } | null;
   points: number;
   matches: number;
   kills: number;
@@ -964,6 +964,15 @@ export async function warRoster(limit = 400): Promise<WarRosterRow[] | null> {
       hearthId: players.hearthId,
       hearthName: hearths.name,
       hearthStandard: hearths.standard,
+      // THE HOUSE'S OWN KINGDOM, which is not the same as any member's. It is
+      // "the founder's allegiance at founding. Never changes" — and a member's
+      // allegiance CAN change under him, because `swear` rewrites
+      // `players.allegiance` without clearing `hearth_id`. Reading the house's
+      // colour off whichever member happened to sort first filed a house whose
+      // one re-sworn Dane sorted above its Saxons under the wrong kingdom
+      // entirely, took its device with it, and left the Saxon column counting
+      // men it no longer listed.
+      hearthPeople: hearths.people,
       kills: players.kills,
       wins: players.wins,
       matches: players.matches,
@@ -971,14 +980,29 @@ export async function warRoster(limit = 400): Promise<WarRosterRow[] | null> {
       seasonMatches: banked ? sql<number>`coalesce(${banked.matches}, 0)::int` : sql<number>`0`,
     }).from(players)
       .leftJoin(hearths, eq(hearths.id, players.hearthId));
+    // NEVER A BARE INTEGER IN `ORDER BY`. Postgres reads `order by 0` as an
+    // OUTPUT-COLUMN ORDINAL, not a constant, and there is no column nought — so
+    // the whole query throws. With no current season (three lost rollover races
+    // at a boundary, the same null every other roll here guards) that literal
+    // was the fallback, and the throw does not stop at an empty roster: it
+    // trips the thirty-second database breaker and drops the entire site into
+    // local mode. The term is simply absent when there is nothing to rank by.
+    const order = [
+      asc(players.allegiance),
+      asc(hearths.name),
+      ...(banked ? [desc(sql`coalesce(${banked.points}, 0)`)] : []),
+      asc(players.name),
+    ];
     const rows = await (banked ? q.leftJoin(banked, eq(banked.profileId, players.id)) : q)
       .where(sql`${players.allegiance} is not null`)
-      .orderBy(asc(players.allegiance), asc(hearths.name), desc(banked ? sql`coalesce(${banked.points}, 0)` : sql`0`), asc(players.name))
+      .orderBy(...order)
       .limit(cap);
     return rows.map((r) => ({
       name: r.name || "A nameless warrior",
       people: String(r.people),
-      hearth: r.hearthId && r.hearthName ? { id: Number(r.hearthId), name: r.hearthName, standard: r.hearthStandard ?? null } : null,
+      hearth: r.hearthId && r.hearthName
+        ? { id: Number(r.hearthId), name: r.hearthName, standard: r.hearthStandard ?? null, people: String(r.hearthPeople ?? r.people) }
+        : null,
       points: Number(r.points) || 0,
       matches: Number(r.seasonMatches) || 0,
       kills: Number(r.kills) || 0,
