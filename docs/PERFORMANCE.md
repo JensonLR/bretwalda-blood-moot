@@ -743,3 +743,27 @@ What is left is 16-26 programs whose FIRST `useProgram` call still lands on that
 frame, now costing tens of milliseconds rather than hundreds because the driver
 already holds their pipelines. Below the threshold where a player sees a freeze;
 not zero, and honest about it.
+
+## The load, measured — 3 Sep 2026
+
+`hitchprobe` reads the load window now as well as the handover, and attributes
+a frame to shader first-use, texture uploads and buffer uploads.
+
+| window | frames | worst | over 100 ms |
+|---|---|---|---|
+| load, to the bell | 88 | 303.7 ms | 4 |
+| the first 240 fighting frames | 240 | 17.8 ms | 0 |
+
+THE FIGHT ITSELF IS CLEAN — nothing over 50 ms in four seconds of play. Every
+long frame is in the load, behind the forge's progress screen, and the
+attribution says what it is not: the worst frame uploads 9 textures totalling
+6.0 MB and 0.1 MB of buffers, which is perhaps ten milliseconds of GPU traffic
+inside a 304 ms frame, and two of the four long frames make no GL calls at all.
+It is JavaScript — procedural texture synthesis and geometry building — run
+synchronously.
+
+WHERE. The forge is eight stages and yields to paint between them, but
+"RAISING THE MOOT" carries a weight of 55 out of 100 and builds the whole world
+in one `run()`. Splitting it needs a staged build inside `render/world.ts`,
+which is a real change and not one to make on the eve of a launch. Written down
+rather than done, with the numbers to aim at.

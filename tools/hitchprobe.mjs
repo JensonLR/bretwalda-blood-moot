@@ -50,8 +50,8 @@ for (const t0 = Date.now(); ;) {
 // ---- the tap, installed before any script of the page runs ---------------
 const TAP = () => {
   const w = window;
-  const P = w.__hitch = { frames: [], frame: 0, matchEndFrame: -1, summaryFrame: -1, seen: new Set(), cur: null, types: {} };
-  const fresh = () => ({ t: 0, ms: 0, draw: 0, link: 0, first: 0, fbo: 0 });
+  const P = w.__hitch = { frames: [], frame: 0, matchEndFrame: -1, summaryFrame: -1, countdownFrame: -1, fightingFrame: -1, seen: new Set(), cur: null, types: {} };
+  const fresh = () => ({ t: 0, ms: 0, draw: 0, link: 0, first: 0, fbo: 0, tex: 0, texpx: 0, buf: 0, bufbytes: 0 });
   P.cur = fresh();
   // FIRST, before anything that can throw: an init script runs before the
   // document exists, and a wrapper installed after a throw is not installed.
@@ -65,6 +65,13 @@ const TAP = () => {
           const m = JSON.parse(ev.data);
           P.types[m.type] = (P.types[m.type] || 0) + 1;
           if (m.type === "match_end" && P.matchEndFrame < 0) P.matchEndFrame = P.frame;
+          // THE OTHER FREEZE THE OWNER NAMED: "loading into games". The
+          // countdown is where the arena finishes arriving and the warmer
+          // spends its budget, and the first fighting frame is where a player
+          // starts to care about pacing. Both are marked so the load window
+          // can be read off the same ledger as the handover.
+          if (m.type === "countdown" && P.countdownFrame < 0) P.countdownFrame = P.frame;
+          if (m.data && m.data.state === "fighting" && P.fightingFrame < 0) P.fightingFrame = P.frame;
         } catch { /* not ours */ }
       });
     }
@@ -113,6 +120,37 @@ const TAP = () => {
       } catch { /* not ours */ }
       return link.call(this, prog, ...a);
     };
+    // WHAT A LOAD FRAME IS ACTUALLY SPENDING. The handover's cost was shader
+    // pipelines; the load's is not — the worst load frame shows almost no
+    // first-use programs. So count the two other things a frame can stall on:
+    // pixels going up to the GPU, and vertex data going up with them.
+    for (const name of ["texImage2D", "texSubImage2D", "compressedTexImage2D"]) {
+      const f = p[name];
+      if (!f) continue;
+      p[name] = function (...a) {
+        P.cur.tex++;
+        // texImage2D comes in two shapes: (target, level, internalformat,
+        // width, height, border, format, type, pixels) and the short
+        // (target, level, internalformat, format, type, source). Only the long
+        // one states its size; the short one carries it on the source.
+        let px = 0;
+        if (a.length >= 8 && typeof a[3] === "number" && typeof a[4] === "number") px = a[3] * a[4];
+        else { const src = a[a.length - 1]; if (src && src.width && src.height) px = src.width * src.height; }
+        P.cur.texpx += px;
+        if (px >= 1048576) (P.cur.bigtex ||= []).push(px);
+        return f.apply(this, a);
+      };
+    }
+    for (const name of ["bufferData", "bufferSubData"]) {
+      const f = p[name];
+      if (!f) continue;
+      p[name] = function (...a) {
+        P.cur.buf++;
+        const d = a[1];
+        P.cur.bufbytes += d && d.byteLength ? d.byteLength : (typeof d === "number" ? d : 0);
+        return f.apply(this, a);
+      };
+    }
     const use = p.useProgram;
     p.useProgram = function (prog) { if (prog && !P.seen.has(prog)) { P.seen.add(prog); P.cur.first++; } return use.call(this, prog); };
     const bind = p.bindFramebuffer;
@@ -175,7 +213,7 @@ try {
     console.log(`  warmer: ${JSON.stringify(await page.evaluate(() => window.__summaryWarm ?? null))}`);
     const P = await page.evaluate(() => {
       const H = window.__hitch;
-      return { frames: H.frames.map((f) => [+f.ms.toFixed(1), +f.draw.toFixed(1), f.link, f.first, f.fbo, f.linked || []]), matchEnd: H.matchEndFrame, summary: H.summaryFrame };
+      return { frames: H.frames.map((f) => [+f.ms.toFixed(1), +f.draw.toFixed(1), f.link, f.first, f.fbo, f.linked || [], f.tex, f.texpx, f.buf, f.bufbytes, f.bigtex || []]), matchEnd: H.matchEndFrame, summary: H.summaryFrame, countdown: H.countdownFrame, fighting: H.fightingFrame };
     });
     const between = P.frames.slice(P.matchEnd).map((f, i) => ({ i: P.matchEnd + i, ms: f[0], draw: f[1], link: f[2], first: f[3], fbo: f[4], linked: f[5] }));
     const worst = between.reduce((a, b) => (b.ms > a.ms ? b : a), between[0]);
@@ -186,6 +224,22 @@ try {
     console.log(`  verdict frame ${P.matchEnd}   DOM panel mounted frame ${P.summary}   ${between.length} frames recorded after the verdict`);
     console.log(`  WORST frame after the verdict: #${worst.i} (+${worst.i - P.matchEnd})  ${worst.ms} ms  — draw ${worst.draw} ms, linkProgram ${worst.link}, FIRST-USE programs ${worst.first}, framebuffer binds ${worst.fbo}`);
     console.log(`  frames over 100 ms: ${over100}`);
+    // THE LOAD, read off the same ledger. Everything before the bell, then the
+    // first four seconds of the fight — the window a player calls "loading in".
+    if (P.countdown >= 0) {
+      const load = P.frames.slice(0, P.countdown).map((f, i) => ({ i, ms: f[0], first: f[3], tex: f[6], texpx: f[7], buf: f[8], bufbytes: f[9], big: f[10] }));
+      const bell = P.fighting >= 0 ? P.fighting : P.countdown;
+      const opening = P.frames.slice(bell, bell + 240).map((f, i) => ({ i: bell + i, ms: f[0], first: f[3], tex: f[6], texpx: f[7], buf: f[8], bufbytes: f[9], big: f[10] }));
+      const worstOf = (a) => a.length ? a.reduce((x, y) => (y.ms > x.ms ? y : x)) : { i: -1, ms: 0, first: 0 };
+      const wl = worstOf(load), wo = worstOf(opening);
+      const mb = (n) => `${((n || 0) / 1048576).toFixed(1)} MB`;
+      const bigs = (a) => (a && a.length ? ` [${a.map((px) => `${Math.round(Math.sqrt(px))}²`).join(" ")}]` : "");
+      console.log(`  LOAD: ${load.length} frames to the bell, worst ${wl.ms} ms (first-use ${wl.first}, textures ${wl.tex} / ${mb((wl.texpx || 0) * 4)}, buffers ${wl.buf} / ${mb(wl.bufbytes)}), over 100 ms: ${load.filter((f) => f.ms > 100).length}`);
+      for (const f of load.filter((x) => x.ms > 100).sort((a, b) => b.ms - a.ms).slice(0, 6)) {
+        console.log(`    load frame #${f.i}  ${f.ms} ms  — first-use ${f.first}, textures ${f.tex} / ${mb((f.texpx || 0) * 4)}${bigs(f.big)}, buffers ${f.buf} / ${mb(f.bufbytes)}`);
+      }
+      console.log(`  OPENING: first ${opening.length} fighting frames, worst ${wo.ms} ms (first-use ${wo.first}), over 100 ms: ${opening.filter((f) => f.ms > 100).length}, over 50 ms: ${opening.filter((f) => f.ms > 50).length}`);
+    }
     if (process.env.VERBOSE && worst.linked?.length) {
       const tally = new Map();
       for (const d of worst.linked) tally.set(d, (tally.get(d) || 0) + 1);
