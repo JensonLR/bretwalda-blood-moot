@@ -181,6 +181,23 @@ if (DB) {
   check("\"none\" lowers it to a bare field",
     lowered?.ok === true && lowered.hearth.standard === null, JSON.stringify(lowered));
 
+  // WHO IS WHO (owner, 3 Sep 2026): the roster lists every sworn man by
+  // allegiance and hearth. The Saxon sits at his house; the Dane stands free;
+  // the unsworn is not on it at all.
+  {
+    const { warRoster } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+    const roster = await warRoster();
+    const me = roster?.find((r) => r.name === `Hearther${stamp}`);
+    const dane = roster?.find((r) => r.name === `Northman${stamp}`);
+    const ghost = roster?.find((r) => r.name === `Unsworn${stamp}`);
+    check("the roster seats the sworn Saxon at his house with his people",
+      !!me && me.people === "saxon" && me.hearth?.name === houseName && me.points === 0,
+      JSON.stringify(me));
+    check("the roster lists the free Dane at no hearth",
+      !!dane && dane.people === "norse" && dane.hearth === null, JSON.stringify(dane));
+    check("the unsworn are not on the roster — a roster of allegiances has no room for none",
+      !ghost, JSON.stringify(ghost ?? null));
+  }
   const left = await hearthLeave(saxon.id, saxon.secret);
   check("leaving is free, and the house survives its founder",
     left?.ok === true && left.hearth.name === houseName, JSON.stringify(left));
