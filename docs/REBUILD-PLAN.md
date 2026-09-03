@@ -244,9 +244,15 @@ frame at key time from its rest matrix, so the same numbers serve every
 class. glTF carries them; glTFast imports them as legacy clips; Unity's
 `ClipDriver` plays them by fight state off the snapshot and holds a
 one-shot for its length so a flicker on the wire cannot cut a swing
-short. Judged frame by frame: walk, block, attack, heavy read; the death
-is still being placed (the hip translation lands off-frame in the
-judging render — under investigation, not signed off).
+short. Judged frame by frame over seven rounds: walk, block, attack,
+heavy, dodge and the death all read now. Two measurements paid for the
+last three rounds: the Hips bone's head is the body's origin at the FEET
+(so a hip pitch is a plank fall about the ankles, and the drop I had
+added put the man a metre underground); a world rotation about the side
+axis swings a downward bone's far end forward but an upward bone's
+backward (the first death fell on its back, the heavy leaned away from
+the target), and a forward lean swings a hanging arm BACK, so a strike's
+arm pitch has to run ahead of the lean by the lean's size.
 
 Still to come on the men: the weapons ride the wrist mounts through
 `WarriorView.ArmUp` as before; the cloak's drape chain is not yet
