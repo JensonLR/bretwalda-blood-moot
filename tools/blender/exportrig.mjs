@@ -52,11 +52,20 @@ const shown = (o) => { for (let x = o; x; x = x.parent) if (!x.visible) return f
 const sigsOf = (r) => { const set = new Set(); r.body.traverse((o) => { if (o.isMesh && shown(o) && o.geometry?.getAttribute("position")) set.add(sigOf(o)); }); return set; };
 const without = (patch) => { const ap = { ...defaultAppearance(CLS), ...patch }; const r = createWarriorRig(new THREE.Group(), { ...player, appearance: ap }, materials, settings); r.body.updateMatrixWorld(true); return sigsOf(r); };
 const bareHelm = without({ helm: "none" }), bareBeard = without({ beardStyle: "none" }), bareHair = without({ hairStyle: "shaved" });
+// THE SPECIFIC SLOT WINS. A helm changes the hair and the beard as well as
+// itself — the code crops a fringe under a nasal and gathers a braid under a
+// coif — so those meshes differ from the bare-headed build too, and testing
+// the helm FIRST claimed them: every part came out `helm_N` and nothing was
+// ever named `beard_N` or `hair_N`. Unity's Cosmetics.Swap hides by that
+// prefix, so a chosen beard hung on a man who still wore his baked one (two
+// beards), while a chosen HELM hid his hair and beard along with the helm
+// (a bald, clean-shaven man in a new hat). Beard and hair are tested before
+// the helm, and each test is exclusive.
 const roleOf = (o) => {
   const sig = sigOf(o);
-  if (!bareHelm.has(sig)) return "helm";
   if (!bareBeard.has(sig)) return "beard";
   if (!bareHair.has(sig)) return "hair";
+  if (!bareHelm.has(sig)) return "helm";
   for (let x = o; x; x = x.parent) if (x === rig.pivots.cloak) return "cloak";
   return "part";
 };

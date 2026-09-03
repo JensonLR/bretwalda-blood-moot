@@ -767,3 +767,29 @@ WHERE. The forge is eight stages and yields to paint between them, but
 in one `run()`. Splitting it needs a staged build inside `render/world.ts`,
 which is a real change and not one to make on the eve of a launch. Written down
 rather than done, with the numbers to aim at.
+
+### The split that did not work, recorded so it is not tried twice
+
+The forge's own marks (`window.__forgeStages`) attribute the load exactly:
+
+```
+    16 ms  WAKING THE FORGE          1 ms  GRINDING PIGMENT AND DYE
+     3 ms  SETTING THE GRADE        39 ms  RAISING THE SKY
+     1 ms  LIGHTING THE TORCHES    219 ms  RAISING THE MOOT
+    35 ms  KINDLING THE FIRES        0 ms  HANGING THE BANNERS
+   ---------------------------------------------------------------
+   315 ms  total
+```
+
+`createWorld` was given a `staged` option that raised the terrain and left the
+ground's own furniture — `def.build`, the huts and palisade and scatter — to a
+`standTheHalls()` the forge called as a ninth stage. It did what it said:
+RAISING THE MOOT fell to 39 ms and STANDING THE HALLS took 187 ms. It also
+rendered the whole arena BLACK, which the shot harness caught at once and no
+number would have: something between the terrain and the furniture is ordered,
+and deferring the second half breaks it. REVERTED.
+
+The lesson for whoever tries again: the 187 ms is inside `def.build` and every
+ground module has its own, so a real split has to happen there and be judged in
+a picture, not in a timing. The forge is 315 ms on an M5; the freeze the owner
+reports will be that figure times whatever his machine is slower by.
