@@ -171,3 +171,9 @@ desktop/src-tauri/gen/
 
 # Blender working files and exports (the rebuild) — binaries stay out of git; the scripts that make them are in tools/blender/.
 art/blender/
+
+# headless export scratch (tsc emit) and Blender bytecode
+/.exportrig/
+/.exportworld/
+/.exportwarrior/
+tools/blender/__pycache__/
