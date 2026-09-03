@@ -109,6 +109,17 @@ not exist this morning.
 
 ## Landed 3 Sep 2026 — the rebuild's grounds, and Unity lit at dusk
 
+- **Mouse right turns right (owner's finding, both clients).** The web rig's
+  yaw grows toward the man's LEFT (forward is (sin yaw, cos yaw) in a
+  right-handed Y-up world), and the mouse path was adding the mouse's
+  rightward motion to it — inverted for as long as it existed. Negated at
+  the source (`GameCanvas.tsx`, the one `rig.look` call for the mouse), so
+  the lock's flick-to-switch reads the same sign; the touch path is left
+  alone on purpose. Unity's yaw runs the other way (left-handed), so its
+  sign is right by the maths and stays; the menu carries INVERT MOUSE X
+  (PlayerPrefs) for the hand that still finds it wrong — unseen, like the
+  rest of the Unity client.
+
 - **The five grounds are out of the code as glTF.** `tools/blender/exportworld.mjs
   --ground <id>` builds a ground exactly as GameCanvas does and writes OBJ+MTL
   with every map and a `materials.json` sidecar; `tools/blender/world.py`
