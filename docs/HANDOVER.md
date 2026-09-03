@@ -133,6 +133,36 @@ which moves the opponent axis the chroma stage expands across.
 `tools/gradesplit.mjs --gate` is the instrument for that question, and it did
 not exist this morning.
 
+## Landed 3 Sep 2026, the launch pass — what an alpha visitor meets
+
+Measured, not assumed. `docs/PERFORMANCE.md` carries the numbers.
+
+- **The round-end freeze is closed.** 295.7 ms to 24 ms, nothing over 100 across
+  four runs. It was never shader COMPILING: `renderer.compile()` links the
+  program and the driver builds its pipeline on the first real DRAW, which the
+  warmer never did. It draws now, four pixels wide, twice — because three.js
+  keys a program on the light counts it was built against and the tableau's
+  lights are not the arena's.
+- **The fight itself is clean**: 240 fighting frames, worst 17.8 ms, nothing
+  over 50.
+- **The load is 315 ms of forge** and every long frame is behind its progress
+  screen. One stage, RAISING THE MOOT, is 219 of it. A split was tried, worked
+  on the clock and rendered the arena BLACK; reverted and recorded, with the
+  lesson that the remainder lives inside each ground module's own `build` and
+  has to be judged in a picture.
+- **The death replay** opens no further out than the round's own radius rather
+  than wherever the lens happened to be, and holds the close-up for 1.15 s
+  instead of 0.70. The owner: "not rushed or barely see anything."
+- **The blood is liquid.** The haze — a translucent puff on a third of every
+  hit's particles that read as pink smoke — is spent on opaque droplets that
+  arc and fall.
+- **The landing page is 298 KB lighter**: the brand mark was 391 KB drawn at
+  128 px. The social card still uses the full-size original and is correct at
+  1200x630.
+- **The tour's scrim no longer spends a door on a stray click**, and a tutorial
+  card frees the pointer and answers to SPACE, so desktop no longer needs
+  Escape to acknowledge anything.
+
 ## Landed 3 Sep 2026 — the rebuild's grounds, and Unity lit at dusk
 
 - **Three first-experience findings from the owner (3 Sep, evening), web
