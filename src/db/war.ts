@@ -987,10 +987,16 @@ export async function warRoster(limit = 400): Promise<WarRosterRow[] | null> {
     // was the fallback, and the throw does not stop at an empty roster: it
     // trips the thirty-second database breaker and drops the entire site into
     // local mode. The term is simply absent when there is nothing to rank by.
+    // THE CAP MUST NOT DELETE A KINGDOM. Ordering by allegiance first and then
+    // taking the top 400 means that once more than 400 men are sworn the cut
+    // falls inside whichever people sorts last — the Picts vanish from the
+    // roster entirely while the Saxons are listed twice over. The client groups
+    // these rows itself, so the database's order decides only WHICH men survive
+    // the cap, and the fair answer to that is the ones who have actually
+    // fought. Grouping is the client's business; survival is this query's.
     const order = [
-      asc(players.allegiance),
-      asc(hearths.name),
       ...(banked ? [desc(sql`coalesce(${banked.points}, 0)`)] : []),
+      desc(players.kills),
       asc(players.name),
     ];
     const rows = await (banked ? q.leftJoin(banked, eq(banked.profileId, players.id)) : q)
