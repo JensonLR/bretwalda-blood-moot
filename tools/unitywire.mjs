@@ -161,6 +161,22 @@ check("...and one the engine's router actually answers",
   unrouted.length ? unrouted.join(", ") : `${sent.size} kinds, all routed`);
 
 // ---------- 4. SNAPSHOT FIELDS -------------------------------------------
+// ---- THE OTHER VOCABULARIES ----------------------------------------------
+// A difficulty the engine does not know is not refused, it is NORMALISED — to
+// `warrior` — so a client that asks for the wrong word gets a harder opponent
+// than it asked for and no error at all. The Unity rite asked for "normal",
+// which is not one of the three, and its pell fought at 0.7 against the 0.45
+// its own card promises.
+console.log("\n-- the words for skill --");
+const diffBlock = /const DIFFICULTIES = \[([^\]]*)\]/.exec(engine);
+const diffs = new Set(diffBlock ? [...diffBlock[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]) : []);
+check("the engine's difficulty vocabulary is readable", diffs.size >= 3, [...diffs].join(" "));
+const asked = new Set([...allCs.matchAll(/difficulty\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]));
+const strange = [...asked].filter((d) => !diffs.has(d));
+check("every difficulty the Unity client asks for is one the engine knows",
+  strange.length === 0,
+  strange.length ? `${strange.map((d) => `"${d}"`).join(", ")} — normalised to "warrior" without a word of complaint` : `${asked.size} asked for, all known`);
+
 console.log("\n-- the fields a snapshot carries --");
 const pw = /class PlayerW\b[\s\S]*?\n    \}/.exec(cs.find((c) => c.name === "Wire.cs")?.src ?? "");
 const pwFields = new Set(pw ? [...pw[0].matchAll(/public\s+[\w<>.]+\s+(\w+)\s*;/g)].map((m) => m[1]) : []);
