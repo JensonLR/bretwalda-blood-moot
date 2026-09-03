@@ -11,7 +11,7 @@ class _Wrap:
     def __init__(self, meshes): self.meshes = meshes
 def _world_verts(o):
     return [o.matrix_world @ v.co for v in o.data.vertices]
-_meshes = [o] if obj.type == 'MESH' else [c for c in obj.children_recursive if c.type == 'MESH']
+_meshes = [obj] if obj.type == 'MESH' else [c for c in obj.children_recursive if c.type == 'MESH']
 _all_verts = [v for m in _meshes for v in _world_verts(m)]
 for o in list(scene.objects):
     if o.type in {"CAMERA", "LIGHT"}: bpy.data.objects.remove(o, do_unlink=True)
