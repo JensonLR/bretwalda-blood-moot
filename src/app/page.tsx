@@ -4506,10 +4506,17 @@ function TourGuide({ onDone }: { onDone: () => void }) {
           a real scrim on every browser, and so a press anywhere on the dimmed
           part is caught by this layer instead of opening a door he has not
           been told about yet. */}
-      <div className="absolute inset-x-0 top-0 bg-black/78" style={{ height: Math.max(0, rect.y - 6) }} onClick={() => advance(false)} />
-      <div className="absolute inset-x-0 bottom-0 bg-black/78" style={{ top: rect.y + rect.h + 6 }} onClick={() => advance(false)} />
-      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: 0, width: Math.max(0, rect.x - 6) }} onClick={() => advance(false)} />
-      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: rect.x + rect.w + 6, right: 0 }} onClick={() => advance(false)} />
+      {/* THE SCRIM CATCHES, IT DOES NOT ADVANCE. Blocking is what these four
+          panels are for — a press on the dimmed part must not reach a door the
+          new arrival has not been told about yet — and an element on top
+          absorbs the press whether or not it has a handler. Advancing on it as
+          well meant one stray click stepped past a door he never read, which
+          is the opposite of what a tour is. The card's own NEXT is the way
+          on, and it says so on its face. */}
+      <div className="absolute inset-x-0 top-0 bg-black/78" style={{ height: Math.max(0, rect.y - 6) }} />
+      <div className="absolute inset-x-0 bottom-0 bg-black/78" style={{ top: rect.y + rect.h + 6 }} />
+      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: 0, width: Math.max(0, rect.x - 6) }} />
+      <div className="absolute bg-black/78" style={{ top: rect.y - 6, height: rect.h + 12, left: rect.x + rect.w + 6, right: 0 }} />
       <div className="pointer-events-none absolute rounded-xl border-2 border-amber-400/90 shadow-[0_0_28px_rgba(217,164,65,0.5)]"
         style={{ left: rect.x - 6, top: rect.y - 6, width: rect.w + 12, height: rect.h + 12 }} />
       <div className="absolute left-1/2 w-[min(22rem,88vw)] -translate-x-1/2 px-1"
