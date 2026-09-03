@@ -66,7 +66,19 @@ for (const CLS of CLASSES) {
   const variant = (slot, id, withPatch, withoutPatch) => {
     const withR = build(withPatch), bare = build(withoutPatch);
     const bareSigs = new Set(meshesOf(bare).map(sigOf));
-    const parts = meshesOf(withR).filter((o) => !bareSigs.has(sigOf(o)));
+    let parts = meshesOf(withR).filter((o) => !bareSigs.has(sigOf(o)));
+    // A HELM IS NOT A HAIRCUT, though the code cuts hair to fit one. The
+    // fringe is cropped under a nasal and the braid gathered under a coif, so
+    // the hair and beard meshes differ from the bare-headed build too and a
+    // plain difference claims them: every helm prop was shipping a full copy
+    // of the man's beard and hair, which is most of what the 64 props weigh
+    // and would have hung a second beard on anyone who chose a helm. The hair
+    // shells are exactly the meshes in a `hair:` material, so a helm keeps
+    // what is not one.
+    if (slot === "helm") parts = parts.filter((o) => {
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      return !String(m?.name ?? "").startsWith("hair");
+    });
     if (!parts.length) { console.log(`[exportcosmetics] ${CLS} ${slot} ${id}: nothing differs`); return; }
     const stem = `${slot}-${CLS}-${id}`; const np = writeParts(parts, withR.pivots.head.matrixWorld, stem);
     (manifest[CLS] ??= {})[`${slot}:${id}`] = stem; console.log(`[exportcosmetics] ${stem}: ${np} parts`);
