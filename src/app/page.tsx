@@ -2412,7 +2412,15 @@ export default function Page() {
                 images competing for bandwidth. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/helm-mark.png"
+              /* THE MARK AT THE SIZE IT IS SHOWN. The source is 501x808 and
+                 this draws it 128 px tall — 391 KB for 128 px, and on a
+                 landing page whose whole payload is 1.66 MB that was near a
+                 quarter of everything a first visitor downloaded. The 320 px
+                 copy covers this at 2.5x pixel density and costs 93 KB. The
+                 full-size original stays where it is: `opengraph-image.tsx`
+                 reads it for the social card, which is drawn at 1200x630 and
+                 wants every pixel. */
+              src="/brand/helm-mark-320.png"
               alt=""
               draggable={false}
               className="mx-auto mb-4 h-24 w-auto select-none sm:h-32"
