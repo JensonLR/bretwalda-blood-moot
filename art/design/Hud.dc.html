@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;800&family=Alegreya:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+  <style>
+    body { margin: 0; font-family: "Alegreya", Georgia, serif; background: #14100b; color: #f0e9da; }
+    a { color: #d9a441; } a:hover { color: #f6dda0; }
+    .dsp { font-family: "Cinzel", "Times New Roman", serif; }
+    .ovl { font-size: 10px; letter-spacing: 0.34em; text-indent: 0.34em; font-weight: 800; font-family: "Cinzel", serif; }
+    .plate { background: linear-gradient(158deg, rgba(38,31,24,0.82), rgba(16,13,10,0.9)); border: 1px solid rgba(217,164,65,0.24); border-radius: 12px; box-shadow: inset 0 1px 0 rgba(246,221,160,0.14), 0 3px 14px rgba(0,0,0,0.5); backdrop-filter: blur(6px); }
+    .bar { position: relative; height: 12px; border-radius: 6px; background: rgba(10,8,6,0.86); border: 1px solid rgba(217,164,65,0.24); overflow: hidden; }
+    .bar > i { position: absolute; left: 0; top: 0; bottom: 0; display: block; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1280px; height: 720px; overflow: hidden; box-sizing: border-box; background: radial-gradient(130% 100% at 50% 26%, #4a3b28 0%, #241c14 46%, #0e0b08 100%);">
+
+  <!-- the ring, seen from behind the man's shoulder -->
+  <div style="position: absolute; left: 50%; top: 50%; width: 1500px; height: 620px; margin: -250px 0 0 -750px; border-radius: 9999px; border: 2px solid rgba(150,120,80,0.28); background: radial-gradient(ellipse at 50% 40%, rgba(120,96,64,0.16), rgba(0,0,0,0) 68%); filter: blur(0.4px);"></div>
+  <div style="position: absolute; inset: 0; background: radial-gradient(60% 50% at 50% 46%, rgba(0,0,0,0) 40%, rgba(8,6,4,0.72) 100%);"></div>
+  <div style="position: absolute; left: 46%; bottom: 4%; width: 300px; height: 400px; background: radial-gradient(ellipse at 50% 100%, rgba(0,0,0,0.55), rgba(0,0,0,0) 70%);"></div>
+
+  <!-- ================= TOP: the round ================= -->
+  <div style="position: absolute; top: 22px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 9px;">
+    <div class="plate" style="display: flex; align-items: center; gap: 18px; padding: 11px 22px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:9999px;background:radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, #c8323c 15% 44%, #7c1420 45% 78%, #3a070c 100%);box-shadow:0 0 0 1px rgba(217,164,65,0.7), 0 0 9px rgba(200,50,60,0.5);"></span>
+        <span style="display:inline-block;width:9px;height:9px;border-radius:9999px;background:rgba(90,80,66,0.5);box-shadow:inset 0 0 0 1px rgba(217,164,65,0.3);"></span>
+        <span style="display:inline-block;width:9px;height:9px;border-radius:9999px;background:rgba(90,80,66,0.5);box-shadow:inset 0 0 0 1px rgba(217,164,65,0.3);"></span>
+      </div>
+      <span style="width:1px;height:20px;background:rgba(217,164,65,0.24);"></span>
+      <span class="dsp" style="font-size: 22px; color: #f6dda0; font-variant-numeric: tabular-nums; letter-spacing: 0.06em;">02:41</span>
+      <span style="width:1px;height:20px;background:rgba(217,164,65,0.24);"></span>
+      <span style="display: flex; align-items: baseline; gap: 6px;">
+        <span class="dsp" style="font-size: 18px; color: #f0e9da; font-variant-numeric: tabular-nums;">5</span>
+        <span class="ovl" style="color: #8e8676; font-size: 9px;">STANDING</span>
+      </span>
+    </div>
+    <div class="ovl" style="color: #d9a441;">ROUND TWO OF THREE</div>
+  </div>
+
+  <!-- ================= LEFT: the man ================= -->
+  <div style="position: absolute; left: 34px; bottom: 34px; width: 372px; display: flex; flex-direction: column; gap: 12px;">
+    <div class="plate" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 13px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 9999px; background: radial-gradient(circle at 50% 24%, rgba(96,78,54,0.8), rgba(16,12,9,0.92) 72%); border: 1px solid rgba(217,164,65,0.45); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: inset 0 1px 2px rgba(246,221,160,0.22), inset 0 -2px 5px rgba(0,0,0,0.65);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f6dda0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.3 2.9 8.2 7 9.4 4.1-1.2 7-5.1 7-9.4V6l-7-3Z"/></svg>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+          <div class="dsp" style="font-size: 16px; letter-spacing: 0.1em; color: #f0e9da; font-weight: 700;">AETHELSTAN</div>
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <span style="font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: #f0cfc6; background: rgba(124,20,32,0.42); border: 1px solid rgba(217,164,65,0.45); border-radius: 4px; padding: 2px 6px;">HUSCARL</span>
+            <span style="font-size: 12px; color: #8e8676;">two kills</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <span class="ovl" style="color: #8e8676; font-size: 9px;">WOUNDS</span>
+          <span style="font-size: 12px; color: #b9ae99; font-variant-numeric: tabular-nums;">68 / 100</span>
+        </div>
+        <div class="bar"><i style="width: 68%; background: linear-gradient(90deg, #7c1420, #c8323c);"></i></div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <span class="ovl" style="color: #8e8676; font-size: 9px;">WIND</span>
+          <span style="font-size: 12px; color: #b9ae99; font-variant-numeric: tabular-nums;">41 / 100</span>
+        </div>
+        <div class="bar" style="height: 8px;"><i style="width: 41%; background: linear-gradient(90deg, #a2540f, #d9a441);"></i></div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 9px;">
+      <div class="plate" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px;">
+        <span class="dsp" style="font-size: 11px; letter-spacing: 0.06em; color: #d6cbb2; font-weight: 700;">L</span>
+        <span style="font-size: 10px; color: #8e8676; letter-spacing: 0.1em;">SLASH</span>
+      </div>
+      <div class="plate" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px;">
+        <span class="dsp" style="font-size: 11px; letter-spacing: 0.06em; color: #d6cbb2; font-weight: 700;">R</span>
+        <span style="font-size: 10px; color: #8e8676; letter-spacing: 0.1em;">HEAVY</span>
+      </div>
+      <div class="plate" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px; border-color: rgba(217,164,65,0.5);">
+        <span class="dsp" style="font-size: 11px; letter-spacing: 0.06em; color: #f6dda0; font-weight: 700;">CTRL</span>
+        <span style="font-size: 10px; color: #d9a441; letter-spacing: 0.1em;">BLOCK</span>
+      </div>
+      <div class="plate" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px; opacity: 0.45;">
+        <span class="dsp" style="font-size: 11px; letter-spacing: 0.06em; color: #d6cbb2; font-weight: 700;">Q</span>
+        <span style="font-size: 10px; color: #8e8676; letter-spacing: 0.1em;">ABILITY</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= RIGHT: what happened ================= -->
+  <div style="position: absolute; right: 34px; top: 96px; width: 296px; display: flex; flex-direction: column; gap: 7px;">
+    <div class="plate" style="display: flex; align-items: center; gap: 9px; padding: 9px 13px;">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, #c8323c 15% 44%, #7c1420 45% 78%, #3a070c 100%);flex-shrink:0;"></span>
+      <span style="font-size: 13px; color: #f0e9da;">Aethelstan <span style="color:#8e8676">felled</span> Ceolwulf</span>
+    </div>
+    <div class="plate" style="display: flex; align-items: center; gap: 9px; padding: 9px 13px; opacity: 0.78;">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:rgba(150,140,120,0.6);flex-shrink:0;"></span>
+      <span style="font-size: 13px; color: #d6cbb2;">Wulfhere <span style="color:#8e8676">shattered</span> Eadric's shield</span>
+    </div>
+    <div class="plate" style="display: flex; align-items: center; gap: 9px; padding: 9px 13px; opacity: 0.52;">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:rgba(150,140,120,0.6);flex-shrink:0;"></span>
+      <span style="font-size: 13px; color: #b9ae99;">Osric <span style="color:#8e8676">parried</span> Beorn</span>
+    </div>
+  </div>
+
+  <!-- ================= CENTRE: the man you are looking at ================= -->
+  <div style="position: absolute; left: 50%; top: 132px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px;">
+    <div class="dsp" style="font-size: 14px; letter-spacing: 0.18em; color: #f0e9da; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,0.9);">CEOLWULF</div>
+    <div style="width: 148px; height: 5px; border-radius: 3px; background: rgba(10,8,6,0.8); border: 1px solid rgba(200,50,60,0.4); overflow: hidden;">
+      <div style="width: 23%; height: 100%; background: linear-gradient(90deg, #7c1420, #c8323c);"></div>
+    </div>
+    <div class="ovl" style="font-size: 9px; color: #c8323c; text-shadow: 0 0 14px rgba(200,50,60,0.7);">READY TO FALL</div>
+  </div>
+
+  <!-- the reticle: two marks and a gap, never a dot -->
+  <div style="position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;">
+    <span style="position:absolute;left:50%;top:0;width:1.5px;height:8px;margin-left:-0.75px;background:rgba(246,221,160,0.75);"></span>
+    <span style="position:absolute;left:50%;bottom:0;width:1.5px;height:8px;margin-left:-0.75px;background:rgba(246,221,160,0.75);"></span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

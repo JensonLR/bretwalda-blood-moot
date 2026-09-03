@@ -62,6 +62,50 @@
     --moss: #3f6353;
     --moss-lit: #9dc3ae;
 
+    /* ---- THE THUMB PADS -------------------------------------------------
+       The five action pads on a phone are pressed WITHOUT BEING LOOKED AT —
+       the eye is on the ring, not the corner. Their differing hues are
+       wayfinding, not decoration, and flattening them to one metal would be
+       prettier and worse. The rule above ("no fourth accent hue") is written
+       for the MENUS; this is the fight, and it is a different surface.
+
+       What is not allowed is what they used to be: raw framework hues
+       (red-700, orange-700, sky-800, emerald-700, amber-800) that belong to
+       no palette at all. So five pads, FIVE HUES, and ZERO NEW ONES — every
+       one is drawn out of a family this file already ships:
+
+         cut    the stone, one step up from --garnet so it holds at 84px
+         heavy  the forge, exactly .btn-primary's middle stop
+         block  the third metal, tinned silver taken cold
+         dodge  --moss, the ground you throw yourself at
+         shove  gilt taken down to bronze
+
+       The -on pair is the pressed state, and it is a LIFT, not a hue change:
+       a thumb covers the pad it is pressing, so the change has to be visible
+       at the rim. Spent is what a pad wears when there is no wind for it. */
+    --pad-cut: #8e1a24;
+    --pad-cut-on: #d0424a;
+    --pad-heavy: #a2540f;
+    --pad-heavy-on: #e08a24;
+    --pad-block: #3d5668;
+    --pad-block-on: #7ba0b8;
+    --pad-dodge: #3f6353;
+    --pad-dodge-on: #6f9a83;
+    --pad-shove: #6b5330;
+    --pad-shove-on: #a9853f;
+    /* Seven pads, five hue families. Where two share a family they are told
+       apart by LIGHTNESS, which is how metals differ from each other in the
+       first place: take is moss lifted off dodge, power is gilt lifted off
+       shove's bronze — and the two that share a family never sit next to each
+       other. Power is the brightest thing in the corner because an ability
+       that is ready should be the thing the eye finds; it is the one pad that
+       takes dark ink, since nothing pale carries white text. */
+    --pad-take: #4e7a63;
+    --pad-take-on: #8fb69f;
+    --pad-power: #c9a24a;
+    --pad-power-on: #f6dda0;
+    --pad-spent: rgba(74, 68, 58, 0.55);
+
     /* Plaitwork, drawn as two strands weaving through each other. An inline
        SVG is the only honest way to get a curve that crosses itself — it is
        markup, not an asset, so it still costs zero requests, which is the
@@ -783,6 +827,47 @@
   }
   .btn-info:hover {
     background: linear-gradient(180deg, #0d74ad, #075985);
+  }
+
+  /* THE PADS. Geometry stays on the element (each pad is a different size
+     and sits at its own offset); everything that is COLOUR lives here, so the
+     palette is changed in one place and never in five JSX class strings. */
+  .pad {
+    color: #fff6e2;
+    border-width: 3px;
+    border-style: solid;
+    transition: background-color 0.09s ease, border-color 0.09s ease, transform 0.09s ease;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -3px 8px rgba(0, 0, 0, 0.45),
+      0 6px 18px rgba(0, 0, 0, 0.55);
+  }
+  .pad-cut { background: var(--pad-cut); border-color: rgba(217, 164, 65, 0.6); }
+  .pad-cut:active, .pad-cut.pad-on { background: var(--pad-cut-on); border-color: var(--gilt-lit); transform: scale(0.95); }
+  .pad-heavy { background: var(--pad-heavy); border-color: rgba(246, 221, 160, 0.5); }
+  .pad-heavy:active { background: var(--pad-heavy-on); border-color: var(--gilt-lit); }
+  .pad-block { background: var(--pad-block); border-color: rgba(179, 190, 199, 0.6); }
+  .pad-block:active { background: var(--pad-block-on); border-color: #dbe7ee; }
+  .pad-dodge { background: var(--pad-dodge); border-color: rgba(157, 195, 174, 0.55); }
+  .pad-dodge:active { background: var(--pad-dodge-on); border-color: var(--moss-lit); }
+  .pad-shove { background: var(--pad-shove); border-color: rgba(217, 164, 65, 0.5); }
+  .pad-shove:active { background: var(--pad-shove-on); border-color: var(--gilt-lit); }
+  .pad-take { background: var(--pad-take); border-color: rgba(157, 195, 174, 0.6); }
+  .pad-take:active { background: var(--pad-take-on); border-color: var(--moss-lit); }
+  .pad-power { background: var(--pad-power); border-color: var(--gilt-lit); color: #2a1c08; text-shadow: 0 1px 2px rgba(255, 240, 200, 0.4); }
+  .pad-power:active { background: var(--pad-power-on); border-color: #fff6e2; }
+  /* RUN is a TOGGLE, not an action: off is not "spent", it is simply off, so
+     it wears the neutral stone at full strength and lights to gilt when on. */
+  .pad-run { background: rgba(62, 57, 49, 0.95); border-color: rgba(179, 190, 199, 0.45); }
+  .pad-run-on { background: var(--gilt); border-color: var(--gilt-lit); color: #2a1c08; text-shadow: 0 1px 2px rgba(255, 240, 200, 0.4); }
+  /* No wind for it. Still legible — a pad you cannot read is a pad you press
+     by mistake — but plainly out of the running. */
+  .pad-spent {
+    background: var(--pad-spent);
+    border-color: rgba(140, 130, 112, 0.4);
+    opacity: 0.7;
+    box-shadow: inset 0 -2px 6px rgba(0, 0, 0, 0.4);
   }
 
   .btn-danger {

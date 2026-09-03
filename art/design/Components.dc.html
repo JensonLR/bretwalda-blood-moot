@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;800&family=Alegreya:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+  <style>
+    body { margin: 0; font-family: "Alegreya", Georgia, serif; background: #14100b; color: #f0e9da; }
+    a { color: #d9a441; } a:hover { color: #f6dda0; }
+    .dsp { font-family: "Cinzel", "Times New Roman", serif; }
+    .rule { display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.28em; color: #d6cbb2; font-weight: 700; font-family: "Cinzel", serif; }
+    .rule > span:last-child { flex: 1 1 auto; height: 1px; background: linear-gradient(90deg, rgba(217,164,65,0.7), rgba(217,164,65,0)); }
+    .note { font-size: 12px; color: #8e8676; line-height: 1.45; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem; min-height: 52px; padding: 14px 24px; border-radius: 12px; font-family: "Alegreya", Georgia, serif; font-weight: 800; letter-spacing: 0.09em; font-size: 15px; line-height: 1.15; border: 0; }
+    .btn-primary { background: linear-gradient(180deg, rgba(255,236,190,0.34), rgba(255,236,190,0) 42%), linear-gradient(180deg, #c9761d 0%, #a2540f 46%, #7c3c07 100%); border: 1px solid rgba(246,221,160,0.55); color: #fff6e2; box-shadow: inset 0 1px 0 rgba(255,240,200,0.5), inset 0 -2px 6px rgba(60,20,0,0.55), 0 4px 18px rgba(0,0,0,0.5); text-shadow: 0 1px 2px rgba(70,26,0,0.7); }
+    .btn-primary-hover { background: linear-gradient(180deg, rgba(255,240,205,0.42), rgba(255,240,205,0) 44%), linear-gradient(180deg, #e08a24 0%, #b45f11 46%, #8a4408 100%); border: 1px solid rgba(246,221,160,0.55); color: #fff6e2; box-shadow: inset 0 1px 0 rgba(255,245,215,0.6), 0 6px 28px rgba(217,164,65,0.35), 0 4px 18px rgba(0,0,0,0.5); text-shadow: 0 1px 2px rgba(70,26,0,0.7); transform: translateY(-1px); }
+    .btn-ghost { background: linear-gradient(180deg, rgba(214,226,236,0.16), rgba(214,226,236,0) 44%), linear-gradient(180deg, rgba(66,62,56,0.92), rgba(30,27,23,0.96)); border: 1px solid rgba(179,190,199,0.34); color: #eef1f3; font-weight: 700; box-shadow: inset 0 1px 0 rgba(226,236,244,0.24), inset 0 -2px 5px rgba(0,0,0,0.5), 0 3px 12px rgba(0,0,0,0.4); }
+    .btn-danger { background: linear-gradient(180deg, rgba(255,190,190,0.14), rgba(255,190,190,0) 44%), linear-gradient(180deg, rgba(124,20,32,0.85), rgba(48,8,12,0.94)); border: 1px solid rgba(200,50,60,0.5); color: #f3c9c4; box-shadow: inset 0 1px 0 rgba(255,210,205,0.2), 0 3px 12px rgba(0,0,0,0.45); }
+    .card { position: relative; background: linear-gradient(158deg, rgba(66,55,42,0.74), rgba(28,23,18,0.9)); border: 1px solid rgba(217,164,65,0.26); border-radius: 13.6px; box-shadow: inset 0 1px 0 rgba(246,221,160,0.16), inset 0 -1px 0 rgba(0,0,0,0.5), 0 3px 14px rgba(0,0,0,0.45); }
+    .card-selected { border-color: rgba(217,164,65,0.85); background: linear-gradient(158deg, rgba(124,20,32,0.5), rgba(48,22,16,0.9)); box-shadow: inset 0 1px 0 rgba(246,221,160,0.3), 0 0 0 1px rgba(217,164,65,0.35), 0 0 30px rgba(160,40,40,0.22); }
+    .card-noble::after { content: ""; position: absolute; inset: 6px; border-radius: 9.6px; pointer-events: none; box-shadow: inset 0 0 0 1px rgba(217,164,65,0.34);
+      background-image:
+        radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217,164,65,0.95) 70% 92%, rgba(217,164,65,0) 100%),
+        radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217,164,65,0.95) 70% 92%, rgba(217,164,65,0) 100%),
+        radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217,164,65,0.95) 70% 92%, rgba(217,164,65,0) 100%),
+        radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217,164,65,0.95) 70% 92%, rgba(217,164,65,0) 100%);
+      background-size: 14px 14px; background-repeat: no-repeat;
+      background-position: 2px 2px, calc(100% - 2px) 2px, 2px calc(100% - 2px), calc(100% - 2px) calc(100% - 2px); }
+    .badge { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 9px; font-weight: 800; letter-spacing: 0.12em; border-radius: 4px; padding: 2px 6px; }
+    .badge-garnet { color: #f0cfc6; background: rgba(124,20,32,0.42); border: 1px solid rgba(217,164,65,0.45); }
+    .badge-sky { color: #a5dcfc; background: rgba(2,132,199,0.2); border: 1px solid rgba(2,132,199,0.5); }
+    .badge-stone { color: #d6d3d1; background: rgba(87,83,78,0.3); border: 1px solid rgba(120,113,108,0.5); }
+    .cabochon { display: inline-block; width: 8px; height: 8px; border-radius: 9999px; flex-shrink: 0; background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, #c8323c 15% 44%, #7c1420 45% 78%, #3a070c 100%); box-shadow: 0 0 0 1px rgba(217,164,65,0.55), 0 0 8px rgba(200,50,60,0.45); }
+    .medallion { width: 40px; height: 40px; border-radius: 9999px; background: radial-gradient(circle at 50% 24%, rgba(96,78,54,0.8), rgba(16,12,9,0.92) 72%); border: 1px solid rgba(217,164,65,0.45); display: flex; align-items: center; justify-content: center; color: #f6dda0; flex-shrink: 0; box-shadow: inset 0 1px 2px rgba(246,221,160,0.22), inset 0 -2px 5px rgba(0,0,0,0.65), 0 1px 3px rgba(0,0,0,0.5); }
+  </style>
+</helmet>
+
+<div style="background: #14100b; padding: 56px 56px 64px; min-height: 100%; box-sizing: border-box;">
+
+  <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 44px;">
+    <div class="dsp" style="font-size: 10px; letter-spacing: 0.42em; text-indent: 0.42em; color: #d9a441; font-weight: 800;">THE MOOT'S OWN HAND</div>
+    <div class="dsp" style="font-size: 46px; font-weight: 700; letter-spacing: 0.03em; line-height: 1; background: linear-gradient(180deg, #fff6dd 0%, #f2d79a 46%, #d9a441 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">Components</div>
+    <div style="font-size: 15px; line-height: 1.6; color: #b9ae99; max-width: 60ch;">The vocabulary both clients build to. Anatomy and states as they exist in the web client today, so the Unity rebuild has something exact to copy rather than something to approximate.</div>
+  </div>
+
+  <div class="rule" style="margin-bottom: 18px;"><span>CONTROLS</span><span></span></div>
+  <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 40px;">
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+      <button class="btn btn-primary">TAKE THE FIELD</button>
+      <button class="btn btn-primary-hover">TAKE THE FIELD</button>
+      <button class="btn btn-primary" style="opacity: 0.55;">TAKE THE FIELD</button>
+      <div class="note">Primary · rest, hover, disabled. One per screen, repeated down it — never three competing.</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+      <button class="btn btn-ghost">WHO IS WHO</button>
+      <button class="btn btn-danger" style="padding: 12px 18px;">LEAVE THE MOOT</button>
+      <div class="note">Ghost carries the silver; danger carries the stone. Both clear the 44px thumb.</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+      <div style="display: flex; width: 100%; max-width: 420px; min-height: 56px; padding: 16px 20px; background: rgba(26,20,14,0.88); border: 1px solid rgba(170,140,100,0.5); border-radius: 12px; color: #fff9ec; font-size: 17px; box-sizing: border-box; align-items: center;">Aethelstan</div>
+      <div class="note">Input · 3.5rem tall, gilt-tinted rule at 50%.<br>The only field with a caret; nothing else takes text.</div>
+    </div>
+  </div>
+
+  <div class="rule" style="margin-bottom: 18px;"><span>SURFACES</span><span></span></div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-bottom: 40px;">
+    <div class="card" style="padding: 22px;">
+      <div class="dsp" style="font-size: 11px; letter-spacing: 0.2em; color: #d6cbb2; font-weight: 700; margin-bottom: 8px;">CARD</div>
+      <div class="note" style="color:#b9ae99;">The default panel. A 158° fall from lit bronze to near black, a gilt rule at 26%, and one bright pixel along the top edge so it reads as a raised plate rather than a hole.</div>
+    </div>
+    <div class="card card-noble" style="padding: 22px;">
+      <div class="dsp" style="font-size: 11px; letter-spacing: 0.2em; color: #d6cbb2; font-weight: 700; margin-bottom: 8px;">CARD · NOBLE</div>
+      <div class="note" style="color:#b9ae99;">An inner collet with four garnet studs set into its corners. For the thing on the screen that is worth the most — a rank, a prize, the helm.</div>
+    </div>
+    <div class="card card-selected" style="padding: 22px;">
+      <div class="dsp" style="font-size: 11px; letter-spacing: 0.2em; color: #f2d79a; font-weight: 700; margin-bottom: 8px;">CARD · CHOSEN</div>
+      <div class="note" style="color:#d8c4bd;">Selection is a garnet wash and a full-strength gilt rule, never a blue browser outline. The glow is 30px and stops there.</div>
+    </div>
+  </div>
+
+  <div class="rule" style="margin-bottom: 18px;"><span>MARKS</span><span></span></div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px;">
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <span class="badge badge-garnet">BLOODED</span>
+        <span class="badge badge-sky">FIRST MOOT</span>
+        <span class="badge badge-stone">UNBLOODED</span>
+        <div class="note">Badges · 9px, 0.12em, 4px radius.</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div class="medallion">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f6dda0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.3 2.9 8.2 7 9.4 4.1-1.2 7-5.1 7-9.4V6l-7-3Z"/><path d="M9.5 11.5 11.5 14l4-4.5"/></svg>
+        </div>
+        <div class="note">Medallion · 2.5rem, a domed bronze boss. Holds one stroked icon, never a glyph and never an emoji.</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="display: flex; gap: 7px; align-items: center;">
+          <span class="cabochon"></span><span class="cabochon"></span>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:rgba(90,80,66,0.5);box-shadow:inset 0 0 0 1px rgba(217,164,65,0.28);"></span>
+        </div>
+        <div class="note">Round pips · a garnet cabochon for a round won, an empty collet for one still to come. Best of three, read left to right.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="position: relative; height: 16px; width: 260px;">
+          <div style="position: absolute; inset: 0; background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='16' viewBox='0 0 48 16'%3E%3Cg fill='none' stroke='%23d9a441' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M0 8C4 8 8 2 12 2 16 2 20 14 24 14 28 14 32 2 36 2 40 2 44 8 48 8'/%3E%3Cpath d='M0 8C4 8 8 14 12 14 16 14 20 2 24 2 28 2 32 14 36 14 40 14 44 8 48 8'/%3E%3C/g%3E%3C/svg%3E&quot;); background-repeat: repeat-x; background-position: center; background-size: auto 16px; opacity: 0.65; mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%), radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px); -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%), radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px); mask-composite: intersect; -webkit-mask-composite: source-in;"></div>
+          <div style="position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 9999px; background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, #c8323c 15% 44%, #7c1420 45% 78%, #3a070c 100%); box-shadow: 0 0 0 1px rgba(217,164,65,0.7), 0 0 9px rgba(200,50,60,0.5);"></div>
+        </div>
+        <div class="note">Knot band · the divider between sections. The strands break either side of the stone; a cabochon on an unbroken plait reads as a sticker.</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: inline-flex; padding: 4px; background: rgba(20,16,11,0.8); border: 1px solid rgba(217,164,65,0.22); border-radius: 12px; gap: 4px; width: fit-content;">
+          <div class="dsp" style="padding: 9px 18px; border-radius: 9px; font-size: 11px; letter-spacing: 0.18em; font-weight: 700; color: #14100b; background: linear-gradient(180deg, #f2d79a, #d9a441);">RECRUIT</div>
+          <div class="dsp" style="padding: 9px 18px; border-radius: 9px; font-size: 11px; letter-spacing: 0.18em; font-weight: 700; color: #b9ae99;">WARRIOR</div>
+          <div class="dsp" style="padding: 9px 18px; border-radius: 9px; font-size: 11px; letter-spacing: 0.18em; font-weight: 700; color: #b9ae99;">JARL</div>
+        </div>
+        <div class="note">Segmented · the three difficulties the engine actually names. An unknown value normalises to WARRIOR rather than failing.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

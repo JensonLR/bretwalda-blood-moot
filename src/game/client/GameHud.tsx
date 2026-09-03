@@ -1500,9 +1500,13 @@ export default function GameHud({
             style={isMobile.current
               ? { bottom: 152, ...(lefty ? { right: 12 } : { left: 12 }) }
               : { left: 12 }}>
-            <div className="bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-md border border-purple-900/60">
-              <div className="text-[9px] text-purple-300 tracking-[0.15em] font-bold">{WARRIOR_STATS[localPlayer.warriorClass].ability}</div>
-              <div className="text-amber-300 font-bold text-sm">
+            {/* The readout for the POWER pad, so it wears the pad's own metal.
+                It used to be purple, which is a colour this game does not have
+                anywhere — not in the palette, not on a helmet, not in the
+                ground. Gilt names the thing the gilt pad fires. */}
+            <div className="bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-md border border-[rgba(217,164,65,0.5)]">
+              <div className="text-[9px] text-[var(--gilt)] tracking-[0.15em] font-bold">{WARRIOR_STATS[localPlayer.warriorClass].ability}</div>
+              <div className="text-[var(--gilt-lit)] font-bold text-sm">
                 {localPlayer.abilityCooldown > 0 ? `${Math.ceil(localPlayer.abilityCooldown)}s` : "READY"}
               </div>
             </div>
@@ -1614,8 +1618,8 @@ export default function GameHud({
         {/* big primary SLASH — hold for relentless combo swings, flick to aim */}
         <button
           style={near(16, 40)}
-          className={`absolute z-20 w-[84px] h-[84px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.stamina >= 13 ? (mobileFlags.current.attack ? "bg-red-500 border-amber-300 scale-95" : "bg-red-700/95 active:bg-red-500 border-red-300/80") : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          className={`absolute z-20 w-[84px] h-[84px] rounded-full flex flex-col items-center justify-center gap-0.5 ${
+            localPlayer.stamina >= 13 ? `pad pad-cut${mobileFlags.current.attack ? " pad-on" : ""}` : "pad pad-spent"
           }`}
           aria-label="Slash"
           onTouchStart={slash.onTouchStart}
@@ -1636,8 +1640,8 @@ export default function GameHud({
         {/* HEAVY */}
         <button
           style={near(112, 32)}
-          className={`absolute z-20 w-[68px] h-[68px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.stamina >= 30 ? "bg-orange-700/95 active:bg-orange-500 border-orange-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          className={`absolute z-20 w-[68px] h-[68px] rounded-full flex flex-col items-center justify-center gap-0.5 ${
+            localPlayer.stamina >= 30 ? "pad pad-heavy" : "pad pad-spent"
           }`}
           aria-label="Heavy attack"
           onTouchStart={heavy.onTouchStart}
@@ -1650,7 +1654,7 @@ export default function GameHud({
         {/* BLOCK (hold) */}
         <button
           style={near(16, 128)}
-          className="absolute z-20 w-[64px] h-[64px] rounded-full bg-sky-800/95 active:bg-sky-500 text-white border-[3px] border-sky-300/80 flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50"
+          className="pad pad-block absolute z-20 w-[64px] h-[64px] rounded-full flex flex-col items-center justify-center gap-0.5"
           aria-label="Block"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("block", true); }}
           onTouchEnd={() => { setFlag("block", false); }}
@@ -1661,8 +1665,8 @@ export default function GameHud({
         {/* DODGE */}
         <button
           style={near(100, 130)}
-          className={`absolute z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.stamina >= 20 ? "bg-emerald-700/95 active:bg-emerald-500 border-emerald-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          className={`absolute z-20 w-[60px] h-[60px] rounded-full flex flex-col items-center justify-center gap-0.5 ${
+            localPlayer.stamina >= 20 ? "pad pad-dodge" : "pad pad-spent"
           }`}
           aria-label="Dodge"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("dodge", true); }}>
@@ -1674,8 +1678,8 @@ export default function GameHud({
             aiming thumb already lives, clear of every other footprint. */}
         <button
           style={near(124, 200)}
-          className={`absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.stamina >= 25 ? "bg-amber-800/95 active:bg-amber-600 border-amber-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          className={`absolute z-20 w-[56px] h-[56px] rounded-full flex flex-col items-center justify-center gap-0.5 ${
+            localPlayer.stamina >= 25 ? "pad pad-shove" : "pad pad-spent"
           }`}
           aria-label="Shove"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("shove", true); }}>
@@ -1688,7 +1692,7 @@ export default function GameHud({
         {takeable && (
           <button
             style={near(124, 268)}
-            className="absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition bg-emerald-800/95 active:bg-emerald-600 border-emerald-300/80"
+            className="pad pad-take absolute z-20 w-[56px] h-[56px] rounded-full flex flex-col items-center justify-center gap-0.5"
             aria-label={`Take up ${takeUp(takeable.name)}`}
             data-hud="take"
             onTouchStart={(e) => { e.stopPropagation(); setFlag("take", true); }}>
@@ -1699,8 +1703,8 @@ export default function GameHud({
         {/* POWER */}
         <button
           style={near(56, 212)}
-          className={`absolute z-20 w-[60px] h-[60px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${
-            localPlayer.abilityCooldown <= 0 ? "bg-violet-700/95 active:bg-violet-500 border-violet-300/80" : "bg-stone-600/60 border-stone-500/40 opacity-70"
+          className={`absolute z-20 w-[60px] h-[60px] rounded-full flex flex-col items-center justify-center gap-0.5 ${
+            localPlayer.abilityCooldown <= 0 ? "pad pad-power" : "pad pad-spent"
           }`}
           aria-label="Power"
           onTouchStart={(e) => { e.stopPropagation(); if (localPlayer.abilityCooldown <= 0) setFlag("ability", true); }}>
@@ -1712,7 +1716,7 @@ export default function GameHud({
         {/* RUN toggle, on the moving thumb's side */}
         <button
           style={far(16, 24)}
-          className={`absolute z-20 w-[56px] h-[56px] rounded-full text-white border-[3px] flex flex-col items-center justify-center gap-0.5 shadow-xl shadow-black/50 transition ${mobileFlags.current.sprint ? "bg-amber-500/95 border-amber-200" : "bg-stone-700/95 border-stone-400/70"}`}
+          className={`absolute z-20 w-[56px] h-[56px] rounded-full flex flex-col items-center justify-center gap-0.5 ${mobileFlags.current.sprint ? "pad pad-run-on" : "pad pad-run"}`}
           aria-label="Run"
           onTouchStart={(e) => { e.stopPropagation(); setFlag("sprint", !mobileFlags.current.sprint); }}>
           <Zap size={18} /><span className="text-[9px] font-bold">{mobileFlags.current.sprint ? "ON" : "RUN"}</span>
