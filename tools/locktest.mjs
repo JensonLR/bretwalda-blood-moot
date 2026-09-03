@@ -16,7 +16,7 @@
 // type import and nothing else. Milliseconds.
 // ============================================================
 import { spawnSync } from "child_process";
-import { rmSync, mkdirSync, readdirSync } from "fs";
+import { rmSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 
@@ -81,6 +81,47 @@ const band = {
     !sameSide(man("red"), man("blue")) && !sameSide(man("none"), man("none"))
     && sameSide(man("red"), man("red")),
     "red/blue no, none/none no, red/red yes");
+}
+
+// ---- THE FLICK'S DIRECTION, read rather than run -------------------------
+// `routeLook` and `applySwitch` live in input.ts, which is React-coupled and
+// cannot be imported headless. What CAN be checked is the thing that actually
+// broke: three signs in three files that have to compose, and did not.
+//
+// On 3 Sep 2026 the mouse's sign was flipped so that moving right turns right.
+// That made `look()`'s argument a YAW delta where it had been a screen gesture,
+// and silently inverted the flick — a sweep right took the man on the LEFT
+// while the camera swung right. Nothing went red: this suite tested who MAY be
+// seized and never which man a flick TAKES. So this is that claim.
+{
+  const input = readFileSync(resolve(ROOT, "src/game/client/input.ts"), "utf8");
+  const camera = readFileSync(resolve(ROOT, "src/game/client/render/camera.ts"), "utf8");
+
+  // 1. Which way yaw runs. Forward is (sin yaw, cos yaw), so with `yaw +=` a
+  //    positive delta swings the camera LEFT.
+  const yawAdds = /yaw\s*\+=\s*routeLook\(/.test(camera);
+  const yawSubs = /yaw\s*-=\s*routeLook\(/.test(camera);
+  check("the camera composes the look delta exactly one way",
+    yawAdds !== yawSubs,
+    yawAdds ? "yaw += routeLook(...)" : yawSubs ? "yaw -= routeLook(...)" : "neither found");
+  const positiveTurnsLeft = yawAdds;
+
+  // 2. Which man a positive bank asks for.
+  const flick = /requestTargetSwitch\(lookBank > 0 \? (-?1) : (-?1)\)/.exec(input);
+  check("routeLook names the side a bank switches to", !!flick, flick ? flick[0] : "not found");
+  const dirForPositiveBank = flick ? Number(flick[1]) : 0;
+
+  // 3. Which side of the frame that dir means. A man to the RIGHT has a
+  //    NEGATIVE shortestAngle, so `dir > 0 ? rel < ...` makes dir = +1 right.
+  check("applySwitch keeps dir = +1 meaning the man on the right",
+    /const onSide = dir > 0 \? rel < -?[\d.]+ : rel > -?[\d.]+;/.test(input));
+
+  // The composition: the camera must take the man it is turning toward.
+  const takesLeft = dirForPositiveBank < 0;
+  check("a flick takes the man the camera is turning toward",
+    positiveTurnsLeft === takesLeft,
+    `a positive delta swings the camera ${positiveTurnsLeft ? "left" : "right"} and asks for dir ${dirForPositiveBank}, `
+    + `which is the ${takesLeft ? "left" : "right"}-hand man — ${positiveTurnsLeft === takesLeft ? "agreed" : "INVERTED"}`);
 }
 
 console.log(`\n[locktest] ${pass} passed, ${fail} failed`);

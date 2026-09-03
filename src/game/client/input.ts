@@ -381,7 +381,24 @@ export function routeLook(dx: number): number {
   if (dx * lookBank < 0) lookBank = 0;
   lookBank += dx;
   if (Math.abs(lookBank) >= LOCK_LOOK_SWITCH) {
-    requestTargetSwitch(lookBank > 0 ? 1 : -1);
+    // THE FLICK TAKES THE MAN YOU ARE TURNING TOWARD, and `dx` here is a YAW
+    // delta, not a screen gesture. Yaw grows toward the man's LEFT — forward is
+    // (sin yaw, cos yaw) — so a POSITIVE bank is a camera swinging left and
+    // wants the man on the left, which `applySwitch` calls `dir = -1`.
+    //
+    // This was `lookBank > 0 ? 1 : -1` and it was right only while the mouse
+    // path handed `look()` a screen gesture. On 3 Sep 2026 the mouse's sign was
+    // flipped so that moving right turns right (the owner: "I'm moving my mouse
+    // right to turn left"), which made the same value a yaw delta — and
+    // silently inverted this, so a flick right took the man on the LEFT while
+    // the camera swung right. One flip, two meanings; keying off the camera is
+    // what makes it one meaning again.
+    //
+    // It reads the same for touch. Bare glass with a man held never reaches
+    // here (the drag banks `switchTravel` instead), and the one path that does
+    // — a drag during a swing — turns the view the way the finger carries the
+    // world, so the man being turned toward is the one this takes.
+    requestTargetSwitch(lookBank > 0 ? -1 : 1);
     lookBank = 0;
   }
   return dx * (1 - lock.blend);
