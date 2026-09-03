@@ -11,8 +11,14 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"; SEED = int(argv[1]) if len(argv) > 1 else 7
 D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
 random.seed(SEED)
-head = bpy.data.objects["Head"]
-hairparts = [c for c in head.children_recursive if c.type == 'MESH' and c.material_slots and c.material_slots[0].material and c.material_slots[0].material.name.startswith("hair:")]
+# Two kinds of file: the pivot build (an Empty named Head with the parts
+# under it) and the rigged build (an armature with a Head bone; the parts
+# are the armature's children, bound by vertex group).
+arm = next((o for o in bpy.data.objects if o.type == 'ARMATURE'), None)
+head = bpy.data.objects.get("Head") if arm is None else arm
+def is_hair(c): return c.type == 'MESH' and c.material_slots and c.material_slots[0].material and c.material_slots[0].material.name.startswith("hair:")
+if arm is None: hairparts = [c for c in head.children_recursive if is_hair(c)]
+else: hairparts = [c for c in arm.children_recursive if is_hair(c) and any(g.name == "Head" for g in c.vertex_groups)]
 if not hairparts: print("[strands] no hair parts"); sys.exit(0)
 face = bpy.data.objects.get("Warrior_" + CLS)
 # The beard is the hair part whose top sits below the eye line; the pelt is the other.
@@ -108,6 +114,9 @@ made = []
 for src, kind in ([(beard, "beard")] + ([(pelt, "hair")] if pelt else [])):
     ob = strand_mesh(src, kind); ob.data.materials.append(mat)
     ob.parent = head; ob.matrix_parent_inverse = head.matrix_world.inverted()
+    if arm is not None:
+        vg = ob.vertex_groups.new(name="Head"); vg.add(list(range(len(ob.data.vertices))), 1.0, 'REPLACE')
+        mod = ob.modifiers.new("Armature", 'ARMATURE'); mod.object = arm
     # the shell stays as underfur: pushed 2 mm in, darkened
     under = src.material_slots[0].material.copy(); under.name = "hairUnder:" + hexcol
     und = under.node_tree.nodes.get("Principled BSDF") if under.use_nodes else None
@@ -124,5 +133,5 @@ bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"warrior-{CLS}.blend"))
 root = bpy.data.objects["Warrior_" + CLS]
 bpy.ops.object.select_all(action='DESELECT'); root.select_set(True)
 for o in root.children_recursive: o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=True)
+bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"warrior-{CLS}.glb"), use_selection=True, export_format='GLB', export_apply=(arm is None), export_skins=True, export_def_bones=False)
 print(f"[strands] warrior-{CLS}.glb rewritten")
