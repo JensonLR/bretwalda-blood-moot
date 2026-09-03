@@ -496,6 +496,14 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+- **The Unity client's C# can be compiled HERE, without the editor:
+  `tools/unitycheck.sh`** (Roslyn from the .NET SDK against Unity's own
+  engine/editor modules, its netstandard 2.1 reference set, and the package
+  assemblies the owner's last editor compile left in
+  `Library/ScriptAssemblies`). Run it after every C# change; it is the only
+  compile you will get until the owner's editor regains focus. It cannot
+  run the scene — a clean compile says nothing about what Play shows.
+
 - **A red on an INPUT claim is probably the wrong BROWSER BINARY.** `playtest`
   reads **35/38** on Playwright's headless SHELL and **38/38** on the full
   browser, same tree, same commit: the shell has no real pointer-lock, so its
