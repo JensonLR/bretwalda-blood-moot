@@ -133,8 +133,16 @@ export const DEATH_HOLD = {
    * `JET_LIFE` there is 1.6 s on high and the severance scales it — and drops a
    * pool at the end of it. Not measured here, and no harness in this repository
    * prints it: it is read off `vfx.ts`'s own constant.
+   *
+   * 1.15 s, up from 0.70 (owner, 3 Sep 2026: the replay must not be "rushed").
+   * This is the ONLY beat of the three that is a payoff rather than a
+   * requirement — `fall` is sized against how long a body takes to settle and
+   * `move` against how long a lens may take to travel without reading as a
+   * whip — so it is the one with room in it. It brings the whole hold to 3.80 s
+   * against a round break of 5 s, which `deathcamtest` checks, and it now
+   * covers the stump's own 1.6 s better than the old figure did.
    */
-  linger: 0.70,
+  linger: 1.15,
 };
 
 DEATH_HOLD.total = DEATH_HOLD.fall + DEATH_HOLD.move + DEATH_HOLD.linger;
@@ -254,6 +262,23 @@ export const ROUND_FOV = { from: 50, to: 42 };
  * losing the body.
  */
 const ROUND_OPEN_RADIUS = 5.4;
+/**
+ * THE FURTHEST A DEATH MAY OPEN FROM, however far the lens happened to be.
+ *
+ * The opening eye sits where the camera already was, and the lens is held
+ * still for `DEATH_HOLD.fall` while the body settles — 1.50 s, sized against
+ * measurement and not moved. But "where it already was" can be eight metres
+ * back behind a shoulder, and then the whole of that beat is a distant pair of
+ * dolls in the corner of a frame the bonfire owns. The owner, 3 Sep 2026:
+ * "Camera angles for relays need to be focused & not rushed or barely see
+ * anything."
+ *
+ * So the beat keeps its length and gives up its distance. The shot opens no
+ * further out than the round's own opening radius, which is the framing this
+ * file already considers right for watching a man die from outside his own
+ * body — and if the lens was closer than that, it stays where it was.
+ */
+const OPEN_MAX_RADIUS = ROUND_OPEN_RADIUS;
 const ROUND_OPEN_LIFT = 2.5;
 
 /** How close the lens gets to the wound, and the floor under that. */
@@ -429,7 +454,7 @@ export function frameDeathShot(v) {
   const dx = fx * ca - fz * sa;
   const dz = fx * sa + fz * ca;
 
-  const r0 = Math.max(MIN_RADIUS, Math.hypot(v.from.x - wound.x, v.from.z - wound.z));
+  const r0 = Math.min(OPEN_MAX_RADIUS, Math.max(MIN_RADIUS, Math.hypot(v.from.x - wound.x, v.from.z - wound.z)));
   const r = r0 + (CLOSE_RADIUS - r0) * moved;
   // Eye height comes down onto the wound as the lens comes in: a death watched
   // from standing height is a death watched from above, and what is on the
