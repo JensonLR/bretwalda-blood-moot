@@ -280,3 +280,26 @@ owner's last editor compile left in `Library/ScriptAssemblies`. Seventeen
 scripts, no errors, four warnings, at the end of this day's work. It is
 the only compile available until the owner's editor regains focus, and it
 says nothing about what Play shows.
+
+## Cosmetics over the wire — 3 Sep 2026, late
+
+The snapshot republishes each player's `appearance`; the Unity men now
+honour it. What the head's parts are is found by difference — the man
+built with a variant and again without it (helm none, beard none, hair
+shaved), the parts that differ being the variant, by material, vertex
+count and size, invisible meshes excluded — and `exportrig` names its
+objects by role (helm_N, beard_N, hair_N, cloak_N) so the glTF nodes tell
+Unity what to hide. `exportcosmetics.mjs` writes 9 helms, 4 beards and 3
+hair styles per class, 64 props in the head's frame; helms go through
+`prop.py`, beards and hair through `strands.py` in a prop mode. In Unity,
+`Cosmetics.Apply` recolours cloak (the game's CLOAK_COLORS), hair, beard
+and mail in place, hides the baked role parts and hangs the chosen prop on
+the Head bone. `WarriorView` dresses once per distinct appearance.
+
+Budget line, honest: each prop embeds its surface maps, so the 64 come to
+about 150 MB in `Models~` and again in StreamingAssets; shared textures
+across props (glTF cannot; a Unity-side texture cache could) are the next
+saving if it matters. The owner's console also found the day's one compile
+error (a Transform where a GameObject was wanted) and eight glTFast
+import warnings — the models were being imported as editor assets for
+nothing; they live in `Models~` now, which Unity does not import.
