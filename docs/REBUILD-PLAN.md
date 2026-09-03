@@ -211,3 +211,43 @@ pass rather than pretended away: ribbons read as ribbons close up (a
 strand texture with alpha would take that), the moustache is short, and
 the strand count (3,000–5,000 beard, 4,000–6,000 pelt) is a budget line
 Unity has not yet been asked to pay in a sixteen-man moot.
+
+## Steps 3–4 in one door: the game's skeleton, skinned, with its clips — 3 Sep 2026
+
+The men were going out as parts hung on six pivots. The game has more
+than that: `anim.ts` inserts a spine, splits every limb into upper, lower
+and wrist bones, hangs the cloak on a drape chain and paints weights
+across each limb mesh. `tools/blender/exportrig.mjs` calls that same
+factory (`createWarriorRig`) on a stand-in player and writes what comes
+out: the rest-pose OBJ, and `warrior-<cls>.rig.json` with the bone tree
+named by identity (Hips, Spine, Head, RightShoulder, RightUpperArm,
+RightElbow, RightWrist, RightHip, RightThigh, RightKnee, CloakYoke,
+Drape1…), the hand mounts, and per part either its rigid bone or its
+per-vertex [bone, weight] pairs. `tools/blender/rig.py` builds the
+armature, binds every part by vertex group with those weights, parents
+the mounts to the wrists, dresses the materials, exports a skinned glTF:
+25 joints, ~46 skinned meshes, ~30k triangles a man. `posetest.py` bends
+an elbow, a knee, the spine and the head in a render; the weights hold.
+
+The rigged men rendered white, and that took four experiments to place:
+not the modifier, not the lights, not the materials — a shell. The game
+hangs a `rig:shadow` mesh under every pivot with colour writing off, there
+only to cast shadows; the OBJ has no such flag, so it came through as an
+opaque white copy of the man, and only the limbs that moved out of it
+showed their textures. The exporter skips anything that does not write
+colour. Triangles halved.
+
+`tools/blender/clips.py` authors nine clips on the armature — idle, walk,
+run, attack, heavy, block, dodge, hit, die — in the man's own terms (pitch
+forward, yaw, roll, metres right/forward/up), converted into each bone's
+frame at key time from its rest matrix, so the same numbers serve every
+class. glTF carries them; glTFast imports them as legacy clips; Unity's
+`ClipDriver` plays them by fight state off the snapshot and holds a
+one-shot for its length so a flicker on the wire cannot cut a swing
+short. Judged frame by frame: walk, block, attack, heavy read; the death
+is still being placed (the hip translation lands off-frame in the
+judging render — under investigation, not signed off).
+
+Still to come on the men: the weapons ride the wrist mounts through
+`WarriorView.ArmUp` as before; the cloak's drape chain is not yet
+animated (stiff in the clips); the strand count is unbudgeted.
