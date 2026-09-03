@@ -41,6 +41,7 @@
     "tuitiontest": "node tools/tuitiontest.mjs",
     "hudshot": "node tools/hudshot.mjs",
     "roundbeatshot": "node tools/roundbeatshot.mjs",
+    "unitywire": "node tools/unitywire.mjs",
     "wartest": "node tools/wartest.mjs",
     "warflow": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/warflow.mjs",
     "warshot": "node tools/warshot.mjs",
