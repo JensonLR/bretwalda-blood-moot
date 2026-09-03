@@ -1,17 +1,64 @@
 {
   "pages": [
-    { "id": "page-1", "name": "Foundations" },
-    { "id": "page-2", "name": "Screens" }
+    {
+      "id": "page-1",
+      "name": "Foundations"
+    },
+    {
+      "id": "page-2",
+      "name": "Screens"
+    }
   ],
   "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 900, "h": 1180, "title": "Foundations", "page": "page-1" },
-    { "file": "Components.dc.html", "x": 1000, "y": 0, "w": 900, "h": 1180, "title": "Components", "page": "page-1" },
-    { "file": "Menu.dc.html", "x": 0, "y": 0, "w": 1280, "h": 800, "title": "Main menu", "page": "page-2" },
-    { "file": "Hud.dc.html", "x": 1380, "y": 0, "w": 1280, "h": 720, "title": "In the ring", "page": "page-2" }
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 900,
+      "h": 1470,
+      "title": "Foundations",
+      "page": "page-1"
+    },
+    {
+      "file": "Components.dc.html",
+      "x": 1000,
+      "y": 0,
+      "w": 900,
+      "h": 1080,
+      "title": "Components",
+      "page": "page-1"
+    },
+    {
+      "file": "Menu.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 800,
+      "title": "Main menu",
+      "page": "page-2"
+    },
+    {
+      "file": "Hud.dc.html",
+      "x": 1380,
+      "y": 0,
+      "w": 1280,
+      "h": 720,
+      "title": "In the ring",
+      "page": "page-2"
+    }
   ],
   "annotations": [
-    { "id": "note-unity", "x": 0, "y": -150, "w": 620, "page": "page-2",
-      "text": "These two are the target for BOTH clients. The web client is close already. The Unity client's menu is stock IMGUI grey and cannot be brought here without moving it to UI Toolkit — IMGUI has no theming, no layout engine and no transitions." }
+    {
+      "id": "note-unity",
+      "x": 0,
+      "y": -150,
+      "w": 620,
+      "page": "page-2",
+      "text": "These two are the target for BOTH clients. The web client is close already. The Unity client's menu is stock IMGUI grey and cannot be brought here without moving it to UI Toolkit \u2014 IMGUI has no theming, no layout engine and no transitions."
+    }
   ],
-  "launch": { "view": "canvas", "page": "page-1" }
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
 }
