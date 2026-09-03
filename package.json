@@ -85,7 +85,8 @@
     "rekeyprobe": "node tools/rekeyprobe.mjs",
     "exporthead": "node tools/blender/exporthead.mjs",
     "exportportraits": "node tools/blender/exportportraits.mjs",
-    "portraittest": "node tools/portraittest.mjs"
+    "portraittest": "node tools/portraittest.mjs",
+    "palettesync": "node tools/palettesync.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
