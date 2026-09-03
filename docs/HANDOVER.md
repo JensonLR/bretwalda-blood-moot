@@ -565,57 +565,31 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 - Evidence dirs under `art/` are gitignored per-directory.
 - node BLOCK-BUFFERS to pipes: `stdbuf -oL` into a file or a long run looks hung.
 
-## Immediate next actions (rewritten 2 Sep 2026, end of session)
+## Immediate next actions (rewritten 3 Sep 2026, end of session)
 
-1. Read this, then `docs/BACKLOG.md` and `docs/OPEN-DEFECTS.md`, and **verify
-   every row against the tree before working it** — this session found four
-   more stale rows (A3, Wave D, the bloom entry, the mute entry).
-2. **What is genuinely open and NOT owner-bound:**
-   - ~~**A4 — cloaks and every weapon**~~ — re-read 2 Sep: the cloaks were
-     rebuilt in an earlier wave, the sword was never the fault, and the
-     shield is dished now. What is left is the fist-as-mitten and the grain's
-     wicker read at kit distance (cosmetic).
-   - ~~**Wave D's first finding**~~ — answered from the owner's phone
-     screenshot (2 Sep): "Fast" there was the browser's stored choice, and
-     `detectTier` puts a current iPhone on Balanced. The graphics panel now
-     prints what Automatic would pick in the "Your choice" state too, so no
-     device is needed to read it again. The second (per-frame allocation)
-     was attributed and halved on 2 Sep (`fpstest --phases=alloc`,
-     `rekeyprobe`).
-   - **The nape-guard flare / beard profile** — measurement-blocked, unchanged.
-   - **`factionread` §7.1's residue** — the leg wraps' lifted value under the
-     fire, owner-ruled mechanisms (OPEN-DEFECTS carries the GPU column).
-3. **Owner-bound, and now PARKED by ruling:** the Steam app id and store
-   page, the desktop tag, the iOS/Android wave — all wait for the Unity +
-   Blender rebuild (owner, 2 Sep). Still the owner's: Neon's clock half, the
-   §7.1 mechanisms.
-4. **The rebuild is under way: `docs/REBUILD-PLAN.md`.** Heads, whole men,
-   weapons, shield and now all five grounds are out as glTF and standing in
-   the Unity client (`BRETWALDA - Blood Moot/`, its own repo), which plays a
-   duel over the real wire with menu, HUD, hit feedback, the real ground
-   and the game's dusk. Next in Blender: the strand beard and hair (the
-   owner's finding), hands, then helmets as separate glTFs; in Unity: a
-   **cosmetics over the wire** — the snapshot republishes each player's
-   `appearance` (`{helm, hairStyle, hairColor, beardStyle, beardColor, cloak,
-   armorColor, warPaint, weapon}`), but the Unity men ship the class default
-   only. Carrying it needs helm/beard/cloak variants as separate props on
-   the Head and Spine bones: `characters.ts` exports only `buildCharacter`,
-   and its head parts carry no distinct names (`rig_head_41` = iron helm by
-   material alone), so the honest route is a `--helm/--beard` build per
-   variant with the head subtree diffed by material against the bare build,
-   written as `helm-<id>.glb` through prop.py, and `WarriorView` hiding the
-   baked default by material and attaching the chosen prop. Not started;
-   sized here so the next session does not re-derive it. Done today in
-   Unity: sound (in code), the class portraits, the drape chain in the
-   clips, the cut-out strand alpha. Unity compiles
-   only when the owner's editor has focus — watch `~/Library/Logs/Unity/
-   Editor.log` for `error CS`; the shadergraph GUID errors in it are old and
-   Unity's own. Original plan text follows. Blender first
-   (head, strand hair and beard, hands, helmets, weapons, kit, grounds, in
-   that order, as glTF), then Unity as a renderer over the existing sim.
-   **Filed to the rebuild rather than pushed further here:** a strand-based
-   beard (OPEN-DEFECTS, "the owner's phone, 2 Sep"); `helmclash` §5's 66
-   pre-existing pelt spills (hair through the hood and the masks — the same
-   66 on the tree before the beard rounds, so not a regression).
-5. The laws above are the ones this session paid for; the two about `pkill`
-   and `pgrep -f` cost a run each.
+1. Read this, then `docs/REBUILD-PLAN.md` (the rebuild's own ledger, step by
+   step with what each render said), then `docs/BACKLOG.md` and
+   `docs/OPEN-DEFECTS.md`, and **verify every row against the tree before
+   working it.**
+2. **The Unity client is the work now** (`BRETWALDA - Blood Moot/`, its own
+   repo, main pushed through the cut-out strands). It has: the wire, menu
+   with the four portraits, HUD, hit feedback, the five real grounds under
+   the game's dusk rig with a particle hearth, four skinned men with the
+   game's skeleton, strand beards and hair, nine clips driven by fight
+   state, weapons on the wrist mounts, and sound made in code. **None of
+   today's C# has been seen running** — it compiles (`tools/unitycheck.sh`,
+   17 scripts, 0 errors), but the owner's editor is the only Play there is.
+   First thing when it has focus: press Play, TRAIN, and judge — the ground
+   under the dusk, the men moving, the sound. Expect tuning, not surprises.
+3. **Open on the men:** cosmetics over the wire (sized in "Landed 3 Sep"
+   above — helm/beard/cloak variants as props on the bones; not started);
+   the strand count is unbudgeted in a sixteen-man moot; the walk's stride
+   rate and the clip speeds are guesses until seen.
+4. **Open on the grounds:** the banners fly plain cloth (the painted devices
+   are drawn with canvas paths the byte-buffer stand-in cannot take); the
+   bonfire's static flame is hidden under the particle fire.
+5. **Owner-bound, parked by ruling:** the Steam app id and store page, the
+   desktop tag, the iOS/Android wave — all wait for the rebuild. Still the
+   owner's: Neon's clock half, the §7.1 mechanisms.
+6. The laws above are the ones this session paid for; today's two are the
+   Blender tools saving by class name, and the `cd` before every git.
