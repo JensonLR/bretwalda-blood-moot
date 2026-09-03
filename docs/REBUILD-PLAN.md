@@ -257,3 +257,16 @@ arm pitch has to run ahead of the lean by the lean's size.
 Still to come on the men: the weapons ride the wrist mounts through
 `WarriorView.ArmUp` as before; the cloak's drape chain is not yet
 animated (stiff in the clips); the strand count is unbudgeted.
+
+## Sound in Unity, made in code — 3 Sep 2026
+
+`SoundBank` synthesises every clip once at start the way `render/audio.ts`
+does, no files: swing, heavy swing, hit, block (wood), clang (steel),
+step, war-cry, fall, the hearth's crackle, the wind. Played spatially at
+the man from the clip driver's own transitions and from the wire's hit
+events (a shield takes a blow as wood, a parry as steel, the rest as
+flesh; heavy lower and louder), the hearth's crackle at the bonfire, the
+wind under everything. Not yet carried over from audio.ts: the impact
+material table by hit zone, the UI sounds, the mute law and the quality
+budget. Nothing here has been heard — the owner's editor compiles when it
+has focus; the bank is judged by ear the first time Play is pressed.
