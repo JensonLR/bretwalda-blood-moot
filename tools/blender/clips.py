@@ -28,9 +28,16 @@ R = math.radians
 from mathutils import Vector, Quaternion, Matrix
 FWD = Vector((0, -1, 0)); UP = Vector((0, 0, 1)); SIDE = FWD.cross(UP)   # the man's left
 REST = {pb.name: (arm.matrix_world @ pb.bone.matrix_local).to_3x3() for pb in arm.pose.bones}
+# "Pitch forward" means the bone's FAR END goes forward. A world rotation
+# about the side axis does that for a bone pointing down (a limb) and the
+# opposite for one pointing up (Hips, Spine), so the sign follows the
+# bone's rest direction. Measured the hard way: the first death fell on
+# its back and the heavy blow leaned away from the target.
+UPWARD = {n: (REST[n] @ Vector((0, 1, 0))).z > 0 for n in REST}
 def local_quat(name, pitch, yaw, roll):
     M = REST[name]; Mi = M.inverted()
-    q = Quaternion(Mi @ SIDE, R(pitch)) @ Quaternion(Mi @ UP, R(yaw)) @ Quaternion(Mi @ FWD, R(roll))
+    p = -pitch if UPWARD[name] else pitch
+    q = Quaternion(Mi @ SIDE, R(p)) @ Quaternion(Mi @ UP, R(yaw)) @ Quaternion(Mi @ FWD, R(roll))
     return q
 for pb in arm.pose.bones: pb.rotation_mode = 'QUATERNION'
 
@@ -106,14 +113,16 @@ clip("run", 22, [(int(t * 22), runpose(t)) for t in (0, 0.25, 0.5, 0.75)])
 clip("attack", 24, [
     (0, m()),
     (6, m({"RightUpperArm": (-95, 0, -40), "RightElbow": (100, 0, 0), "RightWrist": (-20, 0, 0), "Spine": (-6, -22, 0), "Head": (0, 10, 0)})),
-    (11, m({"RightUpperArm": (42, 0, 20), "RightElbow": (4, 0, 0), "RightWrist": (30, 0, 0), "Spine": (14, 24, 0), "RightThigh": (14, 0, 0), "LeftThigh": (-14, 0, 0), "Head": (0, -8, 0)})),
+    # The torso's forward lean swings a hanging arm BACK in world terms, so
+    # the arm's own pitch runs ahead of the lean by the lean's size.
+    (11, m({"RightUpperArm": (66, 0, 18), "RightElbow": (4, 0, 0), "RightWrist": (30, 0, 0), "Spine": (14, 24, 0), "RightThigh": (14, 0, 0), "LeftThigh": (-14, 0, 0), "Head": (0, -8, 0)})),
     (16, m({"RightUpperArm": (22, 0, 14), "RightElbow": (25, 0, 0), "Spine": (10, 16, 0)})),
 ], loop=False)
 # HEAVY — both hands, a bigger wind over the head, a slower fall. 36 frames; contact at 19.
 clip("heavy", 36, [
     (0, m()),
     (12, m({"RightUpperArm": (-120, 0, -25), "LeftUpperArm": (-110, 0, 25), "RightElbow": (95, 0, 0), "LeftElbow": (85, 0, 0), "Spine": (-14, -20, 0), "RightKnee": (-20, 0, 0), "LeftKnee": (-20, 0, 0), "Head": (-10, 0, 0)})),
-    (19, m({"RightUpperArm": (55, 0, 5), "LeftUpperArm": (48, 0, -5), "RightElbow": (6, 0, 0), "LeftElbow": (6, 0, 0), "Spine": (26, 22, 0), "RightThigh": (20, 0, 0), "LeftThigh": (-20, 0, 0), "RightKnee": (-30, 0, 0), "Head": (8, 0, 0)})),
+    (19, m({"RightUpperArm": (92, 0, 5), "LeftUpperArm": (84, 0, -5), "RightElbow": (6, 0, 0), "LeftElbow": (6, 0, 0), "Spine": (26, 22, 0), "RightThigh": (20, 0, 0), "LeftThigh": (-20, 0, 0), "RightKnee": (-30, 0, 0), "Head": (8, 0, 0)})),
     (28, m({"RightUpperArm": (40, 0, 10), "LeftUpperArm": (35, 0, -5), "RightElbow": (30, 0, 0), "LeftElbow": (30, 0, 0), "Spine": (12, 12, 0)})),
 ], loop=False)
 # BLOCK — the shield arm up and across the chest, a brace. Looping 20 frames.

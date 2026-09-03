@@ -52,7 +52,7 @@ def aim(o, target):
 ang = math.radians(float(argv[2]) if len(argv) > 2 else 35)
 nose = max(vs, key=lambda v: face_sign * v[length])
 print(f"[render.py] centre {[round(x,3) for x in c]}, sharp vertex {[round(x,3) for x in nose]}, camera angle {math.degrees(ang):.0f}°")
-cam_data = bpy.data.cameras.new("Cam"); cam_data.lens = 85
+cam_data = bpy.data.cameras.new("Cam"); cam_data.lens = float(argv[3]) if len(argv) > 3 else 85
 cam = bpy.data.objects.new("Cam", cam_data); scene.collection.objects.link(cam)
 dist = max(0.9, 2.4 * ext[up])   # a head at 0.9 m, a whole man at about 4 m
 cam.location = pt(dist * math.cos(ang), dist * math.sin(ang), 0.02 * ext[up] / 0.27); aim(cam, c); scene.camera = cam
