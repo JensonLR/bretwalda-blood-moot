@@ -10,6 +10,11 @@ sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", 'SUN')); sun.data.e
 sun.rotation_euler = (math.radians(52), 0, math.radians(-35)); sc.collection.objects.link(sun)
 w = bpy.data.worlds.new("Sky") if sc.world is None else sc.world; sc.world = w; w.use_nodes = True
 bg = w.node_tree.nodes.get("Background"); bg.inputs[0].default_value = (0.55, 0.65, 0.85, 1); bg.inputs[1].default_value = 0.9
+# The game has no environment reflections at all — its sky lights, it does
+# not mirror. Glossy rays see a dim sky so wet stone does not turn to chrome.
+wt = w.node_tree; lp = wt.nodes.new("ShaderNodeLightPath"); dim = wt.nodes.new("ShaderNodeBackground"); dim.inputs[0].default_value = (0.2, 0.23, 0.3, 1); dim.inputs[1].default_value = 0.35
+mixs = wt.nodes.new("ShaderNodeMixShader"); wout = wt.nodes.get("World Output")
+wt.links.new(lp.outputs["Is Glossy Ray"], mixs.inputs[0]); wt.links.new(bg.outputs[0], mixs.inputs[1]); wt.links.new(dim.outputs[0], mixs.inputs[2]); wt.links.new(mixs.outputs[0], wout.inputs["Surface"])
 cam = bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam")); sc.collection.objects.link(cam); sc.camera = cam
 cam.data.lens = 28
 pos = Vector((dist * 0.62, -dist * 0.62, dist * 0.42)); look = Vector((0, 0, 1.0))

@@ -17,7 +17,7 @@ for m in bpy.data.materials:
     m.use_nodes = True; nt = m.node_tree; bsdf = nt.nodes.get("Principled BSDF")
     if not bsdf: continue
     bsdf.inputs["Base Color"].default_value = (*info["color"], 1.0)
-    bsdf.inputs["Roughness"].default_value = float(info["roughness"]); bsdf.inputs["Metallic"].default_value = float(info["metalness"])
+    bsdf.inputs["Roughness"].default_value = min(1.0, float(info["roughness"])); bsdf.inputs["Metallic"].default_value = float(info["metalness"])
     if info.get("emissive") and sum(info["emissive"]) > 0:
         bsdf.inputs["Emission Color"].default_value = (*info["emissive"], 1.0); bsdf.inputs["Emission Strength"].default_value = float(info.get("emissiveIntensity", 1))
     coord = nt.nodes.new("ShaderNodeTexCoord"); mapping = nt.nodes.new("ShaderNodeMapping"); mapping.location = (-1000, 0)
@@ -25,7 +25,7 @@ for m in bpy.data.materials:
     mapping.inputs["Scale"].default_value = (float(rep[0]), float(rep[1]), 1.0)
     def img(file, colorspace):
         if not file: return None
-        path = os.path.join(D, "tex-world", file)
+        path = os.path.join(D, "tex-world", GROUND, file)
         if not os.path.exists(path): return None
         im = bpy.data.images.load(path, check_existing=True); im.colorspace_settings.name = colorspace
         n = nt.nodes.new("ShaderNodeTexImage"); n.image = im; n.location = (-700, 0); nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"]); return n
@@ -46,8 +46,19 @@ for m in bpy.data.materials:
     nrm = img(info.get("normal"), "Non-Color")
     if nrm:
         nm = nt.nodes.new("ShaderNodeNormalMap"); nt.links.new(nrm.outputs["Color"], nm.inputs["Color"]); nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+    # three.js: roughness = scalar × map.g, metalness = scalar × map.b; the
+    # scalars run above 1 here (1.04–1.11), which is how the maps' mid greys
+    # come out matte. Blender clamps at 1; multiply before the clamp.
     rough = img(info.get("roughnessMap"), "Non-Color")
-    if rough: nt.links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+    if rough:
+        sep = nt.nodes.new("ShaderNodeSeparateColor"); nt.links.new(rough.outputs["Color"], sep.inputs["Color"])
+        mul = nt.nodes.new("ShaderNodeMath"); mul.operation = 'MULTIPLY'; mul.use_clamp = True; mul.inputs[1].default_value = float(info["roughness"])
+        nt.links.new(sep.outputs["Green"], mul.inputs[0]); nt.links.new(mul.outputs[0], bsdf.inputs["Roughness"])
+    metal = img(info.get("metalnessMap"), "Non-Color")
+    if metal:
+        sepm = nt.nodes.new("ShaderNodeSeparateColor"); nt.links.new(metal.outputs["Color"], sepm.inputs["Color"])
+        mulm = nt.nodes.new("ShaderNodeMath"); mulm.operation = 'MULTIPLY'; mulm.use_clamp = True; mulm.inputs[1].default_value = float(info["metalness"])
+        nt.links.new(sepm.outputs["Blue"], mulm.inputs[0]); nt.links.new(mulm.outputs[0], bsdf.inputs["Metallic"])
     alpha = img(info.get("alphaMap"), "Non-Color")
     if alpha:
         nt.links.new(alpha.outputs["Color"], bsdf.inputs["Alpha"]); m.blend_method = 'CLIP' if hasattr(m, "blend_method") else m.blend_method

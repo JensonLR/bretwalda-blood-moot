@@ -84,7 +84,7 @@ const crcTable = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; 
 const crc = (buf) => { let c = -1; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ -1) >>> 0; };
 const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
 const png = (rgba, w, h) => { const raw = Buffer.alloc((w * 4 + 1) * h); for (let y = 0; y < h; y++) { raw[y * (w * 4 + 1)] = 0; raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1); } const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6; return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]); };
-const texDir = resolve(ROOT, "art/blender/tex-world"); mkdirSync(texDir, { recursive: true });
+const texDir = resolve(ROOT, `art/blender/tex-world/${GROUND}`); rmSync(texDir, { recursive: true, force: true }); mkdirSync(texDir, { recursive: true });
 const dumped = new Map();
 const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
@@ -164,7 +164,7 @@ scene.traverse((o) => {
 });
 mkdirSync(resolve(ROOT, "art/blender"), { recursive: true });
 const stem = `ground-${GROUND}`;
-const mtl = ["# Bretwalda ground materials"]; for (const [name, m] of mats) mtl.push(`newmtl ${name}`, `Kd ${m.color.map((x) => x.toFixed(4)).join(" ")}`, `Pr ${m.roughness.toFixed(3)}`, `Pm ${m.metalness.toFixed(3)}`, m.map ? `map_Kd tex-world/${m.map}` : "", "");
+const mtl = ["# Bretwalda ground materials"]; for (const [name, m] of mats) mtl.push(`newmtl ${name}`, `Kd ${m.color.map((x) => x.toFixed(4)).join(" ")}`, `Pr ${m.roughness.toFixed(3)}`, `Pm ${m.metalness.toFixed(3)}`, m.map ? `map_Kd tex-world/${GROUND}/${m.map}` : "", "");
 writeFileSync(resolve(ROOT, `art/blender/${stem}.mtl`), mtl.join("\n"));
 writeFileSync(resolve(ROOT, `art/blender/${stem}.obj`), [`# Bretwalda ground — ${GROUND}; metres, Y up, world space`, `mtllib ${stem}.mtl`, ...v, ...vn, ...vt, ...objects].join("\n") + "\n");
 writeFileSync(resolve(ROOT, `art/blender/${stem}.materials.json`), JSON.stringify(Object.fromEntries(mats), null, 1));
