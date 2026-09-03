@@ -124,7 +124,11 @@ not exist this morning.
   KINGDOM (four columns in the kingdoms' colours, houses as cards, free
   swords beneath) or BY HEARTH (every house across the kingdoms, largest
   first, wearing its kingdom's swatch), with a search box and the viewer's
-  row and house marked. Unity's turn on all three is next.
+  row and house marked. Unity has the roster too (`RosterPanel`, off the
+  same API, opened from the menu's WHO IS WHO); the tour and the rite have
+  no Unity counterpart yet — the Unity client has no onboarding, the web
+  is where a new arrival learns, and that is the next first-experience gap
+  on the Unity side.
 - **Mouse right turns right (owner's finding, both clients).** The web rig's
   yaw grows toward the man's LEFT (forward is (sin yaw, cos yaw) in a
   right-handed Y-up world), and the mouse path was adding the mouse's
