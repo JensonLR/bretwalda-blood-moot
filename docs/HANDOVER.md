@@ -107,6 +107,39 @@ which moves the opponent axis the chroma stage expands across.
 `tools/gradesplit.mjs --gate` is the instrument for that question, and it did
 not exist this morning.
 
+## Landed 3 Sep 2026 — the rebuild's grounds, and Unity lit at dusk
+
+- **The five grounds are out of the code as glTF.** `tools/blender/exportworld.mjs
+  --ground <id>` builds a ground exactly as GameCanvas does and writes OBJ+MTL
+  with every map and a `materials.json` sidecar; `tools/blender/world.py`
+  dresses and joins it (1656 village parts → 36 meshes) and exports
+  `art/blender/ground-<id>.glb`; `worldrender.py` frames a judging shot. Four
+  faults found and fixed on the way, each recorded in REBUILD-PLAN: the
+  per-vertex tint the OBJ never carried (turf, path, mud were missing — the
+  village rendered as snow), material colours above 1 (baked into vertex
+  colour or map), roughness read as luminance instead of scalar × map.g
+  (stone came out as chrome), and the other four grounds registering
+  themselves in modules the exporter never imported (every ground was the
+  village). Numbers and two honest gaps (plain banner cloth, static flame)
+  are in `docs/REBUILD-PLAN.md`.
+- **Unity loads the real ground and lights it the game's way.** `GroundView`
+  loads `ground-<arena>.glb` on join and re-dresses vertex-tinted meshes in
+  `Bretwalda/Ground` (the ground fragment of `render/world.ts` as a URP
+  shader). `MoodLighting` is the dusk rig and cold override of `lighting.ts`
+  over π, sky.ts's FogExp2, ACES + bloom through a runtime Volume.
+  `HearthFire` stands a particle fire and the rig's hearth light where the
+  bonfire is. Unity repo through `4862015`; SceneBuilder version 10.
+- **Reference frames of the moor, fort, camp and village** were shot off the
+  real `/shot` route (a scratch script over `tools/lib/browser.mjs`) and read
+  against the Blender renders: geometry and materials match; the darkness
+  of the moor and camp under a flat sun is the game's dusk missing, not a
+  fault in the export. Do not "fix" the moor's peat tint — it is 0.07 in the
+  game too, lit by the hearth.
+- **Laws paid for today:** a Blender script variable named `out` shadowed the
+  output path and cost a render round; a shared `tex-world/` directory had the
+  dyke's turf overwrite the village's under the same file name — maps now go
+  to `tex-world/<ground>/`.
+
 ## Landed 2 Sep 2026 (the session after the one below)
 
 - **Hearth standards — the Flags row.** `src/game/standards.mjs` (thirteen
@@ -526,7 +559,17 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    page, the desktop tag, the iOS/Android wave — all wait for the Unity +
    Blender rebuild (owner, 2 Sep). Still the owner's: Neon's clock half, the
    §7.1 mechanisms.
-4. **The rebuild has a plan: `docs/REBUILD-PLAN.md`** — Blender first
+4. **The rebuild is under way: `docs/REBUILD-PLAN.md`.** Heads, whole men,
+   weapons, shield and now all five grounds are out as glTF and standing in
+   the Unity client (`BRETWALDA - Blood Moot/`, its own repo), which plays a
+   duel over the real wire with menu, HUD, hit feedback, the real ground
+   and the game's dusk. Next in Blender: the strand beard and hair (the
+   owner's finding), hands, then helmets as separate glTFs; in Unity: a
+   proper rig and animation on the exported men (the walk and swing are
+   procedural bone poses today), audio, the class-select art. Unity compiles
+   only when the owner's editor has focus — watch `~/Library/Logs/Unity/
+   Editor.log` for `error CS`; the shadergraph GUID errors in it are old and
+   Unity's own. Original plan text follows. Blender first
    (head, strand hair and beard, hands, helmets, weapons, kit, grounds, in
    that order, as glTF), then Unity as a renderer over the existing sim.
    **Filed to the rebuild rather than pushed further here:** a strand-based
