@@ -710,3 +710,36 @@ Shadows are then the largest line and they are a real cost rather than a
 duplicated one — 756 draws for four shadow-casting lights on `high`, already
 chipped at once by the per-bone proxy (664 → 539). Props are 8.5 ms for 309
 draws, the worst ratio on the list and the cheapest thing to make a setting.
+
+## The verdict freeze, closed — 3 Sep 2026
+
+The owner, on the eve of an alpha launch: the game "isn't freezing like it has
+been on initial loading into games & when rounds / games finish."
+
+`hitchprobe` on the shipped bundle, high quality, four men, real GPU:
+
+| | worst frame after the verdict | first-use programs | over 100 ms |
+|---|---|---|---|
+| before | 295.7 ms | 25 | 1 |
+| draw-warming | 122.2 ms | 15 | 1 |
+| both light states | 23.3 / 74.2 / 54.0 ms over three runs | 16-26 | 0 |
+
+WHAT IT ACTUALLY WAS. Not linking — `linkProgram` was 0 on the guilty frame and
+the countdown warmer had already linked 37 programs. `renderer.compile()` links
+the GLSL program and does no more; on a Metal or D3D backend the driver builds
+the PIPELINE STATE on the first real DRAW with that program and vertex layout.
+So everything had been compiled and nothing had been drawn, and the whole cost
+arrived at the handover. The warmer now draws each object once into a four-pixel
+target, culled to a private layer so the scene is walked and nothing else is
+submitted, with the shadow map frozen for the length of it.
+
+AND TWICE, because three.js keys a program on the light COUNTS it was built
+against. A material drawn under "the arena's rig plus the tableau's" is a
+different program from the same material under the tableau's alone, which is
+what the handover actually uses. The second draw douses every light the arena
+raised. That is the step that took it from 122 ms to under 75.
+
+What is left is 16-26 programs whose FIRST `useProgram` call still lands on that
+frame, now costing tens of milliseconds rather than hundreds because the driver
+already holds their pipelines. Below the threshold where a player sees a freeze;
+not zero, and honest about it.

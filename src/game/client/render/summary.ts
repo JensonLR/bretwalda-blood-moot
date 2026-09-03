@@ -475,6 +475,20 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   let warmLinks = 0;
   /** A 4x4 target bound only for the length of a compile — see `warm`. */
   const warmTarget = new THREE.WebGLRenderTarget(4, 4);
+  /**
+   * A layer nothing else uses, so the warmer can DRAW one object and cull the
+   * rest by camera mask rather than by hiding a scene.
+   *
+   * WHY A DRAW AND NOT MERELY A COMPILE. `renderer.compile()` links the GLSL
+   * program and that is genuinely all it does. On a Metal or D3D backend the
+   * driver builds the PIPELINE STATE — the part that costs — on the first real
+   * draw with that program and that vertex layout, and not before. hitchprobe
+   * measured the consequence exactly: at the verdict, `linkProgram` 0, `draw`
+   * 0 ms, and 25 programs used for the FIRST time on a frame that took 295.7
+   * ms. Everything had been compiled; nothing had been drawn. So the warmer
+   * draws each object once, four pixels wide.
+   */
+  const WARM_LAYER = 31;
 
   /** A copy deep enough that the sim's lobby reset cannot reach into it. */
   const freeze = (p: GamePlayer): GamePlayer => ({
@@ -1097,8 +1111,41 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         // composer never asks for — measured as "30 of 30 warmed keys in the
         // cache, 31 fresh links at the handover regardless".
         const prevTarget = renderer.getRenderTarget();
+        const prevMask = camera.layers.mask;
+        const prevAuto = renderer.shadowMap.autoUpdate;
+        const objMask = o.layers.mask;
         renderer.setRenderTarget(warmTarget);
-        try { renderer.compile(o, camera, deps.scene); } finally { renderer.setRenderTarget(prevTarget); deps.scene.remove(rig); }
+        try {
+          renderer.compile(o, camera, deps.scene);
+          // ...AND THEN DRAW IT, which is the half that was missing. Only this
+          // object passes the camera's layer mask, so the scene is walked and
+          // nothing else is submitted; shadow maps are frozen for the length of
+          // it so a warm frame cannot pay for a shadow pass over the arena.
+          o.layers.enable(WARM_LAYER);
+          camera.layers.set(WARM_LAYER);
+          renderer.shadowMap.autoUpdate = false;
+          renderer.render(deps.scene, camera);
+          // TWICE, BECAUSE THE LIGHTING IS NOT THE SAME ON BOTH SIDES OF THE
+          // VERDICT. three.js keys a program on the light COUNTS it was built
+          // against, so a material drawn under "the arena's rig plus the
+          // tableau's" is not the same program as the same material drawn
+          // under the tableau's alone. The first draw above covers the fight;
+          // this one douses everything the arena raised and covers the
+          // handover. Both are four pixels wide.
+          const doused: THREE.Object3D[] = [];
+          deps.scene.traverse((l) => {
+            if ((l as THREE.Light).isLight && l.visible && !rig.getObjectById(l.id)) { l.visible = false; doused.push(l); }
+          });
+          if (doused.length) {
+            try { renderer.render(deps.scene, camera); } finally { for (const l of doused) l.visible = true; }
+          }
+        } finally {
+          o.layers.mask = objMask;
+          camera.layers.mask = prevMask;
+          renderer.shadowMap.autoUpdate = prevAuto;
+          renderer.setRenderTarget(prevTarget);
+          deps.scene.remove(rig);
+        }
         warmLinks += (renderer.info.programs?.length ?? 0) - before;
         for (const mat of mats) if (mat) warmed.add(`${mat.uuid}:${mat.version}:${shape}`);
         did++;
