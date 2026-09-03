@@ -68,6 +68,19 @@ body.traverse((o) => {
   if (o === rig.blob || o.name === "weapon" || o.parent?.name === "weapon") return;
   let inWeapon = false; for (let x = o; x; x = x.parent) if (x === rig.weapon || x === rig.offhand || x === rig.shield) inWeapon = true;
   if (inWeapon) return;
+  // The shadow proxies (rig:shadow under every pivot): MeshBasicMaterial
+  // with colorWrite off, there only to cast. Without that flag they are an
+  // opaque white shell over the man — which is exactly how they rendered.
+  // Unity's skinned meshes cast their own shadows.
+  const m0 = Array.isArray(o.material) ? o.material[0] : o.material;
+  if (m0 && m0.colorWrite === false) return;
+  if (/shadow/i.test(o.name)) return;
+  if (process.env.RIG_DEBUG && m0 && !m0.name && m0.color && m0.color.getHexString() === "ffffff") {
+    const chain = []; for (let x = o; x; x = x.parent) chain.push(x.name || x.type);
+    console.log("[rig-debug]", chain.join(" < "), JSON.stringify({ type: m0.type, transparent: m0.transparent, opacity: m0.opacity, alphaMap: !!m0.alphaMap, map: !!m0.map, colorWrite: m0.colorWrite, depthWrite: m0.depthWrite, side: m0.side, visible: o.visible, renderOrder: o.renderOrder, layers: o.layers.mask, userData: o.userData, scale: o.scale.toArray().map((x) => +x.toFixed(3)) }));
+  }
+  if (m0 && m0.transparent && (m0.alphaMap || m0.opacity < 0.999)) return;
+  if (/gore|blood|handedness/i.test(o.name) || /gore|blood/i.test(o.parent?.name ?? "")) return;
   const g = o.geometry; if (!g.getAttribute("normal")) g.computeVertexNormals();
   const mat = Array.isArray(o.material) ? o.material[0] : o.material; const col = mat?.color ?? new THREE.Color(0.7, 0.7, 0.7);
   const mname = ((mat && mat.name) || `m_${col.getHexString()}`).replace(/[^A-Za-z0-9_.:-]/g, "_");
