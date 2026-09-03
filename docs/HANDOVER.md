@@ -135,6 +135,21 @@ not exist this morning.
   of the moor and camp under a flat sun is the game's dusk missing, not a
   fault in the export. Do not "fix" the moor's peat tint — it is 0.07 in the
   game too, lit by the hearth.
+- **The men now leave the code with the game's own skeleton.**
+  `tools/blender/exportrig.mjs` calls `createWarriorRig` on a stand-in
+  player and writes bones (named by identity) and the game's own weights;
+  `rig.py` builds the armature and exports a skinned glTF (25 joints, ~46
+  skinned meshes, ~30k triangles a man); `strands.py` grows on it; `clips.py`
+  authors nine clips (idle, walk, run, attack, heavy, block, dodge, hit, die)
+  in the man's own terms and exports them as glTF animations; Unity's
+  `ClipDriver` plays them by fight state. Judged frame by frame in
+  `cliprender.py` renders, five rounds; REBUILD-PLAN has each round.
+  **The finding that cost the most:** the rigged men rendered white — the
+  game's `rig:shadow` proxies (colorWrite off, there only to cast) came
+  through the OBJ as an opaque white shell; the exporter skips anything
+  that does not write colour. Second finding: the Hips bone's head is the
+  body's origin at the FEET, not the waist, so a hip pitch is a plank
+  fall about the ankles.
 - **Laws paid for today:** a Blender script variable named `out` shadowed the
   output path and cost a render round; a shared `tex-world/` directory had the
   dyke's turf overwrite the village's under the same file name — maps now go
@@ -565,8 +580,9 @@ tool that spawns a server (50) guards it with `watchBoot`.**
    duel over the real wire with menu, HUD, hit feedback, the real ground
    and the game's dusk. Next in Blender: the strand beard and hair (the
    owner's finding), hands, then helmets as separate glTFs; in Unity: a
-   proper rig and animation on the exported men (the walk and swing are
-   procedural bone poses today), audio, the class-select art. Unity compiles
+   the cloak's drape chain in the clips (stiff today), a strand texture with
+   alpha so ribbons stop reading as ribbons close up, audio, the class-select
+   art. Unity compiles
    only when the owner's editor has focus — watch `~/Library/Logs/Unity/
    Editor.log` for `error CS`; the shadergraph GUID errors in it are old and
    Unity's own. Original plan text follows. Blender first
