@@ -41,7 +41,7 @@ parts = sorted(hairparts, key=lambda o: zrange(o)[1])
 beard = parts[0]; pelt = parts[-1] if len(parts) > 1 else None
 if PROP and CLS.startswith("hair-"): beard, pelt = None, parts[-1]
 if PROP and CLS.startswith("beard-"): pelt = None
-hexcol = beard.material_slots[0].material.name.split(":")[1]
+hexcol = (beard or pelt).material_slots[0].material.name.split(":")[1]
 base = Vector((int(hexcol[0:2], 16), int(hexcol[2:4], 16), int(hexcol[4:6], 16))) / 255.0
 lin = Vector(tuple((c / 12.92) if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in base))
 
