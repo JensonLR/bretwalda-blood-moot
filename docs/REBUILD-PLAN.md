@@ -128,3 +128,51 @@ the spec, in millimetres.
   (menu *Bretwalda > Build Duel Scene*). It compiles the moment the editor
   refreshes with glTFast and Newtonsoft resolved; the first play is against
   `node custom-server.mjs` on port 3000.
+
+## Step 7 came early: the five grounds are out of the code — 3 Sep 2026
+
+The grounds were last on the list because they are the largest. They came
+out through the same door as the men, and sooner, because the door was
+already built. `tools/blender/exportworld.mjs --ground <id>` stands up the
+texture and material libraries and `createWorld` exactly as GameCanvas
+does and writes the result as OBJ+MTL, every map dumped to
+`art/blender/tex-world/<id>/`, and a `materials.json` sidecar with what
+the OBJ cannot say (roughness maps, alpha cutouts, UV repeat, emissive).
+Two things the OBJ *can* say that it did not at first: the per-vertex tint
+the code writes (turf, path, mud, daub, thatch) rides as `v x y z r g b`
+with the ground shader's exposure roll and turf hue push folded in; and
+the material colour, which three.js lets exceed 1 to lift a dark tint, is
+baked into the vertex colour where there is one and the map where there
+is not, so a renderer that clamps at 1 sees the same albedo.
+
+`tools/blender/world.py` imports, wires each material from the sidecar
+(roughness = scalar × map.g and metalness = scalar × map.b, the way
+three.js reads them — the scalars run above 1 here, which is how mid-grey
+maps come out matte), joins the thousand-odd parts per material into a
+few dozen meshes and exports `ground-<id>.glb`. `worldrender.py` frames a
+judging shot from up and back over the fighting circle, with a sky that
+lights but does not mirror — the game has no environment reflections.
+
+| ground | parts | meshes | triangles | glb |
+|---|---|---|---|---|
+| saxon_village | 1656 | 36 | 228,665 | 21 MB |
+| pict_moor | 2853 | 7 | 58,568 | 6.5 MB |
+| roman_fort | 4170 | 7 | 49,052 | 5.6 MB |
+| danelaw_camp | 893 | 12 | 37,704 | 5.5 MB |
+| offa_dyke | 768 | 8 | 49,440 | 5.9 MB |
+
+What the Blender renders show, judged against `/shot` frames of the same
+grounds: geometry and materials match; the village and dyke read as places
+under daylight; the moor, fort and camp are dark because in the game they
+are lit at dusk with the hearth as key light, and Blender's flat sun is
+not that. The mood is Unity's job — `MoodLighting` carries the dusk rig
+and the hearth light across. Two honest gaps: the banners' painted
+devices are not in the export (the cloth is drawn with the canvas 2D API
+and a byte-buffer stand-in only takes `fillRect`), so the flags fly plain
+cloth; and the bonfire's flame is a static emissive mesh in the export,
+replaced in Unity by a particle fire.
+
+In Unity: `GroundView` loads `ground-<arena>.glb` when the join names the
+arena and re-dresses every vertex-tinted mesh in `Bretwalda/Ground`, a URP
+shader that does what `render/world.ts` does per pixel (detail tiled in
+metres, near and wide tap, exposure roll, times the vertex tint).
