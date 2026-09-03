@@ -27,6 +27,7 @@ import WarMap, { type WarViewData } from "@/game/client/factionMap/WarMap";
 import Dispatch, { takeCrownNews, takeWatermark } from "@/game/client/factionMap/Dispatch";
 import Standing, { type StandingSelf } from "@/game/client/factionMap/Standing";
 import Roll, { ROLL_ASK_DEFAULT, type RollAsk, type RollSeat } from "@/game/client/factionMap/Roll";
+import Roster, { type RosterRow } from "@/game/client/factionMap/Roster";
 import Hearth, { type HearthViewData, type HearthSeatData } from "@/game/client/factionMap/Hearth";
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
@@ -186,6 +187,7 @@ export default function WarPage() {
   /** The viewer's own house and the season's houses — backlog 4.4. */
   const [hearth, setHearth] = useState<HearthViewData | null>(null);
   const [hearthSeats, setHearthSeats] = useState<HearthSeatData[] | null>(null);
+  const [roster, setRoster] = useState<RosterRow[] | null>(null);
 
   /**
    * Read the war rolls. Every setState below happens in a promise callback and
@@ -197,12 +199,13 @@ export default function WarPage() {
     return fetch("/api/war", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...(storedProfile() ?? {}), roll: true }),
+      body: JSON.stringify({ ...(storedProfile() ?? {}), roll: true, roster: true }),
     })
       .then((res) => res.json() as Promise<{
         ok?: boolean; mode?: string; war?: WarViewData; self?: SelfView | null;
         roll?: RollSeat[] | null;
         hearth?: HearthViewData | null; hearths?: HearthSeatData[] | null;
+        roster?: RosterRow[] | null;
       }>)
       .then((body) => {
         if (body.mode === "local" || !body.war) { setMode("local"); return; }
@@ -228,6 +231,7 @@ export default function WarPage() {
         setRoll(Array.isArray(body.roll) ? body.roll : null);
         setHearth(body.hearth ?? null);
         setHearthSeats(Array.isArray(body.hearths) ? body.hearths : null);
+        setRoster(Array.isArray(body.roster) ? body.roster : null);
         if (body.self?.allegiance) setChoice(body.self.allegiance as PeopleId);
       })
       .catch(() => { setMode("local"); });
@@ -345,6 +349,10 @@ export default function WarPage() {
               credentials={storedProfile()} onChanged={() => void load()} />
           )}
           {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} ask={rollAsk} onAsk={askRoll} />}
+          {/* WHO IS WHO — every sworn man by kingdom and by hearth (owner,
+              3 Sep 2026). Below the roll, above the dispatch: the roll says
+              who leads, this says who stands where. */}
+          {mode === "server" && <Roster roster={roster} selfName={self?.name ?? null} selfHearthId={hearth?.id ?? null} />}
 
           {/* WHAT MOVED WHILE YOU WERE AWAY — above the map, and that
               placement is the point. The map plate is taller than a 390px

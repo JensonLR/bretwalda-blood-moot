@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { clientKey, localMode, rateLimit, readBody, serverOk, tooMany } from "@/db/api";
-import { refreshFront, warRoll, statRoll, warSelf, warView, installWarLedger, type StatRollAxis } from "@/db/war";
+import { refreshFront, warRoll, statRoll, warSelf, warView, warRoster, installWarLedger, type StatRollAxis } from "@/db/war";
 import { hearthOf, hearthRoll } from "@/db/hearths";
 
 export const runtime = "nodejs";
@@ -59,5 +59,6 @@ export async function POST(req: NextRequest) {
       });
   const hearth = self?.hearthId ? await hearthOf(self.hearthId) : null;
   const hearthsOfSeason = body.roll === true ? await hearthRoll() : null;
-  return serverOk({ war: view, self, roll, hearth, hearths: hearthsOfSeason });
+  const roster = body.roster === true ? await warRoster() : null;
+  return serverOk({ war: view, self, roll, hearth, hearths: hearthsOfSeason, roster });
 }

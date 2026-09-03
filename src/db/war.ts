@@ -7,7 +7,7 @@ import {
   type PeopleId, type WarState, type SeasonVerdict,
 } from "@/game/war.mjs";
 import { getDb, withDb } from "./index";
-import { players, seasons, territories, warFlips, warLedger } from "./schema";
+import { hearths, players, seasons, territories, warFlips, warLedger } from "./schema";
 import { boundProfile } from "./matchLedger";
 import { secretMatches } from "./credentials";
 
@@ -925,6 +925,69 @@ export async function warRoll(
 }
 
 /** The lifetime axes the owner's 7.6 ruling names beside the deeds. */
+/**
+ * THE ROSTER — who is who. Every sworn man on the war rolls, by his people
+ * and his hearth, with the season's points beside his name. The owner
+ * (3 Sep 2026): "no list of players who are in the same clan or even the
+ * same kingdom faction. We want to see whose who & whose under what clan."
+ * A profile's people is the one it swore (players.allegiance), its hearth the
+ * house it sits at (players.hearth_id); the season's points are summed off
+ * the ledger, and a man who has not banked yet stands on the roll at nought
+ * rather than being left off it — a new hearth-brother with no fights is
+ * still a brother.
+ */
+export interface WarRosterRow {
+  name: string;
+  people: string;
+  hearth: { id: number; name: string; standard: string | null } | null;
+  points: number;
+  matches: number;
+  kills: number;
+  wins: number;
+  title: string | null;
+}
+
+export async function warRoster(limit = 400): Promise<WarRosterRow[] | null> {
+  const cap = Math.max(1, Math.min(1000, Math.round(limit)));
+  return withDb(async (db) => {
+    const season = await currentSeason(db);
+    const banked = season
+      ? db.select({
+        profileId: warLedger.profileId,
+        points: sql<number>`sum(${warLedger.points})::int`.as("season_points"),
+        matches: sql<number>`count(distinct ${warLedger.matchKey})::int`.as("season_matches"),
+      }).from(warLedger).where(eq(warLedger.seasonId, season.id)).groupBy(warLedger.profileId).as("banked")
+      : null;
+    const q = db.select({
+      name: players.name,
+      people: players.allegiance,
+      hearthId: players.hearthId,
+      hearthName: hearths.name,
+      hearthStandard: hearths.standard,
+      kills: players.kills,
+      wins: players.wins,
+      matches: players.matches,
+      points: banked ? sql<number>`coalesce(${banked.points}, 0)::int` : sql<number>`0`,
+      seasonMatches: banked ? sql<number>`coalesce(${banked.matches}, 0)::int` : sql<number>`0`,
+    }).from(players)
+      .leftJoin(hearths, eq(hearths.id, players.hearthId));
+    const rows = await (banked ? q.leftJoin(banked, eq(banked.profileId, players.id)) : q)
+      .where(sql`${players.allegiance} is not null`)
+      .orderBy(asc(players.allegiance), asc(hearths.name), desc(banked ? sql`coalesce(${banked.points}, 0)` : sql`0`), asc(players.name))
+      .limit(cap);
+    return rows.map((r) => ({
+      name: r.name || "A nameless warrior",
+      people: String(r.people),
+      hearth: r.hearthId && r.hearthName ? { id: Number(r.hearthId), name: r.hearthName, standard: r.hearthStandard ?? null } : null,
+      points: Number(r.points) || 0,
+      matches: Number(r.seasonMatches) || 0,
+      kills: Number(r.kills) || 0,
+      wins: Number(r.wins) || 0,
+      title: titleFor(String(r.people), Number(r.points) || 0),
+    }));
+  }, null);
+}
+
 export type StatRollAxis = "wins" | "kills" | "honour";
 
 /**

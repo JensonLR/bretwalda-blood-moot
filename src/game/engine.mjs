@@ -2604,6 +2604,20 @@ export function makeEngine(options = {}) {
         if (room.hostId !== player.id) return;
         room.players.forEach((p) => { if (p.holdHand) p.holdHand = false; });
       });
+      // THE RITE'S PAUSE. The First Moot puts a card up at the head of every
+      // phase and the owner (3 Sep 2026) wants the fight to stop while it is
+      // read: "physically pause so the player isn't being attacked & give
+      // them time to actually read & acknowledge". `hold_bots` raises or drops
+      // the hold on every bot in the room, and is honoured ONLY in a room
+      // sealed to other humans (maxPlayers 1) — the reason `arm_bots` had no
+      // way back was that a hold that could reach a live opponent is a way to
+      // freeze him, and a solo room has none.
+      case "hold_bots": return withRoom(sid, (room, player) => {
+        if (room.hostId !== player.id) return;
+        if ((room.maxPlayers ?? 8) !== 1) return;
+        const hold = !!data.hold;
+        room.players.forEach((p) => { if (p.bot || String(p.id).startsWith("bot_")) p.holdHand = hold; });
+      });
       case "add_bot": return withRoom(sid, (room, player) => {
         if (room.hostId !== player.id) return;
         const diff = normalizeDifficulty(data.difficulty, room.difficulty);

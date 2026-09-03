@@ -109,6 +109,22 @@ not exist this morning.
 
 ## Landed 3 Sep 2026 — the rebuild's grounds, and Unity lit at dusk
 
+- **Three first-experience findings from the owner (3 Sep, evening), web
+  first.** (1) THE TOUR SCROLLS TO ITS STOP: the third act measured its
+  doors but never moved the page, so on a desktop a door below the fold
+  was ringed off-screen while the scrim held the page still — each stop is
+  now scrolled to the middle of the window before it is measured. (2) THE
+  RITE PAUSES: a new wire message `hold_bots {hold}` (solo rooms only, for
+  the reason `arm_bots` has no way back) holds every bot while a phase's
+  card is up in an armed phase and drops the hold on "I AM READY" — the
+  fight physically stops while the card is read. Sent after the arming so
+  the arming cannot drop it. (3) WHO IS WHO: `warRoster()` (db/war.ts) lists
+  every sworn man by allegiance and hearth with the season's points; the
+  API returns it on `roster: true`; `Roster.tsx` on /factions reads it BY
+  KINGDOM (four columns in the kingdoms' colours, houses as cards, free
+  swords beneath) or BY HEARTH (every house across the kingdoms, largest
+  first, wearing its kingdom's swatch), with a search box and the viewer's
+  row and house marked. Unity's turn on all three is next.
 - **Mouse right turns right (owner's finding, both clients).** The web rig's
   yaw grows toward the man's LEFT (forward is (sin yaw, cos yaw) in a
   right-handed Y-up world), and the mouse path was adding the mouse's

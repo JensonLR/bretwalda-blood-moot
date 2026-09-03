@@ -100,6 +100,7 @@ interface GameCanvasProps {
   onMootFoe?: () => void;
   /** Sent once when the First Moot reaches the phase a blow may arrive in. */
   onMootArm?: () => void;
+  onMootHold?: (hold: boolean) => void;
   /** The rite is over — the war room is its last step, not a menu he has to
    *  find. See `page.tsx`. */
   onMootDone?: () => void;
@@ -273,7 +274,7 @@ interface WarriorSlot {
   prevPhase: AttackPhase | null;
 }
 
-export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onMootArm, onMootDone, onClip }: GameCanvasProps) {
+export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onMootArm, onMootHold, onMootDone, onClip }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [glError, setGlError] = useState<string | null>(null);
@@ -2358,6 +2359,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         joystickPos={touch.knob}
         onMootFoe={onMootFoe}
         onMootArm={onMootArm}
+        onMootHold={onMootHold}
         onMootDone={onMootDone}
       />
     </div>

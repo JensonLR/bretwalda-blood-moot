@@ -102,6 +102,10 @@ interface GameHudProps {
   onMootFoe?: () => void;
   /** Sent once when the First Moot reaches the phase a blow may arrive in. */
   onMootArm?: () => void;
+  /** THE RITE'S PAUSE: true while a phase's card is up and the foe is armed,
+   *  false when the card is taken down — the client relays it as `hold_bots`
+   *  (owner, 3 Sep 2026: "physically pause so the player isn't being attacked"). */
+  onMootHold?: (hold: boolean) => void;
   /** The rite is over — take him to the war room, which is the second half of
    *  the owner's one flow: "learn the fight, then choose your kingdom". */
   onMootDone?: () => void;
@@ -667,7 +671,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe, onMootArm, onMootDone,
+  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, onMootFoe, onMootArm, onMootHold, onMootDone,
 }: GameHudProps) {
   // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
   // the nearest drop inside TAKE.range of the local man, named in the shop's
@@ -907,6 +911,9 @@ export default function GameHud({
   const mootArmSentRef = useRef(false);
   const onMootArmRef = useRef(onMootArm);
   useEffect(() => { onMootArmRef.current = onMootArm; });
+  const onMootHoldRef = useRef(onMootHold);
+  useEffect(() => { onMootHoldRef.current = onMootHold; });
+  const mootHeldRef = useRef(false);
   /** Fired on the EDGE of the rite finishing inside this session, so a
    *  graduate who happens to take another solo fight is not marched off to the
    *  war room every time he loads the ring. */
@@ -950,6 +957,12 @@ export default function GameHud({
         mootArmSentRef.current = true;
         onMootArmRef.current?.();
       }
+      // THE PAUSE, physically: while a card is up in an armed phase the foe
+      // is held — sent AFTER the arming above, so the arming cannot drop it.
+      // The release is sent from `openMoot`, on the press that takes the
+      // card down, not from here: a hold must end on the player's word.
+      const wantHold = !!moot.card && moot.armed && !moot.done;
+      if (wantHold && !mootHeldRef.current) { mootHeldRef.current = true; onMootHoldRef.current?.(true); }
       if (!mootDoneSentRef.current && moot.done && mootPrevAtRef.current > 0) {
         mootDoneSentRef.current = true;
         onMootDoneRef.current?.();
@@ -994,6 +1007,7 @@ export default function GameHud({
   const openMoot = () => {
     const m = ensureMoot();
     m.open();
+    if (mootHeldRef.current) { mootHeldRef.current = false; onMootHoldRef.current?.(false); }
     setMootUp((p) => ({
       ...p, card: null,
       line: m.beat ? (isMobile.current ? m.beat.touch : m.beat.desk) : null,

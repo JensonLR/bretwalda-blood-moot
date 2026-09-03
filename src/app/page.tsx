@@ -1664,6 +1664,7 @@ export default function Page() {
           // And he is armed when the rite reaches THE SHIELD, whose whole
           // subject is a blow arriving. One message, once, host only.
           onMootArm={() => { if (mootSessionRef.current) sendMsg("arm_bots"); }}
+          onMootHold={(hold) => { if (mootSessionRef.current) sendMsg("hold_bots", { hold }); }}
           // THE RITE ENDS IN THE WAR ROOM. The owner: "then it should take you
           // to the WAR ROOM to choose your kingdom rather than muster
           // training." It used to wait for him to LEAVE the fight, which meant
@@ -4442,11 +4443,24 @@ function TourGuide({ onDone }: { onDone: () => void }) {
     // Same 0 ms deferral as above, and here it earns something besides the
     // lint: the ring is measured after the browser has laid the button out,
     // which on the first commit of the landing screen it has not.
+    // THE VIEW GOES WHERE THE TOUR POINTS. The stops are measured, never
+    // placed — but on a desktop the hall is taller than the window and a door
+    // below the fold was ringed off-screen while the scrim held the page
+    // still (owner, 3 Sep 2026: "just freezes on desktop so can't see what
+    // it's showing"). Each stop is scrolled to the middle of the window
+    // first; the scroll listener below re-measures as it arrives, and two
+    // later reads catch a browser whose smooth scroll ends silently.
+    const el0 = target ? document.querySelector(`[data-tour="${target}"]`) : null;
+    if (el0 && typeof (el0 as HTMLElement).scrollIntoView === "function") {
+      try { (el0 as HTMLElement).scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch { (el0 as HTMLElement).scrollIntoView(); }
+    }
     const t0 = setTimeout(read, 0);
+    const t1 = setTimeout(read, 450);
+    const t2 = setTimeout(read, 900);
     window.addEventListener("resize", read);
     window.addEventListener("scroll", read, true);
     return () => {
-      clearTimeout(t0);
+      clearTimeout(t0); clearTimeout(t1); clearTimeout(t2);
       window.removeEventListener("resize", read);
       window.removeEventListener("scroll", read, true);
     };
