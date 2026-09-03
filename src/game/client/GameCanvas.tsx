@@ -2297,7 +2297,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // to be added to the yaw immediately before sampleInput ran the lock's
         // spring, which then took most of it straight back out. The rig hands
         // whatever the lock does not claim on to the yaw.
-        stage.rig.look(mouseDelta.x * 0.0048);
+        // MOUSE RIGHT TURNS RIGHT. The rig's yaw grows toward the man's LEFT
+        // (forward is (sin yaw, cos yaw) in a right-handed Y-up world, so a
+        // larger yaw swings it counter-clockwise from above), and this line
+        // was adding the mouse's rightward motion to it — mouse right, turn
+        // left, for as long as the mouse path existed (owner, 3 Sep 2026).
+        // Negated at the source so the lock's flick-to-switch reads the same
+        // sign as the turn. The touch path is deliberately left alone: a drag
+        // that carries the world with the finger is a different gesture.
+        stage.rig.look(-mouseDelta.x * 0.0048);
         mouseDelta.x = 0; mouseDelta.y = 0;
       }
 
