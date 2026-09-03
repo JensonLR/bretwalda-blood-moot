@@ -83,7 +83,9 @@
     "hitchprobe": "node tools/hitchprobe.mjs",
     "helmrungs": "node tools/helmrungs.mjs",
     "rekeyprobe": "node tools/rekeyprobe.mjs",
-    "exporthead": "node tools/blender/exporthead.mjs"
+    "exporthead": "node tools/blender/exporthead.mjs",
+    "exportportraits": "node tools/blender/exportportraits.mjs",
+    "portraittest": "node tools/portraittest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

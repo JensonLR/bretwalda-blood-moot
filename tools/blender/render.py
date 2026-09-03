@@ -1,5 +1,5 @@
 # RENDER.PY — a judging frame of whatever head.py made, headless.
-#   Blender -b art/blender/bretwalda.blend -P tools/blender/render.py -- Head_huscarl art/blender/head-huscarl.png
+#   Blender -b art/blender/bretwalda.blend -P tools/blender/render.py -- Head_huscarl art/blender/head-huscarl.png [angle] [lens] [frame_m] [res]
 import bpy, sys, math, os
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 NAME = argv[0] if argv else "Head_huscarl"
@@ -24,6 +24,12 @@ vs = _all_verts
 lo = [min(v[i] for v in vs) for i in range(3)]; hi = [max(v[i] for v in vs) for i in range(3)]
 ext = [hi[i] - lo[i] for i in range(3)]; c = [(hi[i] + lo[i]) / 2 for i in range(3)]
 up, length, breadth = 2, 1, 0
+# A PORTRAIT frames the top FRAME metres instead of the whole subject: the
+# camera looks at the middle of that band and stands off from its height, so
+# the same script gives a whole man at 4 m and a head-and-shoulders at 1.3 m.
+FRAME = float(argv[4]) if len(argv) > 4 else 0.0
+frame_h = FRAME if FRAME > 0 else ext[up]
+if FRAME > 0: c[up] = hi[up] - FRAME / 2
 # The face is the SHARP end: a nose tip has few vertices within a centimetre
 # of its extreme along the length axis, the occiput's broad curve has many.
 plus = max(v[length] for v in vs); minus = min(v[length] for v in vs)
@@ -54,8 +60,8 @@ nose = max(vs, key=lambda v: face_sign * v[length])
 print(f"[render.py] centre {[round(x,3) for x in c]}, sharp vertex {[round(x,3) for x in nose]}, camera angle {math.degrees(ang):.0f}°")
 cam_data = bpy.data.cameras.new("Cam"); cam_data.lens = float(argv[3]) if len(argv) > 3 else 85
 cam = bpy.data.objects.new("Cam", cam_data); scene.collection.objects.link(cam)
-dist = max(0.9, 2.4 * ext[up])   # a head at 0.9 m, a whole man at about 4 m
-cam.location = pt(dist * math.cos(ang), dist * math.sin(ang), 0.02 * ext[up] / 0.27); aim(cam, c); scene.camera = cam
+dist = max(0.9, 2.4 * frame_h)   # a head at 0.9 m, a whole man at about 4 m
+cam.location = pt(dist * math.cos(ang), dist * math.sin(ang), 0.02 * frame_h / 0.27); aim(cam, c); scene.camera = cam
 key = bpy.data.objects.new("Key", bpy.data.lights.new("Key", 'AREA')); key.data.energy = 18; key.data.size = 0.6
 key.location = pt(0.7 * dist / 0.9, -0.5 * dist / 0.9, 0.6 * dist / 0.9); key.data.energy = 18 * (dist / 0.9) ** 2; aim(key, c); scene.collection.objects.link(key)
 fill = bpy.data.objects.new("Fill", bpy.data.lights.new("Fill", 'AREA')); fill.data.energy = 5; fill.data.size = 1.2; fill.data.color = (0.75, 0.85, 1.0)
@@ -63,7 +69,8 @@ fill.location = pt(0.4 * dist / 0.9, 0.8 * dist / 0.9, 0.2 * dist / 0.9); fill.d
 scene.view_settings.view_transform = 'Standard'
 print(f"[render.py] axes: up {'XYZ'[up]}, length {'XYZ'[length]} face toward {'+' if face_sign > 0 else '-'}{'XYZ'[length]}, breadth {'XYZ'[breadth]}")
 scene.render.engine = 'BLENDER_EEVEE_NEXT' if hasattr(bpy.types, 'RenderSettings') and 'BLENDER_EEVEE_NEXT' in [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties['engine'].enum_items] else 'BLENDER_EEVEE'
-scene.render.resolution_x, scene.render.resolution_y = 900, 900
+RES = int(argv[5]) if len(argv) > 5 else 900
+scene.render.resolution_x, scene.render.resolution_y = RES, RES
 scene.render.filepath = OUT
 scene.world = scene.world or bpy.data.worlds.new("World")
 scene.world.use_nodes = True
