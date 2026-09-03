@@ -86,27 +86,36 @@ def clip(name, frames, poses, loop=True):
 # forward lean. Angles are pitch/yaw/roll in the man's own axes.
 S = {"RightThigh": (4, 0, 0), "LeftThigh": (4, 0, 0), "RightKnee": (-8, 0, 0), "LeftKnee": (-8, 0, 0),
      "RightUpperArm": (-8, 0, -6), "LeftUpperArm": (-8, 0, 6), "RightElbow": (35, 0, 0), "LeftElbow": (40, 0, 0), "Spine": (4, 0, 0)}
+DRAPES = [pb.name for pb in arm.pose.bones if pb.name.startswith("Drape")]
+def drape(lift, sway=0.0, ripple=0.0):
+    """The cloak's drape chain: every ring pitched back by `lift` (a run lifts
+    the hem), swung sideways by `sway`, with a ripple down the rings."""
+    out = {}
+    for i, n in enumerate(DRAPES):
+        ring = (int("".join(ch for ch in n if ch.isdigit()) or 1) - 1) % 4
+        out[n] = (-lift * (0.6 + 0.4 * ring / 3) + ripple * math.sin(ring * 1.7), sway, 0)
+    return out
 def m(*ds):
     out = dict(S)
     for d in ds: out.update(d)
     return out
 
 # IDLE — a breath, the weight shifting a little.
-clip("idle", 90, [(0, m()), (45, m({"Spine": (6, 2, 0), "Head": (0, -3, 0), "RightUpperArm": (-10, 0, -7), "LeftUpperArm": (-10, 0, 7)}))])
+clip("idle", 90, [(0, m(drape(2, 0, 1))), (45, m({"Spine": (6, 2, 0), "Head": (0, -3, 0), "RightUpperArm": (-10, 0, -7), "LeftUpperArm": (-10, 0, 7)}, drape(3, 1.5, -1)))])
 # WALK — 30 frames a cycle, legs opposed, arms counter, hips dipping.
 def walkpose(t):
     a = math.sin(t * 2 * math.pi); b = -a
     return m({"RightThigh": (28 * a, 0, 0), "LeftThigh": (28 * b, 0, 0),
               "RightKnee": (-12 - 30 * max(0.0, -a), 0, 0), "LeftKnee": (-12 - 30 * max(0.0, -b), 0, 0),
               "RightUpperArm": (-8 - 16 * a, 0, -6), "LeftUpperArm": (-8 - 16 * b, 0, 6),
-              "Spine": (6, 4 * a, 0), "Hips": {"rot": (0, 0, 3 * a), "loc": (0, 0, 0.012 * abs(math.sin(t * 4 * math.pi)))}, "Head": (0, -3 * a, 0)})
+              "Spine": (6, 4 * a, 0), "Hips": {"rot": (0, 0, 3 * a), "loc": (0, 0, 0.012 * abs(math.sin(t * 4 * math.pi)))}, "Head": (0, -3 * a, 0)}, drape(10, 3 * a, 3 * math.sin(t * 4 * math.pi)))
 clip("walk", 30, [(int(t * 30), walkpose(t)) for t in (0, 0.25, 0.5, 0.75)])
 def runpose(t):
     a = math.sin(t * 2 * math.pi); b = -a
     return m({"RightThigh": (44 * a, 0, 0), "LeftThigh": (44 * b, 0, 0),
               "RightKnee": (-18 - 50 * max(0.0, -a), 0, 0), "LeftKnee": (-18 - 50 * max(0.0, -b), 0, 0),
               "RightUpperArm": (-10 - 28 * a, 0, -8), "LeftUpperArm": (-10 - 28 * b, 0, 8), "RightElbow": (70, 0, 0), "LeftElbow": (70, 0, 0),
-              "Spine": (14, 6 * a, 0), "Hips": {"rot": (0, 0, 4 * a), "loc": (0, 0, 0.03 * abs(math.sin(t * 4 * math.pi)))}})
+              "Spine": (14, 6 * a, 0), "Hips": {"rot": (0, 0, 4 * a), "loc": (0, 0, 0.03 * abs(math.sin(t * 4 * math.pi)))}}, drape(26, 4 * a, 5 * math.sin(t * 4 * math.pi)))
 clip("run", 22, [(int(t * 22), runpose(t)) for t in (0, 0.25, 0.5, 0.75)])
 # ATTACK — the sword arm winds up over the shoulder (back and high), cuts
 # down and across the body, recovers. 24 frames; contact at 11.
