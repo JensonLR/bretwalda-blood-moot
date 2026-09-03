@@ -73,12 +73,12 @@ def strand_mesh(src, kind):
                 length = 0.014 + 0.058 * depth ** 1.3 + random.uniform(-0.005, 0.007)
                 if abs(n.x) > 0.6: length *= 0.55
                 d = (tang * 0.8 + n * 0.1 + Vector((random.uniform(-0.12, 0.12), random.uniform(-0.12, 0.12), 0))).normalized()
-                w0 = 0.0011
+                w0 = 0.0017                                  # the cut-out takes a third of the width back
             else:
                 length = 0.025 + 0.045 * depth + random.uniform(-0.006, 0.010)
                 if p.y < front_y or n.y < -0.25: length *= 0.5
                 d = (tang * 0.85 + n * 0.06 + Vector((random.uniform(-0.15, 0.15), random.uniform(-0.15, 0.15), 0))).normalized()
-                w0 = 0.0013
+                w0 = 0.0019
             segs = 5; seg = length / segs; pts = [p.copy()]; dirs = [d]
             sway = clump_sway(p) + Vector((random.uniform(-1, 1), random.uniform(-1, 1), 0)) * 0.04
             for s in range(segs):
@@ -145,10 +145,12 @@ for src, kind in ([(beard, "beard")] + ([(pelt, "hair")] if pelt else [])):
     under = src.material_slots[0].material.copy(); under.name = "hairUnder:" + hexcol
     und = under.node_tree.nodes.get("Principled BSDF") if under.use_nodes else None
     if und:
-        for inp in ("Base Color",):
-            v = und.inputs[inp].default_value; und.inputs[inp].default_value = (v[0] * 0.55, v[1] * 0.55, v[2] * 0.55, 1)
+        # The underfur is the hair's own colour at half strength — not the
+        # map's (the library's hair map is a light brown structure map, and
+        # the rigged men wore it as a pale shell under the strands).
         for l in list(under.node_tree.links):
             if l.to_socket == und.inputs["Base Color"]: under.node_tree.links.remove(l)
+        und.inputs["Base Color"].default_value = (lin.x * 0.5, lin.y * 0.5, lin.z * 0.5, 1)
     src.material_slots[0].material = under
     bpy.context.view_layer.objects.active = src; bpy.ops.object.select_all(action='DESELECT'); src.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT'); bpy.ops.transform.shrink_fatten(value=-0.001); bpy.ops.object.mode_set(mode='OBJECT')
