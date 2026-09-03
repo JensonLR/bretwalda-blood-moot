@@ -303,3 +303,20 @@ saving if it matters. The owner's console also found the day's one compile
 error (a Transform where a GameObject was wanted) and eight glTFast
 import warnings — the models were being imported as editor assets for
 nothing; they live in `Models~` now, which Unity does not import.
+
+## The surfaces travel once; the banners fly their devices — 3 Sep 2026, later
+
+Two of the honest gaps closed. The banners in the exported grounds flew
+plain cloth because `banners.ts` paints with canvas paths and the export's
+stand-in took only `fillRect`; `@napi-rs/canvas` (a dev dependency) is a
+full 2D context in Node, and the exporter reads the cloth off it. The
+moor's banner carries its crescent now.
+
+The props' 150 MB were copies: every man and prop embedded the same 26
+surfaces' maps. The glTFs ship materials by name only, the UV repeat baked
+into the mesh as the world tile already was, and Unity's `SurfaceLibrary`
+builds each `<surface>:<hex>` once from `StreamingAssets/tex` (22 MB, once)
+— base and tint, the normal map, a metallic-gloss map packed from the
+code's roughness and metalness. A man is 3.6 MB, a helm 300 KB, a weapon
+40 KB. The grounds keep their own dumped, tinted maps embedded; they are
+five files and per-ground by construction. Unseen in Unity, like the rest.
