@@ -1557,6 +1557,10 @@ const PALETTE = {
   // cannot be carried by particle count alone, because on the low tier there
   // are not enough particles for a count to say anything.
   bloodArterial: linear(0xb4200c, 1.1),
+  // `mist` was the haze colour and nothing reads it now — see `bloodSpatter`,
+  // which spends those particles on liquid instead. Kept as a named colour
+  // rather than deleted, because the palette is the one place a reader can see
+  // what blood the game has ever had, and a gap in it teaches nothing.
   mist: linear(0x6d1410, 0.7),
   dustNear: linear(0x9c8f6f, 0.5),
   dustFar: linear(0x6a6252, 0.3),
@@ -3198,18 +3202,35 @@ export function createVfx(
     }
   }
 
-  /** The haze a wound opening puts in the air. Dropped whole on the low tier. */
-  function bloodMist(x: number, y: number, z: number, count: number, scale: number): void {
+  /**
+   * THE FINE SPATTER A WOUND THROWS, and it is liquid, not weather.
+   *
+   * This was a haze: a soft translucent puff at alpha 0.34 on the `soft`
+   * sprite, GROWING as it rose, meant as "the haze a wound opening puts in the
+   * air". The owner, 3 Sep 2026, on the eve of an alpha launch: "Blood needs
+   * tidying up where those awful faded blood aspects aren't used & only use
+   * really dramatic liquid blood & guts etc." He is right, and the haze was
+   * the worst of it — a pink fog that read as smoke rather than as blood, and
+   * it washed the frame out at exactly the moment a blow should read hardest.
+   *
+   * The COUNT is kept, because that volume is wanted; the CHARACTER changes.
+   * These are fine droplets now: the `drop` sprite, all but opaque, arterial
+   * at the head and darkening as they cool, SHRINKING rather than swelling —
+   * a drop in air does not grow — thrown harder, dragged a third as much and
+   * pulled down at nearly true gravity so they arc and fall instead of hanging
+   * in the air. The same particles, spent on liquid.
+   */
+  function bloodSpatter(x: number, y: number, z: number, count: number, scale: number): void {
     if (tier === "low") return;
     for (let i = 0; i < count; i++) {
       spawn({
         x, y, z,
-        vx: sym(1.4), vy: rand(0.2, 1.5), vz: sym(1.4),
-        life: rand(0.35, 0.7),
-        size0: rand(0.1, 0.2) * scale, size1: rand(0.24, 0.42) * scale,
-        c0: PALETTE.mist, c1: PALETTE.bloodDark,
-        alpha: 0.34, fadeIn: 0.08, fadePow: 1.6,
-        drag: 3.2, grav: 2.5, frame: CELL.soft,
+        vx: sym(2.3), vy: rand(0.6, 2.6), vz: sym(2.3),
+        life: rand(0.45, 0.85),
+        size0: rand(0.05, 0.1) * scale, size1: rand(0.02, 0.05) * scale,
+        c0: PALETTE.bloodArterial, c1: PALETTE.bloodDark,
+        alpha: 0.95, fadeIn: 0.02, fadePow: 0.9,
+        drag: 1.1, grav: 9.4, frame: CELL.drop,
         flags: F_ALPHA | F_WIND,
       });
     }
@@ -3308,7 +3329,7 @@ export function createVfx(
       // Deeper the harder it was hit: more of it, and less of it aerated.
       tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
     );
-    if (k > 0.22) bloodMist(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.28)), 0.7 + k * 0.5);
+    if (k > 0.22) bloodSpatter(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.28)), 0.7 + k * 0.5);
     // On the glass, if the lens was close enough and in the way. Scaled off the
     // same `k` everything else here is, so a graze mists it and a cleaving heavy
     // to the throat covers it.
@@ -3505,7 +3526,7 @@ export function createVfx(
         0.045 + radius * 0.42,
         PALETTE.bloodArterial,
       );
-      bloodMist(x, y, z, Math.max(2, Math.round(count * 0.3)), 1 + radius * 2);
+      bloodSpatter(x, y, z, Math.max(2, Math.round(count * 0.3)), 1 + radius * 2);
     }
     // A limb coming off in front of you is the loudest case this effect has, and
     // it is the one the owner is describing. Outside the budget guard on purpose:
