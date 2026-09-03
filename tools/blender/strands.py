@@ -36,7 +36,7 @@ def strand_mesh(src, kind):
     zlo, zhi = zrange(src); span = max(1e-3, zhi - zlo)
     ys = [(mw @ v.co).y for v in src.data.vertices]; ylo, yhi = min(ys), max(ys)
     front_y = ylo + 0.42 * (yhi - ylo)                  # the face is -Y: roots forward of this line are over the brow
-    verts, faces, cols = [], [], []
+    verts, faces, cols, uvs = [], [], [], []
     gravity = Vector((0, 0, -1))
     density = 11000.0 if kind == "beard" else 5200.0     # strands per m² of shell
     # Clumps: strands near a shared centre share a sway, so hair falls in locks
@@ -90,7 +90,7 @@ def strand_mesh(src, kind):
             b0 = len(verts)
             for s, q in enumerate(pts):
                 t = s / segs; w = w0 * (1 - 0.72 * t); sd = dirs[s].cross(n).normalized() if dirs[s].cross(n).length > 1e-4 else side
-                verts.append(q + sd * w); verts.append(q - sd * w)
+                verts.append(q + sd * w); verts.append(q - sd * w); uvs.append((0.0, t)); uvs.append((1.0, t))
                 dark = 0.45 + 0.5 * t                        # roots in shadow, tips lit
                 cols.append(shade * dark); cols.append(shade * dark)
             for s in range(segs):
@@ -99,11 +99,35 @@ def strand_mesh(src, kind):
     me = bpy.data.meshes.new(f"{src.name}__strands"); me.from_pydata([tuple(v) for v in verts], [], faces); me.update()
     col = me.color_attributes.new("Color", 'FLOAT_COLOR', 'POINT')
     for i, c in enumerate(cols): col.data[i].color = (lin.x * c, lin.y * c, lin.z * c, 1.0)
+    uv = me.uv_layers.new(name="UVMap")
+    for poly in me.polygons:
+        for li in poly.loop_indices: uv.data[li].uv = uvs[me.loops[li].vertex_index]
     ob = bpy.data.objects.new(f"{src.name}__strands", me); bpy.context.scene.collection.objects.link(ob)
     return ob
 
 mat = bpy.data.materials.new("hairStrand:" + hexcol); mat.use_nodes = True; nt = mat.node_tree; bsdf = nt.nodes["Principled BSDF"]
 attr = nt.nodes.new("ShaderNodeVertexColor"); attr.layer_name = "Color"; nt.links.new(attr.outputs["Color"], bsdf.inputs["Base Color"])
+# A 16×4 alpha across the width: full in the middle, falling off to the
+# edges, thinning toward the tip, so a ribbon reads as a strand and its edge
+# as hair. Cut out at 0.5 rather than blended: no sorting for thousands of
+# ribbons, in Blender or in Unity.
+W, H = 16, 4
+img = bpy.data.images.new("strandAlpha", W, H, alpha=True); px = [0.0] * (W * H * 4)
+for y in range(H):
+    for x in range(W):
+        u = (x + 0.5) / W; v = (y + 0.5) / H
+        edge = min(u, 1 - u) * 2
+        a = min(1.0, edge * 1.8) * (1.0 - 0.35 * v)
+        i = (y * W + x) * 4; px[i:i + 4] = (1.0, 1.0, 1.0, a)
+img.pixels[:] = px; img.pack()
+tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = img; tex.interpolation = 'Linear'; tex.extension = 'EXTEND'
+# The glTF exporter writes alphaMode MASK (with the cutoff) when the alpha
+# reaches the BSDF through a greater-than; a bare link exports as BLEND.
+cut = nt.nodes.new("ShaderNodeMath"); cut.operation = 'GREATER_THAN'; cut.inputs[1].default_value = 0.5
+nt.links.new(tex.outputs["Alpha"], cut.inputs[0]); nt.links.new(cut.outputs[0], bsdf.inputs["Alpha"])
+if hasattr(mat, "surface_render_method"): mat.surface_render_method = 'DITHERED'
+if hasattr(mat, "blend_method"): mat.blend_method = 'CLIP'
+if hasattr(mat, "alpha_threshold"): mat.alpha_threshold = 0.5
 # No sheen and a low specular: ribbons sit edge-on to every light, and a
 # sheen there turns dark hair to frost.
 bsdf.inputs["Roughness"].default_value = 0.72
