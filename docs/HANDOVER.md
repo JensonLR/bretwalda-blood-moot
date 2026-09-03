@@ -150,6 +150,13 @@ not exist this morning.
   that does not write colour. Second finding: the Hips bone's head is the
   body's origin at the FEET, not the waist, so a hip pitch is a plank
   fall about the ankles.
+- **Law: every Blender tool in `tools/blender/` saves to
+  `art/blender/warrior-<cls>.blend` BY CLASS NAME, whatever file it was
+  opened on.** Running `strands.py` on the scratch pivot-generation files
+  to render portraits overwrote all four rigged files (their glTFs were
+  recovered from Unity's copies; the .blend files were rebuilt from the
+  `.rig.obj/.json` in ten minutes). Rebuild order when that happens:
+  `rig.py` → `strands.py` → `clips.py`, per class.
 - **Laws paid for today:** a Blender script variable named `out` shadowed the
   output path and cost a render round; a shared `tex-world/` directory had the
   dyke's turf overwrite the village's under the same file name — maps now go
