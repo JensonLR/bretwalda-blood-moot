@@ -91,6 +91,8 @@
     "shadercheck": "node tools/shadercheck.mjs",
     "cliptime": "node tools/cliptime.mjs",
     "severtest": "node tools/severtest.mjs",
+    "exportarmoury": "node tools/blender/exportarmoury.mjs",
+    "armourytest": "node tools/blender/exportarmoury.mjs --check",
     "exportclips": "node tools/blender/exportclips.mjs",
     "exportmen": "node tools/blender/exportmen.mjs"
   },
