@@ -90,6 +90,7 @@
     "unityui": "node tools/unityui.mjs",
     "shadercheck": "node tools/shadercheck.mjs",
     "cliptime": "node tools/cliptime.mjs",
+    "severtest": "node tools/severtest.mjs",
     "exportclips": "node tools/blender/exportclips.mjs",
     "exportmen": "node tools/blender/exportmen.mjs"
   },
