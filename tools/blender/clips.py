@@ -331,8 +331,47 @@ clip("dodge", 16, [
     (6, m({"Spine": (26, 0, 12), "RightThigh": (30, 0, 0), "LeftThigh": (-10, 0, 0), "RightKnee": (-60, 0, 0), "LeftKnee": (-30, 0, 0), "Hips": {"rot": (0, 0, 8), "loc": (0, 0, -0.18)}, "RightUpperArm": (-30, 0, -30), "LeftUpperArm": (-30, 0, 30)})),
     (12, m({"Spine": (10, 0, 4), "Hips": {"rot": (0, 0, 0), "loc": (0, 0, -0.05)}})),
 ], loop=False)
-# HIT — a flinch back and to the side, 14 frames.
-clip("hit", 14, [(0, m()), (4, m({"Spine": (-16, 8, -10), "Head": (-14, 0, 6), "RightUpperArm": (10, 0, -20), "LeftUpperArm": (10, 0, 20), "Hips": {"rot": (0, 0, -4), "loc": (0, -0.06, -0.03)}})), (12, m())], loop=False)
+# THE FLINCHES — four of them, because a man struck from his left does not fold
+# the way a man struck from his right does, and the engine has always said which
+# it was: the `hit` frame carries `direction`, the attacker's own attackDir. One
+# flinch for every blow from every quarter is a large part of why the fighting
+# reads as unnatural — it is the same body, jolted the same way, whatever
+# happened to it.
+#
+# All four run 14 frames with the recoil at 4, so the driver needs no special
+# case. What differs is WHERE the body goes: away from the blow, which is what a
+# body does. The head leads, because the head always leads.
+clip("hit", 14, [   # the forehand, arriving on his right
+    (0, m()),
+    (4, m({"Spine": (-16, 10, -12), "Head": (-15, 14, 8), "RightUpperArm": (12, 0, -24), "LeftUpperArm": (8, 0, 18),
+           "Hips": {"rot": (0, 8, -5), "loc": (0, -0.07, -0.035)}, "RightKnee": (-20, 0, 0)}, drape(3, 6))),
+    (8, m({"Spine": (-6, 4, -4), "Head": (-5, 5, 3), "Hips": {"loc": (0, -0.02, -0.012)}}, drape(4, 2))),
+    (13, m()),
+], loop=False)
+clip("hitLeft", 14, [   # arriving on his left; everything goes the other way
+    (0, m()),
+    (4, m({"Spine": (-16, -10, 12), "Head": (-15, -14, -8), "LeftUpperArm": (12, 0, 24), "RightUpperArm": (8, 0, -18),
+           "Hips": {"rot": (0, -8, 5), "loc": (0, -0.07, -0.035)}, "LeftKnee": (-20, 0, 0)}, drape(3, -6))),
+    (8, m({"Spine": (-6, -4, 4), "Head": (-5, -5, -3), "Hips": {"loc": (0, -0.02, -0.012)}}, drape(4, -2))),
+    (13, m()),
+], loop=False)
+clip("hitOverhead", 14, [   # from above: the knees take it and the head drops
+    (0, m()),
+    (4, m({"Spine": (18, 0, 0), "Head": (22, 0, 0), "RightUpperArm": (16, 0, -10), "LeftUpperArm": (16, 0, 10),
+           "Hips": {"rot": (0, 0, 0), "loc": (0, -0.02, -0.085)}, "RightKnee": (-34, 0, 0), "LeftKnee": (-34, 0, 0),
+           "RightThigh": (14, 0, 0), "LeftThigh": (14, 0, 0)}, drape(6))),
+    (8, m({"Spine": (7, 0, 0), "Head": (9, 0, 0), "Hips": {"loc": (0, 0, -0.03)},
+           "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0)}, drape(4))),
+    (13, m()),
+], loop=False)
+clip("hitStab", 14, [   # a point going in: he folds over it and is driven back
+    (0, m()),
+    (4, m({"Spine": (24, 0, 0), "Head": (16, 0, 0), "RightUpperArm": (26, 0, -14), "LeftUpperArm": (26, 0, 14),
+           "RightElbow": (72, 0, 0), "LeftElbow": (72, 0, 0),
+           "Hips": {"rot": (0, 0, 0), "loc": (0, -0.11, -0.03)}, "RightThigh": (-10, 0, 0)}, drape(7))),
+    (8, m({"Spine": (10, 0, 0), "Head": (6, 0, 0), "Hips": {"loc": (0, -0.04, -0.012)}}, drape(5))),
+    (13, m()),
+], loop=False)
 # DIE — the knees go, then the body pitches forward and lies. 40 frames.
 clip("die", 40, [
     (0, m()),

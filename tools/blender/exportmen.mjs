@@ -24,7 +24,7 @@ const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS
 const ART = resolve(ROOT, "art/blender");
 const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
-const WANT_CLIPS = 12;
+const WANT_CLIPS = 15;
 
 const argv = process.argv.slice(2);
 const only = argv.indexOf("--cls") >= 0 ? argv[argv.indexOf("--cls") + 1] : null;
@@ -68,4 +68,4 @@ for (const cls of only ? [only] : CLASSES) {
   console.log(`[exportmen] ${cls}: ${n} clips, weapon arm at x=${arm.position[0].toFixed(3)} (his right), ${(statSync(glb).size / 1024).toFixed(0)} KB -> StreamingAssets`);
 }
 if (bad) { console.error(`[exportmen] ${bad} class(es) not shipped`); process.exit(1); }
-console.log("[exportmen] four right-handed men, twelve clips each, in the client");
+console.log("[exportmen] four right-handed men, every clip each, in the client");
