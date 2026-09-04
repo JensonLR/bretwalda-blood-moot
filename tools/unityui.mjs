@@ -98,7 +98,38 @@ for (const f of files) {
            : `${caches.length} static(s) of Unity objects with nothing to clear them — the second Play press gets destroyed objects behind live keys`);
 }
 
-// ---- 3. the slice ------------------------------------------------------
+// ---- 3. a part that only the scene builder knows about ------------------
+// SceneBuilder writes Duel.unity; AutoScene deliberately leaves an EXISTING
+// scene alone, which is right — a scene the owner has touched should not be
+// overwritten under him. The consequence is that anything added to SceneBuilder
+// NEVER REACHES a project that already has the scene. The part is in the build
+// step and not in the game, and nobody can see the difference from either side.
+//
+// So every screen must also be ensured by Bootstrap at runtime. Adding a
+// component that is already there is a no-op; adding one that is missing is the
+// difference between a feature existing and a feature being invisible.
+{
+  // RUNTIME code, not the editor's scene builder. Which runtime file does the
+  // ensuring does not matter — Bootstrap wires the permanent screens in Awake,
+  // and MainMenu raises the roster on demand, and both are the game creating
+  // its own parts. What matters is that SOMETHING outside SceneBuilder does.
+  const runtime = files.filter((f) => f !== "Bootstrap.cs").map((f) => readFileSync(resolve(DIR, f), "utf8"));
+  const bootPath = resolve(DIR, "Bootstrap.cs");
+  const boot = existsSync(bootPath) ? readFileSync(bootPath, "utf8") : "";
+  check("Bootstrap is present to own the composition", boot.length > 0);
+  const all = [boot, ...runtime].join("\n");
+  for (const f of files) {
+    const src = readFileSync(resolve(DIR, f), "utf8");
+    if (!/void OnGUI\s*\(/.test(src) || !CONTROLS.test(src)) continue;
+    const cls = f.replace(/\.cs$/, "");
+    const ensured = new RegExp(`AddComponent<${cls}>`).test(all);
+    check(`${cls} is created by the game, not only by the scene builder`, ensured,
+      ensured ? "some runtime file adds it when it is missing"
+              : "only SceneBuilder creates it — a project with an existing Duel.unity will never see it");
+  }
+}
+
+// ---- 4. the slice ------------------------------------------------------
 const skin = existsSync(resolve(DIR, "Skin.cs")) ? readFileSync(resolve(DIR, "Skin.cs"), "utf8") : "";
 if (!skin) check("Skin.cs is present", false);
 else {

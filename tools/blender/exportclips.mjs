@@ -23,8 +23,10 @@ const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS
 const ART = resolve(ROOT, "art/blender");
 const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
-// The nine clips.py authors. ClipDriver needs four to take the rig at all.
-const WANT = 9;
+// The twelve clips.py authors — idle, walk, run, the FOUR cuts, heavy, block,
+// dodge, hit, die. ClipDriver needs four of the nine it names to take the rig
+// at all, and falls back to the procedural pose below that, silently.
+const WANT = 12;
 
 const argv = process.argv.slice(2);
 const only = argv.indexOf("--cls") >= 0 ? argv[argv.indexOf("--cls") + 1] : null;

@@ -49,7 +49,10 @@ def key(action, frame, pose):
     for name, val in pose.items():
         pb = arm.pose.bones.get(name)
         if pb is None: continue
-        rot = val["rot"] if isinstance(val, dict) else val
+        # A dict may carry "loc" alone: a hip that drops without turning is a
+        # real pose, and demanding a rotation nobody wanted is the helper
+        # inventing a requirement. Absent means identity.
+        rot = (val.get("rot", (0, 0, 0)) if isinstance(val, dict) else val)
         pb.rotation_quaternion = local_quat(name, *rot)
         if isinstance(val, dict) and "loc" in val:
             r, f, u = val["loc"]; world = SIDE * -r + FWD * f + UP * u
@@ -179,6 +182,105 @@ clip("attack", 24, [
     (19, m({"RightUpperArm": (-2, 0, -2), "RightElbow": (44, 0, 0),
             "Spine": (5, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0, -0.004)},
             "Head": (0, -3, 0)}, drape(5, 3))),
+    (23, m(drape(4))),
+], loop=False)
+# THE OTHER THREE CUTS. The engine has always resolved FOUR — SWING_HEIGHT in
+# engine.mjs gives overhead 0.88, left and right 0.70, stab 0.66, and each bites
+# at its own height with its own geometry — and this client threw one of them and
+# drew one of them. The owner: "no variation in them either, looks unnatural
+# completely." It was not a want of polish; it was three quarters of the game's
+# swordplay missing from the picture.
+#
+# All four share 24 frames and contact at 11, so ClipDriver's timing contract and
+# tools/cliptime.mjs hold for every one of them without a special case. What
+# differs is the LINE the blade travels, which is the whole point.
+#
+# LEFT — the backhand. He crosses his own body to wind, and the cut comes back
+# across from his left to his right: the exact opposite line to the forehand, so
+# two blows in a row never look like one blow twice.
+clip("attackLeft", 24, [
+    (0, m(drape(4))),
+    (3, m({"RightUpperArm": (-18, 0, 22), "RightElbow": (62, 0, 0),
+           "Spine": (2, 9, 0), "Hips": {"rot": (0, 6, 0), "loc": (0, 0, -0.016)},
+           "LeftThigh": (10, 0, 0), "LeftKnee": (-18, 0, 0), "Head": (0, -5, 0)}, drape(2, 4))),
+    (7, m({"RightUpperArm": (-74, 0, 74), "RightElbow": (96, 0, 0), "RightWrist": (-18, 0, 0),
+           "LeftUpperArm": (-20, 0, -8), "LeftElbow": (58, 0, 0),
+           "Spine": (-6, 28, 0), "Hips": {"rot": (0, 15, 0), "loc": (0, -0.018, -0.012)},
+           "LeftThigh": (14, 0, 0), "LeftKnee": (-26, 0, 0), "RightThigh": (-6, 0, 0),
+           "Head": (0, -13, 0)}, drape(1, 9))),
+    (9, m({"RightUpperArm": (-46, 0, 44), "RightElbow": (72, 0, 0),
+           "Spine": (2, 6, 0), "Hips": {"rot": (0, -5, 0), "loc": (0, 0.012, -0.006)},
+           "RightThigh": (10, 0, 0), "RightKnee": (-16, 0, 0), "Head": (0, -6, 0)}, drape(6, -4))),
+    (11, m({"RightUpperArm": (62, 0, -26), "RightElbow": (8, 0, 0), "RightWrist": (26, 0, 0),
+            "LeftUpperArm": (-4, 0, -12), "LeftElbow": (32, 0, 0),
+            "Spine": (14, -24, 0), "Hips": {"rot": (0, -17, 0), "loc": (0, 0.048, -0.012)},
+            "LeftThigh": (16, 0, 0), "RightThigh": (-16, 0, 0), "RightKnee": (-26, 0, 0),
+            "Head": (0, 10, 0)}, drape(12, -11))),
+    (14, m({"RightUpperArm": (42, 0, -40), "RightElbow": (28, 0, 0),
+            "Spine": (16, -32, 0), "Hips": {"rot": (0, -23, 0), "loc": (0, 0.028, -0.02)},
+            "RightThigh": (-10, 0, 0), "RightKnee": (-34, 0, 0), "Head": (0, 14, 0)}, drape(9, -15))),
+    (19, m({"RightUpperArm": (-2, 0, 2), "RightElbow": (44, 0, 0),
+            "Spine": (5, -6, 0), "Hips": {"rot": (0, -3, 0)}, "Head": (0, 3, 0)}, drape(5, -3))),
+    (23, m(drape(4))),
+], loop=False)
+# OVERHEAD — straight up and straight down, and almost no yaw in it at all. The
+# reach comes from the spine folding forward over the blow rather than from the
+# trunk turning, which is what makes it read as a different weapon of a blow
+# from either of the horizontals.
+clip("attackOverhead", 24, [
+    (0, m(drape(4))),
+    (3, m({"RightUpperArm": (-34, 0, -8), "RightElbow": (56, 0, 0),
+           "Spine": (-4, 0, 0), "Hips": {"rot": (0, 0, 0), "loc": (0, -0.01, -0.022)},
+           "RightKnee": (-20, 0, 0), "LeftKnee": (-20, 0, 0), "Head": (-6, 0, 0)}, drape(2))),
+    (7, m({"RightUpperArm": (-142, 0, -14), "RightElbow": (86, 0, 0), "RightWrist": (-26, 0, 0),
+           "LeftUpperArm": (-26, 0, 10), "LeftElbow": (56, 0, 0),
+           "Spine": (-22, -6, 0), "Hips": {"rot": (0, -4, 0), "loc": (0, -0.03, -0.014)},
+           "RightThigh": (12, 0, 0), "RightKnee": (-24, 0, 0), "Head": (-14, 2, 0)}, drape(0, -3))),
+    (9, m({"RightUpperArm": (-96, 0, -8), "RightElbow": (68, 0, 0),
+           "Spine": (-2, -2, 0), "Hips": {"rot": (0, 0, 0), "loc": (0, 0.014, -0.02)},
+           "LeftThigh": (10, 0, 0), "LeftKnee": (-18, 0, 0), "Head": (-4, 0, 0)}, drape(5))),
+    (11, m({"RightUpperArm": (96, 0, 4), "RightElbow": (4, 0, 0), "RightWrist": (30, 0, 0),
+            "LeftUpperArm": (10, 0, -6), "LeftElbow": (26, 0, 0),
+            "Spine": (30, 4, 0), "Hips": {"rot": (0, 2, 0), "loc": (0, 0.045, -0.04)},
+            "RightThigh": (20, 0, 0), "LeftThigh": (-16, 0, 0), "RightKnee": (-34, 0, 0),
+            "Head": (14, -2, 0)}, drape(14, 2))),
+    (14, m({"RightUpperArm": (78, 0, 10), "RightElbow": (26, 0, 0),
+            "Spine": (34, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0.026, -0.055)},
+            "RightKnee": (-42, 0, 0), "LeftKnee": (-38, 0, 0), "Head": (16, -3, 0)}, drape(11, 3))),
+    (19, m({"RightUpperArm": (-4, 0, -3), "RightElbow": (46, 0, 0),
+            "Spine": (8, 1, 0), "Hips": {"loc": (0, 0, -0.014)},
+            "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0), "Head": (3, 0, 0)}, drape(5))),
+    (23, m(drape(4))),
+], loop=False)
+# STAB — the point, not the edge. The hand draws back to the hip and goes
+# STRAIGHT, and the distance is bought with the legs: a long step and the hips
+# driving through, which is why its reach is the lowest of the four and its
+# recovery the most exposed.
+clip("attackStab", 24, [
+    (0, m(drape(4))),
+    (3, m({"RightUpperArm": (-16, 0, -14), "RightElbow": (72, 0, 0), "RightWrist": (-10, 0, 0),
+           "Spine": (0, -10, 0), "Hips": {"rot": (0, -7, 0), "loc": (0, -0.02, -0.012)},
+           "RightThigh": (12, 0, 0), "RightKnee": (-22, 0, 0), "Head": (0, 5, 0)}, drape(2, -3))),
+    (7, m({"RightUpperArm": (-24, 0, -20), "RightElbow": (108, 0, 0), "RightWrist": (-16, 0, 0),
+           "LeftUpperArm": (-16, 0, 14), "LeftElbow": (66, 0, 0),
+           "Spine": (-6, -18, 0), "Hips": {"rot": (0, -12, 0), "loc": (0, -0.035, -0.01)},
+           "RightThigh": (16, 0, 0), "RightKnee": (-28, 0, 0), "LeftThigh": (-8, 0, 0),
+           "Head": (0, 9, 0)}, drape(1, -6))),
+    (9, m({"RightUpperArm": (-6, 0, -12), "RightElbow": (72, 0, 0),
+           "Spine": (6, -6, 0), "Hips": {"rot": (0, -3, 0), "loc": (0, 0.02, -0.01)},
+           "LeftThigh": (16, 0, 0), "LeftKnee": (-24, 0, 0), "Head": (0, 3, 0)}, drape(6, -2))),
+    (11, m({"RightUpperArm": (48, 0, -4), "RightElbow": (2, 0, 0), "RightWrist": (6, 0, 0),
+            "LeftUpperArm": (-16, 0, 20), "LeftElbow": (48, 0, 0),
+            "Spine": (20, 6, 0), "Hips": {"rot": (0, 5, 0), "loc": (0, 0.085, -0.03)},
+            "LeftThigh": (34, 0, 0), "LeftKnee": (-30, 0, 0), "RightThigh": (-26, 0, 0), "RightKnee": (-10, 0, 0),
+            "Head": (2, -4, 0)}, drape(15, 3))),
+    (14, m({"RightUpperArm": (52, 0, -2), "RightElbow": (6, 0, 0),
+            "Spine": (22, 8, 0), "Hips": {"rot": (0, 6, 0), "loc": (0, 0.075, -0.038)},
+            "LeftThigh": (30, 0, 0), "LeftKnee": (-34, 0, 0), "RightThigh": (-24, 0, 0),
+            "Head": (3, -5, 0)}, drape(13, 4))),
+    (19, m({"RightUpperArm": (-6, 0, -6), "RightElbow": (48, 0, 0),
+            "Spine": (6, 2, 0), "Hips": {"loc": (0, 0.01, -0.008)},
+            "LeftThigh": (8, 0, 0), "Head": (0, -2, 0)}, drape(5, 1))),
     (23, m(drape(4))),
 ], loop=False)
 clip("heavy", 36, [

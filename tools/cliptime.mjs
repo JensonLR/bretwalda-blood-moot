@@ -96,10 +96,14 @@ for (const [name, { num, den }] of driverContact) {
 // ---- 4. what the player will actually see ------------------------------
 // The driver scales the clip so its own contact lands on the engine's.
 console.log("\n  the blade's arrival, per class, after scaling:\n");
-console.log("    class        stroke   engine contact   clip speed   error");
+console.log("    class and cut              stroke   engine contact   clip speed   error");
 let worst = 0;
 for (const [cls, sp] of engineSpeed) {
-  for (const [name, heavy] of [["attack", false], ["heavy", true]]) {
+  // Every cut the driver knows, not the two this used to assume: the engine
+  // resolves four horizontals and verticals plus the heavy, and each has to
+  // land on the same instant as the others.
+  for (const name of [...driverContact.keys()]) {
+    const heavy = name === "heavy";
     const a = authored.get(name), d = driverContact.get(name);
     if (!a || !d) continue;
     const len = a.frames / 30;                       // clips.py sets FPS = 30
@@ -109,7 +113,7 @@ for (const [cls, sp] of engineSpeed) {
     const landsAt = (len * frac) / speed;
     const err = landsAt - whole * windup;
     worst = Math.max(worst, Math.abs(err));
-    console.log(`    ${(cls + " " + name).padEnd(20)} ${whole.toFixed(2)}s   ${(whole * windup).toFixed(3)}s`
+    console.log(`    ${(cls + " " + name).padEnd(26)} ${whole.toFixed(2)}s   ${(whole * windup).toFixed(3)}s`
       + `        ${speed.toFixed(2)}x     ${(err * 1000).toFixed(0)}ms`);
   }
 }
