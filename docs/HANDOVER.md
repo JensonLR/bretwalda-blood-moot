@@ -655,6 +655,20 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**NEVER MIRROR A SKINNED MESH WITH A NEGATIVE SCALE AT RUNTIME.** Unity flips
+winding for a negative determinant, so the geometry is fine — but a negative
+scale on a `SkinnedMeshRenderer` can leave its BOUNDS inverted, an inverted
+bound fails the frustum test, and a culled renderer is a man who is present,
+animating, and never drawn. "just loads a blank map with no characters." The
+mirror belongs in `tools/blender/exportrig.mjs`, where it is baked once and
+every consumer gets a right-handed man at a POSITIVE scale: X negated on vertex
+and normal, winding reversed, and every bone conjugated — position's X negated,
+rotation's Y and Z negated. **Do not decompose a mirrored matrix**: one with a
+negative determinant has no honest position/quaternion/scale split.
+`npm run exportmen` runs the whole chain and refuses to ship a man whose weapon
+arm is not at negative X.
+
+
 **UNITY DOES NOT RELOAD THE DOMAIN BETWEEN PLAY PRESSES.** A static carries from
 one session into the next; a static holding Unity OBJECTS carries a set of live
 keys whose objects were all destroyed on Stop. `WarriorView._templates` did

@@ -18,6 +18,36 @@ const OUT = resolve(ROOT, ".exportwarrior");
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(`--${name}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : dflt; };
 const CLS = flag("cls", "huscarl"); const SEED = Number(flag("seed", 13));
+
+// THE MIRROR, AND WHY IT IS HERE AND NOT IN THE CLIENT.
+//
+// `characters.ts` builds every warrior LEFT-handed: the weapon arm is
+// armPivots[0] at +S.shoulderX and a body faces local +Z, so the sword hangs off
+// the hand a man facing +Z carries on his left. render/anim.ts then hangs the
+// whole body under a `scale.x = -1` node at runtime — "-1 puts the weapon in the
+// right hand. The default." — and three.js flips the winding for the negative
+// determinant itself.
+//
+// The Unity client did the same thing for a day and it cost the owner a session:
+// a negative scale on a SkinnedMeshRenderer can leave its BOUNDS inverted, an
+// inverted bound fails the frustum test, and a culled renderer is a man who is
+// present, animating, and never drawn. "just loads a blank map with no
+// characters."
+//
+// So the mirror is baked HERE, once, and every consumer downstream gets a
+// genuinely right-handed man at a POSITIVE scale with nothing left to go wrong:
+//   * every vertex and normal has its X negated, after the world transform
+//   * every triangle has its winding reversed, because a reflection reverses
+//     orientation and an OBJ carries no flag to say so at draw time
+//   * every socket has its position mirrored and its rotation conjugated by
+//     diag(-1, 1, 1), which leaves the X term and negates Y and Z — the same
+//     identity characters.ts writes down where it explains the reflection
+//
+// The composition holds: with socket' = M·S·M and weapon' = M·W, the weapon in
+// world space is socket'·weapon' = M·S·M·M·W = M·S·W, which is the mirrored
+// original. So the weapons are mirrored in their own frame too, below.
+const MIRROR = flag("mirror", "1") !== "0";
+const mx = (x) => (MIRROR ? -x : x);
 rmSync(OUT, { recursive: true, force: true }); mkdirSync(OUT, { recursive: true });
 const tsc = spawnSync("npx", ["tsc", "src/game/client/characters.ts", "--outDir", ".exportwarrior", "--target", "es2022", "--module", "esnext", "--moduleResolution", "bundler", "--skipLibCheck"], { cwd: ROOT, encoding: "utf8" });
 const emitted = []; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = resolve(d, e.name); if (e.isDirectory()) walk(f); else if (e.name.endsWith(".js")) emitted.push(f); } };
@@ -44,7 +74,17 @@ b.group.updateMatrixWorld(true);
 const PIVOTS = [["RightArm", b.rightArm], ["LeftArm", b.leftArm], ["RightLeg", b.rightLeg], ["LeftLeg", b.leftLeg], ["Head", b.head], ["Cloak", b.cloak]].filter(([, g]) => g);
 const pivotOf = (o) => { let x = o; while (x && x !== b.group) { for (const [name, g] of PIVOTS) if (x === g) return name; x = x.parent; } return "Torso"; };
 const handOf = (arm) => arm.getObjectByName("handMount") ?? arm.children[arm.children.length - 1];
-const worldOf = (o) => { o.updateWorldMatrix(true, false); const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); o.matrixWorld.decompose(pos, q, sc); return { position: [pos.x, pos.y, pos.z], quaternion: [q.x, q.y, q.z, q.w] }; };
+const worldOf = (o) => {
+  o.updateWorldMatrix(true, false);
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  o.matrixWorld.decompose(pos, q, sc);
+  // Mirrored by conjugation, not by decomposing a mirrored matrix — a matrix
+  // with a negative determinant has no honest position/quaternion/scale split,
+  // and asking for one is how a socket ends up rotated into nothing.
+  return MIRROR
+    ? { position: [-pos.x, pos.y, pos.z], quaternion: [q.x, -q.y, -q.z, q.w] }
+    : { position: [pos.x, pos.y, pos.z], quaternion: [q.x, q.y, q.z, q.w] };
+};
 const sockets = { pivots: {}, hands: { HandR: worldOf(handOf(b.rightArm)), HandL: worldOf(handOf(b.leftArm)) } };
 for (const [name, g] of PIVOTS) sockets.pivots[name] = worldOf(g);
 sockets.pivots.Torso = worldOf(b.torso);
@@ -64,15 +104,16 @@ b.group.traverse((o) => {
   nm.getNormalMatrix(o.matrixWorld);
   const faces = [];
   for (let i = 0; i < pos.count; i++) {
-    p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); v.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`);
-    n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); vn.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
+    p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); v.push(`v ${mx(p.x).toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`);
+    n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); vn.push(`vn ${mx(n.x).toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
     vt.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0");
   }
   const idx = g.index;
   const count = idx ? idx.count : pos.count;
   for (let i = 0; i + 2 < count; i += 3) {
     const a = (idx ? idx.getX(i) : i) + base, c = (idx ? idx.getX(i + 1) : i + 1) + base, d = (idx ? idx.getX(i + 2) : i + 2) + base;
-    faces.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`);
+    // Winding reversed under the mirror: a reflection turns a front face into a back one.
+    faces.push(MIRROR ? `f ${a}/${a}/${a} ${d}/${d}/${d} ${c}/${c}/${c}` : `f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`);
   }
   tris += faces.length; parts++;
   objects.push(`o ${pivotOf(o)}__${nameOf(o)}_${parts}\nusemtl ${mname}\ns 1\n${faces.join("\n")}`);
@@ -98,9 +139,9 @@ const writeGroup = (group, stemName) => {
     const mat = Array.isArray(o.material) ? o.material[0] : o.material; const col = mat?.color ?? new THREE.Color(0.6, 0.6, 0.6);
     const mname = (mat && mat.name) || `m_${col.getHexString()}`; if (!M2.has(mname)) M2.set(mname, { col, rough: mat?.roughness ?? 0.6, metal: mat?.metalness ?? 0 });
     const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), uv = g.getAttribute("uv"); nm.getNormalMatrix(o.matrixWorld);
-    for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); V.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`); n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); VN.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`); VT.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0"); }
+    for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); V.push(`v ${mx(p.x).toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`); n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); VN.push(`vn ${mx(n.x).toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`); VT.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0"); }
     const idx = g.index, count = idx ? idx.count : pos.count, F = [];
-    for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base2, c = (idx ? idx.getX(i + 1) : i + 1) + base2, d = (idx ? idx.getX(i + 2) : i + 2) + base2; F.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
+    for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base2, c = (idx ? idx.getX(i + 1) : i + 1) + base2, d = (idx ? idx.getX(i + 2) : i + 2) + base2; F.push(MIRROR ? `f ${a}/${a}/${a} ${d}/${d}/${d} ${c}/${c}/${c}` : `f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
     t2 += F.length; n2++; OBJS.push(`o ${stemName}_${n2}\nusemtl ${mname}\ns 1\n${F.join("\n")}`); base2 += pos.count;
   });
   const ML = ["# Bretwalda weapon materials"]; for (const [name, m] of M2) ML.push(`newmtl ${name}`, `Kd ${m.col.r.toFixed(4)} ${m.col.g.toFixed(4)} ${m.col.b.toFixed(4)}`, `Pr ${m.rough.toFixed(3)}`, `Pm ${m.metal.toFixed(3)}`, "");

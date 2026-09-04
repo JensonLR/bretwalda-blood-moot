@@ -80,7 +80,39 @@ if (pv.kneeR) nameIt(pv.kneeR.parent, "RightThigh"); if (pv.kneeL) nameIt(pv.kne
 (pv.drape ?? []).forEach((b, i) => nameIt(b, i === 0 ? "CloakYoke" : `Drape${i}`));
 const isBoneLike = (o) => names.has(o);
 const nearestNamed = (o) => { let x = o.parent; while (x) { if (names.has(x)) return names.get(x); x = x.parent; } return "Hips"; };
-const worldOf = (o) => { const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(); o.matrixWorld.decompose(pos, q, s); return { position: [pos.x, pos.y, pos.z], quaternion: [q.x, q.y, q.z, q.w] }; };
+// THE MIRROR, BAKED ONCE, HERE.
+//
+// characters.ts builds every warrior LEFT-handed — the weapon arm is
+// armPivots[0] at +S.shoulderX and a body faces local +Z, so the sword hangs off
+// the hand a man facing +Z carries on his left — and render/anim.ts hangs him
+// under a `scale.x = -1` node at runtime to make a right-hander: "-1 puts the
+// weapon in the right hand. The default."
+//
+// The Unity client did the same at runtime for a day and it cost the owner a
+// session. A negative scale on a SkinnedMeshRenderer can leave its BOUNDS
+// inverted; an inverted bound fails the frustum test; a culled renderer is a man
+// who is present, animating, and never drawn. "just loads a blank map with no
+// characters." Unity flips winding for a negative determinant, so the geometry
+// was never the risk — the culling was.
+//
+// So it is baked here and every consumer gets a right-handed man at a POSITIVE
+// scale with nothing left to go wrong: X negated on every vertex and normal
+// after the world transform, winding reversed because a reflection turns a front
+// face into a back one, and every BONE mirrored by conjugation — position's X
+// negated, rotation's Y and Z negated, which is the identity characters.ts
+// writes down where it explains the reflection. Decomposing a mirrored MATRIX is
+// not an option: one with a negative determinant has no honest
+// position/quaternion/scale split, and asking for one is how a skeleton ends up
+// rotated into nothing.
+const MIRROR = process.argv.indexOf("--no-mirror") < 0;
+const mx = (x) => (MIRROR ? -x : x);
+const worldOf = (o) => {
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  o.matrixWorld.decompose(pos, q, s);
+  return MIRROR
+    ? { position: [-pos.x, pos.y, pos.z], quaternion: [q.x, -q.y, -q.z, q.w] }
+    : { position: [pos.x, pos.y, pos.z], quaternion: [q.x, q.y, q.z, q.w] };
+};
 const bones = [];
 for (const [o, name] of names) bones.push({ name, parent: o === body ? null : nearestNamed(o), ...worldOf(o) });
 // Hand mounts, for the weapons.
@@ -113,12 +145,12 @@ body.traverse((o) => {
   if (!mtl.has(mname)) mtl.set(mname, { col, rough: mat?.roughness ?? 0.8, metal: mat?.metalness ?? 0, emissive: mat?.emissive });
   const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), uv = g.getAttribute("uv"); nm.getNormalMatrix(o.matrixWorld);
   for (let i = 0; i < pos.count; i++) {
-    p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); v.push(`v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`);
-    n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); vn.push(`vn ${n.x.toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
+    p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); v.push(`v ${mx(p.x).toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}`);
+    n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize(); vn.push(`vn ${mx(n.x).toFixed(4)} ${n.y.toFixed(4)} ${n.z.toFixed(4)}`);
     vt.push(uv ? `vt ${uv.getX(i).toFixed(5)} ${uv.getY(i).toFixed(5)}` : "vt 0 0");
   }
   const idx = g.index, count = idx ? idx.count : pos.count, F = [];
-  for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base, c = (idx ? idx.getX(i + 1) : i + 1) + base, d = (idx ? idx.getX(i + 2) : i + 2) + base; F.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
+  for (let i = 0; i + 2 < count; i += 3) { const a = (idx ? idx.getX(i) : i) + base, c = (idx ? idx.getX(i + 1) : i + 1) + base, d = (idx ? idx.getX(i + 2) : i + 2) + base; F.push(MIRROR ? `f ${a}/${a}/${a} ${d}/${d}/${d} ${c}/${c}/${c}` : `f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`); }
   np++; tris += F.length;
   const role = roleOf(o);
   const oname = `${role}_${np}`;
