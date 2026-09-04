@@ -655,6 +655,21 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**A 9-SLICE BORDER CANNOT BE WIDER THAN THE TEXTURE IT SLICES.** `Skin.cs`
+first made a 3 px strip and asked for a 2 px border each side: 2 + 2 from 3
+leaves a middle of MINUS ONE, Unity had no middle to stretch, and it painted
+the border columns — the gilt rule — across the whole element. The entire menu
+came up solid gold with a seam down it: a one-pixel hairline stretched over a
+screen. Nothing failed, nothing logged, and `unitycheck` compiled it clean,
+because it is a data error and not a code error. The rule's width is stated
+once now and the strip is derived from it, so the two cannot disagree. **If a
+Unity surface comes up one flat colour, suspect the slice before the palette.**
+
+**Unity's `SetPixels` fills BOTTOM to top; a canvas fills top to bottom.** A
+generated ramp that looks lit from above in a preview is lit from underneath in
+the game, and the flip is invisible until something is standing next to it.
+
+
 - **The Unity client's C# can be compiled HERE, without the editor:
   `tools/unitycheck.sh`** (Roslyn from the .NET SDK against Unity's own
   engine/editor modules, its netstandard 2.1 reference set, and the package
