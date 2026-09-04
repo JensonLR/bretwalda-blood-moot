@@ -88,7 +88,8 @@
     "portraittest": "node tools/portraittest.mjs",
     "palettesync": "node tools/palettesync.mjs",
     "unityui": "node tools/unityui.mjs",
-    "shadercheck": "node tools/shadercheck.mjs"
+    "shadercheck": "node tools/shadercheck.mjs",
+    "cliptime": "node tools/cliptime.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
