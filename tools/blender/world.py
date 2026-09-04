@@ -82,6 +82,36 @@ root = bpy.data.objects.new(f"Ground_{GROUND}", None); bpy.context.scene.collect
 for o in joined:
     mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"{STEM}.blend"))
+# DO NOT SHIP AN IMAGE THE CLIENT THROWS AWAY. Unity dresses every material
+# named "<surface>:<hex>" from the shared maps in StreamingAssets/tex — that is
+# the whole point of shipping those maps ONCE instead of embedding them in every
+# glTF — and then discards whatever the glTF brought for that material. In
+# saxon_village that was 2.9 MB of PNG, out of a 20.5 MB file, decoded and
+# uploaded to the GPU on the way to being replaced. The base colour has to stay,
+# because SurfaceLibrary multiplies the shared map by it.
+#
+# The BLEND keeps its images: it is saved above this, it is what a human opens,
+# and stripping a working file to save bytes in a derived one is backwards.
+stripped = 0
+for mat in bpy.data.materials:
+    if ":" not in (mat.name or "") or not mat.use_nodes: continue
+    nt = mat.node_tree
+    imgs = [n for n in nt.nodes if n.type == 'TEX_IMAGE']
+    if not imgs: continue
+    bsdf = nt.nodes.get("Principled BSDF")
+    # Keep the tint the shared map is multiplied by: read it off the mix that
+    # attach_textures built, before that mix goes away with the image feeding it.
+    if bsdf is not None:
+        for link in list(nt.links):
+            if link.to_node is bsdf and link.to_socket.name == "Base Color":
+                src = link.from_node
+                if src.type == 'MIX' and len(src.inputs) > 6:
+                    bsdf.inputs["Base Color"].default_value = tuple(src.inputs[6].default_value)
+                nt.links.remove(link)
+    for n in imgs: nt.nodes.remove(n)
+    stripped += 1
+print(f"[world.py] stripped embedded maps from {stripped} shared-surface materials; the client dresses them")
+
 bpy.ops.object.select_all(action='DESELECT'); root.select_set(True)
 for o in joined: o.select_set(True)
 bpy.ops.export_scene.gltf(filepath=os.path.join(D, f"{STEM}.glb"), use_selection=True, export_format='GLB', export_apply=True, export_vertex_color='ACTIVE' if 'export_vertex_color' in bpy.ops.export_scene.gltf.get_rna_type().properties.keys() else 'MATERIAL')

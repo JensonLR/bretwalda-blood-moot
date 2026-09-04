@@ -655,6 +655,30 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**A BUILD STEP WITH NO COPY STEP IS A BUILD STEP THAT LIES.** clips.py writes
+`art/blender/warrior-<cls>.glb`; the client loads it out of StreamingAssets.
+Nothing joined them, so a clip could be rebuilt and the game keep playing the
+old one — the same shape of fault that left four magenta portraits in the
+picker for a day. `npm run exportclips` is the join; `npm run exportportraits`
+is the other one.
+
+**THE ARENA WAS DARK BECAUSE OF THE CURVE, NOT THE RIG.** The `1/pi` on every
+Unity light is correct — three.js puts one in its Lambert and Unity does not.
+What had never been carried across was the GRADE: postfx.ts uses a filmic look
+at white 7.8, and MoodLighting reached for URP's stock ACES, which returns
+about 0.098 at mid grey where that curve returns 0.18. Nine tenths of a stop,
+across every midtone, on a scene that is nothing but midtones.
+
+**ONE POINT LIGHT IS SIX SHADOW MAPS.** A cube has six faces. Left to size
+itself the hearth asked for more than a 2048 atlas holds and URP halved the lot,
+saying so on every single load.
+
+**FOUR KEYFRAMES IS A DIAGRAM OF A SWING, NOT A SWING.** What was missing was
+anticipation, hips-before-arm overlap, follow-through past the target, and a
+settle that overshoots neutral. `tools/blender/cliprender.py` renders one frame
+of one clip at any camera angle — judge a swing by looking at it.
+
+
 **`attackSpeed` IS THE WHOLE STROKE IN SECONDS, not a rate.** engine.mjs splits
 it by `SWING_PHASES` and the blade meets the man at **0.40** of it. Strokes run
 0.58 s (runekeeper) to 1.33 s (berserker) — a 2.3-fold spread — so ONE clip
