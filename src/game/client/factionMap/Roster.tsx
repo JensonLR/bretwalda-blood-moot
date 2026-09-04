@@ -1,7 +1,14 @@
 "use client";
 
 /* ==========================================================================
-   WHO IS WHO — the roster of the sworn, by kingdom and by hearth.
+   THE SWORN — the roster of the sworn, by kingdom and by hearth.
+
+   Named for what it lists. "Who is who" is a phrase from a modern reference
+   book and belongs to no part of this game's vocabulary; the men on this
+   screen have SWORN, to a hearth, in a kingdom, and the game says so
+   everywhere else it mentions them. The owner, on the Unity client's copy of
+   the same screen: "not sure what who is who is the wording & everything
+   about it doesnt fit the style of bretwalda." Both clients say THE SWORN.
 
    The owner, 3 Sep 2026: "There's no list of players who are in the same
    clan or even the same kingdom faction. We want to see whose who & whose
@@ -128,10 +135,10 @@ export default function Roster({ roster, selfName, selfHearthId }: {
   };
 
   return (
-    <section className="roster" aria-label="Who is who">
+    <section className="roster" aria-label="The sworn">
       <style>{CSS}</style>
       <div className="roster-head">
-        <span className="label-overline">Who is who</span>
+        <span className="label-overline">The sworn</span>
         <div className="roster-tools">
           <div className="roster-by" role="tablist" aria-label="Read the roster by">
             <button type="button" role="tab" aria-selected={by === "kingdom"} className={by === "kingdom" ? "is-on" : ""} onClick={() => setBy("kingdom")}>BY KINGDOM</button>

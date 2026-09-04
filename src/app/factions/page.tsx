@@ -349,7 +349,7 @@ export default function WarPage() {
               credentials={storedProfile()} onChanged={() => void load()} />
           )}
           {mode === "server" && <Roll roll={roll} selfName={self?.name ?? null} ask={rollAsk} onAsk={askRoll} />}
-          {/* WHO IS WHO — every sworn man by kingdom and by hearth (owner,
+          {/* THE SWORN — every sworn man by kingdom and by hearth (owner,
               3 Sep 2026). Below the roll, above the dispatch: the roll says
               who leads, this says who stands where. */}
           {mode === "server" && <Roster roster={roster} selfName={self?.name ?? null} selfHearthId={hearth?.id ?? null} />}
