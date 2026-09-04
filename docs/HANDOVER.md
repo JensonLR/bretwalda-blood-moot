@@ -655,6 +655,33 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**`attackSpeed` IS THE WHOLE STROKE IN SECONDS, not a rate.** engine.mjs splits
+it by `SWING_PHASES` and the blade meets the man at **0.40** of it. Strokes run
+0.58 s (runekeeper) to 1.33 s (berserker) — a 2.3-fold spread — so ONE clip
+speed cannot serve them. It did, and a runekeeper's swing animation outlasted
+his entire stroke while a berserker stood idle for six tenths of a second still
+committed to his. Scale a swing clip so its OWN authored contact frame lands on
+the server's contact instant; `tools/cliptime.mjs` holds engine.mjs, clips.py
+and ClipDriver.cs to one clock.
+
+**A SHADER CANNOT BE COMPILED FROM THIS SEAT, and `unitycheck` sees no HLSL.**
+A ShadowCaster that declared `_LightDirection` and used `_LightPosition` shipped
+and turned the arena cyan on Metal. `tools/shadercheck.mjs` resolves each pass's
+INCLUDE GRAPH — not the whole library, which is what made its first cut pass the
+very bug it was written for, since URP declares `_LightPosition` in a header the
+shader does not include.
+
+**A SCREEN THAT TAKES A PRESS MUST HOLD THE POINTER — AND A HUD MUST NOT.**
+`FollowCamera` locks the cursor on any left click unless something raised
+`WantCursor`. The main menu never did, so the first click of the game took the
+pointer away. But the fix cannot be a HUD button: the HUD is up for the whole
+fight, and a fight played with a free cursor is not a fight. Leave controls
+belong behind Escape. `tools/unityui.mjs` checks both halves.
+
+**`PlayOnce` re-fires when its lock lapses.** A one-shot that must never repeat —
+death — has to latch. `Drive` runs every frame.
+
+
 **A 9-SLICE BORDER CANNOT BE WIDER THAN THE TEXTURE IT SLICES.** `Skin.cs`
 first made a 3 px strip and asked for a 2 px border each side: 2 + 2 from 3
 leaves a middle of MINUS ONE, Unity had no middle to stretch, and it painted
