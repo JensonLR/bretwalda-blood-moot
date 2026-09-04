@@ -76,7 +76,10 @@ check("a heavy is the same multiple of a stroke on both sides", near(heavyScale,
 const authored = new Map();
 // Tempered: a clip body may not swallow the next clip. Without this the
 // looping `idle` above ran on into `attack` and took its keys with it.
-for (const m of clips.matchAll(/clip\("(\w+)",\s*(\d+),\s*\[((?:(?!clip\()[\s\S])*?)\n\], loop=False\)/g)) {
+// `loop=False` may now be followed by `fast=(...)` — the frames a clip must
+// pass THROUGH at speed rather than settle on, which is what stopped the
+// swings braking into their own contact.
+for (const m of clips.matchAll(/clip\("(\w+)",\s*(\d+),\s*\[((?:(?!clip\()[\s\S])*?)\n\], loop=False[^)]*\)/g)) {
   const keys = [...m[3].matchAll(/^\s*\((\d+),/gm)].map((k) => +k[1]);
   authored.set(m[1], { frames: +m[2], keys });
 }

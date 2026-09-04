@@ -655,6 +655,27 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**A STRETCHED PARTICLE'S LENGTH IS `size * lengthScale + speed * velocityScale`,
+IN METRES.** A `velocityScale` of 0.26 on a jet leaving at 11 m/s is a droplet
+**three metres long**. That was the "huge red rectangles", and a round texture
+cannot save it — a circle stretched thirty to one is a rectangle. Keep
+velocityScale near 0.02 and check the arithmetic against the emitter's speed.
+
+**NOTHING IN THE ARENA HAD A COLLIDER.** Three things were broken by it at once
+and only one was visible: blood never pooled (the collision sub-emitter had
+nothing to hit), severed limbs fell through the world, and huts could be walked
+through. `GroundView.Collide` bakes static mesh colliders at load and skips the
+grass.
+
+**A SWING MUST NOT DECELERATE INTO ITS OWN CONTACT.** Blender's default BEZIER
+handles give every key ZERO VELOCITY, so the blade stopped at the moment it was
+meant to be fastest. `clip(..., fast=(...))` gives the impact frames VECTOR
+handles. And the FOLLOW-THROUGH KEY MUST CONTINUE THE ARC: the first cut of
+these had it part-way back toward the guard, so the swing reversed the instant
+it landed. Measure it — sample the shoulder every quarter frame and read where
+the peak actually is.
+
+
 **SETTING `RenderSettings.ambientSkyColor` DOES NOT TOUCH THE AMBIENT PROBE.**
 `BretwaldaGround.shader` lights with `sun + SampleSH(n)`, and `SampleSH` reads
 the PROBE. Unity bakes the trilight colours into it when the environment is

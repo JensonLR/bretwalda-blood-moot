@@ -69,7 +69,21 @@ def fcurves_of(act):
             for cb in strip.channelbags: out.extend(cb.fcurves)
     return out
 
-def clip(name, frames, poses, loop=True):
+def clip(name, frames, poses, loop=True, fast=()):
+    """`fast`: frames the motion must pass THROUGH at speed rather than settle on.
+
+    A SWING MUST NOT DECELERATE INTO ITS OWN CONTACT, and every clip in this file
+    used to. Blender's default BEZIER handles are auto-smoothed, which gives every
+    keyframe ZERO VELOCITY — so the blade slowed to a stop at the moment it was
+    supposed to be travelling fastest, then accelerated away from the man it had
+    just hit. That is what "floaty" is, and no amount of good posing survives it:
+    the poses were never the problem.
+
+    A key named in `fast` gets VECTOR handles, which is Blender's word for
+    "straight lines in and out" — the curve runs through it without braking. The
+    coil and the settle keep their smooth handles, because a windup SHOULD hold
+    and a body SHOULD ease to rest. Only the moment of impact is passed through.
+    """
     act = bpy.data.actions.new(name); arm.animation_data.action = act
     if hasattr(act, "slots"):
         slot = act.slots.new('OBJECT', arm.name) if len(act.slots) == 0 else act.slots[0]
@@ -77,8 +91,12 @@ def clip(name, frames, poses, loop=True):
     for f, pose in poses: key(act, f, pose)
     if loop: key(act, frames, poses[0][1])
     act.frame_range = (0, frames)
+    quick = set(fast)
     for fc in fcurves_of(act):
-        for kp in fc.keyframe_points: kp.interpolation = 'BEZIER'
+        for kp in fc.keyframe_points:
+            kp.interpolation = 'BEZIER'
+            if round(kp.co[0]) in quick:
+                kp.handle_left_type = 'VECTOR'; kp.handle_right_type = 'VECTOR'
         if loop: fc.modifiers.new('CYCLES')
     # stash so every action exports (glTF exporter takes NLA tracks / all actions)
     arm.animation_data.action = None
@@ -137,8 +155,14 @@ clip("run", 22, [(int(t * 22), runpose(t)) for t in (0, 0.25, 0.5, 0.75)])
 #                  driven from the ground is a blow, and this overlap is the only
 #                  thing that shows a viewer which he is watching.
 #   CONTACT        the frame the engine lands the blow on, and nowhere else.
-#   FOLLOW-THROUGH a blow does not stop at the man it hits. The arm carries past
-#                  and the trunk over-rotates with it.
+#   FOLLOW-THROUGH a blow does not stop at the man it hits. The arm carries PAST
+#                  — further round the arc, never back the way it came. The
+#                  first cut of these had the follow-through key part way BACK
+#                  towards the guard, so the swing reversed the instant it
+#                  landed and the blade's fastest moment was a frame BEFORE
+#                  contact rather than at it. Measured, not guessed: sampling
+#                  the shoulder every quarter frame put the peak at 10.00 and
+#                  a quarter of that speed at 11.
 #   SETTLE         back PAST neutral and then to it. Nothing alive returns to
 #                  where it started in a straight line.
 #
@@ -173,17 +197,17 @@ clip("attack", 24, [
             "RightThigh": (16, 0, 0), "LeftThigh": (-16, 0, 0), "LeftKnee": (-26, 0, 0),
             "Head": (0, -10, 0)}, drape(12, 11))),
     # FOLLOW-THROUGH.
-    (14, m({"RightUpperArm": (46, 0, 34), "RightElbow": (26, 0, 0), "RightWrist": (18, 0, 0),
+    (14, m({"RightUpperArm": (92, 0, 44), "RightElbow": (18, 0, 0), "RightWrist": (34, 0, 0),
             "LeftUpperArm": (4, 0, 6), "LeftElbow": (38, 0, 0),
-            "Spine": (18, 34, 0), "Hips": {"rot": (0, 24, 0), "loc": (0, 0.03, -0.022)},
+            "Spine": (20, 40, 0), "Hips": {"rot": (0, 28, 0), "loc": (0, 0.03, -0.026)},
             "RightThigh": (10, 0, 0), "LeftThigh": (-10, 0, 0), "LeftKnee": (-34, 0, 0),
-            "Head": (0, -14, 0)}, drape(9, 15))),
+            "Head": (0, -16, 0)}, drape(9, 17))),
     # SETTLE, past neutral.
     (19, m({"RightUpperArm": (-2, 0, -2), "RightElbow": (44, 0, 0),
             "Spine": (5, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0, -0.004)},
             "Head": (0, -3, 0)}, drape(5, 3))),
     (23, m(drape(4))),
-], loop=False)
+], loop=False, fast=(9, 11, 14))
 # THE OTHER THREE CUTS. The engine has always resolved FOUR — SWING_HEIGHT in
 # engine.mjs gives overhead 0.88, left and right 0.70, stab 0.66, and each bites
 # at its own height with its own geometry — and this client threw one of them and
@@ -216,13 +240,13 @@ clip("attackLeft", 24, [
             "Spine": (14, -24, 0), "Hips": {"rot": (0, -17, 0), "loc": (0, 0.048, -0.012)},
             "LeftThigh": (16, 0, 0), "RightThigh": (-16, 0, 0), "RightKnee": (-26, 0, 0),
             "Head": (0, 10, 0)}, drape(12, -11))),
-    (14, m({"RightUpperArm": (42, 0, -40), "RightElbow": (28, 0, 0),
-            "Spine": (16, -32, 0), "Hips": {"rot": (0, -23, 0), "loc": (0, 0.028, -0.02)},
-            "RightThigh": (-10, 0, 0), "RightKnee": (-34, 0, 0), "Head": (0, 14, 0)}, drape(9, -15))),
+    (14, m({"RightUpperArm": (88, 0, -50), "RightElbow": (18, 0, 0), "RightWrist": (30, 0, 0),
+            "Spine": (18, -38, 0), "Hips": {"rot": (0, -27, 0), "loc": (0, 0.028, -0.024)},
+            "RightThigh": (-10, 0, 0), "RightKnee": (-34, 0, 0), "Head": (0, 16, 0)}, drape(9, -17))),
     (19, m({"RightUpperArm": (-2, 0, 2), "RightElbow": (44, 0, 0),
             "Spine": (5, -6, 0), "Hips": {"rot": (0, -3, 0)}, "Head": (0, 3, 0)}, drape(5, -3))),
     (23, m(drape(4))),
-], loop=False)
+], loop=False, fast=(9, 11, 14))
 # OVERHEAD — straight up and straight down, and almost no yaw in it at all. The
 # reach comes from the spine folding forward over the blow rather than from the
 # trunk turning, which is what makes it read as a different weapon of a blow
@@ -244,14 +268,14 @@ clip("attackOverhead", 24, [
             "Spine": (30, 4, 0), "Hips": {"rot": (0, 2, 0), "loc": (0, 0.045, -0.04)},
             "RightThigh": (20, 0, 0), "LeftThigh": (-16, 0, 0), "RightKnee": (-34, 0, 0),
             "Head": (14, -2, 0)}, drape(14, 2))),
-    (14, m({"RightUpperArm": (78, 0, 10), "RightElbow": (26, 0, 0),
-            "Spine": (34, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0.026, -0.055)},
-            "RightKnee": (-42, 0, 0), "LeftKnee": (-38, 0, 0), "Head": (16, -3, 0)}, drape(11, 3))),
+    (14, m({"RightUpperArm": (116, 0, 12), "RightElbow": (14, 0, 0), "RightWrist": (34, 0, 0),
+            "Spine": (40, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0.03, -0.075)},
+            "RightKnee": (-48, 0, 0), "LeftKnee": (-44, 0, 0), "Head": (20, -3, 0)}, drape(13, 3))),
     (19, m({"RightUpperArm": (-4, 0, -3), "RightElbow": (46, 0, 0),
             "Spine": (8, 1, 0), "Hips": {"loc": (0, 0, -0.014)},
             "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0), "Head": (3, 0, 0)}, drape(5))),
     (23, m(drape(4))),
-], loop=False)
+], loop=False, fast=(9, 11, 14))
 # STAB — the point, not the edge. The hand draws back to the hip and goes
 # STRAIGHT, and the distance is bought with the legs: a long step and the hips
 # driving through, which is why its reach is the lowest of the four and its
@@ -274,15 +298,15 @@ clip("attackStab", 24, [
             "Spine": (20, 6, 0), "Hips": {"rot": (0, 5, 0), "loc": (0, 0.085, -0.03)},
             "LeftThigh": (34, 0, 0), "LeftKnee": (-30, 0, 0), "RightThigh": (-26, 0, 0), "RightKnee": (-10, 0, 0),
             "Head": (2, -4, 0)}, drape(15, 3))),
-    (14, m({"RightUpperArm": (52, 0, -2), "RightElbow": (6, 0, 0),
-            "Spine": (22, 8, 0), "Hips": {"rot": (0, 6, 0), "loc": (0, 0.075, -0.038)},
-            "LeftThigh": (30, 0, 0), "LeftKnee": (-34, 0, 0), "RightThigh": (-24, 0, 0),
-            "Head": (3, -5, 0)}, drape(13, 4))),
+    (14, m({"RightUpperArm": (62, 0, -2), "RightElbow": (0, 0, 0), "RightWrist": (10, 0, 0),
+            "Spine": (26, 9, 0), "Hips": {"rot": (0, 7, 0), "loc": (0, 0.115, -0.044)},
+            "LeftThigh": (40, 0, 0), "LeftKnee": (-38, 0, 0), "RightThigh": (-32, 0, 0),
+            "Head": (4, -6, 0)}, drape(15, 5))),
     (19, m({"RightUpperArm": (-6, 0, -6), "RightElbow": (48, 0, 0),
             "Spine": (6, 2, 0), "Hips": {"loc": (0, 0.01, -0.008)},
             "LeftThigh": (8, 0, 0), "Head": (0, -2, 0)}, drape(5, 1))),
     (23, m(drape(4))),
-], loop=False)
+], loop=False, fast=(9, 11, 14))
 clip("heavy", 36, [
     (0, m(drape(4))),
     # ANTICIPATION — both hands settle, the knees take the weight.
@@ -310,18 +334,18 @@ clip("heavy", 36, [
             "RightThigh": (22, 0, 0), "LeftThigh": (-20, 0, 0), "RightKnee": (-34, 0, 0), "LeftKnee": (-30, 0, 0),
             "Head": (10, -8, 0)}, drape(14, 9))),
     # FOLLOW-THROUGH — a two-handed blow buries itself; the man ends up low.
-    (24, m({"RightUpperArm": (74, 0, 18), "LeftUpperArm": (68, 0, -14),
-            "RightElbow": (30, 0, 0), "LeftElbow": (32, 0, 0),
-            "Spine": (32, 28, 0), "Hips": {"rot": (0, 20, 0), "loc": (0, 0.03, -0.07)},
-            "RightThigh": (14, 0, 0), "LeftThigh": (-12, 0, 0), "RightKnee": (-44, 0, 0), "LeftKnee": (-40, 0, 0),
-            "Head": (12, -12, 0)}, drape(10, 14))),
+    (24, m({"RightUpperArm": (118, 0, 26), "LeftUpperArm": (110, 0, -20),
+            "RightElbow": (14, 0, 0), "LeftElbow": (16, 0, 0), "RightWrist": (36, 0, 0),
+            "Spine": (44, 34, 0), "Hips": {"rot": (0, 26, 0), "loc": (0, 0.03, -0.105)},
+            "RightThigh": (16, 0, 0), "LeftThigh": (-14, 0, 0), "RightKnee": (-56, 0, 0), "LeftKnee": (-50, 0, 0),
+            "Head": (16, -14, 0)}, drape(13, 16))),
     # SETTLE — he has to pick himself up out of it, which is the price of it.
     (30, m({"RightUpperArm": (-4, 0, -4), "LeftUpperArm": (-4, 0, 4),
             "RightElbow": (48, 0, 0), "LeftElbow": (50, 0, 0),
             "Spine": (8, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0, -0.016)},
             "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0), "Head": (2, -3, 0)}, drape(5, 3))),
     (35, m(drape(4))),
-], loop=False)
+], loop=False, fast=(16, 19, 24))
 # BLOCK — the shield arm up and across the chest, a brace. Looping 20 frames.
 clip("block", 20, [(0, m({"LeftUpperArm": (40, 0, 45), "LeftElbow": (95, 0, 0), "LeftWrist": (0, 30, 0), "RightUpperArm": (-20, 0, -20), "RightElbow": (60, 0, 0), "Spine": (10, -10, 0), "RightKnee": (-18, 0, 0), "LeftKnee": (-18, 0, 0), "Head": (8, 0, 0)})),
                    (10, m({"LeftUpperArm": (43, 0, 47), "LeftElbow": (97, 0, 0), "LeftWrist": (0, 30, 0), "RightUpperArm": (-22, 0, -20), "RightElbow": (60, 0, 0), "Spine": (12, -10, 0), "RightKnee": (-20, 0, 0), "LeftKnee": (-20, 0, 0), "Head": (8, 0, 0)}))])
@@ -330,7 +354,7 @@ clip("dodge", 16, [
     (0, m()),
     (6, m({"Spine": (26, 0, 12), "RightThigh": (30, 0, 0), "LeftThigh": (-10, 0, 0), "RightKnee": (-60, 0, 0), "LeftKnee": (-30, 0, 0), "Hips": {"rot": (0, 0, 8), "loc": (0, 0, -0.18)}, "RightUpperArm": (-30, 0, -30), "LeftUpperArm": (-30, 0, 30)})),
     (12, m({"Spine": (10, 0, 4), "Hips": {"rot": (0, 0, 0), "loc": (0, 0, -0.05)}})),
-], loop=False)
+], loop=False, fast=(6,))
 # THE FLINCHES — four of them, because a man struck from his left does not fold
 # the way a man struck from his right does, and the engine has always said which
 # it was: the `hit` frame carries `direction`, the attacker's own attackDir. One
@@ -347,14 +371,14 @@ clip("hit", 14, [   # the forehand, arriving on his right
            "Hips": {"rot": (0, 8, -5), "loc": (0, -0.07, -0.035)}, "RightKnee": (-20, 0, 0)}, drape(3, 6))),
     (8, m({"Spine": (-6, 4, -4), "Head": (-5, 5, 3), "Hips": {"loc": (0, -0.02, -0.012)}}, drape(4, 2))),
     (13, m()),
-], loop=False)
+], loop=False, fast=(4,))
 clip("hitLeft", 14, [   # arriving on his left; everything goes the other way
     (0, m()),
     (4, m({"Spine": (-16, -10, 12), "Head": (-15, -14, -8), "LeftUpperArm": (12, 0, 24), "RightUpperArm": (8, 0, -18),
            "Hips": {"rot": (0, -8, 5), "loc": (0, -0.07, -0.035)}, "LeftKnee": (-20, 0, 0)}, drape(3, -6))),
     (8, m({"Spine": (-6, -4, 4), "Head": (-5, -5, -3), "Hips": {"loc": (0, -0.02, -0.012)}}, drape(4, -2))),
     (13, m()),
-], loop=False)
+], loop=False, fast=(4,))
 clip("hitOverhead", 14, [   # from above: the knees take it and the head drops
     (0, m()),
     (4, m({"Spine": (18, 0, 0), "Head": (22, 0, 0), "RightUpperArm": (16, 0, -10), "LeftUpperArm": (16, 0, 10),
@@ -363,7 +387,7 @@ clip("hitOverhead", 14, [   # from above: the knees take it and the head drops
     (8, m({"Spine": (7, 0, 0), "Head": (9, 0, 0), "Hips": {"loc": (0, 0, -0.03)},
            "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0)}, drape(4))),
     (13, m()),
-], loop=False)
+], loop=False, fast=(4,))
 clip("hitStab", 14, [   # a point going in: he folds over it and is driven back
     (0, m()),
     (4, m({"Spine": (24, 0, 0), "Head": (16, 0, 0), "RightUpperArm": (26, 0, -14), "LeftUpperArm": (26, 0, 14),
@@ -371,7 +395,7 @@ clip("hitStab", 14, [   # a point going in: he folds over it and is driven back
            "Hips": {"rot": (0, 0, 0), "loc": (0, -0.11, -0.03)}, "RightThigh": (-10, 0, 0)}, drape(7))),
     (8, m({"Spine": (10, 0, 0), "Head": (6, 0, 0), "Hips": {"loc": (0, -0.04, -0.012)}}, drape(5))),
     (13, m()),
-], loop=False)
+], loop=False, fast=(4,))
 # DIE — the knees go, then the body pitches forward and lies. 40 frames.
 clip("die", 40, [
     (0, m()),
