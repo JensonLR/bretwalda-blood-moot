@@ -89,7 +89,8 @@
     "palettesync": "node tools/palettesync.mjs",
     "unityui": "node tools/unityui.mjs",
     "shadercheck": "node tools/shadercheck.mjs",
-    "cliptime": "node tools/cliptime.mjs"
+    "cliptime": "node tools/cliptime.mjs",
+    "exportclips": "node tools/blender/exportclips.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

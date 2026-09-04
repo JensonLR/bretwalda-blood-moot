@@ -117,22 +117,108 @@ def runpose(t):
               "RightUpperArm": (-10 - 28 * a, 0, -8), "LeftUpperArm": (-10 - 28 * b, 0, 8), "RightElbow": (70, 0, 0), "LeftElbow": (70, 0, 0),
               "Spine": (14, 6 * a, 0), "Hips": {"rot": (0, 0, 4 * a), "loc": (0, 0, 0.03 * abs(math.sin(t * 4 * math.pi)))}}, drape(26, 4 * a, 5 * math.sin(t * 4 * math.pi)))
 clip("run", 22, [(int(t * 22), runpose(t)) for t in (0, 0.25, 0.5, 0.75)])
-# ATTACK — the sword arm winds up over the shoulder (back and high), cuts
-# down and across the body, recovers. 24 frames; contact at 11.
+# ATTACK and HEAVY — rewritten, because four keyframes is a diagram of a swing
+# and not a swing. The owner: "attack animations feel clunky & basic barely any
+# depth to them." They were four poses with linear-ish travel between them, and
+# the last key sat at frame 16 of 24 — a THIRD of every blow spent holding
+# perfectly still while the engine was still counting recovery.
+#
+# What is here now, in the order a real blow does it:
+#   ANTICIPATION   before a stroke goes anywhere it goes the other way. Weight
+#                  settles back, the hips turn a few degrees AWAY from the cut.
+#                  Its absence is the single loudest thing that reads as basic.
+#   THE COIL       arm back and high, trunk wound off it, weight on the back leg,
+#                  head already looking where the blow will land.
+#   HIPS FIRST     the trunk comes round while the arm is STILL BEHIND, dragged
+#                  after it. A swing driven from the shoulder is a slap; one
+#                  driven from the ground is a blow, and this overlap is the only
+#                  thing that shows a viewer which he is watching.
+#   CONTACT        the frame the engine lands the blow on, and nowhere else.
+#   FOLLOW-THROUGH a blow does not stop at the man it hits. The arm carries past
+#                  and the trunk over-rotates with it.
+#   SETTLE         back PAST neutral and then to it. Nothing alive returns to
+#                  where it started in a straight line.
+#
+# The cloak is keyed through all of it. It was not before, so every stroke
+# snapped the drape to rest and held it there.
+#
+# FRAME COUNTS AND CONTACT FRAMES ARE A CONTRACT: tools/cliptime.mjs checks that
+# the frame ClipDriver calls contact is a real key in the clip Blender builds,
+# and that the clip's length is what the driver thinks. 24/11 and 36/19.
 clip("attack", 24, [
-    (0, m()),
-    (6, m({"RightUpperArm": (-95, 0, -40), "RightElbow": (100, 0, 0), "RightWrist": (-20, 0, 0), "Spine": (-6, -22, 0), "Head": (0, 10, 0)})),
-    # The torso's forward lean swings a hanging arm BACK in world terms, so
-    # the arm's own pitch runs ahead of the lean by the lean's size.
-    (11, m({"RightUpperArm": (66, 0, 18), "RightElbow": (4, 0, 0), "RightWrist": (30, 0, 0), "Spine": (14, 24, 0), "RightThigh": (14, 0, 0), "LeftThigh": (-14, 0, 0), "Head": (0, -8, 0)})),
-    (16, m({"RightUpperArm": (22, 0, 14), "RightElbow": (25, 0, 0), "Spine": (10, 16, 0)})),
+    (0, m(drape(4))),
+    # ANTICIPATION — the hand has barely moved; the weight has.
+    (3, m({"RightUpperArm": (-24, 0, -10), "RightElbow": (48, 0, 0),
+           "Spine": (1, -8, 0), "Hips": {"rot": (0, -5, 0), "loc": (0, 0, -0.018)},
+           "RightThigh": (10, 0, 0), "RightKnee": (-18, 0, 0), "Head": (0, 5, 0)}, drape(2, -3))),
+    # THE COIL.
+    (7, m({"RightUpperArm": (-98, 0, -38), "RightElbow": (104, 0, 0), "RightWrist": (-24, 0, 0),
+           "LeftUpperArm": (-14, 0, 18), "LeftElbow": (54, 0, 0),
+           "Spine": (-8, -26, 0), "Hips": {"rot": (0, -14, 0), "loc": (0, -0.02, -0.012)},
+           "RightThigh": (14, 0, 0), "RightKnee": (-26, 0, 0), "LeftThigh": (-6, 0, 0),
+           "Head": (0, 13, 0)}, drape(1, -9))),
+    # HIPS FIRST — the arm is still behind the trunk here, on purpose.
+    (9, m({"RightUpperArm": (-62, 0, -22), "RightElbow": (76, 0, 0), "RightWrist": (-10, 0, 0),
+           "LeftUpperArm": (-10, 0, 14), "LeftElbow": (46, 0, 0),
+           "Spine": (2, -2, 0), "Hips": {"rot": (0, 6, 0), "loc": (0, 0.012, -0.006)},
+           "RightThigh": (2, 0, 0), "LeftThigh": (10, 0, 0), "LeftKnee": (-16, 0, 0),
+           "Head": (0, 6, 0)}, drape(6, 4))),
+    # CONTACT.
+    (11, m({"RightUpperArm": (68, 0, 20), "RightElbow": (4, 0, 0), "RightWrist": (32, 0, 0),
+            "LeftUpperArm": (-2, 0, 10), "LeftElbow": (30, 0, 0),
+            "Spine": (16, 26, 0), "Hips": {"rot": (0, 18, 0), "loc": (0, 0.05, -0.014)},
+            "RightThigh": (16, 0, 0), "LeftThigh": (-16, 0, 0), "LeftKnee": (-26, 0, 0),
+            "Head": (0, -10, 0)}, drape(12, 11))),
+    # FOLLOW-THROUGH.
+    (14, m({"RightUpperArm": (46, 0, 34), "RightElbow": (26, 0, 0), "RightWrist": (18, 0, 0),
+            "LeftUpperArm": (4, 0, 6), "LeftElbow": (38, 0, 0),
+            "Spine": (18, 34, 0), "Hips": {"rot": (0, 24, 0), "loc": (0, 0.03, -0.022)},
+            "RightThigh": (10, 0, 0), "LeftThigh": (-10, 0, 0), "LeftKnee": (-34, 0, 0),
+            "Head": (0, -14, 0)}, drape(9, 15))),
+    # SETTLE, past neutral.
+    (19, m({"RightUpperArm": (-2, 0, -2), "RightElbow": (44, 0, 0),
+            "Spine": (5, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0, -0.004)},
+            "Head": (0, -3, 0)}, drape(5, 3))),
+    (23, m(drape(4))),
 ], loop=False)
-# HEAVY — both hands, a bigger wind over the head, a slower fall. 36 frames; contact at 19.
 clip("heavy", 36, [
-    (0, m()),
-    (12, m({"RightUpperArm": (-120, 0, -25), "LeftUpperArm": (-110, 0, 25), "RightElbow": (95, 0, 0), "LeftElbow": (85, 0, 0), "Spine": (-14, -20, 0), "RightKnee": (-20, 0, 0), "LeftKnee": (-20, 0, 0), "Head": (-10, 0, 0)})),
-    (19, m({"RightUpperArm": (92, 0, 5), "LeftUpperArm": (84, 0, -5), "RightElbow": (6, 0, 0), "LeftElbow": (6, 0, 0), "Spine": (26, 22, 0), "RightThigh": (20, 0, 0), "LeftThigh": (-20, 0, 0), "RightKnee": (-30, 0, 0), "Head": (8, 0, 0)})),
-    (28, m({"RightUpperArm": (40, 0, 10), "LeftUpperArm": (35, 0, -5), "RightElbow": (30, 0, 0), "LeftElbow": (30, 0, 0), "Spine": (12, 12, 0)})),
+    (0, m(drape(4))),
+    # ANTICIPATION — both hands settle, the knees take the weight.
+    (4, m({"RightUpperArm": (-26, 0, -12), "LeftUpperArm": (-24, 0, 12),
+           "RightElbow": (58, 0, 0), "LeftElbow": (60, 0, 0),
+           "Spine": (2, -6, 0), "Hips": {"rot": (0, -4, 0), "loc": (0, -0.01, -0.03)},
+           "RightKnee": (-24, 0, 0), "LeftKnee": (-24, 0, 0), "Head": (-4, 3, 0)}, drape(2, -3))),
+    # THE COIL — over the head, back arched, and it is HELD, which is what makes
+    # a heavy readable at range and worth its damage.
+    (12, m({"RightUpperArm": (-124, 0, -24), "LeftUpperArm": (-116, 0, 24),
+            "RightElbow": (98, 0, 0), "LeftElbow": (90, 0, 0), "RightWrist": (-18, 0, 0),
+            "Spine": (-16, -22, 0), "Hips": {"rot": (0, -12, 0), "loc": (0, -0.03, -0.018)},
+            "RightThigh": (16, 0, 0), "RightKnee": (-26, 0, 0), "LeftThigh": (-8, 0, 0), "LeftKnee": (-22, 0, 0),
+            "Head": (-12, 10, 0)}, drape(0, -10))),
+    # HIPS FIRST — the trunk drops and turns; the arms have not caught up.
+    (16, m({"RightUpperArm": (-70, 0, -12), "LeftUpperArm": (-64, 0, 12),
+            "RightElbow": (72, 0, 0), "LeftElbow": (68, 0, 0),
+            "Spine": (6, -2, 0), "Hips": {"rot": (0, 4, 0), "loc": (0, 0.02, -0.03)},
+            "RightThigh": (6, 0, 0), "LeftThigh": (8, 0, 0), "LeftKnee": (-26, 0, 0),
+            "Head": (-2, 4, 0)}, drape(4, 3))),
+    # CONTACT.
+    (19, m({"RightUpperArm": (94, 0, 6), "LeftUpperArm": (86, 0, -6),
+            "RightElbow": (6, 0, 0), "LeftElbow": (6, 0, 0), "RightWrist": (26, 0, 0),
+            "Spine": (28, 22, 0), "Hips": {"rot": (0, 14, 0), "loc": (0, 0.06, -0.05)},
+            "RightThigh": (22, 0, 0), "LeftThigh": (-20, 0, 0), "RightKnee": (-34, 0, 0), "LeftKnee": (-30, 0, 0),
+            "Head": (10, -8, 0)}, drape(14, 9))),
+    # FOLLOW-THROUGH — a two-handed blow buries itself; the man ends up low.
+    (24, m({"RightUpperArm": (74, 0, 18), "LeftUpperArm": (68, 0, -14),
+            "RightElbow": (30, 0, 0), "LeftElbow": (32, 0, 0),
+            "Spine": (32, 28, 0), "Hips": {"rot": (0, 20, 0), "loc": (0, 0.03, -0.07)},
+            "RightThigh": (14, 0, 0), "LeftThigh": (-12, 0, 0), "RightKnee": (-44, 0, 0), "LeftKnee": (-40, 0, 0),
+            "Head": (12, -12, 0)}, drape(10, 14))),
+    # SETTLE — he has to pick himself up out of it, which is the price of it.
+    (30, m({"RightUpperArm": (-4, 0, -4), "LeftUpperArm": (-4, 0, 4),
+            "RightElbow": (48, 0, 0), "LeftElbow": (50, 0, 0),
+            "Spine": (8, 6, 0), "Hips": {"rot": (0, 3, 0), "loc": (0, 0, -0.016)},
+            "RightKnee": (-16, 0, 0), "LeftKnee": (-16, 0, 0), "Head": (2, -3, 0)}, drape(5, 3))),
+    (35, m(drape(4))),
 ], loop=False)
 # BLOCK — the shield arm up and across the chest, a brace. Looping 20 frames.
 clip("block", 20, [(0, m({"LeftUpperArm": (40, 0, 45), "LeftElbow": (95, 0, 0), "LeftWrist": (0, 30, 0), "RightUpperArm": (-20, 0, -20), "RightElbow": (60, 0, 0), "Spine": (10, -10, 0), "RightKnee": (-18, 0, 0), "LeftKnee": (-18, 0, 0), "Head": (8, 0, 0)})),
