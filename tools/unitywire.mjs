@@ -191,5 +191,29 @@ check("no field in the Unity player model is one the server never publishes",
   phantom.length === 0,
   phantom.length ? phantom.join(", ") : `${pwFields.size} fields, all published`);
 
+// ---- the client must never discard its own messages in silence -----------
+// `leave` deletes the SESSION on the server — disconnectSession, the surrender
+// path, not a leave-the-room path. The socket stays open and the server no
+// longer knows who is on it, so every later message goes to nobody. Send()
+// returned without a word when the socket was shut, so a game that would not
+// load had nothing anywhere to say why, and it cost a session to find.
+{
+  const wirePath = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/Bretwalda/Scripts/Net/WireClient.cs");
+  const src = existsSync(wirePath) ? readFileSync(wirePath, "utf8") : "";
+  check("the wire is where this expects it", src.length > 0, wirePath);
+  if (src) {
+    const send = src.slice(src.indexOf("public void Send"));
+    const guard = send.slice(0, send.indexOf("}"));
+    const silent = /if\s*\(!Connected\)\s*return\s*;/.test(guard);
+    check("a message the wire cannot send is reported, not swallowed", !silent,
+      silent ? "Send returns on a shut socket without a word — a client that discards its own messages cannot be debugged"
+             : "a dropped send names the message and the socket's state");
+    const closes = /public void Close\s*\(/.test(src);
+    check("the wire can be closed, because leaving requires it", closes,
+      closes ? "Close() exists, so a client that leaves can come back as someone new"
+             : "no Close() — after `leave` the server has deleted the session and every later send is delivered to nobody");
+  }
+}
+
 console.log(`\n[unitywire] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

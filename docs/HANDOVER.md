@@ -655,6 +655,19 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**`leave` DELETES THE SESSION.** It runs `disconnectSession` — the surrender
+path, not a leave-the-room path — and `sessions.delete(sid)` with it. The socket
+stays open and the server no longer knows who is on the other end, so every
+later `create`, `join` or `input` is delivered to nobody. **A client that leaves
+must close its socket and come back as someone new**; `Bootstrap.Enter`
+reconnects the moment it finds the wire shut.
+
+**AND A CLIENT MUST NEVER DISCARD ITS OWN MESSAGES IN SILENCE.** `Send` returned
+without a word on a shut socket, so a game that would not load had nothing
+anywhere to say why. It names the message and the socket's state now, and
+`unitywire` fails the build if that guard ever goes quiet again.
+
+
 **NEVER MIRROR A SKINNED MESH WITH A NEGATIVE SCALE AT RUNTIME.** Unity flips
 winding for a negative determinant, so the geometry is fine — but a negative
 scale on a `SkinnedMeshRenderer` can leave its BOUNDS inverted, an inverted
