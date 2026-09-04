@@ -655,6 +655,28 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**UNITY DOES NOT RELOAD THE DOMAIN BETWEEN PLAY PRESSES.** A static carries from
+one session into the next; a static holding Unity OBJECTS carries a set of live
+keys whose objects were all destroyed on Stop. `WarriorView._templates` did
+exactly that: `ContainsKey` said the template was there so the load was skipped,
+then the object behind the key was found destroyed so the spawn returned. **No
+warrior appeared in any ring on the second Play press or any after it** — the
+owner: "games dont start now, really buggy & ugly all round." `SurfaceLibrary`
+had it too, which would hand every surface in the arena a dead material at once,
+and so did `HearthFire`, `Hud` and `Skin`.
+
+The rule: a static collection of Unity objects needs a
+`[RuntimeInitializeOnLoadMethod(SubsystemRegistration)]` in the same file to
+empty it — the only hook that runs before the first scene with OR without a
+domain reload — and a lookup must treat a destroyed entry as ABSENT, not as
+present-and-broken. `tools/unityui.mjs` enforces both, and found four of the
+five files itself.
+
+**`Light.shadowCustomResolution` IS A NO-OP UNDER URP** unless the light's tier
+is Custom, and `additionalLightsShadowResolutionTier` is read-only at runtime.
+The lever is the atlas in `Assets/Settings/PC_RPAsset.asset`.
+
+
 **A BUILD STEP WITH NO COPY STEP IS A BUILD STEP THAT LIES.** clips.py writes
 `art/blender/warrior-<cls>.glb`; the client loads it out of StreamingAssets.
 Nothing joined them, so a clip could be rebuilt and the game keep playing the

@@ -66,7 +66,39 @@ for (const f of files) {
 }
 check("every screen that takes a press was checked", screens >= 3, `${screens} interactive screens found`);
 
-// ---- 2. the slice ------------------------------------------------------
+// ---- 2. statics that outlive a Play press ------------------------------
+// UNITY DOES NOT RELOAD THE DOMAIN BETWEEN PLAY PRESSES by default. A static
+// therefore carries from one session into the next, and a static holding Unity
+// OBJECTS carries a set of keys whose objects have all been destroyed.
+//
+// That cost the owner a session. WarriorView cached its warrior templates in a
+// static dictionary of DontDestroyOnLoad GameObjects; on the second Play press
+// ContainsKey said the template was there, so the load was skipped, and then the
+// object behind the key was found destroyed, so the spawn returned. No warrior
+// appeared, in any ring, ever again until a script changed. "games dont start
+// now."
+//
+// The rule: a static collection of Unity objects, or a static field holding one,
+// needs a [RuntimeInitializeOnLoadMethod] in the same file to empty it. That
+// attribute runs before the first scene of every session with or without a
+// domain reload, which is the only hook true in both cases.
+const OBJECTISH = /(GameObject|Transform|Texture2D|Material|Font|Component|MonoBehaviour|Renderer|Light|Mesh)\b/;
+for (const f of files) {
+  const src = readFileSync(resolve(DIR, f), "utf8");
+  // static collections of Unity objects, and bare static Unity-object fields
+  const caches = [
+    ...src.matchAll(/static\s+(?:readonly\s+)?[\w.<>, ]*Dictionary<[^>]*>\s+(\w+)/g),
+    ...src.matchAll(/static\s+(?:readonly\s+)?[\w.<>, ]*List<[^>]*>\s+(\w+)/g),
+    ...src.matchAll(/^\s*static\s+(?!readonly)(\w+)\s+(_\w+)\s*;/gm),
+  ].filter((m) => OBJECTISH.test(m[0]));
+  if (caches.length === 0) continue;
+  const resets = /\[RuntimeInitializeOnLoadMethod/.test(src);
+  check(`${f} empties its static caches every Play press`, resets,
+    resets ? `${caches.length} static(s) of Unity objects, and a RuntimeInitializeOnLoadMethod to clear them`
+           : `${caches.length} static(s) of Unity objects with nothing to clear them — the second Play press gets destroyed objects behind live keys`);
+}
+
+// ---- 3. the slice ------------------------------------------------------
 const skin = existsSync(resolve(DIR, "Skin.cs")) ? readFileSync(resolve(DIR, "Skin.cs"), "utf8") : "";
 if (!skin) check("Skin.cs is present", false);
 else {
