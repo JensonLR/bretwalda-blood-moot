@@ -655,6 +655,26 @@ tool that spawns a server (50) guards it with `watchBoot`.**
 
 ## Hard-won laws (do not relearn these)
 
+**SETTING `RenderSettings.ambientSkyColor` DOES NOT TOUCH THE AMBIENT PROBE.**
+`BretwaldaGround.shader` lights with `sun + SampleSH(n)`, and `SampleSH` reads
+the PROBE. Unity bakes the trilight colours into it when the environment is
+refreshed, and nothing refreshed it — so in a scene built entirely from code the
+shader was sampling the empty probe it started with, and the whole ambient term
+was absent from the ground and every man on it. In a dusk rig, with the sun two
+degrees over the horizon, that is most of the light in the frame. Call
+**`DynamicGI.UpdateEnvironment()`** after changing ambient.
+
+**AN UNTEXTURED PARTICLE IS A SQUARE.** URP's unlit particle shader with no
+`_BaseMap` draws a flat quad in a solid colour. The blood was a cloud of dark
+red rectangles. Generate a droplet and a splat; never ship a particle without
+one.
+
+**NEVER READ A MOVEMENT KEY AS A MODIFIER.** The cut chooser read W for an
+overhead — and W is held for the whole fight while a man closes, so every blow
+the player ever threw was an overhead. "same move spammed over & over again."
+Aim with the mouse, where the aiming already lives.
+
+
 **`leave` DELETES THE SESSION.** It runs `disconnectSession` — the surrender
 path, not a leave-the-room path — and `sessions.delete(sid)` with it. The socket
 stays open and the server no longer knows who is on the other end, so every
