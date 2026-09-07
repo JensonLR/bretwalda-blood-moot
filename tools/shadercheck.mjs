@@ -5,38 +5,61 @@
 //
 //   node tools/shadercheck.mjs
 //
-// A SHADER CANNOT BE COMPILED FROM THIS SEAT. unitycheck compiles C# against
-// Unity's assemblies; it sees nothing of HLSL. So a shader written here shipped
-// unproven, and one did: the ShadowCaster pass declared `_LightDirection` and
-// then used `_LightPosition`, which URP's own ShadowCasterPass.hlsl declares
-// alongside it. Metal refused the punctual-light variant, the ground fell back
-// to the error shader, and the owner photographed a cyan screen.
+// THE ORIGINAL FINDING, kept because it is the reason this file exists. Unity's
+// ShadowCaster pass declared `_LightDirection` and then used `_LightPosition`.
+// Metal refused the punctual-light variant, the ground fell back to the error
+// shader, and the owner photographed a cyan screen. Nothing in the repository
+// could have caught it: a shader is not compiled by a typechecker.
 //
-// This will not compile HLSL either. What it does is the ONE check that would
-// have caught that: every `_Name` a pass uses must be declared somewhere the
-// compiler can see it — in the shader itself, or in a header the shader
-// includes, which here means URP's and core RP's ShaderLibrary. Anything else
-// is an undeclared identifier, which is exactly what the compiler said.
+// REPOINTED 7 Sep 2026 at the three.js client (docs/ONE-CLIENT.md §4.3). The
+// defect class is not a Unity defect class — it is what happens whenever a
+// shading language's identifiers are checked by a compiler nobody runs at build
+// time. WebGL has exactly the same hole, in a shape that is arguably worse:
 //
-// It also fails deprecated URP keywords, because a warning on every compile is
-// how a real error gets missed.
+//   a `uniform` DECLARED in the GLSL and MISSING from the material's
+//   `uniforms` object is `undefined` at draw time.
 //
-// INNER-LOOP TOOL: no Unity, no build. It reads text.
+// three.js does not throw for that. It hands the driver a uniform that was
+// never set, and what you get is a black surface, a NaN that eats the whole
+// mesh, or — the worst one — correct output on the machine you developed on and
+// garbage on somebody's phone. That is the cyan screen again, wearing WebGL.
+//
+// So the check is the same sentence it always was, in the new language: every
+// name a shader uses must be declared somewhere the compiler can see it, and
+// every name it declares must actually be supplied.
+//
+// IT ALSO REFUSES TO PASS VACUOUSLY. `docs/PROCESS.md` records thirteen
+// measurements that answered the wrong question, and the signature shape is a
+// gate green because the case is absent — so this asserts a FLOOR on how many
+// materials it found. A refactor that moves the shaders somewhere this cannot
+// read turns the gate red instead of quietly green.
+//
+// INNER-LOOP TOOL: no build, no GPU. It reads text.
 // ============================================================
-import { readFileSync, existsSync, readdirSync, statSync } from "fs";
-import { resolve, dirname, join } from "path";
+import { readFileSync, existsSync } from "fs";
+import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const UNITY = resolve(ROOT, "BRETWALDA - Blood Moot");
-const SHADERS = resolve(UNITY, "Assets/Bretwalda/Shaders");
-const CACHE = resolve(UNITY, "Library/PackageCache");
+const RENDER = resolve(ROOT, "src/game/client/render");
+const FILES = ["materials.ts", "world.ts", "postfx.ts", "sky.ts", "vfx.ts", "hud3d.ts"];
 
-// Keywords URP has retired. The message names the replacement so the fix is
-// not a search.
-const DEPRECATED = [
-  ["_FORWARD_PLUS", "_CLUSTER_LIGHT_LOOP"],
-];
+// The floor. Below this the tool is not measuring the renderer any more.
+const MIN_SHADERS = 12;
+
+/**
+ * Names GLSL gets for free. three.js injects these into every program it
+ * builds, so a shader may use them without declaring them and a material need
+ * not supply them. Sourced from three.js's WebGLProgram prefixes.
+ */
+const BUILTIN = new Set([
+  "modelMatrix", "modelViewMatrix", "projectionMatrix", "viewMatrix",
+  "normalMatrix", "cameraPosition", "isOrthographic",
+  "position", "normal", "uv", "uv1", "uv2", "tangent", "color",
+  "instanceMatrix", "instanceColor", "morphTargetInfluences",
+  "logDepthBufFC", "gl_Position", "gl_FragColor", "gl_PointSize", "gl_FragCoord",
+  "gl_PointCoord", "gl_FrontFacing", "gl_VertexID", "gl_InstanceID",
+]);
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -44,111 +67,141 @@ const check = (name, ok, detail = "") => {
   else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`); }
 };
 
-console.log("\n[shadercheck] every name a pass uses, declared somewhere it can see\n");
+console.log("\n[shadercheck] every name a shader uses, declared and supplied\n");
 
-if (!existsSync(SHADERS)) {
-  check("the shaders are where this expects them", false, SHADERS);
-  console.log("\n[shadercheck] 0 passed, 1 failed"); process.exit(1);
-}
-const libs = existsSync(CACHE)
-  ? readdirSync(CACHE).filter((d) => /render-pipelines/.test(d)).map((d) => join(CACHE, d))
-  : [];
-check("URP's shader library is on disk to check against", libs.length > 0,
-  libs.length ? `${libs.length} render-pipeline package(s)` : "no Library/PackageCache — open the project in Unity once");
-
-// Names the shader itself declares: a bare `floatN _X;`, a CBUFFER entry, a
-// TEXTURE2D/SAMPLER macro, or a Properties block entry.
-const declaredIn = (src) => {
-  const out = new Set();
-  for (const m of src.matchAll(/\b(?:float|half|int|uint|bool|real)[1-4]?(?:x[1-4])?\s+(_\w+)\s*[;,]/g)) out.add(m[1]);
-  for (const m of src.matchAll(/\b(?:TEXTURE2D|TEXTURE2D_ARRAY|TEXTURECUBE|SAMPLER|SAMPLER_CMP|TEXTURE3D)\s*\(\s*(_\w+)\s*\)/g)) out.add(m[1]);
-  for (const m of src.matchAll(/^\s*(_\w+)\s*\(\s*"/gm)) out.add(m[1]);   // Properties
-  for (const m of src.matchAll(/#define\s+(_\w+)/g)) out.add(m[1]);
-  return out;
-};
-
-// WHAT THE PASS ACTUALLY SEES. The first cut of this grepped the whole shader
-// library and passed a shader with the very bug it was written for: URP does
-// declare _LightPosition — in ShadowCasterPass.hlsl, which this shader does NOT
-// include. A compiler resolves the include graph, so this resolves the include
-// graph: the headers each pass names, and the headers those name, and no more.
-const pkgDir = (spec) => {
-  const m = spec.match(/^Packages\/([^/]+)\/(.*)$/);
-  if (!m) return null;
-  const dir = libs.find((l) => l.split("/").pop().startsWith(m[1] + "@"))
-    ?? (existsSync(join(CACHE, m[1])) ? join(CACHE, m[1]) : null);
-  return dir ? join(dir, m[2]) : null;
-};
-const headerCache = new Map();
-const readHeader = (file) => {
-  if (headerCache.has(file)) return headerCache.get(file);
-  let text = "";
-  try { if (statSync(file).isFile()) text = readFileSync(file, "utf8"); } catch { /* missing */ }
-  headerCache.set(file, text);
-  return text;
-};
-// Every header reachable from a starting set, following #include both ways it
-// is written: by package path, and relative to the including file.
-const reachable = (specs, from) => {
-  const seen = new Set(), out = [];
-  const queue = specs.map((sp) => ({ spec: sp, base: from }));
-  while (queue.length) {
-    const { spec, base } = queue.shift();
-    const file = spec.startsWith("Packages/") ? pkgDir(spec) : resolve(base, spec);
-    if (!file || seen.has(file)) continue;
-    seen.add(file);
-    const text = readHeader(file);
-    if (!text) continue;
-    out.push(text);
-    for (const m of text.matchAll(/#include\s+"([^"]+)"/g)) queue.push({ spec: m[1], base: dirname(file) });
+/** Every backtick template literal in a source file, with its start offset. */
+function templates(src) {
+  const out = [];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== "`") continue;
+    let j = i + 1, depth = 0;
+    for (; j < src.length; j++) {
+      if (src[j] === "\\") { j++; continue; }
+      if (src[j] === "$" && src[j + 1] === "{") { depth++; j++; continue; }
+      if (src[j] === "}" && depth > 0) { depth--; continue; }
+      if (src[j] === "`" && depth === 0) break;
+    }
+    out.push({ start: i, end: j, body: src.slice(i + 1, j) });
+    i = j;
   }
   return out;
-};
-
-const files = readdirSync(SHADERS).filter((f) => f.endsWith(".shader"));
-check("there are shaders to check", files.length > 0, `${files.length} found`);
-
-// COMMENTS ARE NOT CODE. The first run of this failed its own file because the
-// note explaining the retired keyword contained the retired keyword — the same
-// trap a rename hit once before. Everything below reads the shader with its
-// comments taken out.
-const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-
-for (const f of files) {
-  const src = strip(readFileSync(resolve(SHADERS, f), "utf8"));
-
-  for (const [dead, live] of DEPRECATED) {
-    check(`${f} uses no retired URP keyword`, !new RegExp(`\\b${dead}\\b`).test(src),
-      new RegExp(`\\b${dead}\\b`).test(src) ? `${dead} is deprecated — use ${live}` : "none");
-  }
-
-  const declared = declaredIn(src);
-  // Only the HLSL blocks: the Properties block's own names are declarations.
-  const hlsl = [...src.matchAll(/HLSLPROGRAM([\s\S]*?)ENDHLSL/g)].map((m) => m[1]).join("\n");
-  const used = new Set();
-  for (const m of hlsl.matchAll(/\b(_[A-Za-z]\w*)\b/g)) used.add(m[1]);
-
-  // What the passes include, transitively — and the declarations in it.
-  const includes = [...hlsl.matchAll(/#include\s+"([^"]+)"/g)].map((m) => m[1]);
-  const headers = reachable(includes, SHADERS);
-  const fromHeaders = new Set();
-  for (const h of headers) for (const n of declaredIn(h)) fromHeaders.add(n);
-  // Headers also hand names out through macros and CBUFFER bodies, so a plain
-  // presence test over the RESOLVED set stands in for the rest.
-  const headerText = headers.join("\n");
-
-  const unknown = [];
-  for (const name of used) {
-    if (declared.has(name)) continue;
-    // Keyword-ish names come from #pragma multi_compile and are not identifiers.
-    if (new RegExp(`multi_compile[^\\n]*\\b${name}\\b|shader_feature[^\\n]*\\b${name}\\b|defined\\s*\\(\\s*${name}\\s*\\)|#if[^\\n]*\\b${name}\\b`).test(hlsl)) continue;
-    if (fromHeaders.has(name)) continue;
-    if (new RegExp(`\\b${name}\\b`).test(headerText)) continue;
-    unknown.push(name);
-  }
-  check(`${f} declares every name its passes use`, unknown.length === 0,
-    unknown.length ? `undeclared: ${unknown.join(", ")} — the compiler calls this "undeclared identifier"` : `${used.size} names, all resolved`);
 }
+
+/** Declarations of a given storage class in one GLSL string. */
+function declared(glsl, kind) {
+  const out = new Map();
+  const re = new RegExp(`^\\s*(?:highp |mediump |lowp )?${kind}\\s+(\\w+)\\s+(\\w+)\\s*(\\[[^\\]]*\\])?\\s*;`, "gm");
+  for (const m of glsl.matchAll(re)) out.set(m[2], `${m[1]}${m[3] ?? ""}`);
+  return out;
+}
+
+const glslConsts = new Map();   // file -> [{ name, body, isFrag }]
+let strings = 0;
+
+for (const name of FILES) {
+  const path = resolve(RENDER, name);
+  if (!existsSync(path)) { check(`${name} is where this expects it`, false, path); continue; }
+  const src = readFileSync(path, "utf8");
+  const found = [];
+  for (const t of templates(src)) {
+    const isGlsl = /^\s*(?:precision|uniform|varying|attribute|#define|#include)\b/m.test(t.body)
+      || /\bvoid\s+main\s*\(\s*\)/.test(t.body);
+    if (!isGlsl) continue;
+    // A CHUNK IS NOT A SHADER. `onBeforeCompile` splices fragments into
+    // three.js's own shaders with .replace("#include <chunk>", `...`), and such
+    // a fragment legitimately uses varyings declared by the string that
+    // prepends it. Counting one as a standalone shader produced two confident
+    // false positives on world.ts's puddle and water passes — vWaterPos is
+    // declared one line above the chunk that uses it.
+    if (/^\s*#include\s*</.test(t.body)) continue;
+    // Name it by the const it is assigned to, for a legible failure message.
+    const before = src.slice(Math.max(0, t.start - 160), t.start);
+    // The `/* glsl */` marker sits between the `=` and the backtick in this
+    // codebase (it is what makes an editor syntax-highlight the string), so the
+    // name match has to step over a comment or every shader is "anonymous" and
+    // a failure message names nothing.
+    const beforeNoComment = before.replace(/\/\*[\s\S]*?\*\/\s*$/, "");
+    const cm = [...beforeNoComment.matchAll(/(?:const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*$/g)].pop()
+      ?? [...beforeNoComment.matchAll(/(\w+)\s*[:=]\s*$/g)].pop();
+    const label = cm ? cm[1] : `anonymous@${t.start}`;
+    // A fragment shader is one that writes a fragment output.
+    const isFrag = /\bgl_FragColor\b|\bout\s+vec4\b|\bpc_fragColor\b/.test(t.body);
+    found.push({ name: label, body: t.body, isFrag });
+    strings++;
+  }
+  glslConsts.set(name, found);
+}
+
+check("the renderer's GLSL was actually found and read",
+  strings >= MIN_SHADERS, `${strings} GLSL strings across ${FILES.length} files, floor is ${MIN_SHADERS}`);
+
+// ---- 1. A FRAGMENT MAY NOT READ A VARYING NO VERTEX WRITES --------------
+//
+// This is the cyan screen in WebGL clothing. A fragment shader declaring a
+// varying that no vertex shader in the same file declares links to nothing:
+// the program fails, three.js falls back, and what the player sees is a black
+// or missing surface on whichever driver is strictest — often not the one the
+// shader was written on.
+const varyingFaults = [];
+for (const [file, shaders] of glslConsts) {
+  const vertVaryings = new Map();
+  for (const sh of shaders) if (!sh.isFrag) for (const [k, ty] of declared(sh.body, "varying")) vertVaryings.set(k, ty);
+  for (const sh of shaders) {
+    if (!sh.isFrag) continue;
+    for (const [k, ty] of declared(sh.body, "varying")) {
+      if (!vertVaryings.has(k)) varyingFaults.push(`${file}:${sh.name} reads varying ${k}, no vertex shader here declares it`);
+      else if (vertVaryings.get(k) !== ty) varyingFaults.push(`${file}:${sh.name} reads ${k} as ${ty}, the vertex writes ${vertVaryings.get(k)}`);
+    }
+  }
+}
+check("no fragment shader reads a varying its vertex shader never writes",
+  varyingFaults.length === 0,
+  varyingFaults.length ? varyingFaults.slice(0, 6).join(" | ") : `${strings} strings, every varying paired by name and type`);
+
+// ---- 2. EVERY NAME A SHADER USES, IT DECLARES ---------------------------
+//
+// The original check, in the new language, and narrowed to the case it can
+// answer without a compiler: a name USED here and declared as a uniform or
+// varying in a DIFFERENT shader in the same file, but not in this one. That is
+// exactly the _LightDirection/_LightPosition shape — a rename that landed in
+// one pass and not its neighbour — and it is the one a reader is least likely
+// to spot, because the name is right there in the file.
+const leaks = [];
+for (const [file, shaders] of glslConsts) {
+  for (const sh of shaders) {
+    const mine = new Set([...declared(sh.body, "uniform").keys(), ...declared(sh.body, "varying").keys(),
+                          ...declared(sh.body, "attribute").keys()]);
+    const elsewhere = new Set();
+    for (const other of shaders) {
+      if (other === sh) continue;
+      for (const k of declared(other.body, "uniform").keys()) elsewhere.add(k);
+      for (const k of declared(other.body, "varying").keys()) elsewhere.add(k);
+    }
+    for (const k of elsewhere) {
+      if (mine.has(k) || BUILTIN.has(k)) continue;
+      // Used as a whole word, and not merely inside a comment.
+      const stripped = sh.body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+      if (new RegExp(`\\b${k}\\b`).test(stripped)) {
+        leaks.push(`${file}:${sh.name} uses ${k} but declares it nowhere; a sibling shader declares it`);
+      }
+    }
+  }
+}
+check("no shader uses a name only its neighbour declared",
+  leaks.length === 0, leaks.length ? leaks.slice(0, 6).join(" | ") : "no half-landed renames");
+
+// ---- WHAT THIS DELIBERATELY DOES NOT CHECK, AND WHY ---------------------
+//
+// Per-material "every declared uniform is supplied by its uniforms object".
+// That is the check this file would most like to make and it is NOT
+// statically resolvable in this renderer's idiom: GLSL lives in module-level
+// constants (FS_VERT, GRADE_FRAG) referenced by name, and the uniforms object
+// is frequently a PARAMETER built at a call site in another function. A regex
+// that guessed at the pairing would produce confident wrong answers, which is
+// worse than an absent check because it would be believed.
+//
+// It wants a real TypeScript pass. Filed rather than faked.
+console.log("  NOTE  per-material 'declared uniform is supplied' needs a TS pass; not attempted here");
 
 console.log(`\n[shadercheck] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

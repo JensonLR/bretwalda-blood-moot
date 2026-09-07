@@ -17,14 +17,21 @@
 //
 // INNER-LOOP TOOL: no Blender, no Unity, no build. It reads four PNGs.
 // ============================================================
-import { existsSync, statSync } from "fs";
+import { existsSync, statSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { magentaShare, MAGENTA_LIMIT } from "./blender/exportportraits.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
-// The names the Unity menu asks for, off MainMenu.cs's own list.
+// THE EXPORTER'S OWN OUTPUT, beside the blend that made it — not a copy.
+//
+// This used to read `BRETWALDA - Blood Moot/Assets/StreamingAssets`, which was
+// a COPY of these four files, and Unity is retired (docs/ONE-CLIENT.md §4.3).
+// Reading the source rather than a sink is the better arrangement anyway: the
+// defect this file exists for is a render whose textures missed, and that is a
+// property of the render, not of where it was filed.
+const ART = resolve(ROOT, "art/blender");
+const TYPES = resolve(ROOT, "src/game/types.ts");
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 let pass = 0, fail = 0;
@@ -36,7 +43,7 @@ const check = (name, ok, detail = "") => {
 console.log("\n[portraittest] the class picker's four men\n");
 
 for (const cls of CLASSES) {
-  const f = resolve(SHIP, `portrait-${cls}.png`);
+  const f = resolve(ART, `portrait-${cls}.png`);
   if (!existsSync(f)) {
     check(`${cls} has a portrait`, false, `no ${f} — run node tools/blender/exportportraits.mjs`);
     continue;
@@ -49,15 +56,19 @@ for (const cls of CLASSES) {
   check(`${cls}'s portrait is a tile and not a poster`, kb < 700, `${kb.toFixed(0)} KB`);
 }
 
-// The picker asks for exactly these four; a class added to the menu without a
-// portrait would draw an empty box, which is why the list is checked too.
-const menu = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/Bretwalda/Scripts/Game/MainMenu.cs");
-if (existsSync(menu)) {
-  const src = (await import("fs")).readFileSync(menu, "utf8");
-  const m = src.match(/static readonly string\[\] Classes = \{([^}]*)\}/);
-  const named = m ? [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]) : [];
-  check("every class the menu names has a portrait", named.length > 0 && named.every((c) => CLASSES.includes(c)),
-    `the menu names ${named.join(", ") || "nothing this could read"}`);
+// THE ROSTER IS THE GAME'S, NOT A MENU'S. A class added to the game without a
+// portrait would draw an empty box, so the list is checked against the only
+// place that decides what classes exist — `WARRIOR_STATS` in types.ts. Reading
+// Unity's `MainMenu.cs` for this was always reading a copy of the answer.
+{
+  const src = readFileSync(TYPES, "utf8");
+  const block = src.slice(src.indexOf("WARRIOR_STATS"));
+  const named = [...new Set([...block.matchAll(/(\w+):\s*\{[^}]*?attackSpeed:/g)].map((m) => m[1]))];
+  check("the game's class roster is readable", named.length >= 4, named.join(", "));
+  const missing = named.filter((c) => !CLASSES.includes(c));
+  check("every class the game has, has a portrait", missing.length === 0,
+    missing.length ? `${missing.join(", ")} — a class with no portrait draws an empty box`
+                   : `the game names ${named.join(", ")}`);
 }
 
 console.log(`\n[portraittest] ${pass} passed, ${fail} failed`);
