@@ -185,40 +185,55 @@ made this cheap and it is the law that proves nothing was broken in passing.
 
 ## 5. P1a — bots bank, at a discount
 
-### 5.0 It is TWO sites, not one — and a one-site fix banks nothing
+### 5.0 It was claimed to be TWO sites. It is ONE — corrected 7 Sep 2026
 
-Found during this spec's own review, and it is the difference between a fix
-that works and a fix that reports success while changing nothing.
+**This section originally said the fix needed two sites and that a one-site fix
+would bank nothing. That was wrong, it was acted on, and the change was
+reverted. The correction is kept here rather than edited away, because the
+reasoning that produced it is the kind that will be produced again.**
 
-`warReport` (`engine.mjs:4565`) is the gate everyone looks at. But
-`dealGroundFor` (`engine.mjs:2379`) runs first and says:
+The claim was that `dealGroundFor` (`engine.mjs:2379`) nulls the territory on a
+solo room, so relaxing `warReport`'s human count alone would leave gate three —
+`if (!room.matchId || !territory(room.territoryId)) return null;` — rejecting
+every solo match on a null territory.
 
-```js
-if (!room || room.mode === "solo" || room.solo) { if (room) room.territoryId = null; return; }
-```
+Every sentence of that is true about the code and **irrelevant to the fix**,
+because of a distinction not checked before the claim was made:
 
-**A solo room is never dealt a territory.** So relaxing the human count alone
-leaves gate 3 — `if (!room.matchId || !territory(room.territoryId)) return null;`
-— rejecting every solo match on a null territory, and the change ships green
-and banks nothing.
+| | `mode: "solo"` | an ordinary room + bots |
+|---|---|---|
+| made by | the `solo` message | `create` then `add_bot` |
+| what it is | **TRAINING** — one endless round | a real match |
+| pays gold | **no** (`buildLedger`) | yes |
+| reaches a match end | **no** | yes |
+| dealt a territory | no, and correctly so | **yes, always** |
 
-Both sites move together:
+**A lone man does not fight a real match in a `mode: "solo"` room.** That room
+is the tutorial: it pays nothing, ends nothing, and `engine.mjs:4534` keeps it
+out of the war independently of any territory. A lone man fights a real match
+in an ordinary room he has added bots to — and such a room has **always** been
+dealt a territory.
 
-1. **`dealGroundFor:2379`** deals a territory to solo rooms exactly as it does
-   to public ones, through the same `dealTerritory(seed, front)`. The
-   `room.friendly` branch at `:2384` is **untouched** — a friendly moot still
-   has no territory, which is how it goes on banking nothing without needing a
-   second rule to say so.
-2. **`warReport:4566`** drops its `solo` rejection and classifies instead.
+So the fix is one site, `classifyMatch`, and it is §5.1. `dealGroundFor`'s guard
+is correct as written; removing it only handed a war-less room a territory it
+can never use. `wartest` now states which rooms have ground at stake — training
+none, friendly none, an ordinary room one — so the claim cannot be remade from
+memory.
 
-`warflow` must assert the territory is non-null on a solo room, or this
-regresses silently the next time either line is touched.
+**What the episode is worth keeping for.** The reasoning was "read the whole
+path, not the line the change is about", which is right and which found the
+real second trap in §5.4. Applied here it read the path correctly and misread
+what one of its rooms was FOR. Reading a call graph is not the same as knowing
+which branch a player is standing in, and the gate in §7 is what settled it —
+it was pointed at the training room first, waited ninety seconds, and reported
+that nothing banked, which was true and measured nothing.
 
 ### 5.1 The classification
 
-`warReport` stops rejecting and starts **classifying**. A solo room — the
-`mode === "solo"` / `room.solo` case, which is where a lone alpha player
-actually plays — is **included**: it is the entire point of the change.
+`warReport` stops rejecting and starts **classifying**. The case that matters is
+**one human in an ordinary match room**, alongside bots he added — which is
+where a lone player actually fights something that ends and pays. A `mode:
+"solo"` training room is NOT included and never was; see §5.0.
 
 | Situation | kind | weight |
 |---|---|---|
@@ -351,9 +366,8 @@ believed green.
 - **The Moot window across a BST/GMT boundary.** A real trap: a window computed
   in the wrong offset opens at the wrong hour for half the year, and does it
   silently.
-- **The solo room's territory is non-null** — §5.0, stated there rather than
-  restated here, because this file has already watched two copies of one fact
-  drift apart in `HANDOVER.md`.
+- **Which rooms have ground at stake** — training none, friendly none, an
+  ordinary room one. §5.0 says why that list is the correction it is.
 - **The gate that would have caught §2.** An assertion that a representative
   alpha session — solo rooms, one human, ordinary difficulty — produces a
   **non-zero** war ledger. Per the standing instruction in `HANDOVER.md`:
