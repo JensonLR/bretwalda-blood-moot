@@ -1195,7 +1195,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
                     : stage.materials.standard(ask.color)),
                 },
               );
-              if (!res.ok) console.warn(`[authored] ${p.warriorClass}: ${res.why} — keeping the procedural man`);
+              // BOTH ARMS SPEAK. Only the refusal used to, so a harness could
+              // count failures and had no way to know when the upgrades were
+              // DONE — which is why `authoredshot` waited a flat 48 s and
+              // photographed a man who had been dead for thirty of them. This
+              // is behind `?authored=1` and costs a line a man a match.
+              if (res.ok) console.info(`[authored] ${p.warriorClass}: upgraded`);
+              else console.warn(`[authored] ${p.warriorClass}: ${res.why} — keeping the procedural man`);
             });
           }
           slot = {
