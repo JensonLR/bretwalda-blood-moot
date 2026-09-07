@@ -278,9 +278,9 @@ for (const cls of CLASSES) {
     // The proof is PARENTAGE, not a count: they must be under the authored
     // wrist bones, which is the only place a hand can carry them.
     const mounts = [];
-    g3.scene.traverse((o) => { if (o.name === "HandR" || o.name === "HandL") mounts.push(o); });
+    g3.scene.traverse((o) => { if (o.name === "HandR" || o.name === "LeftElbow") mounts.push(o); });
     const carried = mounts.flatMap((b) => b.children.map((c) => c.name));
-    check("...onto the authored HAND MOUNTS, not the wrist bones",
+    check("...a blade on the fist and a board on the elbow it straps to",
       carried.includes("the-weapon") && carried.includes("the-shield"),
       `mounts carry: ${carried.join(", ") || "nothing"}`);
   }

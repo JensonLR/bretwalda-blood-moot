@@ -57,27 +57,29 @@ export const AUTHORED_ROLES = ["helm", "beard", "hair", "cloak"] as const;
 export const AUTHORED_ROLES_UNPOSED = new Set<AuthoredRole>(["cloak"]);
 
 /**
- * WHAT THE BRIDGE DOES NOT CARRY — the rest pose, and it is the next thing.
+ * WHAT I BLAMED ON THE REST POSE, AND IT WAS A WRONG MOUNT — 7 Sep 2026.
  *
- * The name map is exact and the pose reaches every joint, which is what makes
- * this a wave rather than a rewrite. It does NOT make the two men stand the
- * same way, and the first captures show why: the procedural skeleton and the
- * Blender one have different BIND POSES, so an identical rotation on
- * `LeftUpperArm` puts the hand in a different place. The shield is parented
- * correctly to `HandL`, with its local transform cleared, and still hangs half
- * a metre off the fist — because the fist itself is somewhere else.
+ * A previous version of this comment declared the bind poses incompatible and
+ * called for a retargeting delta, on the evidence of a shield hanging half a
+ * metre off the man. **That was wrong and is recorded rather than deleted,
+ * because it was the more interesting-sounding explanation and it was reached
+ * without the cheap check.**
  *
- * That is ordinary retargeting: a pose authored against bind pose A, replayed
- * on bind pose B, needs the delta between them. `warrior-<cls>.rig.json`
- * carries the exported rest transforms and `articulate` knows the procedural
- * ones, so the delta is available on both sides; nothing here computes it yet.
+ * The shield was mounted on `HandL`. `anim.ts` straps it to `joints.elbowL` —
+ * a board goes on the forearm, a blade goes in the fist — so it was hanging
+ * off the wrong joint and doing so faithfully. The berserker, one axe and no
+ * board, was drawn holding his weapon perfectly IN THE SAME BUILD, which is
+ * the observation that should have ended the theory before it was written:
+ * a broken bind pose does not correctly place one man's axe and misplace
+ * another man's shield.
  *
- * IT IS WRITTEN DOWN RATHER THAN GUESSED AT because the tempting fix — nudging
- * the mount until this one class looks right — would be four hand-tuned offsets
- * that drift the first time either rig changes, and would look like a fix in
- * exactly one capture.
+ * Mounted on the elbow it sits where it belongs.
+ *
+ * The general point survives and is worth keeping: a name map carries topology
+ * and not stance, so if the two bind poses ever DO diverge the symptom will
+ * look like this. The lesson is that it looked like this already for a much
+ * dumber reason, and the dumber reason should be excluded first.
  */
-export const AUTHORED_REST_POSE_DELTA_IS_UNSOLVED = true;
 export type AuthoredRole = (typeof AUTHORED_ROLES)[number];
 
 /** `helm_41`, `beard_40` — the role, then the exporter's own part number. */
@@ -343,7 +345,15 @@ export type PivotSlot = keyof typeof PIVOT_BONE_NAMES;
 export const MOUNT_BONE_NAMES = {
   weapon: "HandR",
   offhand: "HandL",
-  shield: "HandL",
+  /**
+   * THE ELBOW, NOT THE HAND, and this was got wrong once and caught by a
+   * picture. `anim.ts` does `joints.elbowL.add(shield)` — a board is strapped
+   * to the forearm, so it hangs off the elbow while a sword hangs off the fist.
+   * Mounted on `HandL` it floated half a metre off the man, and the berserker
+   * — one weapon, no board — was drawn holding his axe perfectly in the same
+   * build, which is what said the mount was wrong rather than the bridge.
+   */
+  shield: "LeftElbow",
 } as const;
 
 export type MountSlot = keyof typeof MOUNT_BONE_NAMES;
@@ -473,19 +483,15 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   for (const [carried] of held) carried.removeFromParent?.();
   for (const child of [...rig.body.children]) rig.body.remove(child);
   rig.body.add(swap.scene);
-  // And back on, at the authored mounts — WITH THE LOCAL TRANSFORM CLEARED.
+  // And back on, at the authored mounts, KEEPING their local transforms.
   //
-  // `anim.ts` places a weapon relative to the PROCEDURAL mount, which carries
-  // the builder's own grip pitch; the authored mount carries Blender's. Keeping
-  // the old local transform applies one man's grip offset inside the other
-  // man's hand, and the first capture showed exactly that — a shield floating
-  // half a metre off the fist. The mount is the frame; the thing it holds sits
-  // at its origin.
-  for (const [carried, mount] of held) {
-    carried.position?.set?.(0, 0, 0);
-    carried.rotation?.set?.(0, 0, 0);
-    mount.add(carried);
-  }
+  // Clearing them was tried and was wrong: `anim.ts` places a board relative to
+  // the elbow it is strapped to and a blade relative to the fist that holds it,
+  // and those offsets are the carry — not slack to be zeroed. The floating
+  // shield that prompted the idea was a WRONG MOUNT (HandL for a board that
+  // straps to the forearm), which the berserker's correctly-held axe in the
+  // same build should have said first.
+  for (const [carried, mount] of held) mount.add(carried);
 
   // 4. And the pose now writes the authored skeleton. This is the whole bridge:
   //    `applyPose` sets rotations on these by name and does not care whether it
