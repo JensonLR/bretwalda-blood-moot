@@ -187,6 +187,42 @@ console.log("[platform] the dual-platform laws, held mechanically\n");
 // ---- the door column exists (the Steam account door's groundwork) ----
 {
   const schema = read(resolve(ROOT, "src/db/schema.ts"));
+// ---- LAW 7: an appearance change reaches the PROFILE, not only the socket ----
+//
+// THE DEFECT, from the owner on 7 Sep 2026: "there's no mark persistance in
+// saga profile". It was bigger than the mark. `/api/profile/equip` has always
+// accepted an appearance, `setPresentation` has always written it through
+// `sanitizeAppearance`, and `players.cosmetics` has always existed to hold it —
+// and no client code ever sent one. Every cosmetic choice reached the game
+// socket (so the room saw it) and localStorage (so it survived a reload on that
+// device) and stopped there. Open the game on a phone and the man wore defaults
+// with no mark, having earned one.
+//
+// `tools/profiletest.mjs` could never have caught it: it drives the ROUTES, and
+// the routes were right. The gap was that nothing called them. So the law is
+// stated where client laws live — every site that writes an appearance into the
+// profile must also push it up.
+//
+// It is a TEXT law rather than a runtime one for the same reason the seam law
+// above is: the thing to prevent is a fourth call site being added later by
+// somebody who does not know about the third.
+{
+  const src = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+  const lines = src.split("\n");
+  const offenders = [];
+  lines.forEach((l, i) => {
+    if (!/saveProfile\(\s*\{[^}]*\bappearance\s*:/.test(l)) return;
+    // The push may be on the same line or within a few after it — the sites
+    // differ (an oath, a mark, an armoury commit) and all three end in one.
+    const near = lines.slice(i, i + 8).join("\n");
+    if (!/syncAppearance\s*\(/.test(near)) offenders.push(`page.tsx:${i + 1}`);
+  });
+  check("every appearance written to the profile is pushed to the server too",
+    offenders.length === 0,
+    offenders.length ? `${offenders.join(", ")} — saveProfile({ appearance }) with no syncAppearance within 8 lines`
+      : "3 sites, all pushed");
+}
+
   check("the players table carries the steamId door column",
     /steamId/.test(schema), "nullable + unique; the door's server half lands with app credentials");
 }

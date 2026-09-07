@@ -49,7 +49,41 @@ export const AWOL_GRACE = 12;
 /** The only sides that exist. `checkRoundEnd` counts these two and no others. */
 const TEAMS = new Set(["none", "red", "blue"]);
 const PARRY_WINDOW = 0.15;
-const COMBO_WINDOW = 0.8;
+/**
+ * How long after a blow ENDS the next one still counts as part of the chain.
+ *
+ * IT USED TO BE MEASURED FROM THE START OF THE SWING, AND AT 0.8 s THAT MADE
+ * THE WHOLE COMBO SYSTEM UNREACHABLE FOR THREE CLASSES OUT OF FOUR. A light
+ * swing is `attackSpeed` seconds long — huscarl 1.02, warden 0.85, berserker
+ * 1.33 — so the window had already lapsed before the man finished the stroke
+ * that opened it, and `comboCount` could never leave 1. Measured, holding the
+ * attack button down for six seconds against a man who cannot die:
+ *
+ *     huscarl     swing 1.02s   comboCount reaches 1
+ *     warden      swing 0.85s   comboCount reaches 1
+ *     berserker   swing 1.33s   comboCount reaches 1
+ *     runekeeper  swing 0.58s   comboCount reaches 9
+ *
+ * Everything built on the chain was dead for those three: the damage ramp
+ * `min(1 + combo * 0.15, 1.6)`, `chainSwing`'s step-through and pivot, and the
+ * cut cycle in `render/chain.ts`. So was the balance argument written into the
+ * heavy-attack note below, which justifies the light attack as "the sustained
+ * game" on a multiplier three classes could not obtain. The owner: "the
+ * desktop moves for fighting feel really boring & uninspired too" — for three
+ * men in four there was exactly one light attack in the game, and it never
+ * changed and never grew.
+ *
+ * So the window opens when the stroke is FINISHED, which is what a combo
+ * window is everywhere else, and 0.45 s is the grace on top: comfortable at a
+ * deliberate tempo, and lost by anyone who blocks, dodges or repositions
+ * between blows. Holding the button chains by construction — the cost of
+ * holding it is that you are doing nothing else.
+ *
+ * EXPORTED so the client's cut cycle and this can be held to one number.
+ * `render/chain.ts` restates it as `CHAIN_WINDOW` because that module imports
+ * nothing on purpose; `tools/chaintest.mjs` asserts the two agree.
+ */
+export const COMBO_WINDOW = 0.45;
 const DODGE_DURATION = 0.35;
 const DODGE_COOLDOWN = 0.8;
 const STAGGER_DURATION = 0.6;
@@ -3619,8 +3653,11 @@ export function makeEngine(options = {}) {
     if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 13) {
       player.stamina -= 13;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
-      player.comboTimer = COMBO_WINDOW;
       beginSwing(player, input.attackDir, stats.attackDamage + (armsDeltaOf(player).attackDamage || 0), false);
+      // AFTER `beginSwing`, and that order is the fix: the window is the
+      // stroke's own length plus the grace, so it opens when the blow is over
+      // rather than expiring inside it. See `COMBO_WINDOW`.
+      player.comboTimer = player.swingDuration + COMBO_WINDOW;
     }
 
     // 30, RAISED FROM 22 (backlog 7.1). The owner's own play found the fault:
@@ -3631,8 +3668,14 @@ export function makeEngine(options = {}) {
     // button was strictly correct. At 30 the heavy stays the harder blow and
     // the opener of choice, but a bar of ~105-135 pays for three of them
     // before the man is winded (five before), and the light chain — combo
-    // ×1.15→×1.6 inside the 0.8 s window, up to ~30 DPS at 13 a swing — is
+    // ×1.15→×1.6 inside the window, up to ~30 DPS at 13 a swing — is
     // the sustained game. Spike and tempo, instead of one right answer.
+    //
+    // AND THAT ARGUMENT WAS FICTION UNTIL 7 SEP 2026. The window was measured
+    // from the start of the swing and was shorter than the swing, so three
+    // classes in four never reached combo 2 and the light attack's whole case
+    // against the heavy was a multiplier they could not obtain. See
+    // `COMBO_WINDOW`. The reasoning above is the reasoning that now holds.
     if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 30) {
       player.stamina -= 30;
       player.comboCount = 0; player.comboTimer = 0;

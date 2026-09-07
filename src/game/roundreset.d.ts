@@ -20,4 +20,6 @@ declare module "@/game/roundreset.mjs" {
     prev: RoundPhase | null | undefined,
     next: RoundPhase | null | undefined,
   ): boolean;
+  /** The edge into a finished match — the summary stages a different tableau. */
+  export function matchBoundary(prev: unknown, next: unknown): boolean;
 }

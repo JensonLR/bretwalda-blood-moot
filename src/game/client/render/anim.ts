@@ -1615,6 +1615,48 @@ const POSE_GROUP: Record<string, string> = {
   knocked: "down", rising: "down",
 };
 
+/** The pose group a dead man belongs to. See `settleDeath`. */
+const DEAD_GROUP = POSE_GROUP["dead"] ?? "dead";
+
+/**
+ * Hand a body to a STILL PORTRAIT with its collapse already over.
+ *
+ * The summary tableau is a photograph, and `motion.actT` counts RENDERED time,
+ * not wall clock — so a body arriving at the stage is still going over, and on
+ * a slow renderer it is still going over eight seconds later. Winding the clock
+ * past the end of `deathLayer` is the fix, and the stage has done exactly that
+ * since the feature shipped:
+ *
+ *     dead.motion.actT = Math.max(dead.motion.actT, DEATH_SETTLED);
+ *
+ * IT DID NOT WORK, and the reason is this function's whole reason to exist.
+ * `poseWarrior` restarts the clock whenever the pose GROUP changes —
+ * `sameMove ? motion.actT + dt : dt` — and a rig that has never been posed has
+ * `lastState === ""`. The tableau's rigs are exactly that. So the very next
+ * frame compared "dead" against "", called it a new move, and threw the wound
+ * clock away. Measured end to end on a real duel: the stage wrote 1.6, the
+ * first posed frame read 0.05, and the shutter caught the corpse's skull
+ * 1.39 m off the turf — a dead man standing up in his own death portrait,
+ * which is the one failure this feature cannot survive.
+ *
+ * The clock and the move it belongs to are one fact and have to be set as one.
+ */
+export function settleDeath(motion: WarriorMotion, t: number): void {
+  motion.actT = Math.max(motion.actT, t);
+  motion.lastState = DEAD_GROUP;
+  motion.lastRaw = "dead";
+  // AND NO CROSSFADE. `commit` mixes `rig.last` — the pose of a frame ago —
+  // back in by `motion.blend`, which is set to 1 on any change of pose group
+  // and bleeds off over about a tenth of a second of RENDERED time. A match
+  // ends on the killing blow, so the man the portrait is about to photograph
+  // died milliseconds ago and his blend is still most of the way up: the
+  // collapse underneath him is finished and he is drawn as the standing man he
+  // was. Caught intermittently by the gate below at 1.556 m with actT 1.62 —
+  // a settled clock and a standing body, which is the crossfade and nothing
+  // else. A portrait is one frame and owes nothing to the frame before it.
+  motion.blend = 0;
+}
+
 const P: Pose = { ...ZERO };
 const CHANNELS = Object.keys(ZERO) as (keyof Pose)[];
 const TIP = new THREE.Vector3();

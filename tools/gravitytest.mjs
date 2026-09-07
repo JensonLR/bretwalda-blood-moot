@@ -421,6 +421,7 @@ async function loadAnim() {
   }
 
   ANIM = await import(pathToFileURL(animFile).href);
+  await loadRaw(animFile);
   return ANIM;
 }
 
@@ -488,10 +489,34 @@ function writeStrip(frames, path, caption) {
   writeFileSync(path, svg);
 }
 
+/**
+ * The material library, for a harness that renders nothing.
+ *
+ * `createWarriorRig` has no `?? RAW` fallback of its own — it hands the
+ * materials straight into `articulate` as `(m) => materials.twin(m)` — so
+ * `undefined` here was not a harmless omission, it was a TypeError on the
+ * first line of §1 and this whole file has been crashing before its first
+ * claim. A gate that cannot start is not a gate that passes; it is the same
+ * defect `wearmeasure` had, in the same call, and the same fix.
+ *
+ * `RAW` is the library `characters.ts` keeps for exactly this — "headless
+ * probes only; nothing renders RAW, so a shape twin is the material itself".
+ * A hand-rolled `{ twin }` stub is WORSE, not better: it is truthy, so it
+ * defeats every `?? RAW` fallback further down and moves the crash rather
+ * than fixing it.
+ */
+let RAW = null;
+async function loadRaw(animFile) {
+  if (RAW) return RAW;
+  const chars = await import(pathToFileURL(resolve(dirname(dirname(animFile)), "characters.js")).href);
+  RAW = chars.RAW;
+  return RAW;
+}
+
 /** A rig, a motion and a frame context — everything `poseWarrior` needs. */
 function stand(anim, player) {
   const parent = new THREE.Group();
-  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+  const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
   const motion = anim.createMotion(player);
   const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
     focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",

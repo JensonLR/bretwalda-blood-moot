@@ -61,7 +61,12 @@ const SETTLE = parseInt(arg("settle", "11"), 10) * 1000;
 const QUALITY = arg("quality", "low");
 const SHOTS = [
   { name: "phone", width: 390, height: 844, mobile: true },
-  { name: "desktop", width: 1280, height: 720, mobile: false },
+  // 1440x900, not 1280x720: it is the owner's own screen (a MacBook Air's
+  // logical size) and it is where he reported "this desktop view is pretty
+  // ugly & hard to see the players". A capture taken at a size nobody has is
+  // a capture of a layout nobody sees — and `lg:` starts at 1024, so both
+  // widths take the same branch and only this one shows how much air it has.
+  { name: "desktop", width: 1440, height: 900, mobile: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -182,6 +187,27 @@ async function oneShot(shot) {
   await page.screenshot({ path });
   const overlayUp = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
   const bodies = await page.evaluate(() => ({ cam: window.__summaryCam, men: window.__summaryBodies }));
+  // A SECOND SAMPLE, because a tableau is a PORTRAIT and a portrait does not
+  // move. One reading cannot tell a settled corpse from a body still going
+  // over — both give one number — and "the collapse is over before the
+  // portrait begins" was asserted by a comment and nothing else.
+  // `--trace` prints the death clock as a SERIES rather than two readings: a
+  // clock that climbs slowly and a clock that keeps restarting both look the
+  // same in a before/after pair, and they are different bugs.
+  if (process.argv.includes("--trace")) {
+    for (let i = 0; i < 12; i++) {
+      const row = await page.evaluate(() => (window.__summaryBodies || [])
+        .filter((m) => !m.standing)
+        .map((m) => `${m.id.slice(0, 6)} actT=${m.actT} headY=${m.headY} ${m.lastState}/${m.lastRaw}`).join(" | "));
+      console.log(`[real]   t+${(i * 0.25).toFixed(2)}s  ${row}`);
+      await sleep(250);
+    }
+  }
+  await sleep(1200);
+  const later = await page.evaluate(() => { window.__summaryBodies = null; return null; })
+    .then(() => until(() => page.evaluate(() => window.__summaryBodies || null), "a second stage sample", 8000))
+    .then(() => page.evaluate(() => window.__summaryBodies))
+    .catch(() => null);
   // The same frame with the DOM overlay taken off it. The overlay is good and
   // is not what is being reviewed here; what is being reviewed is the picture
   // under it, and half of that picture is behind a ledger band.
@@ -198,6 +224,12 @@ async function oneShot(shot) {
   console.log(`[real] ${shot.name}: ${path}`);
   console.log(`[real]   shape=${SHAPE} death=${DEATH} fell=(${corpse.x.toFixed(2)}, ${corpse.z.toFixed(2)}) r=${corpseR.toFixed(2)}m overlay=${overlayUp}`);
   console.log(`[real]   stage=${JSON.stringify(diag)}`);
+  const first = await page.evaluate(() => window.__summaryFirst ?? null);
+  for (const m of first ?? []) {
+    if (m.standing) continue;
+    console.log(`[real]   first-frame ${m.id.slice(0, 6)} actT=${m.actT} headY=${m.headY} `
+      + `lastState=${m.lastState}/${m.lastRaw} blend=${m.blend} state=${m.state}`);
+  }
   // WHERE EVERY MAN LANDED ON THE GLASS, against the band of it the DOM left
   // free. `ndc` is his whole bounding box projected — a body below `band[0]`
   // is behind the ledger panel, however correct his world position is.
@@ -205,11 +237,30 @@ async function oneShot(shot) {
   for (const m of bodies.men ?? []) {
     const under = band && m.ndc ? m.ndc[1] < band[0] - 0.02 : false;
     const off = m.ndc ? (m.ndc[0] < -1 || m.ndc[2] > 1) : false;
+    // A CORPSE THAT NEVER WENT OVER. `box` is a model of a prone man and says
+    // 0.62 either way; `headY` is the skull's real world height off the posed
+    // skeleton, and it is the only number here that can tell the two apart.
+    //
+    // The bar is 1.0 m and it is measured, not chosen: a settled corpse reads
+    // 0.77 m (fire, huscarl, both viewports) and the man this caught — a
+    // collapse frozen a twentieth of a second in, photographed eight seconds
+    // later — read 1.39 m against a standing victor's 1.64 m. One metre sits
+    // clear of both. See `settleDeath` in anim.ts for what was wrong.
+    const upright = !m.standing && typeof m.headY === "number" && m.headY > 1.0;
+    const then = (later ?? []).find((x) => x.id === m.id) ?? null;
+    // 1.2 s of nothing is what a portrait owes. A centimetre is generous: the
+    // idle sway of a STANDING man is bigger than that, so this is only ever
+    // asserted about the dead.
+    const moved = then && typeof then.headY === "number" && typeof m.headY === "number"
+      ? Math.abs(then.headY - m.headY) : 0;
     console.log(`[real]   ${m.standing ? "STANDS" : "dead  "} ${m.id.slice(0, 6)} `
       + `at=[${(m.at ?? []).map((v) => v.toFixed(2)).join(",")}] box=[${m.lo},${m.hi}] `
-      + `foot=[${m.foot}] head=[${m.head}] `
+      + `foot=[${m.foot}] head=[${m.head}] headY=${m.headY}m actT=${m.actT} fall=${m.fall} `
       + `ndc=[${(m.ndc ?? []).join(", ")}]${under ? "  ** UNDER THE LEDGER **" : ""}`
-      + `${off ? "  ** CROPPED SIDEWAYS **" : ""}`);
+      + `${off ? "  ** CROPPED SIDEWAYS **" : ""}`
+      + `${upright ? "  ** STILL ON HIS FEET **" : ""}`
+      + `${then ? ` |+1.2s headY=${then.headY}m actT=${then.actT} lastState=${then.lastState}/${then.lastRaw}` : ""}`
+      + `${!m.standing && moved > 0.01 ? `  ** STILL MOVING (${(moved * 100).toFixed(1)} cm) **` : ""}`);
   }
   console.log(`[real]   cam=${JSON.stringify(bodies.cam)}`);
   await ctx.close();

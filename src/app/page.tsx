@@ -52,7 +52,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchSworn, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, syncAppearance, fetchSworn, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import { readCreds } from "./profileLink";
 import Dispatch, { takeCrownNews, takeWatermark } from "../game/client/factionMap/Dispatch";
@@ -641,6 +641,10 @@ export default function Page() {
     const ap = { ...profileRef.current.appearance, people, standard };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+    // AND TO THE PROFILE, which is the half that was missing. The socket dresses
+    // him for the men in this room; this dresses him for the next device he
+    // opens the game on. See `syncAppearance`.
+    void syncAppearance(ap);
   }, [saveProfile]);
 
   /**
@@ -670,6 +674,9 @@ export default function Page() {
     const ap = { ...profileRef.current.appearance, mark: id };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+    // THE MARK IS THE ONE HE EARNED RATHER THAN BOUGHT, and it was the one that
+    // did not survive a second device. See `syncAppearance`.
+    void syncAppearance(ap);
   }, [saveProfile]);
 
   /**
@@ -1485,6 +1492,10 @@ export default function Page() {
       }
     }
     saveProfile({ appearance: ap, unlocked, gold: p.gold - cost });
+    // A purchase writes the row through `/api/profile/purchase`; RE-EQUIPPING
+    // something already owned costs nothing and went nowhere. Both paths land
+    // here, so both persist from here.
+    void syncAppearance(ap);
     if (cost > 0) audio.ui("purchase");
     if (prevScreen === "lobby" || screenRef.current === "lobby") {
       sendMsg("set_appearance", { appearance: ap });
@@ -4117,6 +4128,19 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
   }, []);
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
+      {/* A GROUND FOR THE PANEL ON WIDE SCREENS.
+          The owner, of a desktop capture: "this desktop view is pretty ugly &
+          hard to see the players". On a phone the roll sits in the one column
+          there is and the tableau is behind it, which is the only arrangement
+          that fits. On a 1440-wide screen the same centred column lands square
+          on both victors — the men the screen exists to show — with a third of
+          the frame empty on either side of them.
+          So on `lg` the roll moves to the right rail and this is the ground it
+          sits on: a soft edge-to-centre wash so the panel has contrast without
+          a hard-edged box in the middle of the picture, on the same reasoning
+          as the top scrim. Below `lg` it is not drawn at all. */}
+      <div aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 hidden w-[34rem] bg-gradient-to-l from-black/80 via-black/45 to-transparent lg:block" />
       {/* A SCRIM, BECAUSE A TEXT SHADOW IS NOT CONTRAST.
           The owner: "the text on end screen the yellow is sometimes hard to
           read & blended into the background of the arena". It is amber type on
@@ -4128,7 +4152,10 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
           behind the words and in front of the fight, and it is tall enough to
           cover the whole top cluster including the war line. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-black/75 via-black/45 to-transparent sm:h-60" />
-      <div className="animate-fadeIn relative flex flex-col items-center gap-1.5 text-center">
+      {/* The headline stays centred on the FRAME up to `lg`; past it the rail
+          takes the right third, so it centres on what is left instead of
+          sitting half-under the roll. */}
+      <div className="animate-fadeIn relative flex flex-col items-center gap-1.5 text-center lg:pr-[32rem]">
         <div className="label-overline">BATTLE COMPLETE</div>
         {/* Near-white rather than amber-100. Over a warm arena an amber
             headline is the same hue as its background; the glow stays because
@@ -4181,11 +4208,18 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
         <MatchTally data={data} playerId={playerId} />
       </div>
 
-      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2">
+      {/* THE ROLL, ON THE RIGHT RAIL WHEN THERE IS ROOM FOR ONE.
+          `mx-auto` up to `lg` — a phone has one column and the tableau lives
+          behind it. From `lg` the men are framed centre-left and this pins
+          right, so nothing the screen is FOR is covered by the numbers.
+          `lg:justify-end` puts it at the foot of the rail rather than floating
+          in the middle of it, and the taller `max-h` is affordable there
+          because it is no longer competing with the fight for the same pixels. */}
+      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2 lg:mx-0 lg:ml-auto lg:mr-2 lg:max-w-sm lg:justify-end">
         {/* The flourish, performed live on the tableau behind these numbers.
             The stage shares the fight's rigs, so the press plays mid-portrait. */}
         {onEmote && <EmoteRow onEmote={onEmote} />}
-        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col p-2 backdrop-blur">
+        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col p-2 backdrop-blur lg:max-h-[46vh]">
           {/* THE COLUMN HEADS, AND THEY ARE HERE FOR THE MIDDLE ONE. The owner:
               "rounds won should be recorded somehow for all to see in the
               table". A bare number in a column nobody has named is not
