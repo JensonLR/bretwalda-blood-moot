@@ -52,7 +52,7 @@ import {
 import type { ForgeProgress, WireHitMessage } from "../game/client/GameCanvas";
 import {
   bootProfile, bindWarrior, collectPay, buyKit, syncName, recoverProfile,
-  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, fetchSworn, LEGACY_KEY, type ServerProfile,
+  syncBindings, noteBindingsSynced, syncMuted, noteMutedSynced, syncAppearance, fetchSworn, LEGACY_KEY, type ServerProfile,
 } from "./profileLink";
 import { readCreds } from "./profileLink";
 import Dispatch, { takeCrownNews, takeWatermark } from "../game/client/factionMap/Dispatch";
@@ -641,6 +641,10 @@ export default function Page() {
     const ap = { ...profileRef.current.appearance, people, standard };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+    // AND TO THE PROFILE, which is the half that was missing. The socket dresses
+    // him for the men in this room; this dresses him for the next device he
+    // opens the game on. See `syncAppearance`.
+    void syncAppearance(ap);
   }, [saveProfile]);
 
   /**
@@ -670,6 +674,9 @@ export default function Page() {
     const ap = { ...profileRef.current.appearance, mark: id };
     saveProfile({ appearance: ap });
     transportRef.current?.send({ type: "set_appearance", data: { appearance: ap } });
+    // THE MARK IS THE ONE HE EARNED RATHER THAN BOUGHT, and it was the one that
+    // did not survive a second device. See `syncAppearance`.
+    void syncAppearance(ap);
   }, [saveProfile]);
 
   /**
@@ -1485,6 +1492,10 @@ export default function Page() {
       }
     }
     saveProfile({ appearance: ap, unlocked, gold: p.gold - cost });
+    // A purchase writes the row through `/api/profile/purchase`; RE-EQUIPPING
+    // something already owned costs nothing and went nowhere. Both paths land
+    // here, so both persist from here.
+    void syncAppearance(ap);
     if (cost > 0) audio.ui("purchase");
     if (prevScreen === "lobby" || screenRef.current === "lobby") {
       sendMsg("set_appearance", { appearance: ap });

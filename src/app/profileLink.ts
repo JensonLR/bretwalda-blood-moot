@@ -303,6 +303,42 @@ export async function syncName(name: string): Promise<void> {
   await withCreds<{ profile: ServerProfile }>("/api/profile/equip", { name: clean });
 }
 
+let lastAppearance: string | null = null;
+
+/**
+ * WHAT A MAN LOOKS LIKE, KEPT BY THE SERVER.
+ *
+ * THE DEFECT, from the owner on 7 Sep 2026: "there's no mark persistance in
+ * saga profile". It is bigger than the mark. `/api/profile/equip` has always
+ * accepted an `appearance`, `setPresentation` has always written it through
+ * `sanitizeAppearance`, and `players.cosmetics` has always been there to hold
+ * it — **and nothing in this file ever sent one.** Name, bindings and the mute
+ * flag went up; the appearance did not.
+ *
+ * So every cosmetic choice — the helm, the cloak, the war paint, and the MARK,
+ * which is the one a player earns rather than buys — reached the game socket
+ * (so the other men in the room saw it) and localStorage (so it survived a
+ * reload on that device) and stopped there. Open the game on a phone and the
+ * man was dressed in defaults with no mark on him, having earned one.
+ *
+ * De-duped on the serialised appearance for the same reason `syncBindings` is:
+ * the armoury fires a change per tile press and a player trying on helmets
+ * would otherwise write once a press.
+ *
+ * FIRE AND FORGET, and a refusal is not an error. `sanitizeAppearance` is the
+ * law on what a profile may wear — it re-checks the mark against the facts and
+ * the kit against `unlocked` — so a client that asks for something it has not
+ * earned gets the sanitised version back rather than a rejection, and a client
+ * with no server keeps localStorage as the store, which is how this game ran
+ * before there was one.
+ */
+export async function syncAppearance(appearance: Appearance): Promise<void> {
+  const key = JSON.stringify(appearance);
+  if (key === lastAppearance) return;
+  lastAppearance = key;
+  await withCreds<{ profile: ServerProfile }>("/api/profile/equip", { appearance });
+}
+
 let lastBindings: string | null = null;
 
 /**
