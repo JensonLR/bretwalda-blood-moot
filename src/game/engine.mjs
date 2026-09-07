@@ -2376,7 +2376,23 @@ export function makeEngine(options = {}) {
   }
 
   function dealGroundFor(room) {
-    if (!room || room.mode === "solo" || room.solo) { if (room) room.territoryId = null; return; }
+    if (!room) return;
+    // A SOLO ROOM IS DEALT GROUND LIKE ANY OTHER, since 7 Sep 2026.
+    //
+    // It used to be nulled here — `room.mode === "solo" || room.solo` sat in
+    // this condition — and that one line is why relaxing `warReport`'s human
+    // count would NOT have been enough on its own. Gate three there rejects a
+    // report with no territory, so a solo match would have been classified,
+    // priced by `bankedPoints`, and then dropped for having nowhere to bank it:
+    // a green build that banked nothing, with no error raised anywhere.
+    //
+    // It is the same defect shape `docs/BACKLOG.md` 2.8 records about the
+    // woodpile — a change verified at one integration point and broken at the
+    // one nobody looked at. Both sites move together. docs/ONE-CLIENT.md §5.0.
+    //
+    // The `room.friendly` branch below is UNTOUCHED, and it is the reason no
+    // second rule is needed to keep a friendly moot out of the war: it has no
+    // ground, so it banks nothing, exactly as it always did.
     // A FRIENDLY MOOT HAS NO GROUND AT STAKE. That is what "friendly" means:
     // the war is not watching, so no territory is dealt, nothing will bank,
     // and the lobby has nothing to name. The arena falls back to the default

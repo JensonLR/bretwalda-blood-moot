@@ -687,6 +687,36 @@ head("7. The load-bearing rule");
       JSON.stringify(report && report.entries));
   }
 
+  // ---- 7b2. A SOLO ROOM FIGHTS OVER GROUND (docs/ONE-CLIENT.md §5.0) ------
+  //
+  // THE GATE THAT WOULD HAVE CAUGHT THE ONE-SITE FIX.
+  //
+  // `dealGroundFor` nulled the territory on any solo room, and `warReport`'s
+  // third gate rejects a report without one. So relaxing the human count alone
+  // — the obvious fix, and the only one the spec's first draft contained —
+  // would have classified a solo match, priced it, and then dropped it for
+  // having nowhere to bank it. Green build, nothing banked, no error anywhere.
+  // Both sites move together or neither does.
+  {
+    const eng = makeEngine({ autoTick: false });
+    const a = open(eng);
+    a.send("solo", { name: "Alfa", difficulty: "warrior" });
+    const code = a.last("join").code;
+    const room = eng._rooms.get(code);
+    check("a solo room is dealt a real territory",
+      !!room && !!territory(room.territoryId),
+      room ? `territoryId=${room.territoryId}` : "no room");
+
+    // And the friendly branch is UNTOUCHED. It is the reason a friendly moot
+    // needs no second rule to stay out of the war: no ground, nothing to bank.
+    const f = open(eng);
+    f.send("create", { name: "Bravo", mode: "blood_moot", friendly: true, bestOf: 1 });
+    const froom = eng._rooms.get(f.last("join").code);
+    check("a friendly moot still has NO ground at stake — unchanged",
+      !!froom && froom.territoryId === null,
+      froom ? `territoryId=${froom.territoryId}` : "no room");
+  }
+
   // ---- 7c. territory never touches a stat --------------------------------
   // Two engines, identical in every way except the map they hold. If a
   // conquered map is worth a single point of health, reach or speed, these
