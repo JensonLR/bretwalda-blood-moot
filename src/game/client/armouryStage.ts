@@ -33,7 +33,7 @@ import { getFeel } from "./input";
 import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
-import { loadAuthoredWarrior } from "./render/authoredSource";
+import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
 import { upgradeRigToAuthored, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
@@ -619,7 +619,14 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
             drape: want.pivots.drape as unknown as THREE.Object3D[] | undefined,
           },
           {
-            scene: asset.scene, clips: asset.clips, wornRoles: worn,
+            // INSTANCED, NOT THE CACHED SCENE ITSELF. The swap RE-PARENTS what
+            // it is handed, so passing the cache directly re-parents the
+            // mannequin's weapon and shield INTO it — and every later clone,
+            // including all eight men in the arena, inherits them. That is
+            // exactly what happened: the arena reported "warden: 5 of 50 meshes
+            // unskinned" against an export that is 45 of 45, and the five were
+            // the shop's own kit, carried in on a mutated cache.
+            scene: instanceAuthored(asset).scene, clips: asset.clips, wornRoles: worn,
             // The client's OWN library, which is the whole economy of this:
             // the glTF ships `<surface>:<hex>` and no maps, and these surfaces
             // are generated in code and downloaded never.

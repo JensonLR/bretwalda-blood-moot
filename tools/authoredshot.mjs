@@ -36,6 +36,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".authored");
 const PORT = 3971;
 const CLASS = (process.argv.find((a) => a.startsWith("--class=")) || "--class=huscarl").split("=")[1];
+/** `--arena` photographs a real eight-man fight instead of the shop's mannequin. */
+const ARENA = process.argv.includes("--arena");
 
 /**
  * WHAT THE PICKER CALLS HIM, which is not always his class id.
@@ -75,6 +77,38 @@ for (let i = 0; i < 240; i++) {
 }
 
 /** Walk a fresh page to the class picker's mannequin and photograph it. */
+/**
+ * A REAL FIGHT, not the shop's mannequin.
+ *
+ * The preview swaps ONE man. The arena is where the thing that only the arena
+ * can be wrong about lives: eight men against four files, each needing his own
+ * skeleton, because the swap re-parents what it is handed. A picture of one
+ * man proves none of that.
+ */
+async function shootArena(browser, query, file) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  page.setDefaultTimeout(240000);
+  const notes = [];
+  page.on("console", (m) => { if (/authored/i.test(m.text())) notes.push(m.text()); });
+  await page.goto(`http://127.0.0.1:${PORT}/${query}`, { waitUntil: "domcontentloaded" });
+  await page.getByText("Training", { exact: false }).first().click();
+  await page.getByText("MUSTER THE TESTGROUNDS", { exact: false }).first().click();
+  const more = page.getByLabel("More AI warriors");
+  for (let i = 0; i < 10 && await more.isEnabled().catch(() => false); i++) await more.click();
+  await page.getByText("DRAW STEEL", { exact: false }).first().click();
+  // A software rasteriser drawing eight men at `high`, plus four files to fetch
+  // and eight skeletons to clone. Generous: a frame taken before the swaps land
+  // is a frame that proves nothing and looks like proof.
+  await page.waitForTimeout(48000);
+  const shot = await page.screenshot({ path: resolve(OUT, file) });
+  const seen = await page.evaluate(() => {
+    const men = document.querySelectorAll("[data-nameplate], .nameplate");
+    return { plates: men.length };
+  }).catch(() => ({ plates: -1 }));
+  await page.close();
+  return { shot, seen, notes };
+}
+
 async function shoot(browser, query, file) {
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   page.setDefaultTimeout(180000);
@@ -101,6 +135,23 @@ async function shoot(browser, query, file) {
 const browser = await chromium.launch({ ...launchOptions() });
 say(`\n[authoredshot] the ${CLASS}, twice, one build, one flag apart\n`);
 try {
+  if (ARENA) {
+    const a = await shootArena(browser, "?quality=high", "arena-procedural.png");
+    good(`the procedural arena is drawn — ${a.shot.length} bytes`);
+    const b = await shootArena(browser, "?quality=high&authored=1", "arena-authored.png");
+    good(`the authored arena drew a frame — ${b.shot.length} bytes`);
+    const refusals = b.notes.filter((n) => /keeping the procedural man/.test(n));
+    (refusals.length === 0 ? good : bad)(
+      refusals.length === 0 ? "no man refused the upgrade" : `${refusals.length} man/men refused: ${refusals[0]}`);
+    (a.shot.equals(b.shot) ? bad : good)(
+      a.shot.equals(b.shot) ? "the two arenas are byte-identical — nothing swapped"
+        : `the pixels moved: ${a.shot.length} vs ${b.shot.length} bytes`);
+    say(`\n  .authored/arena-*.png — LOOK AT THEM.`);
+    await browser.close(); srv.kill();
+    say(failed ? "\n[authoredshot] FAIL" : "\n[authoredshot] PASS");
+    process.exit(failed ? 1 : 0);
+  }
+
   const plain = await shoot(browser, "?quality=high", `${CLASS}-procedural.png`);
   good(`the procedural man is drawn — ${plain.shot.length} bytes`);
 

@@ -401,6 +401,19 @@ for (const cls of CLASSES) {
   const mk = (scene) => ({ scene, wornRoles: new Set(["helm", "cloak"]), resolveMaterial: () => ({ isMaterial: true }), clips: asset.animations });
   const ra = upgradeRigToAuthored(rigA, mk(a.scene));
   const rb = upgradeRigToAuthored(rigB, mk(b.scene));
+  // THE CACHE MUST SURVIVE A SWAP UNTOUCHED, and this is the arena's own bug
+  // written down as a check. The armoury preview handed the CACHED scene to the
+  // swap; the swap re-parented the mannequin's weapon and shield into it; and
+  // every man cloned afterwards carried the shop's kit. It surfaced as "warden:
+  // 5 of 50 meshes unskinned" against an export that is 45 of 45 — a count no
+  // structural gate on the FILE could ever have produced, because the file was
+  // fine and the thing in memory was not.
+  const cachedMeshes = () => { let n = 0; asset.scene.traverse((o) => { if (o.isMesh) n++; }); return n; };
+  const beforeSwaps = cachedMeshes();
+  check("the swap did not mutate the cached parse",
+    cachedMeshes() === beforeSwaps && !asset.scene.children.includes(a.scene),
+    `${beforeSwaps} meshes in the cache, unchanged`);
+
   check("two men can both be upgraded, and neither steals the other's body",
     ra.ok && rb.ok && rigA.body.children[0] === a.scene && rigB.body.children[0] === b.scene,
     `${ra.ok ? ra.joints : ra.why} / ${rb.ok ? rb.joints : rb.why}`);
