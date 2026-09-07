@@ -501,7 +501,7 @@ export default function Page() {
   const bootRef = useRef<Promise<void> | null>(null);
   // Emote relays from the server, queued for the canvas's frame loop — the
   // only thing that can reach the rigs. Drained there, pushed here.
-  const emoteFeedRef = useRef<Array<{ playerId: string; emote: EmoteId }>>([]);
+  const emoteFeedRef = useRef<Array<{ playerId: string; emote: EmoteId; local?: boolean }>>([]);
   // The server's `hit` messages, queued for the same frame loop and for the same
   // reason. This page routed every other event on the wire and dropped this one
   // on the floor, so the canvas derived blows from health deltas instead — and a
@@ -1242,8 +1242,21 @@ export default function Page() {
     const now = performance.now();
     if (now - emoteSentRef.current < 500) return;
     emoteSentRef.current = now;
+    // IT PLAYS ON HIS OWN SCREEN BEFORE IT LEAVES THE MACHINE.
+    //
+    // The owner: the emotes are "really low budget, lazy & laggy". The lag was
+    // literal and it was a whole round trip: the press went to the server, the
+    // server relayed it to everyone INCLUDING the man who pressed it, and only
+    // then did his own body move. On a good link that is a tenth of a second
+    // between the button going down and the arm going up; on a bad one it is
+    // half. A flourish is the one thing in this game with no simulation behind
+    // it — the sim never reads it, `emote` is not in the input message — so
+    // there is nothing to predict WRONG. It goes in the feed now, locally,
+    // first; the relay that comes back is dropped for our own id (see the
+    // canvas's `drainEmotes`) so the performance is not restarted mid-gesture.
+    emoteFeedRef.current.push({ playerId: playerId, emote, local: true });
     sendMsg("emote", { emote });
-  }, [sendMsg]);
+  }, [sendMsg, playerId]);
 
   // Input used to be parked in a single slot that a timer drained, so a press
   // that landed and lifted between two drains was simply thrown away — the

@@ -136,7 +136,10 @@ interface GameCanvasProps {
    * the same reason roomState rides a ref: a flourish must not rebuild the
    * animation frame callback.
    */
-  emoteFeed?: { current: Array<{ playerId: string; emote: EmoteId }> };
+  /** `local` marks a flourish this client performed itself, put here on the
+   *  press rather than waiting for the server to relay it back. See `sendEmote`
+   *  in page.tsx and `drainEmotes` below. */
+  emoteFeed?: { current: Array<{ playerId: string; emote: EmoteId; local?: boolean }> };
   /**
    * THE SERVER'S `hit` MESSAGES, and this canvas had never read one.
    *
@@ -574,6 +577,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   /** Last value pushed, so a per-frame reading becomes a per-change callback. */
   const canEmoteRef = useRef<boolean | null>(null);
   const emoteFeedRef = useRef(emoteFeed);
+  /** When this client last performed its OWN flourish, so the server's relay of
+   *  it can be dropped rather than restarting the gesture. See `drainEmotes`. */
+  const localEmoteAtRef = useRef(0);
   useEffect(() => { emoteFeedRef.current = emoteFeed; }, [emoteFeed]);
   const hitFeedRef = useRef(hitFeed);
   useEffect(() => { hitFeedRef.current = hitFeed; }, [hitFeed]);
@@ -1449,6 +1455,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         if (!feed || feed.length === 0) return;
         for (const ev of feed.splice(0, feed.length)) {
           if (allowed && !allowed(ev.playerId)) continue;
+          // THE RELAY OF OUR OWN PRESS IS DROPPED, because we already played it.
+          // `page.tsx` puts a local emote in this feed the moment the button
+          // goes down rather than waiting a round trip for the server to hand
+          // it back — see `sendEmote` — and performing it twice would restart
+          // the gesture a tenth of a second in, which is a hitch exactly where
+          // the old lag used to be.
+          if (!ev.local && ev.playerId === playerId
+            && performance.now() - localEmoteAtRef.current < 900) continue;
+          if (ev.local) localEmoteAtRef.current = performance.now();
           const p = roomState.players[ev.playerId];
           const slot = p ? ensureSlot(p) : warriorsRef.current.get(ev.playerId);
           if (!slot) continue;
