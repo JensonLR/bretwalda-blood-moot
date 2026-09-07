@@ -4,8 +4,8 @@
 //
 //   node tools/blender/exportportraits.mjs [--cls huscarl] [--res 512]
 //
-// WHY THIS EXISTS. The Unity menu's portraits were a hand-made asset with no
-// maker: four PNGs someone rendered once and copied into StreamingAssets. When
+// WHY THIS EXISTS. The class picker's portraits were a hand-made asset with no
+// maker: four PNGs someone rendered once and copied into a sink by hand. When
 // the blends were fixed the portraits were not, because nothing regenerated
 // them, and the menu shipped four magenta men for a day without a gate noticing.
 //
@@ -21,11 +21,12 @@ import { existsSync, mkdirSync, copyFileSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { GLTF_SINK } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
 const ART = resolve(ROOT, "art/blender");
-const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
+const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 const argv = process.argv.slice(2);
@@ -78,7 +79,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       bad++; continue;
     }
     copyFileSync(out, resolve(SHIP, `portrait-${cls}.png`));
-    console.log(`[exportportraits] ${cls}: ${RES}px, ${(statSync(out).size / 1024).toFixed(0)} KB, magenta ${(share * 100).toFixed(1)}% -> StreamingAssets`);
+    console.log(`[exportportraits] ${cls}: ${RES}px, ${(statSync(out).size / 1024).toFixed(0)} KB, magenta ${(share * 100).toFixed(1)}% -> art/gltf`);
   }
   if (bad) { console.error(`[exportportraits] ${bad} portrait(s) not shipped`); process.exit(1); }
   console.log("[exportportraits] all four men shipped");

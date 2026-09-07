@@ -4,8 +4,9 @@
 //
 //   node tools/blender/exportclips.mjs [--cls huscarl]
 //
-// WHY THIS EXISTS. clips.py writes art/blender/warrior-<cls>.glb; the Unity
-// client loads Assets/StreamingAssets/warrior-<cls>.glb. Nothing joined those
+// WHY THIS EXISTS. clips.py writes art/blender/warrior-<cls>.glb; the client
+// loads it from the asset sink (`art/gltf` since 7 Sep 2026 — ONE-CLIENT §4.4;
+// it was Unity's StreamingAssets). Nothing joined those
 // two, so a clip could be rebuilt and the game keep playing the old one — which
 // is the same shape of fault that left four magenta portraits in the class
 // picker for a day. A build step with no copy step is a build step that lies.
@@ -17,11 +18,12 @@ import { spawnSync } from "child_process";
 import { existsSync, copyFileSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { GLTF_SINK } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
 const ART = resolve(ROOT, "art/blender");
-const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
+const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 // The twelve clips.py authors — idle, walk, run, the FOUR cuts, heavy, block,
 // dodge, hit, die. ClipDriver needs four of the nine it names to take the rig
@@ -46,7 +48,7 @@ for (const cls of only ? [only] : CLASSES) {
   }
   const built = resolve(ART, `warrior-${cls}.glb`);
   copyFileSync(built, resolve(SHIP, `warrior-${cls}.glb`));
-  console.log(`[exportclips] ${cls}: ${n} clips, ${(statSync(built).size / 1024).toFixed(0)} KB -> StreamingAssets`);
+  console.log(`[exportclips] ${cls}: ${n} clips, ${(statSync(built).size / 1024).toFixed(0)} KB -> art/gltf`);
 }
 if (bad) { console.error(`[exportclips] ${bad} class(es) not shipped`); process.exit(1); }
 console.log("[exportclips] all four men carry the same motion the client will play");

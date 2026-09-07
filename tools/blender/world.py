@@ -82,8 +82,8 @@ root = bpy.data.objects.new(f"Ground_{GROUND}", None); bpy.context.scene.collect
 for o in joined:
     mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(D, f"{STEM}.blend"))
-# DO NOT SHIP AN IMAGE THE CLIENT THROWS AWAY. Unity dresses every material
-# named "<surface>:<hex>" from the shared maps in StreamingAssets/tex — that is
+# DO NOT SHIP AN IMAGE THE CLIENT THROWS AWAY. The client dresses every material
+# named "<surface>:<hex>" from the shared maps in the sink's tex/ — that is
 # the whole point of shipping those maps ONCE instead of embedding them in every
 # glTF — and then discards whatever the glTF brought for that material. In
 # saxon_village that was 2.9 MB of PNG, out of a 20.5 MB file, decoded and

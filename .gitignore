@@ -177,3 +177,9 @@ art/blender/
 /.exportworld/
 /.exportwarrior/
 tools/blender/__pycache__/
+
+# Authored glTF, PNG and JSON written by tools/blender/* and read by the
+# renderer's asset loader (docs/ONE-CLIENT.md §4.4, P2). Generated, large, and
+# reproducible from the code that describes the shapes — so it is not carried
+# here. `tools/blender/sink.mjs` owns the path.
+/art/gltf/

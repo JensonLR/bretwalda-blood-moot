@@ -8,9 +8,13 @@
 //                   the man is right-handed at a positive scale
 //   rig.py          the armature, the weights, the textures -> blend + glTF
 //   clips.py        the twelve clips, onto that armature -> glTF again
-// and then the result has to be COPIED to StreamingAssets, which is where the
+// and then the result has to be COPIED to the asset sink, which is where the
 // client reads it. A build step with no copy step is a build step that lies —
 // it has cost this project a day of magenta portraits and a day of stale clips.
+//
+// The sink was Unity's StreamingAssets and is `art/gltf` since 7 Sep 2026
+// (docs/ONE-CLIENT.md §4.4). It is owned by `sink.mjs` and read by P2's asset
+// loader; the copy step's REASON is unchanged, only its destination.
 //
 // It also checks the clip count: ClipDriver stands the whole rig down and falls
 // back to the procedural pose below four of the nine it names, silently.
@@ -18,11 +22,12 @@ import { spawnSync } from "child_process";
 import { existsSync, copyFileSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { GLTF_SINK } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
 const ART = resolve(ROOT, "art/blender");
-const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
+const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const WANT_CLIPS = 15;
 
@@ -65,7 +70,7 @@ for (const cls of only ? [only] : CLASSES) {
 
   const glb = resolve(ART, `warrior-${cls}.glb`);
   copyFileSync(glb, resolve(SHIP, `warrior-${cls}.glb`));
-  console.log(`[exportmen] ${cls}: ${n} clips, weapon arm at x=${arm.position[0].toFixed(3)} (his right), ${(statSync(glb).size / 1024).toFixed(0)} KB -> StreamingAssets`);
+  console.log(`[exportmen] ${cls}: ${n} clips, weapon arm at x=${arm.position[0].toFixed(3)} (his right), ${(statSync(glb).size / 1024).toFixed(0)} KB -> art/gltf`);
 }
 if (bad) { console.error(`[exportmen] ${bad} class(es) not shipped`); process.exit(1); }
 console.log("[exportmen] four right-handed men, every clip each, in the client");

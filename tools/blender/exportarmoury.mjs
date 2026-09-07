@@ -17,10 +17,11 @@ import { spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
+import { GLTF_SINK } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = resolve(ROOT, ".exportarmoury");
-const SHIP = resolve(ROOT, "BRETWALDA - Blood Moot/Assets/StreamingAssets");
+const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
 
 rmSync(OUT, { recursive: true, force: true }); mkdirSync(OUT, { recursive: true });
 const tsc = spawnSync("npx", ["tsc", "src/game/client/characters.ts", "--outDir", ".exportarmoury",
@@ -81,4 +82,4 @@ if (process.argv.includes("--check")) {
   process.exit(0);
 }
 writeFileSync(path, text);
-console.log(`[exportarmoury] ${out.slots.length} slots, ${n} options, ${out.free.length} free -> StreamingAssets/armoury.json`);
+console.log(`[exportarmoury] ${out.slots.length} slots, ${n} options, ${out.free.length} free -> art/gltf/armoury.json`);
