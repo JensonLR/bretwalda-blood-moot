@@ -144,4 +144,18 @@ declare module "@/game/war.mjs" {
     contested: string[];
     holdings: Record<string, string>;
   };
+
+  /* --- what a kind of fight is worth (docs/ONE-CLIENT.md §5) --- */
+
+  /** "moot" is two or more humans; "solo" is one man against bots worth beating. */
+  export type WarKind = "moot" | "solo";
+  export const WAR_WEIGHT: Readonly<{ moot: number; mootBonus: number; solo: number }>;
+  /** A bot SKILL number, not a difficulty name: BOT_SKILL is a map, not an ordering. */
+  export const WAR_SKILL_FLOOR: number;
+  /** Per profile, per UTC day. UTC because October has an hour that repeats. */
+  export const SOLO_DAILY_CAP: number;
+  /** The ceiling on one match of this kind. The only truth about a ceiling. */
+  export function bankCap(kind: WarKind | string, inMoot?: boolean): number;
+  /** What a man's match is worth, priced by kind. The engine names; this prices. */
+  export function bankedPoints(result: unknown, kind: WarKind | string, inMoot?: boolean): number;
 }

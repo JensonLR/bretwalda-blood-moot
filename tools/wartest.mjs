@@ -54,6 +54,7 @@ import {
   PEOPLES, TERRITORIES, territory, POINTS, pointsFor, dealTerritory,
   newWar, bank, conservation, standings, endSeason, openingHoldings,
   SEASON_DAYS, FRONT_WINDOW, project,
+  WAR_WEIGHT, WAR_SKILL_FLOOR, SOLO_DAILY_CAP, bankedPoints, bankCap,
 } from "../src/game/war.mjs";
 
 const argv = process.argv.slice(2);
@@ -185,6 +186,64 @@ head("2. The purse");
 
   check("damage does not pay — the war is decided by the fight's verdict, not its noise",
     pointsFor(man({ kills: 2, damage: 0 })) === pointsFor(man({ kills: 2, damage: 9999 })));
+
+  // ---- WHAT A KIND OF FIGHT IS WORTH (docs/ONE-CLIENT.md §5) ----
+  //
+  // On 7 Sep 2026 the production ledger held 2 rows against 85 matches and no
+  // territory had ever changed hands, because a match with fewer than two
+  // humans banked nothing and two humans in one room was, at 26 players, a
+  // coincidence. A lone man's fight banks now, at a discount.
+  {
+    const hand = { kills: 3, isWinner: true };          // 2 + 3 + 12 = 17
+    const raw = pointsFor(man(hand));
+    check("a two-human match outside a Moot is worth its full points",
+      bankedPoints(man(hand), "moot") === raw, `${bankedPoints(man(hand), "moot")} vs ${raw}`);
+    check("a Moot-window match pays the bonus",
+      bankedPoints(man(hand), "moot", true) === Math.floor(raw * WAR_WEIGHT.mootBonus),
+      `${bankedPoints(man(hand), "moot", true)} vs ${Math.floor(raw * WAR_WEIGHT.mootBonus)}`);
+    check("a solo match banks the discount, and it is less than a moot",
+      bankedPoints(man(hand), "solo") === Math.floor(raw * WAR_WEIGHT.solo)
+        && bankedPoints(man(hand), "solo") < bankedPoints(man(hand), "moot"),
+      `solo ${bankedPoints(man(hand), "solo")}, moot ${bankedPoints(man(hand), "moot")}`);
+    check("an unknown kind banks nothing rather than defaulting to full",
+      bankedPoints(man(hand), "friendly") === 0 && bankedPoints(man(hand), undefined) === 0);
+    check("banked points are whole numbers — a ledger of halves cannot reconcile",
+      Number.isInteger(bankedPoints(man(hand), "solo", true))
+        && Number.isInteger(bankedPoints(man(hand), "moot", true)));
+    check("no kind can bank a negative",
+      bankedPoints(man({ kills: 0, isWinner: false }), "solo") >= 0);
+  }
+
+  // ---- THE CAP RISES WITH THE BONUS, OR THE BONUS IS A LIE ----
+  //
+  // THE SECOND TRAP, and it is the reason bankCap exists at all. pointsFor
+  // already clamps at POINTS.cap; db/war.ts re-clamps at POINTS.cap too. A
+  // 1.5x Moot bonus on a good hand would be computed and then clipped straight
+  // back to 40 — the bonus present in the arithmetic and absent from the
+  // ledger, with nothing raised anywhere. docs/ONE-CLIENT.md §5.0.
+  {
+    check("the moot cap is the plain cap", bankCap("moot") === POINTS.cap,
+      `${bankCap("moot")} vs ${POINTS.cap}`);
+    check("the Moot-window cap admits the bonus — a flat cap would eat it",
+      bankCap("moot", true) === Math.floor(POINTS.cap * WAR_WEIGHT.mootBonus),
+      `${bankCap("moot", true)} vs ${Math.floor(POINTS.cap * WAR_WEIGHT.mootBonus)}`);
+    check("the solo cap is the discounted cap",
+      bankCap("solo") === Math.floor(POINTS.cap * WAR_WEIGHT.solo), `${bankCap("solo")}`);
+    const monster = man({ kills: 99, isWinner: true });
+    check("every kind's banked points respect that kind's own cap",
+      bankedPoints(monster, "moot") <= bankCap("moot")
+        && bankedPoints(monster, "moot", true) <= bankCap("moot", true)
+        && bankedPoints(monster, "solo") <= bankCap("solo"),
+      `moot ${bankedPoints(monster, "moot")}, bonus ${bankedPoints(monster, "moot", true)}, solo ${bankedPoints(monster, "solo")}`);
+    check("an unknown kind has no ceiling to spend", bankCap("friendly") === 0);
+  }
+
+  // ---- THE SKILL FLOOR ----
+  check("the skill floor sits above recruit and at or below warrior",
+    WAR_SKILL_FLOOR > 0.45 && WAR_SKILL_FLOOR <= 0.7, `floor ${WAR_SKILL_FLOOR}`);
+  check("the solo daily cap is more than one match and less than a day's grind",
+    SOLO_DAILY_CAP > bankCap("solo") && SOLO_DAILY_CAP <= POINTS.cap,
+    `cap ${SOLO_DAILY_CAP}, one solo match tops out at ${bankCap("solo")}`);
 }
 
 // ============================================================

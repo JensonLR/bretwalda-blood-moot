@@ -848,6 +848,92 @@ export function pointsFor(result) {
 }
 
 /* --------------------------------------------------------------------------
+   WHAT A KIND OF FIGHT IS WORTH — docs/ONE-CLIENT.md §5
+   -------------------------------------------------------------------------- */
+
+/**
+ * WHY THE WAR STOPPED BEING FROZEN. Read `docs/ONE-CLIENT.md` §2 before
+ * changing a number here.
+ *
+ * On 7 Sep 2026 the production ledger held TWO rows against EIGHTY-FIVE
+ * matches, and no territory had ever changed hands in four weeks. Nothing was
+ * broken: `warReport` refused any match with fewer than two humans, every one
+ * of the 79 checks in this file was correct, and at 26 players two humans in
+ * one room at one moment is a coincidence rather than an event. The gate was
+ * not wrong. It was STARVED — correct, tested, and structurally never
+ * satisfied — and `docs/WHAT-THIS-GAME-IS.md` stakes the game's entire answer
+ * to "why would anyone come back" on a map that had never once moved.
+ *
+ * So a lone man's fight banks, at a discount, capped daily, and only against
+ * bots worth beating. And a fight during the Moot pays MORE, because the whole
+ * point of naming an hour is that turning up to it should be worth something.
+ *
+ * THESE NUMBERS ARE NOT MEASURED. There were 26 players and 85 matches when
+ * they were chosen and that is not enough to fit anything to. They are a
+ * starting position, to be revisited once the map has moved for a fortnight.
+ * Do not cite them as tuned.
+ */
+export const WAR_WEIGHT = Object.freeze({ moot: 1, mootBonus: 1.5, solo: 0.3 });
+
+/**
+ * The bot skill a solo fight must clear to bank anything. `recruit` is 0.45 and
+ * is the tutorial's opponent; a war that can be dragged by beating the tutorial
+ * is not a war.
+ *
+ * Stated as a NUMBER rather than a difficulty name deliberately. The engine's
+ * `BOT_SKILL` is a map, not an ordering, so "at least warrior" is not a
+ * comparison anything can make — and a difficulty added later is then ranked by
+ * the same number that makes it hard, with nobody having to remember to extend
+ * a list. An unknown difficulty scores `undefined`, fails the comparison, and
+ * banks nothing, which is the answer we want.
+ */
+export const WAR_SKILL_FLOOR = 0.7;
+
+/**
+ * The most a man may bank from solo fights in one UTC day.
+ *
+ * UTC, and the split from the Moot's LONDON hour is deliberate: London has an
+ * hour that happens twice each October, and a day boundary that repeats is a
+ * boundary a cap can be walked through. The Moot's hour is local because it is
+ * an appointment with people, and an appointment that moves an hour twice a
+ * year is a broken appointment. `docs/ONE-CLIENT.md` §5.4.
+ *
+ * Two clean solo wins, and then the map wants another man.
+ */
+export const SOLO_DAILY_CAP = 24;
+
+/**
+ * The ceiling on ONE match of a given kind, and the ONLY truth about a ceiling.
+ *
+ * `db/war.ts` re-clamps what the engine priced, because the process that banks
+ * a match may one day not be the process that ran it. That re-clamp used to be
+ * `POINTS.cap` flat — 40 — which would have computed a 1.5x Moot bonus and
+ * then clipped it straight back to 40: the bonus present in the arithmetic and
+ * absent from the ledger, with no error raised anywhere. A ceiling has to move
+ * with the weight or the weight is decoration.
+ */
+export function bankCap(kind, inMoot = false) {
+  if (kind === "solo") return Math.floor(POINTS.cap * WAR_WEIGHT.solo);
+  if (kind === "moot") return Math.floor(POINTS.cap * (inMoot ? WAR_WEIGHT.mootBonus : WAR_WEIGHT.moot));
+  return 0;
+}
+
+/**
+ * What one man's match is worth to the war, priced by what kind of fight it was.
+ *
+ * The ENGINE names the situation; THIS module prices it. An engine that knows
+ * what 0.3 means is an engine with a second opinion about the war, and two
+ * opinions about the war is how a ledger stops reconciling.
+ */
+export function bankedPoints(result, kind, inMoot = false) {
+  const weight = kind === "solo"
+    ? WAR_WEIGHT.solo
+    : kind === "moot" ? (inMoot ? WAR_WEIGHT.mootBonus : WAR_WEIGHT.moot) : 0;
+  if (!weight) return 0;
+  return Math.max(0, Math.min(bankCap(kind, inMoot), Math.floor(pointsFor(result) * weight)));
+}
+
+/* --------------------------------------------------------------------------
    THE DEAL — which ground a match is fought over
    -------------------------------------------------------------------------- */
 
