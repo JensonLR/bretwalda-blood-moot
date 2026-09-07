@@ -1,3 +1,19 @@
+> **SUPERSEDED IN WHOLE, 7 Sep 2026 — see `docs/ONE-CLIENT.md`.** The owner
+> judged the Unity build's quality worse than the web client's and retired it.
+> This document is kept as the record of a decision that was taken honestly and
+> answered by the only evidence that could answer it: the owner's own eyes on
+> both builds.
+>
+> **What in here is still live:** the asset ORDER of "the defect log, not
+> taste" (head, beard, hands, helmets, weapons, bodies, grounds), the glTF /
+> metres / Y-up / Mixamo-naming format rules, and every exporter under
+> `tools/blender/`. None of that was Unity-specific. It is redirected at the
+> three.js client in ONE-CLIENT.md's P2.
+>
+> **What is dead:** everything below concerning the Unity project, its URP
+> materials, `ClipDriver`, `WarriorView`, `SurfaceLibrary`, `GroundView`, and
+> the StreamingAssets sink.
+
 # The rebuild: Blender first, then Unity — the plan, 2 Sep 2026
 
 The owner's ruling (docs/HANDOVER.md, rulings): *"Steam/iOS/Android won't be

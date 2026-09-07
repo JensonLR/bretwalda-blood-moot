@@ -145,6 +145,12 @@ before it is in the code.
 
 ---
 
+> **§5 and §5b SUPERSEDED 7 Sep 2026 — `docs/ONE-CLIENT.md`.** Unity is
+> retired and console is out of scope until the game holds an audience. The
+> engine comparison below is left standing because it will be the right
+> comparison again if console is ever earned — and because §2's seam, which
+> this section argues for, is exactly what keeps that reversible.
+
 ## 5. Console: the honest bad news, and the honest good news
 
 **Bad news: no console takes a web wrapper for a retail release.** PlayStation,
@@ -177,6 +183,14 @@ age rating (PEGI/ESRB — and **this game's gore will matter here**), and either
 publisher or a porting house. Months, and money, after the port itself.
 
 ---
+
+> **SUPERSEDED IN ITS TARGET, NOT ITS REASONING — 7 Sep 2026.** The decision
+> below is right and is being executed; step 3 of its own order ("an asset
+> loader in the renderer, behind a build flag, with the procedural path as the
+> fallback") was built for Unity instead of for three.js, and `ONE-CLIENT.md`
+> P2 aims it at the client being kept. The web build's rule is now
+> PROCEDURAL-FIRST rather than procedural-only: it opens in four seconds as
+> today, then upgrades authored meshes in behind it.
 
 ## 5b. Assets: procedural on the web, authored on the desktop — decided 2026-08-08
 
@@ -297,6 +311,13 @@ Three options, in increasing cost:
    (`src/game/client/fightRail.ts`); the owner's ask was "supported to be played
    both landscape & portrait hand held positions", and it now is: 32/32
    landscape, 33/33 portrait.
+
+   **THIS PARAGRAPH IS STALE, corrected 7 Sep 2026.** `public/sw.js` HAS
+   shipped since 1 Sep (backlog 8.9) — minimal, no fetch handler, caching
+   nothing, which preserves everything the paragraph below argues for. What
+   changes is that push notifications are now REACHABLE by adding listeners to
+   it, which `ONE-CLIENT.md` §6.3 does. The reasoning below stands; the factual
+   claim in its first three words does not.
 
    **No service worker, deliberately.** Installability does not require one, and
    a worker caching this app would be a liability rather than a feature: it is a

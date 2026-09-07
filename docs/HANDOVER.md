@@ -51,6 +51,11 @@ warm first load is 1.66 MB over 23 requests in 5.3 s.
 
 ## The owner's rulings — these SUPERSEDE what is written elsewhere
 
+- **SUPERSEDED 7 Sep 2026 — `docs/ONE-CLIENT.md`.** The ruling immediately
+  below is reversed: the Unity build is retired, the Three.js client is the
+  one client, and Steam and the phone stores are reached through Tauri and
+  Capacitor. The Blender pipeline SURVIVES — its exporters write glTF, which
+  three.js reads. Read `ONE-CLIENT.md` before acting on the next bullet.
 - **2 Sep 2026 (late): Steam, iOS and Android wait for the Unity + Blender
   rebuild.** "Steam/iOS/Android won't be ready until we start building in
   Unity & Blender for improved visuals & animations." So the store rows in
