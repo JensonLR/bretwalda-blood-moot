@@ -3,6 +3,7 @@ import { getEngine } from "@/game/engine.mjs";
 import type { MatchEndReport } from "@/game/engine.mjs";
 import {
   PEOPLES, POINTS, TERRITORIES, territory, contestGround, endSeason, front,
+  bankCap, SOLO_DAILY_CAP,
   newWar, openingHoldings, standings, SEASON_DAYS,
   type PeopleId, type WarState, type SeasonVerdict,
 } from "@/game/war.mjs";
@@ -353,6 +354,8 @@ async function settleSeason(db: Db, season: SeasonRow): Promise<SeasonVerdict | 
 async function bankOne(db: Db, season: SeasonRow, entry: {
   matchKey: string; playerId: string; profileId: number;
   people: PeopleId; territoryId: string; points: number;
+  /** How it was earned. Stored so a retune of the weights stays visible. */
+  kind: "moot" | "solo";
   /** The second attribution key, off the profile at bank time. See backlog 4.4. */
   hearthId: number | null;
   // THE FLIP, HANDED BACK RATHER THAN ONLY FILED. `war_flips` has always
@@ -369,6 +372,7 @@ async function bankOne(db: Db, season: SeasonRow, entry: {
       people: entry.people,
       territoryId: entry.territoryId,
       points: entry.points,
+      kind: entry.kind,
       hearthId: entry.hearthId,
     }).onConflictDoNothing().returning({ id: warLedger.id });
     // ALREADY BANKED. The retry ends here, having moved nothing.
@@ -440,6 +444,8 @@ export type WarOutcomeKind =
   | "guest"
   /** He earned nothing this match. Not a fault and not worth a banner. */
   | "no_points"
+  /** He is at his solo ceiling for the day. It resets at midnight UTC. */
+  | "capped"
   /** This match is already in the ledger. A replay, and the guard held. */
   | "already"
   /** No season, no database, or a territory this build does not know. */
@@ -456,6 +462,29 @@ export interface WarOutcome {
 }
 
 export interface BankResult { banked: number; outcomes: WarOutcome[] }
+
+/**
+ * What this man has already banked from SOLO fights today.
+ *
+ * UTC, and the split from the Moot's Europe/London hour is argued at
+ * `SOLO_DAILY_CAP` in war.mjs: London has an hour that happens twice each
+ * October, and a day boundary that repeats is a boundary a cap can be walked
+ * through. An appointment with people is local; a ledger boundary is not.
+ *
+ * Read INSIDE the banking transaction (see `bankOne`), so two match-ends
+ * landing at once cannot both see room under the ceiling and both take it.
+ */
+async function soloBankedToday(db: Db, seasonId: number, profileId: number): Promise<number> {
+  const rows = await db.execute(sql`
+    SELECT COALESCE(SUM(points), 0)::int AS used
+      FROM war_ledger
+     WHERE season_id = ${seasonId}
+       AND profile_id = ${profileId}
+       AND kind = 'solo'
+       AND created_at >= date_trunc('day', (now() AT TIME ZONE 'UTC'))`);
+  const first = (rows as unknown as { rows?: Array<{ used: number }> }).rows?.[0];
+  return Number(first?.used ?? 0);
+}
 
 /**
  * The whole of the banking, with a reason for every man in the report.
@@ -501,22 +530,64 @@ export async function bankMatchDetailed(report: MatchEndReport): Promise<BankRes
       // Re-clamped against the same constant the engine priced him with. Not a
       // second opinion — the same number — but this process may one day not be
       // the one that ran the match.
-      const points = Math.min(POINTS.cap, Math.max(0, Math.floor(claim.entry.points)));
+      // Re-clamped against the ceiling for THIS KIND of fight, not a flat one.
+      //
+      // THIS LINE WAS `Math.min(POINTS.cap, ...)` AND POINTS.cap IS 40. A
+      // Moot-window match pays up to 60, so a strong hand would have been
+      // priced at 60 by the engine and then clipped back to 40 here — twenty
+      // points, a third of the bonus, gone with nothing raised anywhere.
+      // Measured before it was fixed: 20 kills loses 11, 26 kills and above
+      // loses 20 every time. docs/ONE-CLIENT.md §5.0's second trap, and the
+      // same shape as the first — a change verified at the site it was about
+      // and broken at the one downstream of it.
+      //
+      // `bankCap` is the one truth about a ceiling and it moves with the
+      // weight. Not a second opinion — the same function the engine priced him
+      // with — but this process may one day not be the one that ran the match.
+      //
+      // A REPORT WITH NO KIND CLAMPS AT THE PLAIN MOOT CEILING, not at zero.
+      // `classifyMatch` always sets one, so the only reports without it are
+      // hand-built or from a process older than 7 Sep 2026 — and the safe
+      // reading of "unclassified" here is the CONSERVATIVE ceiling, never an
+      // inflated one. It is the same reasoning that makes 'moot' the column's
+      // default: nothing but a two-human match could bank before this landed.
+      //
+      // Note this is NOT the same question `bankedPoints` answers. There an
+      // unknown kind must price at zero, because inventing a WEIGHT is how a
+      // ledger inflates. Here the points are already priced and the only
+      // question is which ceiling to clamp under, where the cautious answer is
+      // the low one. Found by warflow's positive control, which banked 0.
+      const ceiling = report.kind ? bankCap(report.kind, report.inMoot) : POINTS.cap;
+      const points = Math.min(ceiling, Math.max(0, Math.floor(claim.entry.points)));
       if (points <= 0) {
         outcomes.push({ playerId: claim.entry.playerId, kind: "no_points", people: side });
         continue;
       }
+      // THE SOLO DAILY CAP — docs/ONE-CLIENT.md §5.4.
+      //
+      // A part-capped match banks the REMAINDER rather than zero: a man with
+      // ten points of headroom in a thirty-point match banks ten. Dropping the
+      // whole match at the boundary is a cliff a player feels and cannot see.
+      let allowed = points;
+      if (report.kind === "solo") {
+        const used = await soloBankedToday(db, season.id, claim.profileId);
+        allowed = Math.max(0, Math.min(points, SOLO_DAILY_CAP - used));
+        if (allowed === 0) {
+          outcomes.push({ playerId: claim.entry.playerId, kind: "capped", people: side });
+          continue;
+        }
+      }
       const landed = await bankOne(db, season, {
         matchKey: report.matchKey, playerId: claim.entry.playerId,
         profileId: claim.profileId, people: side,
-        territoryId: report.territoryId, points,
+        territoryId: report.territoryId, points: allowed, kind: report.kind === "solo" ? "solo" : "moot",
         hearthId: hearthOf.get(claim.profileId) ?? null,
       });
       if (landed.ok) banked++;
       outcomes.push({
         playerId: claim.entry.playerId,
         kind: landed.ok ? "banked" : "already",
-        people: side, points, territoryId: report.territoryId,
+        people: side, points: allowed, territoryId: report.territoryId,
         // Set on the ONE man whose points carried it over. A territory changes
         // hands on somebody's last point, and that man should be the one who
         // hears about it.

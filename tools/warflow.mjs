@@ -378,7 +378,8 @@ async function main() {
   console.log("\n[warflow] the replay guard — the same report, fired three times");
   process.env.DATABASE_URL = DB;   // read at module load by src/db/index.ts
   register(pathToFileURL(resolve(ROOT, "tools/lib/tsresolve.mjs")).href, { data: { root: ROOT } });
-  const { bankMatch } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+  const { bankMatch, bankMatchDetailed } = await import(pathToFileURL(resolve(ROOT, "src/db/war.ts")).href);
+  const { SOLO_DAILY_CAP, bankCap, POINTS } = await import(pathToFileURL(resolve(ROOT, "src/game/war.mjs")).href);
   const { bindPlayer } = await import(pathToFileURL(resolve(ROOT, "src/db/matchLedger.ts")).href);
 
   // This process has its own bind table — it is a second server instance, and
@@ -446,6 +447,114 @@ async function main() {
             FROM territories)`).split("\t");
   check("and after four replays the ledger and the map still agree to the point",
     reaudit[0] === reaudit[1], `${reaudit[0]} banked, ${reaudit[1]} accounted for`);
+
+  // ---- THE WEIGHTS, THROUGH THE BANK ITSELF (docs/ONE-CLIENT.md §5.4) -----
+  //
+  // Two things this proves that no in-memory check can. First that the Moot
+  // bonus SURVIVES the database layer's re-clamp; second that the solo daily
+  // cap is enforced where it has to be — inside the insert's transaction,
+  // against rows Postgres actually holds.
+  {
+    const soloReport = (n, points) => ({
+      matchKey: `warflow-cap-${Date.now()}-${n}`,
+      territoryId: ground,
+      kind: "solo", inMoot: false,
+      entries: [{ playerId: m1.playerA, name: "Aethelred", points }],
+      at: Date.now(),
+    });
+
+    // THE MOOT BONUS. A hand priced above the plain cap must reach the ledger
+    // above the plain cap. Before the fix this banked 40 out of 60 and said
+    // nothing — the bonus computed and then clipped away.
+    const beforeBonus = mapTotal();
+    await bankMatch({
+      matchKey: `warflow-bonus-${Date.now()}`,
+      territoryId: ground,
+      kind: "moot", inMoot: true,
+      entries: [{ playerId: m1.playerA, name: "Aethelred", points: bankCap("moot", true) }],
+      at: Date.now(),
+    });
+    const bonusBanked = mapTotal() - beforeBonus;
+    check("a Moot-window match banks above the plain cap — a flat clamp would eat it",
+      bonusBanked > POINTS.cap, `banked ${bonusBanked}, the plain cap is ${POINTS.cap}`);
+    check("...and still respects its own ceiling",
+      bonusBanked <= bankCap("moot", true), `banked ${bonusBanked}, ceiling ${bankCap("moot", true)}`);
+
+    // THE SOLO DAILY CAP, across many matches in one day.
+    const beforeCap = mapTotal();
+    let attempted = 0;
+    for (let i = 0; i < 10; i++) {
+      attempted += bankCap("solo");
+      await bankMatch(soloReport(i, bankCap("solo")));
+    }
+    const soloBanked = mapTotal() - beforeCap;
+    check("the solo daily cap holds across many matches in one day",
+      soloBanked === SOLO_DAILY_CAP,
+      `banked ${soloBanked} of ${attempted} attempted, against a cap of ${SOLO_DAILY_CAP}`);
+
+    // A MAN OVER HIS CAP IS TOLD, not silently ignored. Six of the ways to
+    // bank nothing were once silent, and a player who never learns that none
+    // of it counted is the defect that produced `war_result` in the first place.
+    const over = await bankMatchDetailed(soloReport("over", bankCap("solo")));
+    check("a man over his cap is TOLD, not silently ignored",
+      over.outcomes.some((o) => o.kind === "capped"),
+      JSON.stringify(over.outcomes.map((o) => o.kind)));
+
+    // A PART-CAPPED MATCH BANKS THE REMAINDER, NOT ZERO. Proved on a FRESH
+    // profile, because the man above is already at his ceiling and a cap check
+    // run against a capped man measures nothing.
+    const fresh = (await post("/api/profile/new", { name: "Ceolwulf" })).json;
+    await post("/api/war/swear", { id: fresh.id, secret: fresh.secret, people: "saxon" });
+    const freshPlayer = `warflow-fresh-player-${Date.now()}`;
+    bindPlayer(freshPlayer, fresh.id);
+    const freshReport = (n, points) => ({
+      matchKey: `warflow-part-${Date.now()}-${n}`,
+      territoryId: ground, kind: "solo", inMoot: false,
+      entries: [{ playerId: freshPlayer, name: "Fresh", points }],
+      at: Date.now(),
+    });
+    const b0 = mapTotal();
+    await bankMatch(freshReport(1, bankCap("solo")));       // 12
+    const b1 = mapTotal();
+    await bankMatch(freshReport(2, bankCap("solo")));       // 12 -> 24, at the cap
+    const b2 = mapTotal();
+    await bankMatch(freshReport(3, bankCap("solo")));       // nothing left
+    const b3 = mapTotal();
+    check("a fresh man's first solo match banks in full", b1 - b0 === bankCap("solo"),
+      `banked ${b1 - b0} of ${bankCap("solo")}`);
+    check("the match that reaches the cap banks the REMAINDER, not zero",
+      (b1 - b0) + (b2 - b1) === SOLO_DAILY_CAP && b3 === b2,
+      `${b1 - b0} + ${b2 - b1} = ${b2 - b0} against a cap of ${SOLO_DAILY_CAP}; the fourth banked ${b3 - b2}`);
+
+    // IDEMPOTENCY STILL RULES, WITH THE CAP IN THE WAY.
+    //
+    // On a MOOT report, deliberately. The first draft used a solo one against
+    // a man already at his daily ceiling, so the first bank landed nothing and
+    // "the retry banked nothing either" was true of a call that could not have
+    // banked anything — a check that passes because the case is absent.
+    const rep = {
+      matchKey: `warflow-retry-${Date.now()}`,
+      territoryId: ground, kind: "moot", inMoot: false,
+      entries: [{ playerId: m1.playerA, name: "Aethelred", points: 9 }],
+      at: Date.now(),
+    };
+    const beforeRetry = mapTotal();
+    await bankMatch(rep);
+    const mid = mapTotal();
+    await bankMatch(rep);
+    check("the first bank of an unseen match DOES land — the control for the retry below",
+      mid > beforeRetry, `${beforeRetry} -> ${mid}`);
+    check("a retried match banks nothing twice, cap or no cap",
+      mapTotal() === mid, `${beforeRetry} -> ${mid} -> ${mapTotal()}`);
+
+    // §5.0's OTHER HALF, end to end: the rows carry their kind, so a retune of
+    // the weights is a visible change to future rows and not a silent
+    // reinterpretation of old ones.
+    const kinds = sql("SELECT DISTINCT kind FROM war_ledger ORDER BY kind").split("\n").filter(Boolean);
+    check("the ledger records how every point was earned",
+      kinds.length > 0 && kinds.every((k) => k === "moot" || k === "solo"),
+      `kinds present: ${kinds.join(", ")}`);
+  }
 
   // ---- the oath locks --------------------------------------------------
   console.log("\n[warflow] the oath, once he has fought");
