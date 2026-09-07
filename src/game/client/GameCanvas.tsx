@@ -30,7 +30,8 @@ import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/cam
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, AUTHORED_ROLES, type AuthoredRole } from "./render/authored";
+import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
+import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -1179,6 +1180,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
               const live = warriorsRef.current.get(p.id);
               if (!asset || !live || live.rig !== rig) return;
               const worn = new Set<AuthoredRole>(AUTHORED_ROLES.filter((r) => wearsAuthoredRole(p, r)));
+              const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
+                ? stage.materials.tinted(ask.surface as Parameters<typeof stage.materials.tinted>[0], ask.color)
+                : stage.materials.standard(ask.color));
               const res = upgradeRigToAuthored(
                 {
                   body: rig.body,
@@ -1190,9 +1194,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
                   scene: instanceAuthored(asset).scene,
                   clips: asset.clips,
                   wornRoles: worn,
-                  resolveMaterial: (ask) => (ask.surface
-                    ? stage.materials.tinted(ask.surface as Parameters<typeof stage.materials.tinted>[0], ask.color)
-                    : stage.materials.standard(ask.color)),
+                  resolveMaterial,
                 },
               );
               // BOTH ARMS SPEAK. Only the refusal used to, so a harness could
@@ -1200,8 +1202,78 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
               // DONE — which is why `authoredshot` waited a flat 48 s and
               // photographed a man who had been dead for thirty of them. This
               // is behind `?authored=1` and costs a line a man a match.
-              if (res.ok) console.info(`[authored] ${p.warriorClass}: upgraded`);
-              else console.warn(`[authored] ${p.warriorClass}: ${res.why} — keeping the procedural man`);
+              if (!res.ok) {
+                console.warn(`[authored] ${p.warriorClass}: ${res.why} — keeping the procedural man`);
+                return;
+              }
+              console.info(`[authored] ${p.warriorClass}: upgraded`);
+              // ---- AND HE WEARS WHAT THE ARMOURY SOLD HIM ----
+              //
+              // A warrior export carries ONE helm, ONE hair and ONE beard: the
+              // ones the exporter posed him in. Until now the swap kept them,
+              // so a man who bought a wyrm helm and long braids was drawn in
+              // whatever Blender baked — the shop took his gold and the
+              // picture ignored it, and every structural gate passed because
+              // the geometry was perfect and the swap reported success.
+              //
+              // THE BAKED PIECE COMES OFF ONLY ONCE ITS REPLACEMENT IS ON THE
+              // MAN. Hiding first and fetching after would leave him bald for
+              // as long as the network takes, and on a slow phone that is the
+              // whole first round — and if the fetch never lands it leaves him
+              // bald for the match. Wrong helm beats no head.
+              const skinned = firstSkinnedMesh(rig.body);
+              if (skinned) {
+                void dressAuthoredHead({
+                  cls: p.warriorClass,
+                  appearance: (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance,
+                  head: rig.pivots.head,
+                  skeleton: skinned.skeleton,
+                  resolveMaterial,
+                  // TWO LEVERS, AND THEY ARE NOT THE SAME LEVER.
+                  //
+                  // `strands` is TRIANGLES: dropping the strand shells after
+                  // the parse takes 23,500 of a head of hair's 28,552 and not
+                  // one byte of its 3.5 MB download.
+                  //
+                  // `roles` is BYTES: at `low` the hair is not asked for at
+                  // all, and because a baked piece only comes off once its
+                  // replacement is on the man, he keeps the hair Blender gave
+                  // him rather than going bald. A helm is 300 KB and a beard
+                  // 1 MB; the hair is the file worth refusing.
+                  strands: stage.quality.tier === "high",
+                  roles: stage.quality.tier === "low" ? ["helm", "beard"] : undefined,
+                }).then((d) => {
+                  if (d.mounted.length) {
+                    hideBakedRoles(rig.body,
+                      new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
+                  }
+                  // A HEAD CENSUS, PER MAN, ON THE WIRE THE HARNESS READS.
+                  //
+                  // The owner, of an authored arena capture: "image 1's head is
+                  // missing from a full health player". Every claim the shot
+                  // harness made about that frame passed — the swap landed, ten
+                  // joints repointed, forty-six meshes dressed — because not one
+                  // of them asks whether the man has a face. The armoury could
+                  // be measured (it publishes `__authored`); the arena could
+                  // not. Now it can.
+                  const above: string[] = [];
+                  rig.body.traverse((o) => {
+                    const m = o as THREE.Mesh;
+                    if (!m.isMesh || !m.visible || !m.geometry) return;
+                    m.geometry.computeBoundingBox();
+                    const bb = m.geometry.boundingBox;
+                    if (bb && bb.max.y >= 1.6) above.push(m.name || "(unnamed)");
+                  });
+                  const w = window as unknown as { __authoredHeads?: unknown[] };
+                  (w.__authoredHeads ??= []).push({
+                    id: p.id, cls: p.warriorClass, drawnAbove: above.length,
+                    props: d.mounted, missing: d.missing, names: above,
+                  });
+                  console.info(`[authored] ${p.warriorClass}: props ${d.mounted.join("+") || "none"}`
+                    + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`
+                    + `, ${above.length} meshes above the shoulders`);
+                });
+              }
             });
           }
           slot = {

@@ -36,7 +36,7 @@
 //
 // INNER-LOOP TOOL: no Blender, no browser, no build. It reads 303 MB of glb.
 // ============================================================
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -147,6 +147,61 @@ if (survey.length) {
   console.log(`    Over eight: ${(m - PROC_MESHES) * 8} draw calls and ${((t - PROC_TRIS) * 8).toLocaleString()} triangles.`);
   console.log(`    REPORTED, NOT GATED — the procedural side moves, and a bar here would`);
   console.log(`    go red the day somebody improved the other man.`);
+}
+
+// ---- 6. THE COSMETIC PROPS OPEN TOO --------------------------------------
+//
+// 64 files — 36 helms, 12 hairs, 16 beards, one a class a style — and until
+// 7 Sep 2026 nothing loaded one. `hideBakedRoles` took off what the armoury had
+// not sold and hung nothing in its place, so the shop took a man's gold for a
+// wyrm helm and drew him bareheaded. The owner found it in a capture: "image
+// 1's head is missing from a full health player".
+//
+// `authoredtest` checks that every cosmetic the shop sells NAMES a file that
+// exists. This checks the files themselves: that three.js can open them, that
+// they are static meshes in the head's own frame (no bones — they hang off a
+// socket, they are not skinned), and that their materials carry the same
+// `<surface>:<hex>` names the warriors do, because the client generates those
+// surfaces and downloads no texture byte for them either.
+{
+  console.log("");
+  const HELMS = ["hood", "iron", "nasal", "ridge", "spectacle", "boar", "crowned", "wyrm", "suttonhoo"];
+  const HAIR = ["short", "long", "braids"], BEARD = ["short", "full", "forked", "braided"];
+  let opened = 0, boned = 0, bytes = 0, tris = 0, unnamed = [];
+  const failures = [];
+  for (const cls of CLASSES) {
+    for (const [role, ids] of [["helm", HELMS], ["hair", HAIR], ["beard", BEARD]]) {
+      for (const id of ids) {
+        const file = resolve(ART, `${role}-${cls}-${id}.glb`);
+        if (!existsSync(file)) { failures.push(`${role}-${cls}-${id}: missing`); continue; }
+        let g = null;
+        try { g = await parse(file); } catch (e) { failures.push(`${role}-${cls}-${id}: ${e.message}`); continue; }
+        opened++;
+        bytes += statSync(file).size;
+        g.scene.traverse((o) => {
+          if (o.isBone || o.isSkinnedMesh) boned++;
+          if (!o.isMesh) return;
+          tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+          const name = o.material && o.material.name;
+          if (!name || !/^[a-z][a-zA-Z]*:[0-9a-f]{6}$|^m_[0-9a-f]{6}$|^[A-Z]/.test(name)) unnamed.push(`${role}-${cls}-${id}/${name}`);
+        });
+      }
+    }
+  }
+  check("every cosmetic prop opens in three.js", failures.length === 0,
+    failures.length ? `${failures.length} failed: ${failures.slice(0, 4).join("; ")}` : `${opened} files`);
+  // NO BONES. They hang off a socket under the head bone and are carried by it;
+  // a skinned prop would need its own skeleton bound to the warrior's, which is
+  // a different and much more expensive pipeline than the one that shipped.
+  check("the props are static meshes, not skinned ones", boned === 0,
+    boned ? `${boned} bone(s) or skinned mesh(es) found` : "no bones anywhere");
+  check("every prop material carries a name the client can resolve", unnamed.length === 0,
+    unnamed.length ? `${unnamed.length} unresolvable: ${unnamed.slice(0, 4).join(", ")}` : "all named");
+  console.log(`\n    THE COSMETIC CATALOGUE: ${opened} files, ${(bytes / 1048576).toFixed(1)} MB, `
+    + `${Math.round(tris).toLocaleString()} triangles in total.`);
+  console.log(`    A MAN WANTS THREE OF THEM, not sixty-four — his helm, his hair and his beard —`);
+  console.log(`    and the heaviest single file is a head of long hair at 3.5 MB. REPORTED, because`);
+  console.log(`    what a phone should take of that is the streaming decision, not a bar.`);
 }
 
 console.log(`\n[gltftest] ${pass} passed, ${fail} failed`);

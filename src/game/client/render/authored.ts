@@ -533,3 +533,90 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
 
   return { ok: true, dressed, hidden, joints, rehung: held.length, drape };
 }
+
+/* --------------------------------------------------------------------------
+   THE COSMETIC PROPS — what the armoury sold, rather than what Blender baked
+   -------------------------------------------------------------------------- */
+
+/**
+ * A WARRIOR EXPORT CARRIES ONE HELM, ONE HAIR AND ONE BEARD, AND THEY ARE THE
+ * ONES THE EXPORTER HAPPENED TO POSE HIM IN.
+ *
+ * `hideBakedRoles` takes off what the armoury did not sell — and hangs nothing
+ * in its place. So an authored man who bought a wyrm helm and long braids was
+ * drawn bareheaded and shaven: the shop took his gold, the shipped picture of
+ * him ignored it, and every structural gate passed because the geometry was
+ * perfect and the swap reported success. `ONE-CLIENT.md` listed it under STILL
+ * NOT DONE as "a man wears what Blender baked rather than what the armoury
+ * sold". This is the half of the answer that needs no renderer.
+ *
+ * The exports are already there — 36 helms, 12 hairs and 16 beards, one file a
+ * class a style, `art/blender/<role>-<class>-<id>.glb` — and they are static
+ * meshes in the head's own frame, carrying the same `<surface>:<hex>` material
+ * names the warrior does. `authoredProps.ts` fetches and hangs them.
+ *
+ * THE COST IS NOT SMALL AND IS NOT HIDDEN. The catalogue is 37 MB (helms 5.3,
+ * beards 13, hair 19), which is why nothing loads a catalogue: a man wants
+ * exactly three files, his own, and the heaviest of the three is a full head of
+ * long hair at 3.5 MB. Whether a phone should take that at all is the streaming
+ * decision `ONE-CLIENT.md` still owes.
+ */
+export const PROP_ROLES = ["helm", "hair", "beard"] as const;
+export type PropRole = typeof PROP_ROLES[number];
+
+/**
+ * The field of `Appearance` each role is bought with. `cloak` is deliberately
+ * absent from `PROP_ROLES`: it is a drape on seven bones, not a static prop,
+ * and the warrior's own is kept and driven by the cloth solver.
+ */
+const PROP_FIELD: Readonly<Record<PropRole, string>> = {
+  helm: "helm", hair: "hairStyle", beard: "beardStyle",
+};
+
+/**
+ * The ids that mean HE IS NOT WEARING ONE. There is no mesh for these and
+ * there should not be: the catalogue exports nine helms against ten values,
+ * three hairs against four and four beards against five, and the missing one
+ * in each case is the bare head. A loader that asked for `helm-huscarl-none`
+ * would 404 once a man a match, for ever, and call it a network problem.
+ */
+const BARE_IDS: Readonly<Record<PropRole, readonly string[]>> = {
+  helm: ["none"], hair: ["shaved", "none", "bald"], beard: ["none"],
+};
+
+/** What he bought in this role, or null if he bought nothing to draw. */
+export function propIdOf(role: PropRole, appearance: Record<string, unknown> | null | undefined): string | null {
+  const raw = appearance ? appearance[PROP_FIELD[role]] : null;
+  if (typeof raw !== "string" || !raw) return null;
+  const id = raw.trim();
+  if (!id || BARE_IDS[role].includes(id)) return null;
+  // A style with a slash or a dot in it is a path, not a style. Nothing in the
+  // catalogue has one and nothing that does may reach a URL.
+  if (!/^[a-z0-9_]+$/i.test(id)) return null;
+  return id;
+}
+
+/**
+ * The file, relative to the asset base. `null` on anything the catalogue
+ * cannot name — including a class that is not a class, for the same reason the
+ * id is pattern-checked: this string becomes a URL.
+ */
+export function propFileFor(role: PropRole, cls: string, id: string | null): string | null {
+  if (!id) return null;
+  if (!PROP_ROLES.includes(role)) return null;
+  if (!/^[a-z0-9_]+$/i.test(cls || "")) return null;
+  return `${role}-${cls}-${id}.glb`;
+}
+
+/** Every prop this man's appearance asks for, in a fixed order. */
+export function propsWantedFor(
+  cls: string, appearance: Record<string, unknown> | null | undefined,
+): { role: PropRole; id: string; file: string }[] {
+  const out: { role: PropRole; id: string; file: string }[] = [];
+  for (const role of PROP_ROLES) {
+    const id = propIdOf(role, appearance);
+    const file = propFileFor(role, cls, id);
+    if (id && file) out.push({ role, id, file });
+  }
+  return out;
+}

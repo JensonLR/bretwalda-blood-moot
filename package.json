@@ -86,7 +86,7 @@
     "gltftest": "node tools/gltftest.mjs",
     "authoredtest": "node tools/authoredtest.mjs",
     "authoredshot": "node tools/authoredshot.mjs",
-    "authored": "mkdir -p public/authored && cp art/blender/warrior-*.glb public/authored/ && ls -la public/authored",
+    "authored": "mkdir -p public/authored && cp art/blender/warrior-*.glb art/blender/helm-*.glb art/blender/hair-*.glb art/blender/beard-*.glb public/authored/ && du -sh public/authored && ls public/authored | wc -l",
     "exporthead": "node tools/blender/exporthead.mjs",
     "exportportraits": "node tools/blender/exportportraits.mjs",
     "portraittest": "node tools/portraittest.mjs",

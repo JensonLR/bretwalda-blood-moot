@@ -34,7 +34,10 @@ const {
   readSurfaceName, dressFromSurfaceNames,
   pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
   upgradeRigToAuthored, drapeBonesOf, DRAPE_BONE_NAMES,
+  PROP_ROLES, propIdOf, propFileFor, propsWantedFor,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+const { HELM_VALUES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/characters.ts")).href)
+  .then((m) => ({ HELM_VALUES: m.HELM_VALUES ?? null })).catch(() => ({ HELM_VALUES: null }));
 const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/textures.ts")).href)
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
 
@@ -417,6 +420,89 @@ for (const cls of CLASSES) {
   check("two men can both be upgraded, and neither steals the other's body",
     ra.ok && rb.ok && rigA.body.children[0] === a.scene && rigB.body.children[0] === b.scene,
     `${ra.ok ? ra.joints : ra.why} / ${rb.ok ? rb.joints : rb.why}`);
+}
+
+// ---- THE COSMETIC PROPS: HE WEARS WHAT THE ARMOURY SOLD ------------------
+//
+// THE DEFECT. A warrior export carries ONE helm, ONE hair and ONE beard — the
+// ones the exporter posed him in — and `hideBakedRoles` took off what the
+// armoury had not sold and hung nothing in its place. So the shop took a man's
+// gold for a wyrm helm and drew him bareheaded, and the owner found it in a
+// capture before any gate did: "image 1's head is missing from a full health
+// player". Every structural claim passed on that frame, because none of them
+// ask what is on his head.
+//
+// `propsWantedFor` is the naming half and it is pure, so it is checked here;
+// the mount is in `authoredProps.ts` and is gated in the arena by the head
+// census `tools/authoredshot.mjs` reads.
+{
+  console.log("");
+  check("the prop roles are helm, hair and beard — and NOT cloak",
+    PROP_ROLES.length === 3 && ["helm", "hair", "beard"].every((r) => PROP_ROLES.includes(r))
+    && !PROP_ROLES.includes("cloak"),
+    // The cloak is a drape on seven bones driven by the cloth solver, not a
+    // static prop, and hanging a second one on the head would be a scarf.
+    PROP_ROLES.join(", "));
+
+  // A BARE HEAD IS A LEGAL APPEARANCE AND IT IS NOT A FILE. The catalogue
+  // exports nine helms against ten values, three hairs against four and four
+  // beards against five, and the missing one in each case is the bare option.
+  // A loader that asked for `helm-huscarl-none.glb` would 404 once a man a
+  // match, for ever, and be filed as a network problem.
+  for (const [role, id] of [["helm", "none"], ["hair", "shaved"], ["beard", "none"]]) {
+    const ap = { helm: "none", hairStyle: "shaved", beardStyle: "none" };
+    check(`${role}: "${id}" asks for no file`, propIdOf(role, ap) === null);
+  }
+  check("a man with nothing on asks for nothing",
+    propsWantedFor("huscarl", { helm: "none", hairStyle: "shaved", beardStyle: "none" }).length === 0);
+
+  // AND THE STRING BECOMES A URL, so it is pattern-checked at BOTH ends. A
+  // style with a slash in it is a path, not a style.
+  for (const bad of ["../../etc/passwd", "iron/../..", "a b", "helm.glb", ""]) {
+    check(`a style of ${JSON.stringify(bad)} is refused`, propIdOf("helm", { helm: bad }) === null);
+  }
+  check("a class that is not a name is refused", propFileFor("helm", "../warrior", "iron") === null);
+
+  // EVERY FILE THE CATALOGUE CAN ASK FOR EXISTS. This is the claim that would
+  // have caught a rename in `art/blender` before a man went out bareheaded.
+  {
+    const HAIR = ["short", "long", "braids"], BEARD = ["short", "full", "forked", "braided"];
+    const helms = (HELM_VALUES ?? []).filter((h) => h !== "none");
+    check("the helm catalogue was read off characters.ts, not retyped here",
+      helms.length >= 8, `${helms.length} helms`);
+    const missing = [];
+    let asked = 0;
+    for (const cls of CLASSES) {
+      for (const [role, ids] of [["helm", helms], ["hair", HAIR], ["beard", BEARD]]) {
+        for (const id of ids) {
+          const file = propFileFor(role, cls, id);
+          asked++;
+          if (!file || !existsSync(resolve(ART, file))) missing.push(file ?? `${role}/${cls}/${id}`);
+        }
+      }
+    }
+    check("every cosmetic the armoury sells has an exported mesh", missing.length === 0,
+      missing.length ? `${missing.length} missing: ${missing.slice(0, 6).join(", ")}` : `${asked} files, all present`);
+  }
+
+  // THE ORDER IS FIXED, because a man re-dressed in a different order is a man
+  // whose helm sometimes sits under his hair.
+  {
+    const ap = { helm: "wyrm", hairStyle: "long", beardStyle: "forked" };
+    const want = propsWantedFor("huscarl", ap);
+    check("a fully dressed man asks for three files, helm first",
+      want.length === 3 && want[0].role === "helm" && want[2].role === "beard",
+      want.map((w) => w.file).join(" "));
+    check("...and each names its own class and style",
+      want.every((w) => w.file === `${w.role}-huscarl-${ap[w.role === "helm" ? "helm" : w.role === "hair" ? "hairStyle" : "beardStyle"]}.glb`));
+  }
+
+  // NOTHING THROWS ON RUBBISH. This runs inside a fight.
+  for (const ap of [null, undefined, {}, { helm: 3 }, { hairStyle: [] }]) {
+    let threw = false;
+    try { propsWantedFor("huscarl", ap); } catch { threw = true; }
+    check(`an appearance of ${JSON.stringify(ap) ?? "undefined"} does not throw`, !threw);
+  }
 }
 
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);

@@ -156,8 +156,9 @@ async function shootArena(browser, query, file) {
   const shot = await page.screenshot({ path: resolve(OUT, file) });
   const seen = await page.evaluate(() => {
     const men = document.querySelectorAll("[data-nameplate], .nameplate");
-    return { plates: men.length };
-  }).catch(() => ({ plates: -1 }));
+    const w = window;
+    return { plates: men.length, heads: w.__authoredHeads ?? null };
+  }).catch(() => ({ plates: -1, heads: null }));
   seen.clear = clear;
   await page.close();
   return { shot, seen, notes };
@@ -227,6 +228,19 @@ try {
         ? "both frames are of the arena, not of the tuition card"
         : `the tuition card was still over the canvas at the shutter — `
           + `procedural clear=${a.seen.clear}, authored clear=${b.seen.clear}`);
+    // AND EVERY ONE OF THEM STILL HAS A HEAD. See the census in GameCanvas.
+    if (b.seen.heads) {
+      const heads = b.seen.heads;
+      const bald = heads.filter((h) => h.drawnAbove < 3);
+      for (const h of heads) {
+        say(`  ${h.cls} ${h.id.slice(0, 6)}: ${h.drawnAbove} meshes above the shoulders, `
+          + `props ${h.props.join("+") || "none"}${h.missing.length ? ` (missing ${h.missing.join("+")})` : ""}`);
+      }
+      (bald.length === 0 ? good : bad)(bald.length === 0
+        ? `all ${heads.length} upgraded men kept a head`
+        : `${bald.length} of ${heads.length} men lost their head to the upgrade: `
+          + bald.map((h) => `${h.cls} drew ${h.drawnAbove}`).join(", "));
+    }
     const refusals = b.notes.filter((n) => /keeping the procedural man/.test(n));
     (refusals.length === 0 ? good : bad)(
       refusals.length === 0 ? "no man refused the upgrade" : `${refusals.length} man/men refused: ${refusals[0]}`);
@@ -250,6 +264,22 @@ try {
   if (!st) bad("the swap never ran — window.__authored is unset. The frames are not a pair.");
   else if (st.ok === false) bad(`the swap REFUSED: ${st.why} — the authored frame is the procedural man`);
   else good(`the swap landed — ${st.joints} joints repointed, ${st.dressed} meshes dressed, ${st.hidden} hidden`);
+
+  // HAS HE STILL GOT A HEAD. The owner, of an authored arena capture: "image
+  // 1's head is missing from a full health player". Every claim above passed on
+  // that frame — the swap landed, ten joints repointed, forty-six meshes
+  // dressed — because not one of them asks whether the man has a face. This
+  // reads what `armouryStage` measured off the built body: every mesh whose
+  // geometry reaches above the head bone, and whether it is drawn.
+  if (st && st.head) {
+    const v = st.head.visible ?? [], h = st.head.hidden ?? [];
+    say(`  above the shoulders: ${v.length} drawn [${v.join(" ")}], ${h.length} hidden [${h.join(" ")}]`);
+    say(`  head pivot "${st.head.boneName}" isBone=${st.head.isBone} at ${JSON.stringify(st.head.bone)} `
+      + `scale=${JSON.stringify(st.head.scale)} det=${st.head.det}; skull bind box y/x ${JSON.stringify(st.head.skull)}`);
+    (v.length >= 2 ? good : bad)(v.length >= 2
+      ? `the man has a head — ${v.length} meshes drawn above the head bone`
+      : `THE MAN HAS NO HEAD — only ${v.length} mesh(es) drawn above the head bone, ${h.length} hidden`);
+  }
 
   if (plain.shot.equals(auth.shot)) {
     bad("the two frames are byte-identical — nothing was swapped, whatever __authored says");

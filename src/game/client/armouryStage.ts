@@ -34,7 +34,8 @@ import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
+import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
+import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
@@ -607,6 +608,11 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         const worn = new Set<AuthoredRole>(
           AUTHORED_ROLES.filter((r) => wearsRole(loadout, r)),
         );
+        // Declared here rather than inline, because the head dressing below
+        // wants the SAME library — a second copy of it is a second answer.
+        const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
+          ? forge.materials.tinted(ask.surface as Parameters<MaterialLibrary["tinted"]>[0], ask.color)
+          : forge.materials.standard(ask.color));
         const res = upgradeRigToAuthored(
           {
             body: want.body,
@@ -627,21 +633,102 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
             // unskinned" against an export that is 45 of 45, and the five were
             // the shop's own kit, carried in on a mutated cache.
             scene: instanceAuthored(asset).scene, clips: asset.clips, wornRoles: worn,
+            // (declared above the call, because the head dressing below wants
+            // the same library and a second copy of it is a second answer)
             // The client's OWN library, which is the whole economy of this:
             // the glTF ships `<surface>:<hex>` and no maps, and these surfaces
             // are generated in code and downloaded never.
-            resolveMaterial: (ask) => (ask.surface
-              ? forge.materials.tinted(ask.surface as Parameters<MaterialLibrary["tinted"]>[0], ask.color)
-              : forge.materials.standard(ask.color)),
+            resolveMaterial,
           },
         );
         // Said out loud, because a swap that silently did nothing looks exactly
         // like a swap that was never wired.
         const w = window as unknown as Record<string, unknown>;
+        // AND WHAT IS ACTUALLY DRAWN ABOVE HIS SHOULDERS. The owner, of an
+        // authored arena capture: "image 1's head is missing from a full
+        // health player". Every structural claim passed on that frame — the
+        // swap landed, ten joints repointed, forty-six meshes dressed — because
+        // none of them ask whether the man still has a face. This does, by
+        // name and by visibility, so the next report of a missing head is a
+        // list of meshes rather than an argument about a screenshot.
+        const head: {
+          visible: string[]; hidden: string[]; bone: number[] | null; skull: number[] | null;
+          scale?: number[]; det?: number; boneName?: string; isBone?: boolean;
+        } = { visible: [], hidden: [], bone: null, skull: null };
+        {
+          const box = new THREE.Box3();
+          want.body.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (!m.isMesh || !m.geometry) return;
+            m.geometry.computeBoundingBox();
+            box.copy(m.geometry.boundingBox ?? new THREE.Box3());
+            if (box.isEmpty() || box.max.y < 1.6) return;
+            (m.visible ? head.visible : head.hidden).push(m.name || "(unnamed)");
+          });
+          // WHERE THE HEAD ACTUALLY IS, in the world, after posing. A skinned
+          // skull follows its bone, so "the mesh is visible" and "the man has a
+          // face" are different claims and the first one passed while the
+          // second was false. This is the second one.
+          want.body.updateMatrixWorld(true);
+          const p3 = new THREE.Vector3();
+          head.bone = want.pivots.head.getWorldPosition(p3).toArray().map((v) => +v.toFixed(3));
+          const skullBox = new THREE.Box3();
+          want.body.traverse((o) => {
+            const m = o as THREE.SkinnedMesh;
+            if (!m.isMesh || m.name !== "part_34") return;
+            skullBox.setFromObject(m);
+          });
+          head.skull = skullBox.isEmpty() ? null
+            : [skullBox.min.y, skullBox.max.y, skullBox.min.x, skullBox.max.x].map((v) => +v.toFixed(3));
+          // AND THE BONE'S OWN SCALE. `Box3.setFromObject` on a SkinnedMesh
+          // reads the BIND geometry through the mesh's matrix and knows nothing
+          // about skinning, so the box above says where the skull was authored,
+          // not where it is drawn. A skull that is drawn nowhere is a Head bone
+          // whose world matrix has collapsed, and this is the number that says
+          // so: `visible` is true on a mesh scaled to a point.
+          const sc = new THREE.Vector3();
+          want.pivots.head.getWorldScale(sc);
+          head.scale = sc.toArray().map((v) => +v.toFixed(4));
+          head.det = +want.pivots.head.matrixWorld.determinant().toFixed(6);
+          head.boneName = want.pivots.head.name || "(unnamed)";
+          head.isBone = !!(want.pivots.head as unknown as { isBone?: boolean }).isBone;
+        }
         w.__authored = res.ok
-          ? { cls: player.warriorClass, ...res }
-          : { ok: false, cls: player.warriorClass, why: res.why };
-        if (!res.ok) console.warn(`[authored] ${player.warriorClass}: ${res.why} — keeping the procedural man`);
+          ? { cls: player.warriorClass, ...res, head }
+          : { ok: false, cls: player.warriorClass, why: res.why, head };
+        if (!res.ok) {
+          console.warn(`[authored] ${player.warriorClass}: ${res.why} — keeping the procedural man`);
+          return;
+        }
+        // ---- AND THE MANNEQUIN WEARS WHAT THE SHOP IS SELLING HIM ----
+        //
+        // This is the surface the defect was worst on. A warrior export carries
+        // one baked helm, one hair and one beard; the swap kept them; so the
+        // ARMOURY — the screen whose entire job is to show a man the piece he is
+        // about to buy — drew every customer in the same helm. The stage said
+        // "46 meshes dressed, 0 hidden" the whole time and it was true.
+        //
+        // The baked piece comes off only once its replacement is on him: see
+        // GameCanvas for the reasoning. Wrong helm beats no head.
+        const skinned = firstSkinnedMesh(want.body);
+        if (!skinned) return;
+        void dressAuthoredHead({
+          cls: player.warriorClass,
+          appearance: (player as { appearance?: Record<string, unknown> }).appearance,
+          head: want.pivots.head,
+          skeleton: skinned.skeleton,
+          resolveMaterial,
+          strands: true,
+        }).then((d) => {
+          if (d.mounted.length) {
+            hideBakedRoles(want.body,
+              new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
+          }
+          const wd = window as unknown as Record<string, unknown>;
+          wd.__authoredProps = d;
+          console.info(`[authored] ${player.warriorClass}: props ${d.mounted.join("+") || "none"}`
+            + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`);
+        });
       });
     }
     // Re-aimed here and not only on resize: every framing decision in this

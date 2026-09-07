@@ -544,17 +544,73 @@ believed green.
   source beside what they replaced, because the pattern is worth more than
   either fix.
 
-  **STILL NOT DONE:**
+  **THE COSMETIC PROPS ARE LOADED — 7 Sep 2026, and the owner found the defect
+  before any gate did.** Of an authored arena capture, beside the procedural
+  one: *"I'd say image 2 is better. Image 1's head is missing from a full health
+  player."*
 
-  * **It is a query flag, not a tier.** `?authored=1`. Making it a default is a
-    visual decision and it is the owner's; `authoredWanted()` in two files is
-    where it changes.
-  * **No streaming policy.** 6.5 MB is fine warm and is not nothing on a phone.
-    Which tier takes it, whether the web takes it at all, and whether Steam and
-    Capacitor bundle it locally are unwritten.
-  * **The cosmetic props are not loaded.** 64 exported helms, beards and hairs
-    sit in `art/blender`; the swap hides the baked role and hangs nothing in its
-    place, so a man wears what Blender baked rather than what the armoury sold.
+  He was right, and the cause is the line this section used to end on.
+  `hideBakedRoles` took off what the armoury had not sold and hung **nothing**
+  in its place, so a man who bought a wyrm helm was drawn bareheaded — the shop
+  took his gold and the picture ignored it. Every structural claim passed on
+  that frame: the swap landed, ten joints repointed, forty-six meshes dressed.
+  Not one of them asked whether the man had a face.
+
+  * `authored.ts` decides which props a man wants and what they are called
+    (`PROP_ROLES`, `propsWantedFor`) and imports nothing, so a gate runs it.
+    `authoredProps.ts` is the fetch, the cache, the socket and the mount.
+  * **The socket is the only interesting part.** The props are static meshes
+    authored in the head's frame — world axes, origin at the head bone.
+    Measured: `helm-berserker-iron.glb` spans y 0.233..0.359 and his baked helm
+    spans 2.001..2.127, a difference of exactly his Head bone's bind height of
+    1.768, and `runekeeper/hood` lands byte for byte on its own baked box the
+    same way. That is **not** the bone's local frame — the bone is rotated at
+    bind, and a prop parented to it with identity is a man wearing his helm on
+    his chin. The socket carries `bind⁻¹ · T(bindPos)`, read off
+    `skeleton.boneInverses` and never off `matrixWorld`, because the swap can
+    happen after the animator has already posed the head and a socket solved
+    from a live pose bakes that pose in.
+  * **The baked piece comes off only once its replacement is on the man.**
+    Hiding first and fetching after leaves him bald for as long as the network
+    takes; if the fetch never lands it leaves him bald for the match. Wrong helm
+    beats no head.
+  * Gated: `authoredtest` +23 (the naming half, including that every cosmetic
+    the shop sells names a file that exists — 64 of 64, read off
+    `HELM_VALUES` rather than retyped), `gltftest` +3 (all 64 open, none is
+    skinned, every material resolvable), and `authoredshot` now takes a **head
+    census** in the arena — every upgraded man, how many meshes he draws above
+    his own head bone. Eight of eight kept a head.
+
+  **THE STREAMING POLICY, WRITTEN 7 Sep 2026 AND MEASURED:**
+
+  ```
+    the four warriors      6.5 MB      1.6 MB a class, no textures
+    the prop catalogue    36.7 MB      64 files, 602,578 triangles
+    what a MAN wants     ~4.8 MB max   three files: his helm, hair, beard
+    the heaviest single    3.5 MB      a head of long hair
+  ```
+
+  * **Nothing loads a catalogue.** A man fetches exactly the three files he
+    wears. The cache is keyed on the URL, so eight men in two helms fetch two
+    helms — and it caches the NULLS, because a 404 retried once a man a match
+    is a network graph rather than a missing feature.
+  * **Two levers, and they are not the same lever.** `strands` is TRIANGLES:
+    dropping the strand shells after the parse takes 23,500 of a head of hair's
+    28,552 and not one byte of its download. `roles` is BYTES: at `low` the
+    hair is not asked for at all, and the man keeps what Blender gave him. High
+    takes everything; medium takes every file and drops the strands; low takes
+    the helm and the beard and leaves the hair alone.
+  * **Steam and Capacitor bundle locally.** `AUTHORED_BASE` is one constant and
+    a CDN is one edit; a packaged build has already paid the download.
+
+  **STILL NOT DONE — and it is one thing, and it is a decision:**
+
+  * **It is a query flag, not a tier, and the owner has now looked.** Shown the
+    two arenas side by side he preferred the PROCEDURAL man, so `?authored=1`
+    stays a flag rather than becoming a default. `authoredWanted()` in two
+    files is where that changes, and what should change first is the picture:
+    the head census now says every man keeps a head, which is the defect he was
+    actually looking at.
 
 - **P3, shipping.**
 - **`neon_auth`.** Provisioned on the Neon project with **0 users**. Real
