@@ -31,7 +31,10 @@ const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 const {
   rolePartsOf, hideBakedRoles, warriorIsUsable, AUTHORED_ROLES, REQUIRED_CLIPS,
+  readSurfaceName, dressFromSurfaceNames,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/textures.ts")).href)
+  .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -83,6 +86,71 @@ for (const cls of CLASSES) {
   // A man is re-dressed whenever his appearance changes, and a second pass that
   // "hid" more would mean the first had missed some.
   check(`${cls}: dressing again hides nothing further`, hideBakedRoles(g.scene, wanted) === 0);
+}
+
+// ---- THE SURFACE NAMES, WHICH ARE THE WHOLE ECONOMY OF THIS ---------------
+//
+// The exports embed NO textures — 6.49 MB for all four classes — and ship
+// materials as `<surface>:<hex>` for the client to build from its own library.
+// If a name cannot be read, the man arrives in flat colour: still a man, and
+// not the upgrade. So the reading is gated over every material in every export.
+{
+  check("a surface name reads into a surface and a colour",
+    JSON.stringify(readSurfaceName("mail:5f6b7a")) === JSON.stringify({ surface: "mail", color: 0x5f6b7a }));
+  check("case does not matter, and neither does surrounding space",
+    readSurfaceName("  MAIL:5F6B7A ")?.surface === "mail");
+  check("an untextured one-off reads as a colour with no surface",
+    readSurfaceName("m_bfa25c")?.surface === null && readSurfaceName("m_bfa25c")?.color === 0xbfa25c);
+  check("a NAMED SPECIAL is a null — the author meant it, and it is left alone",
+    readSurfaceName("runeGlow_carved") === null);
+  check("rubbish is a null and not a throw",
+    readSurfaceName("") === null && readSurfaceName(undefined) === null && readSurfaceName(null) === null);
+
+  let total = 0, read = 0;
+  const unreadable = new Set();
+  for (const cls of CLASSES) {
+    const f = resolve(ART, `warrior-${cls}.glb`);
+    if (!existsSync(f)) continue;
+    const g = await parse(f);
+    const seen = new Set();
+    g.scene.traverse((o) => { if (o.isMesh && o.material?.name) seen.add(o.material.name); });
+    for (const n of seen) { total++; if (readSurfaceName(n)) read++; else unreadable.add(n); }
+  }
+  // ENUMERATED, NOT THRESHOLDED. A percentage bar passes a build where the
+  // wrong 20% stopped reading; this names what is allowed to be unreadable and
+  // fails on anything else. The only legal residue is a NAMED SPECIAL — a
+  // material with no colour in its name, authored deliberately, which the
+  // client must leave exactly as it found it.
+  check("every material name that carries a COLOUR is read",
+    read === total - unreadable.size + 0 && [...unreadable].every((n) => !/[0-9a-f]{6}/i.test(n)),
+    `${read}/${total} read; residue: ${[...unreadable].join(", ") || "none"}`);
+  check("the residue is named specials only — the author meant those",
+    [...unreadable].every((n) => /^[a-zA-Z][\w]*$/.test(n) && !/[0-9a-f]{6}$/i.test(n)),
+    [...unreadable].join(", ") || "none");
+
+  // ---- DRESSING FROM THE NAMES, with a stub library ----
+  const g = await parse(resolve(ART, "warrior-huscarl.glb"));
+  const asked = [];
+  const r = dressFromSurfaceNames(g.scene, (ask) => {
+    asked.push(ask.surface);
+    return { name: `stub:${ask.surface}`, isMaterial: true };
+  });
+  check("dressing swaps a material for every readable name", r.dressed > 0, `${r.dressed} meshes dressed`);
+  check("...and reports the names it left alone rather than swallowing them",
+    r.unknown.every((n) => !/[0-9a-f]{6}/i.test(n)), r.unknown.join(", ") || "none");
+  check("...and it asked for real surfaces, plus untextured ones as null",
+    asked.length > 0 && asked.every((s) => s === null || /^[a-z]+$/.test(s)),
+    [...new Set(asked)].map((x) => x ?? "(untextured)").slice(0, 9).join(", "));
+
+  // A LIBRARY THAT THROWS MUST NOT TAKE THE FIGHT WITH IT.
+  const g2 = await parse(resolve(ART, "warrior-warden.glb"));
+  let blew = null;
+  try {
+    const r2 = dressFromSurfaceNames(g2.scene, () => { throw new Error("library exploded"); });
+    check("a material library that THROWS costs the upgrade, not the fight",
+      r2.dressed === 0 && r2.unknown.length > 0, `${r2.unknown.length} names kept their flat colour`);
+  } catch (e) { blew = e; }
+  check("...and the throw did not escape", blew === null, blew ? String(blew) : "");
 }
 
 // ---- THE REFUSALS ARE NULLS, NOT THROWS ----------------------------------

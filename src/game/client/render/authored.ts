@@ -121,3 +121,113 @@ export function warriorIsUsable(
   if (noRoles.length === AUTHORED_ROLES.length) return { ok: false, why: "no role-named parts — nothing could be dressed" };
   return { ok: true };
 }
+
+/* --------------------------------------------------------------------------
+   THE SURFACE NAME IS THE MATERIAL — and it is why the web can afford this
+   -------------------------------------------------------------------------- */
+
+/**
+ * THE THING THAT MAKES AN AUTHORED MAN AFFORDABLE IN A BROWSER.
+ *
+ * The exports carry **no textures at all** — measured 7 Sep 2026: zero of a
+ * warrior's 46 meshes holds a map, and all four classes together are 6.49 MB.
+ * `tools/blender/*` ships materials BY NAME, `<surface>:<hex>`, because the
+ * maps were always meant to be built once by the client rather than embedded
+ * forty-six times. Unity did it in `SurfaceLibrary`; this is that, for
+ * three.js — and three.js is the easier case, because `materials.ts` already
+ * GENERATES those surfaces procedurally and has since the beginning.
+ *
+ * So the authored upgrade is **geometry, skinning and clips**: welded, smoothed,
+ * subdivided, with strand hair — dressed in the same textures the procedural
+ * man already wears, generated in code, downloaded never.
+ *
+ * That is the whole of `ONE-CLIENT.md`'s "procedural first, upgrade in
+ * background" made cheap: 1.6 MB a class over the wire and not one texture
+ * byte, against a four-second first open the browser build cannot afford to
+ * lose (`WHAT-THIS-GAME-IS.md` §2).
+ *
+ * A name this cannot read is not an error — it answers null and the caller
+ * keeps whatever the glTF came with, which is a flat colour and still a man.
+ */
+const SURFACE_NAME_RE = /^([a-z]+):([0-9a-f]{6})$/i;
+/**
+ * `m_bfa25c` — an UNTEXTURED one-off. `M.standard()` mints these for surfaces
+ * that have not earned a name, and the exporter keeps the hex so the colour
+ * survives. It is not a failure to read: it is a material that wants no map,
+ * and handing it a generated one would be worse than leaving it flat.
+ */
+const PLAIN_NAME_RE = /^m_([0-9a-f]{6})$/i;
+
+export interface AuthoredMaterialAsk {
+  /** The surface to generate, or NULL for an untextured material of this colour. */
+  surface: string | null;
+  color: number;
+}
+
+/**
+ * Read a glTF material name into the ask the client's library takes.
+ *
+ * THREE SHAPES, and the third is the interesting one:
+ *
+ *   `mail:5f6b7a`      a textured surface — generate it, tint it
+ *   `m_bfa25c`         untextured, this colour — `standard()`, no map
+ *   `runeGlow_carved`  a NAMED SPECIAL — null, and the caller LEAVES IT ALONE
+ *
+ * The third is not a gap. The runekeeper's carved runes are emissive and the
+ * exporter authored them deliberately; replacing that with a generated surface
+ * would put out the only light on the man. A null here means "the author knew
+ * what he wanted", not "this could not be parsed" — every name that carries a
+ * COLOUR is read, and `tools/authoredtest.mjs` enumerates the ones that do not
+ * rather than tolerating a percentage.
+ *
+ * Pure and total: every failure is a null.
+ */
+export function readSurfaceName(name: string | undefined | null): AuthoredMaterialAsk | null {
+  const raw = (name ?? "").trim();
+  const surfaced = SURFACE_NAME_RE.exec(raw);
+  if (surfaced) {
+    const color = Number.parseInt(surfaced[2], 16);
+    return Number.isFinite(color) ? { surface: surfaced[1].toLowerCase(), color } : null;
+  }
+  const plain = PLAIN_NAME_RE.exec(raw);
+  if (plain) {
+    const color = Number.parseInt(plain[1], 16);
+    return Number.isFinite(color) ? { surface: null, color } : null;
+  }
+  return null;
+}
+
+/**
+ * Dress every mesh in an authored scene out of the client's OWN material
+ * library, by reading each glTF material's name.
+ *
+ * `resolve` is handed the surface and colour and returns a material, or null if
+ * it does not know that surface — the caller passes a closure over
+ * `MaterialLibrary.tinted` rather than this module importing it, so the whole
+ * function stays pure and a gate can drive it with a stub.
+ *
+ * Returns what it did, because "dressed him" and "recognised none of it" look
+ * identical on a mesh that was already a flat colour, and only one of them is
+ * the feature working.
+ */
+export function dressFromSurfaceNames(
+  root: THREE.Object3D,
+  resolve: (ask: AuthoredMaterialAsk) => THREE.Material | null,
+): { dressed: number; unknown: string[] } {
+  const unknown = new Set<string>();
+  let dressed = 0;
+  root.traverse((o) => {
+    const mesh = o as THREE.Object3D & { isMesh?: boolean; material?: THREE.Material };
+    if (!mesh.isMesh || !mesh.material) return;
+    const ask = readSurfaceName(mesh.material.name);
+    if (!ask) { if (mesh.material.name) unknown.add(mesh.material.name); return; }
+    let next: THREE.Material | null = null;
+    // A library that throws on an unknown surface must not take the fight with
+    // it: the man keeps the flat colour the glTF gave him and the fight starts.
+    try { next = resolve(ask); } catch { next = null; }
+    if (!next) { unknown.add(mesh.material.name); return; }
+    mesh.material = next;
+    dressed++;
+  });
+  return { dressed, unknown: [...unknown] };
+}
