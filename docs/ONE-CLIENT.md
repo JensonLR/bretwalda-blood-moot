@@ -445,6 +445,56 @@ believed green.
 
   **P2 should be the next cycle.** It was sequenced after the war on the
   assumption it was fidelity-only; it is not.
+
+  **AND IT IS A WAVE, NOT A REWRITE — the second wrong assumption, corrected
+  7 Sep 2026.** `PERFORMANCE.md` costs authored meshes as "a rewrite of
+  `anim.ts`'s posing", and `STAGE-5-MERGE.md` repeated it. That is true of the
+  stage-5 MERGE, which needs one geometry buffer across parts and therefore one
+  transform. It is not true of DRAWING an authored man: `applyPose` writes
+  rotations onto about a dozen NAMED joints, a `Bone` is an `Object3D`, and
+  every slot has a bone of the same identity in all four exports —
+  `chest→Spine`, `rightArm→RightUpperArm`, `elbowR→RightElbow`. **The authored
+  man moves on the same pose the procedural one does**, including `chainSwing`'s
+  variants, with no line of it changed.
+
+### What of P2 is built, as of 7 Sep 2026
+
+  Written the day it landed, and deliberately specific, because a section that
+  says "the loader is done" is worth less than no section at all.
+
+  **Built and gated** — `src/game/client/render/authored.ts`,
+  `tools/gltftest.mjs` 28/28, `tools/authoredtest.mjs` 57/57:
+
+  * The assets open in three.js. All four warriors, every mesh skinned, fifteen
+    clips with tracks, cosmetic roles intact, 25-bone rig sidecars.
+  * **No textures anywhere in them** — 6.49 MB for all four classes — because
+    materials ship as `<surface>:<hex>` and the client generates those surfaces
+    itself. The upgrade costs 1.6 MB a class and **not one texture byte**.
+  * The material resolver reads all three name shapes: a textured surface, an
+    untextured one-off, and a NAMED SPECIAL left exactly as authored (the
+    runekeeper's emissive runes). 77 of 78 names read; the residue is that one.
+  * Dressing: hides what the armoury did not sell, keeps what it did,
+    idempotent.
+  * The pose bridge: every joint `applyPose` writes, resolved to an authored
+    bone, **all or nothing**.
+  * The swap: a standing procedural man upgraded in place. Every refusal leaves
+    the rig **exactly as it found it** — checked, because a half-swapped man is
+    authored geometry on procedural pivots, which is a man who does not move.
+
+  **NOT built, and none of it is hidden:**
+
+  * **Nothing calls the swap.** `GameCanvas` builds every man procedurally and
+    always will until something fetches a glb and hands it over. That is the
+    async orchestration: when to fetch, on which tier, and what to do about the
+    eight men who want the same four files.
+  * **Nothing has been drawn.** Not one authored man has been rendered by
+    three.js — every gate here reads structure, not pixels. **The visual verdict
+    is unmade**, and on a project whose bar is `VISUAL-BAR.md` 8+ that is the
+    half that matters. It wants a capture pass and the owner's eye.
+  * **`public/authored` is a copy step, not a deploy strategy.** 6.5 MB is fine
+    on a warm connection and is not nothing on a phone; the streaming policy —
+    which tier, how many classes, and whether the web takes it at all — is
+    unwritten.
 - **P3, shipping.**
 - **`neon_auth`.** Provisioned on the Neon project with **0 users**. Real
   cross-device accounts would serve `PLATFORM-PATH.md` §8.2's "one hoard, three
