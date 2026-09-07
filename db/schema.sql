@@ -55,6 +55,15 @@ CREATE TABLE "players" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "push_subscriptions" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"endpoint" text NOT NULL,
+	"p256dh" text NOT NULL,
+	"auth" text NOT NULL,
+	"profile_id" integer,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "seasons" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"index" integer NOT NULL,
@@ -105,6 +114,7 @@ CREATE UNIQUE INDEX "legacy_claims_fingerprint_idx" ON "legacy_claims" USING btr
 CREATE INDEX "legacy_claims_player_idx" ON "legacy_claims" USING btree ("player_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "players_steam_id_idx" ON "players" USING btree ("steam_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "players_recovery_code_idx" ON "players" USING btree ("recovery_code");--> statement-breakpoint
+CREATE UNIQUE INDEX "push_subscriptions_endpoint_idx" ON "push_subscriptions" USING btree ("endpoint");--> statement-breakpoint
 CREATE UNIQUE INDEX "seasons_index_idx" ON "seasons" USING btree ("index");--> statement-breakpoint
 CREATE UNIQUE INDEX "seasons_one_running_idx" ON "seasons" USING btree ("state") WHERE "seasons"."state" = 'running';--> statement-breakpoint
 CREATE UNIQUE INDEX "territories_season_ground_idx" ON "territories" USING btree ("season_id","territory_id");--> statement-breakpoint

@@ -349,6 +349,40 @@ receive one, whatever is built here. That is a property of the platform, not a
 defect to be fixed later, and it is the reason this item is last and may be
 cut without the rest of P1 losing its point.
 
+### 6.3a As built, 7 Sep 2026 — and what is NOT built
+
+**Do not read this section as "push works". The SUBSCRIPTION half works.**
+
+Built:
+
+* `public/sw.js` gains `push` and `notificationclick` listeners. **It still has
+  no fetch handler** — the file's own law is untouched, and `shadercheck`'s
+  sibling concern applies here too: a cache in this worker could serve a stale
+  bundle against a moved wire protocol, so there is none.
+* `push_subscriptions`, one row per endpoint, upserted. The endpoint IS the
+  identity.
+* `POST /api/moot/subscribe`, validating all three fields or refusing, and
+  answering `localMode()` rather than an error when there is no database.
+
+**NOT built, and none of it is hidden:**
+
+* **The dispatcher.** Nothing sends a notification. There is no cron, no
+  fifteen-minutes-before trigger, and no `web-push` dependency. A subscription
+  row today is a row nobody reads.
+* **The VAPID keypair.** `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` are the
+  owner's to generate and set in the deployment environment. They are
+  credentials and belong nowhere else.
+* **The client-side subscribe call.** No screen asks for notification
+  permission yet. The route exists; nothing calls it.
+* **`profile_id` is always NULL.** The column exists for a dispatcher that may
+  one day want to address a man rather than a browser. Resolving one here would
+  mean trusting an id off the wire without its secret, or demanding a secret to
+  subscribe to a notification, and neither is worth it.
+
+**iOS delivers web push only to a PWA installed to the home screen.** A
+meaningful share of phone players will never receive one whatever is finished
+here. That is a property of the platform and it is why this was sequenced last.
+
 ---
 
 ## 7. How P1 is gated

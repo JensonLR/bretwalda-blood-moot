@@ -337,3 +337,20 @@ export const hearths = pgTable("hearths", {
   /** One name, one house, case-insensitively — see the functional index in ensureSchema. */
   index("hearths_people_idx").on(t.people),
 ]);
+
+/**
+ * WHO ASKED TO BE CALLED TO THE MOOT — docs/ONE-CLIENT.md §6.3.
+ *
+ * One row per browser per device. The endpoint IS the identity, which is why
+ * it is the unique key and why `profileId` is nullable rather than a join: a
+ * man may install on two phones and be called on both, and a device may
+ * subscribe before it has a profile bound to it.
+ */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  profileId: integer("profile_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint)]);

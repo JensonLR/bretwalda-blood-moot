@@ -374,6 +374,19 @@ async function ensureSchema(db: Db): Promise<boolean> {
     // every row that predates it: nothing but a two-human match could bank
     // before 7 Sep 2026. docs/ONE-CLIENT.md §5.3.
     await db.execute(sql`ALTER TABLE war_ledger ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'moot'`);
+    // Who asked to be called to the Moot. docs/ONE-CLIENT.md §6.3.
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id serial PRIMARY KEY,
+        endpoint text NOT NULL,
+        p256dh text NOT NULL,
+        auth text NOT NULL,
+        profile_id integer,
+        created_at timestamp NOT NULL DEFAULT now()
+      )`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_idx
+        ON push_subscriptions (endpoint)`);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS war_ledger_season_hearth_idx
         ON war_ledger (season_id, hearth_id) WHERE hearth_id IS NOT NULL`);
