@@ -127,7 +127,7 @@ const CTX = {
  * One stroke, sampled. Returns the tip path in the man's OWN frame (he faces
  * +z, so +z is toward the target and +y is up), plus the hips.
  */
-function sample(cls, dir, heavy, combo) {
+function sample(cls, dir, heavy, combo, check = false) {
   const parent = new THREE.Group();
   const player = manOf(cls);
   const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
@@ -164,6 +164,9 @@ function sample(cls, dir, heavy, combo) {
     player.attackPhase = f < SWING_PHASES.windup ? "windup"
       : f < SWING_PHASES.windup + SWING_PHASES.contact ? "contact" : "recovery";
     player.attackTimer = dur - t;
+    // THE CHECK, if this sample is of a blow that LANDS. Raised on the first
+    // contact frame, exactly as `GameCanvas` raises it off the wire.
+    if (check && player.attackPhase === "contact" && motion.check <= 0) motion.check = 1;
     anim.stepWarriorTransform(rig, motion, player, 1 / FPS, CTX);
     anim.poseWarrior(rig, motion, player, 1 / FPS, CTX, null);
     parent.updateMatrixWorld(true);
@@ -573,6 +576,75 @@ if (process.argv.includes("--wrist")) {
     if (fr.f < 0.34 || fr.f > 0.62) continue;
     say(`    f=${fr.f.toFixed(3)}  wrist=${fr.wrist.toFixed(3)}  tip=[${fr.tip.map((v) => v.toFixed(2)).join(",")}]`);
   }
+}
+
+// ---- 9. A BLOW THAT LANDS DOES NOT LOOK LIKE ONE THAT MISSES --------------
+//
+// The missing half of contact, and the one the owner named: "the contact for
+// hits especially in replays". `motion.recoil` has always thrown the STRUCK man
+// about; nothing has ever touched the striker, so a swing played out identically
+// through air, through mail and into a limewood board. The one event the whole
+// fight is built around left no mark at all on the man who caused it — the only
+// thing separating a landed blow from a whiff was a number over somebody's head.
+//
+// `checkLayer` damps the stroke's own weight, folds the elbow, lags the blade
+// and checks the chest, for about four tenths of a second.
+//
+// AND THE CLAIM IS THAT THE POSE DIVERGES, WHICH IS THE QUESTION. Three earlier
+// forms of this measured how far the tip carried DOWNRANGE and none of them
+// worked, for a reason worth keeping: the check is raised on the first frame of
+// contact, and by then the blade has already arrived, so the furthest it ever
+// gets is nearly the same either way; and damping a stroke pulls the pose back
+// toward the man's STANCE, which for some lines sits further downrange than the
+// swing's own recovery does — so a real arrest read as a negative number on a
+// projection. What is being asked is not "did it stop shorter" but "did contact
+// change the animation at all", and until this pass the answer was no.
+say("");
+{
+  const rows = [], weak = [];
+  for (const cls of CLASSES) {
+    for (const dir of DIRS) {
+      const air = strokes.get(key(cls, dir, false, 1));
+      const met = sample(cls, dir, false, 1, true);
+      const arc = measure(air).arc || 1;
+      let worst = 0;
+      for (let i = 0; i < Math.min(air.frames.length, met.frames.length); i++) {
+        if (air.frames[i].f < SWING_PHASES.windup) continue;
+        worst = Math.max(worst, dist(air.frames[i].tip, met.frames[i].tip));
+      }
+      const rel = worst / arc;
+      rows.push(`${cls}/${dir} ${worst.toFixed(2)}m`);
+      // 3% of the stroke's own arc. On a huscarl's forehand that is 18 cm of
+      // blade in a different place at the moment of impact, which is a frame an
+      // eye reads; below it the check is a comment.
+      if (rel < 0.03) weak.push(`${cls}/${dir} ${(rel * 100).toFixed(1)}%`);
+    }
+  }
+  check("a blow that meets something poses differently from one that meets air",
+    weak.length === 0,
+    weak.length ? `${weak.length} barely move: ${weak.slice(0, 5).join(", ")}`
+      : `blade displaced by ${rows.slice(0, 6).join(", ")} …`);
+
+  // AND THE ARREST IS NOT ITSELF A JUMP. It moves the blade by up to two and a
+  // half metres, and it is raised on ONE frame — so read straight it would be
+  // the very discontinuity section 7 exists to forbid, reintroduced at the
+  // moment it would be least forgivable. `checkEase` spreads it over three
+  // frames; this is the claim that says so, and it is the same 60-against-240
+  // test, run on the CHECKED stroke.
+  const jumpy = [];
+  for (const cls of CLASSES) {
+    for (const dir of DIRS) {
+      const a = measure(sample(cls, dir, false, 1, true));
+      const was = FPS_REF.v; FPS_REF.v = 240;
+      const b = measure(sample(cls, dir, false, 1, true));
+      FPS_REF.v = was;
+      const ratio = b.peak / Math.max(1e-6, a.peak);
+      if (ratio > 1.6) jumpy.push(`${cls}/${dir} ${a.peak.toFixed(0)} -> ${b.peak.toFixed(0)} m/s`);
+    }
+  }
+  check("...and the arrest itself does not jump the blade",
+    jumpy.length === 0,
+    jumpy.length ? `${jumpy.length} jump: ${jumpy.slice(0, 4).join(", ")}` : "16 checked strokes, none");
 }
 
 if (DRAW) {

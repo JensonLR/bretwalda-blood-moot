@@ -448,6 +448,31 @@ export interface WarriorMotion {
   leanX: number;
   /** Hit impulse, decays to zero; pushes the body away from its attacker. */
   recoil: number;
+  /**
+   * THE BLOW MET SOMETHING — 0 to 1, raised on the frame the striker's own blow
+   * lands and decaying over about a fifth of a second.
+   *
+   * `recoil` above is the STRUCK man's; this is the STRIKER's, and until it
+   * existed there was no such thing. A swing played out identically whether it
+   * went through air, through mail or into a limewood board: the one event the
+   * whole fight is built around left no mark on the man who caused it. Steel
+   * that stops against a body puts the body's mass back up the arm, and an
+   * animation that does not show that is an animation of a man swinging at
+   * nothing, which is what every blow in this game looked like.
+   */
+  check: number;
+  /**
+   * The check as the POSE sees it — `check` eased in over about five
+   * hundredths of a second.
+   *
+   * `check` itself is raised to its full value on the single frame the blow
+   * lands, and the arrest it drives moves the blade by up to two metres. Read
+   * straight, that is a two-metre jump in one frame: the exact defect this
+   * file's wrist rate limit was written to remove, reintroduced at the exact
+   * moment it would be least forgivable. An impact is fast and it is not
+   * instantaneous.
+   */
+  checkEase: number;
   /** Seconds since the last blade-trail emission. */
   trailTick: number;
 
@@ -585,7 +610,7 @@ export function createMotion(p: GamePlayer): WarriorMotion {
     errX: 0, errZ: 0, errYaw: 0,
     rawX: p.position.x, rawZ: p.position.z, rawYaw: p.rotation,
     rawVx: 0, rawVz: 0, rawVyaw: 0, rawPrimed: false,
-    leanX: 0, recoil: 0, trailTick: 0,
+    leanX: 0, recoil: 0, check: 0, checkEase: 0, trailTick: 0,
     stride: hash01(p.id) * Math.PI * 2, land: 0, seed: hash01(p.id + "s") * 6.28,
     swing: 0, swingDur: WARRIOR_STATS[p.warriorClass]?.attackSpeed ?? 0.6,
     swingPrev: 0, swingHold: 0, heavy: 0,
@@ -3019,6 +3044,72 @@ function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, 
 }
 
 /** The shield comes up and the body settles in behind it. */
+/**
+ * THE CHECK — what a blow that LANDS does to the man who threw it.
+ *
+ * The missing half of contact. `motion.recoil` has always thrown the struck man
+ * about; nothing has ever touched the striker, so a swing played out the same
+ * through air, through mail and into a board. Steel that stops against a body
+ * puts the body's mass back up the arm, and until this existed the only thing
+ * separating a landed blow from a whiff was a number over somebody's head.
+ *
+ * Four things happen, and they are the four an arm actually does:
+ *
+ *   the shoulder STOPS TRAVELLING — the biggest term, and the one an eye reads
+ *     as impact rather than as follow-through;
+ *   the elbow GIVES, because a joint under a sudden load folds before it
+ *     braces;
+ *   the blade LAGS HARD about its own arc — the tip is what was moving
+ *     fastest, so it is what keeps going when the hand does not;
+ *   and the chest checks, a little, because the whole man is behind the blow
+ *     and the whole man feels it stop.
+ *
+ * `k` carries the sign of the stroke's own travel so a forehand is checked back
+ * across the body and a backhand the other way. Written AFTER the attack layer
+ * and scaled by the same weight, so it cannot fire on a man who is not swinging.
+ */
+function checkLayer(c: number, dir: string, w: number): void {
+  if (c <= 0.001) return;
+  // Which way the stroke was going, so the check reads across it.
+  const back = dir === "left" ? -1 : 1;
+  const g = c * w;
+  // NOTHING HERE PUSHES THE SHOULDER, and that is the second version of this
+  // function. The first added a fixed backward kick to `arx`/`arz`, which is
+  // the right idea and the wrong mechanism: the direction a stroke is
+  // travelling is not the same for four lines and two blows, so a constant
+  // correction ARRESTED some of them and drove the rest further downrange —
+  // measured, a berserker's overhead carried 46% FURTHER past the man when it
+  // was checked. The arrest is done by damping the swing's own weight at the
+  // call site, which cannot have the wrong sign because it is the stroke's own
+  // motion being taken away. What is left here is only what a joint does that
+  // the stroke does not: the elbow gives, the blade keeps going when the hand
+  // does not, and the chest takes it.
+  // THE ELBOW GIVES, WHICH IS A FOLD AND NOT AN EXTENSION. This was `+= 0.34`
+  // for two versions: positive `arb` is the arm STRAIGHTENING — every stroke in
+  // the table releases positive and loads negative — so the check was pushing
+  // the point further into the man it had just stopped against. A thrust
+  // measured 25% further downrange when it was checked than when it met air.
+  // A POINT THAT STOPS AGAINST A MAN FOLDS HARDER THAN AN EDGE THAT SLIDES OFF
+  // ONE: a cut that is checked still travels along its arc, and a thrust that is
+  // checked has nowhere to go at all.
+  P.arb -= (dir === "stab" ? 0.62 : 0.34) * g;
+  // A CUT IS DEFLECTED AND A THRUST IS STOPPED, which is the difference between
+  // an edge meeting a body and a point meeting one. The blade lag reads as the
+  // tip carrying on round when the hand does not — right for a cut, and for a
+  // thrust it is the one term that pushes the POINT further into the man, which
+  // measured as a thrust carrying 25% further downrange when it was checked.
+  // A checked thrust pulls the shaft back through the hand instead.
+  if (dir === "stab") P.wy -= 0.20 * g;
+  else P.wz += 0.55 * g * back;
+  P.crx += 0.11 * g;
+  P.cry -= 0.13 * g * back;
+  P.prx += 0.05 * g;
+  // He is put back on his heels a hand's breadth. Small: this is a check on the
+  // swing, not a second knockback pointed the wrong way — `KNOCKBACK.recoil` in
+  // the sim already owns the ground he gives up, at one sixth of the target's.
+  P.pz -= 0.055 * g;
+}
+
 function blockLayer(hasShield: boolean, settle: number, w: number): void {
   // The guard snaps up and overshoots a little before it locks — a shield that
   // arrives by lerp arrives without weight.
@@ -4965,7 +5056,32 @@ export function poseWarrior(
       c.visible = carried && wear > CRACK_AT[Number(c.name.slice(5))];
     }
   }
-  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction, player.comboCount);
+  if (motion.wAction > 0.001) {
+    // THE ARREST IS A DAMPING OF THE STROKE'S OWN WEIGHT. Half the swing is
+    // taken away on a blow that met steel, and the pose falls back toward the
+    // guard it came from — which is what an arm does when what it swung at does
+    // not give. Sign-safe by construction: it is the stroke's own motion being
+    // removed, so it can never drive the blade further on.
+    const struck = 1 - Math.min(1, motion.checkEase) * 0.75;
+    attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction * struck, player.comboCount);
+    // AND WHAT IT MET. See `checkLayer`: after the stroke, because it is a
+    // correction to it, and behind the same weight so it cannot fire on a man
+    // who is not swinging.
+    checkLayer(motion.checkEase, player.attackDir, motion.wAction);
+  }
+  // 2.6/s — about four tenths of a second, NOT the fifth this was first given.
+  // The check is raised on the frame the blow lands, which is the start of the
+  // contact window; at 5/s it had expired before the recovery began, so the
+  // arrest lived entirely inside the fifteen hundredths of a second the blade
+  // is in the man and left the follow-through untouched. Measured, the tip's
+  // mean position through the recovery moved 0%. A hitch nobody sees is a
+  // hitch that did not happen.
+  motion.check = Math.max(0, motion.check - dt * 2.6);
+  // Eased in at 22/s — about five hundredths of a second to full, which is
+  // three frames at 60 fps. See `checkEase`: raised straight, the arrest moves
+  // the blade up to two metres in ONE frame, which is the same discontinuity
+  // the wrist rate limit exists to remove.
+  motion.checkEase = approach(motion.checkEase, motion.check, dt, 22);
   if (motion.wBlock > 0.001) blockLayer(carried, clamp01(player.blockTimer / 0.22), motion.wBlock);
   if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), carried, smooth(clamp01(motion.actT / 0.06)));
 

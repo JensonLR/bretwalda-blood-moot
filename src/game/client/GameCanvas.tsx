@@ -2151,6 +2151,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // is everything a DELTA genuinely is the right source for: the number
           // over his head, the blood, the recoil, the camera and the rumble.
           slot.motion.recoil = Math.min(1.6, 0.6 + dmg * 0.03);
+          // AND THE MAN WHO THREW IT FEELS IT STOP. See `checkLayer`: until
+          // this line the striker's animation was identical whether his blow
+          // went through air, through mail or into a board, so the one event
+          // the whole fight is built around left no mark on the man who caused
+          // it. `lastHitBy` is the server's own answer to who that was.
+          const struckBy = warriorsRef.current.get(p.lastHitBy);
+          if (struckBy && p.lastHitBy !== id) {
+            struckBy.motion.check = Math.min(1, 0.5 + dmg * 0.014);
+          }
           stage.hud.spawnDamageNumber(dmg, { x: at.x, z: at.z }, dmg >= 22);
 
           // The freeze is NOT set here any more, on either branch. The sim
@@ -2277,6 +2286,18 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
               // shoulder, and the rig is where that fact lives.
               shield: !!attacker?.rig.shield,
             });
+            // A BLOW THAT DREW NO BLOOD STILL STOPPED, and these two stop it
+            // hardest. The damage path above checks the striker for a blow that
+            // opened a man; steel into a limewood board is a harder check than
+            // meat is, and a parry stops the blade dead — which is what makes a
+            // parry worth the timing, and it was invisible on the man who was
+            // parried. See `checkLayer`.
+            if (attacker) {
+              const c = m.type === "parry" || m.type === "shield_burst" ? 1
+                : m.type === "blocked_heavy" ? 0.95
+                  : m.type === "blocked" ? 0.8 : 0;
+              if (c > 0) attacker.motion.check = Math.max(attacker.motion.check, c);
+            }
             // THE BOARD, SEEN GOING. Splinters off every block once the boards
             // are past half — the wear has to be visible on the man and not
             // only on his own HUD strip — and at the burst, the whole board.
