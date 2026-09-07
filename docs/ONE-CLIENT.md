@@ -495,30 +495,67 @@ believed green.
     when it was really a 404. **The visual verdict is still the owner's**, but
     there is now something to make it on.
 
-  **THREE DEFECTS THE CAPTURES FOUND THAT NO STRUCTURAL GATE COULD:**
+  **AND THE ARENA IS WIRED** — eight men, four files. `loadAuthoredWarrior`
+  caches the parse per class; `instanceAuthored` gives each man his own skeleton
+  via `SkeletonUtils.clone`, which rebuilds the bones and rebinds the meshes
+  while SHARING the geometry buffers. `Object3D.clone` would not: it keeps a
+  reference to the original skeleton, and eight men would pose as one animal.
+
+  **MEASURED ON THE REAL ARENA, `high`, eight men:**
+
+  ```
+                   draw calls p50    triangles p50
+    procedural            966            1,794.6k
+    authored              878            1,417.6k
+                         -88  (-9%)      -377k (-21%)
+  ```
+
+  Six and seven drawn frames a side and the loadouts are random, so read the
+  direction and the magnitude rather than the decimals — but the per-man figures
+  predict it (45 meshes against 65, 29.5k triangles against 66k) and the
+  triangle drop is larger than predicted.
+
+  **FIVE DEFECTS THE CAPTURES FOUND THAT NO STRUCTURAL GATE COULD.** In every
+  one the geometry was perfect and the swap reported success:
 
   1. **The first authored man was drawn unarmed.** `anim.ts` does
      `rightHand.add(weapon)`, so the weapon and shield live INSIDE the
-     procedural body and removing it took them along. The geometry was perfect
-     and the swap reported success. Now gated on PARENTAGE.
-  2. **The shield was strapped to the wrong joint.** A board goes on the
-     forearm (`joints.elbowL`), a blade in the fist. Mounted on `HandL` it hung
-     half a metre off the man — and I blamed the BIND POSES and wrote a
-     retargeting theory into the file before noticing the berserker was holding
-     his axe perfectly in the same build. The comment is corrected in place with
-     what it got wrong.
-  3. **The cloak is withheld, and it is topology.** `anim.ts` solves a drape as
-     a GRID (`1 + cols × rings`, velocity-integrated); `exportrig` writes a
-     CHAIN (`CloakYoke`, `Drape1..6`). The solver cannot drive those by naming
-     them — **the one place the bridge does not hold.** Unposed, the export's
-     cloak is a wide cone that swallows the man. Closing it is either a chain
-     solver in `anim.ts` or a grid export from Blender, and it is the largest
-     single thing between here and a man who can replace the procedural one
-     outright.
-  * **`public/authored` is a copy step, not a deploy strategy.** 6.5 MB is fine
-    on a warm connection and is not nothing on a phone; the streaming policy —
-    which tier, how many classes, and whether the web takes it at all — is
-    unwritten.
+     procedural body and removing it took them along. Gated on PARENTAGE now.
+  2. **The shield was strapped to the wrong joint.** A board goes on the forearm
+     (`joints.elbowL`), a blade in the fist. Mounted on `HandL` it hung half a
+     metre off the man — **and I blamed the BIND POSES** and wrote a retargeting
+     theory into the source before noticing the berserker was holding his axe
+     perfectly in the same build.
+  3. **The cloak was declared a topology mismatch and withheld. It was a missing
+     lookup.** The grid is `1 + 3 × 2` = SEVEN bones; the export carries SEVEN,
+     because `exportrig.mjs` names the procedural drape array by index. The
+     export IS that grid. It swings on the same springs now.
+  4. **The armoury preview was mutating the shared cache** — it handed the
+     CACHED scene to the swap, which re-parents, so the mannequin's own weapon
+     and shield were parented into it and every later clone inherited them. It
+     surfaced in the arena as "warden: 5 of 50 meshes unskinned" against an
+     export that is 45 of 45: a count no gate on the FILE could produce, because
+     the file was fine and the thing in memory was not.
+  5. **A fixture reported "2 rehung" while nothing was parented**, because
+     three.js's `add()` refuses a non-Object3D and returns quietly.
+
+  **TWICE THE INTERESTING EXPLANATION BEAT THE CHEAP CHECK** — bind poses for a
+  wrong mount, topology for a missing lookup. Both corrections are kept in the
+  source beside what they replaced, because the pattern is worth more than
+  either fix.
+
+  **STILL NOT DONE:**
+
+  * **It is a query flag, not a tier.** `?authored=1`. Making it a default is a
+    visual decision and it is the owner's; `authoredWanted()` in two files is
+    where it changes.
+  * **No streaming policy.** 6.5 MB is fine warm and is not nothing on a phone.
+    Which tier takes it, whether the web takes it at all, and whether Steam and
+    Capacitor bundle it locally are unwritten.
+  * **The cosmetic props are not loaded.** 64 exported helms, beards and hairs
+    sit in `art/blender`; the swap hides the baked role and hangs nothing in its
+    place, so a man wears what Blender baked rather than what the armoury sold.
+
 - **P3, shipping.**
 - **`neon_auth`.** Provisioned on the Neon project with **0 users**. Real
   cross-device accounts would serve `PLATFORM-PATH.md` §8.2's "one hoard, three
