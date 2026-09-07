@@ -59,12 +59,14 @@
 import { chromium } from "playwright";
 import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".jank");
+/** The invocation, for the scene-fingerprint comparison below. */
+const ARGS_LINE = process.argv.slice(2).join(" ") || "(no args)";
 const argv = process.argv.slice(2);
 const argOf = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); return h ? h.slice(n.length + 3) : d; };
 const SECS = Math.max(5, parseInt(argOf("secs", "30"), 10) || 30);
@@ -538,10 +540,55 @@ async function main() {
     say(`    ${C.lights} lights, ${C.shadowLights} of them casting; ${C.casters} visible meshes cast into a shadow map,`);
     say(`    and every one of those is drawn ONCE MORE PER CASTING LIGHT. The arithmetic:`);
     say(`      ${C.meshes} for the picture + ${C.casters} casters x ${C.shadowLights} shadow light(s) = ${C.meshes + C.casters * C.shadowLights} before anything else.`);
+    const ask = C.meshes + C.casters * C.shadowLights;
     say(`      THE SHADOW LIGHT COUNT IS THE LARGEST SINGLE MULTIPLIER IN THIS FILE, and it`);
-    say(`      is 1 on low, 3 on medium and 4 on high. Dropping one is the cheapest way to`);
-    say(`      move every number below and it is STAGE 6 — it changes what the player sees.`);
-    say(`      It is named here so it is not reached for by accident. See R12.`);
+    say(`      is 1 on low, 3 on medium and 4 on high. It is STAGE 6 — it changes what the`);
+    say(`      player sees — and it is named here so it is not reached for by accident.`);
+    say(``);
+    say(`      WHAT IT IS WORTH, PRINTED, BECAUSE docs/BACKLOG.md's FIGURE IS STALE.`);
+    say(`      That file quotes "530 for the picture + 477 casters x 4", which predates the`);
+    say(`      merged per-bone caster cutting casters 352 -> ~129. On THIS scene:`);
+    say(`        drop one shadow light   ${String(C.casters).padStart(4)} draws of ${ask}  (${(100 * C.casters / Math.max(1, ask)).toFixed(1)}%)`);
+    say(`        halve one light's rate  ${String(Math.round(C.casters / 2)).padStart(4)} draws of ${ask}  (${(100 * (C.casters / 2) / Math.max(1, ask)).toFixed(1)}%)   <- a cadence, not a deletion`);
+    say(`        the stage-5 merge       ${String(tot - mats).padStart(4)} draws of ${ask}  (${(100 * (tot - mats) / Math.max(1, ask)).toFixed(1)}%)   <- now the LARGER lever`);
+    say(`      Quote these, not BACKLOG's. See docs/STAGE-5-MERGE.md.`);
+
+    // ---- IS THIS RUN COMPARABLE TO THE LAST ONE? -------------------------
+    //
+    // THE INCIDENT, 7 Sep 2026. Two runs were made of this tool to A/B a render
+    // setting — `--params=hearthcadence=1` against `=2` — and read as a result:
+    // 898 draw calls against 836. They were not comparable. The censuses say so
+    // and nobody looked: 486 warrior meshes against 476, 650 visible against
+    // 654, 128 casters against 130. The bots are dealt random loadouts, so two
+    // runs draw two different scenes, and ten meshes of difference is worth
+    // more than the effect under test.
+    //
+    // `--params` exists so that "comparisons are only comparisons when the URL
+    // differs by the one" — this file's own words, a few lines up. That is
+    // necessary and it is not sufficient: the URL differing by one does not
+    // make the SCENE the same. This says so out loud rather than leaving the
+    // reader to notice three numbers buried in a census.
+    const fp = { meshes: C.meshes, casters: C.casters, lights: C.shadowLights, warriorMeshes: tot, materials: mats };
+    const fpPath = resolve(OUT, "framecost-scene.json");
+    let prev = null;
+    try { prev = JSON.parse(readFileSync(fpPath, "utf8")); } catch { /* first run */ }
+    if (prev && prev.fp) {
+      const d = Object.keys(fp).filter((k) => fp[k] !== prev.fp[k]);
+      if (d.length) {
+        say(``);
+        say(`  *** THIS SCENE IS NOT THE LAST RUN'S. Draw-call figures are NOT comparable. ***`);
+        say(`      last: ${JSON.stringify(prev.fp)}  [${prev.args}]`);
+        say(`      this: ${JSON.stringify(fp)}  [${ARGS_LINE}]`);
+        say(`      differs on: ${d.join(", ")}. The bots are dealt random loadouts, so two`);
+        say(`      runs draw two different scenes. An A/B across these is measuring both.`);
+      } else {
+        say(``);
+        say(`  SCENE MATCHES THE LAST RUN exactly — an A/B across the two IS controlled.`);
+        say(`      last: [${prev.args}]   this: [${ARGS_LINE}]`);
+      }
+    }
+    try { writeFileSync(fpPath, JSON.stringify({ fp, args: ARGS_LINE, at: new Date().toISOString() }, null, 2)); }
+    catch { /* a fingerprint that cannot be written is not worth a crash */ }
     say(`  Grouped by the (geometry, material) pair, because that pair is what decides`);
     say(`  whether three.js can batch. A row with a large count and ONE pair is that many`);
     say(`  draw calls that could be one instanced call drawing the same pixels.`);
