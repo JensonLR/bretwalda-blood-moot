@@ -166,6 +166,25 @@ function record() {
 
 const PROBE = () => {
   const w = window;
+  // A GRADUATE'S DEVICE — added 7 Sep 2026, and the strip it fixes was a lie.
+  //
+  // This tool photographed EIGHT IDENTICAL FRAMES OF THE FIRST MOOT'S PAUSE
+  // CARD — "THE FIELD / I AM READY / SPACE" — while printing sim state beside
+  // them that read `attacking / windup / swingT 0.03`. Both were true. The sim
+  // WAS swinging; the camera was pointed at a full-screen card
+  // (`src/game/firstmoot.mjs`) that the harness never pressed through. A strip
+  // whose caption and pixels disagree is worse than no strip, because the
+  // caption is what gets pasted into a report.
+  //
+  // `tools/playtest.mjs` has carried this line for months and the reasoning
+  // there applies unchanged: these suites measure the FIGHT, for a player who
+  // already has its controls; the rite has its own instrument in
+  // `tools/moottest.mjs`. Written before load so `createFirstMoot` reads it at
+  // construction, which is what a returning player's device carries.
+  try {
+    localStorage.setItem("bretwalda.firstmoot", "done");
+    localStorage.setItem("bretwalda.tour", "done");
+  } catch { /* private mode */ }
   w.__probe = { lastState: null };
   w.__pose = null;
   const RealWS = window.WebSocket;
