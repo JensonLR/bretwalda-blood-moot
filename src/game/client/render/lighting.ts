@@ -1645,6 +1645,12 @@ export function createLighting(
     // Above the pool, not on it — the whole of BEAM_RISE.
     beam.position.set(hearthAt.x, hearthAt.y + BEAM_RISE, hearthAt.z);
     beam.castShadow = true;
+    // OFF THE AUTOMATIC SCHEDULE, on the cadence below. `autoUpdate` false with
+    // `needsUpdate` true gets a map under the first rendered frame; after that
+    // the tick in `trackShadow` decides. Exactly the settlement cascade's
+    // arrangement, for exactly its reason.
+    beam.shadow.autoUpdate = false;
+    beam.shadow.needsUpdate = true;
     // Half the near cascade's resolution and a far better texel than it, because
     // a 117° perspective frustum whose far plane is the pool's own reach is
     // covering 17 m of ground at the ring radius — under two centimetres per
@@ -1685,6 +1691,9 @@ export function createLighting(
   const farCadence = Math.max(1, Math.round(settings.settlementShadowCadence || 1));
   let farTick = 0;
   const lastFarAxis = keyAxis.clone();
+  /** Hearth-beam schedule — the same trade as the cascade above. See quality.ts. */
+  const beamCadence = Math.max(1, Math.round(settings.hearthShadowCadence || 1));
+  let beamTick = 0;
   const aoAxis = new THREE.Vector3(0, 1, 0);
   const lightRight = new THREE.Vector3();
   const lightUp = new THREE.Vector3();
@@ -1828,6 +1837,14 @@ export function createLighting(
         lastFarAxis.copy(keyAxis);
         farTick = 0;
       }
+    }
+
+    // The hearth's own shadow, on the same terms. The fire does not move and
+    // its frustum never re-hangs, so what changes between frames is a warrior's
+    // edge inside it — the quantity the cascade's cadence already spends.
+    if (beam) {
+      beamTick += 1;
+      if (beamTick >= beamCadence) { beam.shadow.needsUpdate = true; beamTick = 0; }
     }
   }
 

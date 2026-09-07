@@ -38,6 +38,30 @@ export interface QualitySettings {
    */
   settlementShadowCadence: number;
 
+  /**
+   * Re-render the HEARTH BEAM's shadow every Nth frame. 1 is every frame.
+   *
+   * The beam is the fire's own shadow-caster and it exists on `high` alone
+   * (`BEAM_SHARE`), which makes it the fourth casting light and, at four, the
+   * one that multiplies every caster in the frame one more time. `framecost`
+   * prints the arithmetic: `530 for the picture + 477 casters x 4 shadow
+   * lights = 2438`.
+   *
+   * DROPPING THE LIGHT WAS THE OBVIOUS MOVE AND IS THE WRONG ONE. The hearth is
+   * a KEY light on the dusk rig, not decoration — `docs/OPEN-DEFECTS.md` on the
+   * moor and the camp: "in the game they are lit at dusk with the hearth as key
+   * light" — so deleting its shadow deletes the fire's contribution to every
+   * man standing near it. This is the settlement cascade's trade instead, which
+   * this rig has already made and measured: the same shadow, half the passes.
+   *
+   * What a player could in principle notice is a fire shadow updating at half
+   * rate. The fire does not move and the ring is 18 m wide, so what changes
+   * between two frames is a warrior's own edge — the same quantity the
+   * settlement cadence already accepted at a 5 cm texel and found nothing on at
+   * fight distance. `?hearthcadence=` pins it for captures.
+   */
+  hearthShadowCadence: number;
+
   // ---- textures ----
   /** Edge length of generated PBR maps. Generation cost is O(n²) — see VISUAL-BAR §4. */
   textureSize: number;
@@ -85,6 +109,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     softShadows: true,
     shadowDistance: 24,
     settlementShadowCadence: 2,
+    hearthShadowCadence: 2,
     // 512, not 1024: `createTextureLibrary` clamps to it regardless of what this
     // says, so a preset claiming 1024 would be a number nothing can honour.
     //
@@ -189,6 +214,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     softShadows: true,
     shadowDistance: 24,
     settlementShadowCadence: 2,
+    hearthShadowCadence: 2,
     textureSize: 512,
     spriteSize: 128,
     anisotropy: 8,
@@ -230,6 +256,7 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     softShadows: false,
     shadowDistance: 18,
     settlementShadowCadence: 2,
+    hearthShadowCadence: 2,
     textureSize: 256,
     // The same fill/sampling split the `medium` block sets out, applied to the
     // tier that needs it most. Nothing here that costs per-fragment moved —
@@ -632,8 +659,14 @@ export function resolveQuality(override?: QualityTier | null): QualitySettings {
   // comparing cadences has to hold everything else still. 1 is every frame.
   if (typeof window !== "undefined") {
     try {
-      const c = Number(new URLSearchParams(window.location.search).get("farcadence"));
+      const params = new URLSearchParams(window.location.search);
+      const c = Number(params.get("farcadence"));
       if (Number.isInteger(c) && c >= 1 && c <= 4) settings.settlementShadowCadence = c;
+      // `?hearthcadence=` pins the beam the same way and for the same reason: a
+      // before/after of a cadence has to be able to ask for cadence 1 on the
+      // SAME build, or the two frames differ by the build as well as the change.
+      const h = Number(params.get("hearthcadence"));
+      if (Number.isInteger(h) && h >= 1 && h <= 4) settings.hearthShadowCadence = h;
     } catch {
       /* malformed query string is not worth a crash */
     }
