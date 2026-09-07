@@ -85,6 +85,7 @@
     "chaintest": "node tools/chaintest.mjs",
     "gltftest": "node tools/gltftest.mjs",
     "authoredtest": "node tools/authoredtest.mjs",
+    "authored": "mkdir -p public/authored && cp art/blender/warrior-*.glb public/authored/ && ls -la public/authored",
     "exporthead": "node tools/blender/exporthead.mjs",
     "exportportraits": "node tools/blender/exportportraits.mjs",
     "portraittest": "node tools/portraittest.mjs",

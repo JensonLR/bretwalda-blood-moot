@@ -307,3 +307,81 @@ export function missingPivotBones(root: THREE.Object3D): PivotSlot[] {
   return (Object.keys(PIVOT_BONE_NAMES) as PivotSlot[])
     .filter((slot) => !names.has(PIVOT_BONE_NAMES[slot]));
 }
+
+/* --------------------------------------------------------------------------
+   THE SWAP — a procedural man, upgraded in place
+   -------------------------------------------------------------------------- */
+
+/**
+ * The parts of a `WarriorRig` this needs, named structurally so that this
+ * module does not import `anim.ts` — which imports three.js, the whole renderer
+ * and, transitively, everything. That import is what makes `tools/*` unable to
+ * execute a line of `anim.ts`, and this file exists to be executable.
+ */
+export interface UpgradableRig {
+  body: THREE.Object3D;
+  pivots: Record<string, THREE.Object3D>;
+}
+
+export interface AuthoredSwap {
+  /** The parsed scene. Consumed — it is re-parented, not copied. */
+  scene: THREE.Object3D;
+  /** What the armoury actually sold him; everything else is hidden. */
+  wornRoles: ReadonlySet<AuthoredRole>;
+  /** Surface, colour -> a material from the client's own library. */
+  resolveMaterial: (ask: AuthoredMaterialAsk) => THREE.Material | null;
+  /** Clip names carried by the asset, for the usability check. */
+  clips: readonly { name: string }[];
+}
+
+export type SwapResult =
+  | { ok: true; dressed: number; hidden: number; joints: number }
+  | { ok: false; why: string };
+
+/**
+ * UPGRADE A MAN WHO IS ALREADY STANDING THERE.
+ *
+ * `ONE-CLIENT.md` settled the shape: **procedural first, upgrade in
+ * background.** The browser opens in four seconds on the man it can build
+ * instantly, and the authored one — 1.6 MB, no textures — replaces him when it
+ * arrives. That is why this is a SWAP and not a branch in the builder: at the
+ * moment a fight starts there is no authored asset, and there must still be a
+ * man.
+ *
+ * IT CHECKS EVERYTHING BEFORE IT MOVES ANYTHING. Every failure below leaves the
+ * rig exactly as it found it, because a half-swapped man is worse than no swap:
+ * `§5b`'s law is that an authored asset must never become the only way a thing
+ * can be drawn, and a rig with authored geometry on procedural pivots is a man
+ * who does not move.
+ *
+ * The order is: judge the asset, resolve every joint, and only then touch the
+ * scene graph.
+ */
+export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): SwapResult {
+  // 1. Is it a man at all? Unskinned meshes draw a statue; a missing clip drops
+  //    a stroke to a T-pose. Both look like renderer bugs and neither is.
+  const usable = warriorIsUsable(swap.scene, swap.clips);
+  if (!usable.ok) return { ok: false, why: usable.why };
+
+  // 2. Can the pose reach him? ALL OR NOTHING — see `pivotBonesOf`.
+  const bones = pivotBonesOf(swap.scene);
+  if (!bones) return { ok: false, why: `missing joints: ${missingPivotBones(swap.scene).join(", ")}` };
+
+  // 3. Nothing above this line has mutated anything. From here it commits.
+  const hidden = hideBakedRoles(swap.scene, swap.wornRoles);
+  const { dressed } = dressFromSurfaceNames(swap.scene, swap.resolveMaterial);
+
+  // The procedural body goes; the authored one takes its place under the same
+  // parent, so everything the rig hangs off `body` — the nameplate, the health
+  // bar, the world transform — is untouched.
+  for (const child of [...rig.body.children]) rig.body.remove(child);
+  rig.body.add(swap.scene);
+
+  // 4. And the pose now writes the authored skeleton. This is the whole bridge:
+  //    `applyPose` sets rotations on these by name and does not care whether it
+  //    is holding a Group the builder inserted or a Bone Blender exported.
+  let joints = 0;
+  for (const [slot, bone] of Object.entries(bones)) { rig.pivots[slot] = bone; joints++; }
+
+  return { ok: true, dressed, hidden, joints };
+}

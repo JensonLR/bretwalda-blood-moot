@@ -33,6 +33,7 @@ const {
   rolePartsOf, hideBakedRoles, warriorIsUsable, AUTHORED_ROLES, REQUIRED_CLIPS,
   readSurfaceName, dressFromSurfaceNames,
   pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
+  upgradeRigToAuthored,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
 const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/textures.ts")).href)
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
@@ -219,6 +220,73 @@ for (const cls of CLASSES) {
   const v = warriorIsUsable(statue, REQUIRED_CLIPS.map((n) => ({ name: n })));
   check("a parsed-but-UNSKINNED man is refused — he would draw as a statue",
     !v.ok && /unskinned/.test(v.why), v.ok ? "accepted" : v.why);
+}
+
+// ---- THE SWAP, END TO END ON A REAL EXPORT -------------------------------
+//
+// The property that matters is not "it worked" — it is that every REFUSAL
+// leaves the rig untouched. A half-swapped man is worse than no swap: authored
+// geometry on procedural pivots is a man who does not move, and §5b's law is
+// that an authored asset must never become the only way a thing can be drawn.
+{
+  const fakeRig = () => {
+    const kept = { name: "procedural-body", isProcedural: true };
+    const body = { name: "body", children: [kept], add(c) { this.children.push(c); }, remove(c) { this.children = this.children.filter((x) => x !== c); } };
+    return { body, pivots: { chest: { procedural: true }, head: { procedural: true } }, kept };
+  };
+
+  const g = await parse(resolve(ART, "warrior-huscarl.glb"));
+  const rig = fakeRig();
+  const r = upgradeRigToAuthored(rig, {
+    scene: g.scene,
+    wornRoles: new Set(["helm", "cloak"]),
+    resolveMaterial: (ask) => ({ name: `lib:${ask.surface ?? "plain"}`, isMaterial: true }),
+    clips: g.animations,
+  });
+  check("the swap succeeds on a real export", r.ok, r.ok ? `${r.joints} joints, ${r.dressed} dressed, ${r.hidden} hidden` : r.why);
+  check("the procedural body is gone and the authored one is under the same parent",
+    !rig.body.children.includes(rig.kept) && rig.body.children.includes(g.scene),
+    `${rig.body.children.length} child(ren)`);
+  check("every pose joint now points at an authored bone",
+    Object.keys(PIVOT_BONE_NAMES).every((k) => rig.pivots[k] && !rig.pivots[k].procedural),
+    `${Object.keys(rig.pivots).length} joints repointed`);
+
+  // ---- AND THE REFUSALS LEAVE THE RIG EXACTLY AS THEY FOUND IT ----
+  const g2 = await parse(resolve(ART, "warrior-warden.glb"));
+  {
+    const bad = fakeRig();
+    const before = [...bad.body.children];
+    const res = upgradeRigToAuthored(bad, {
+      scene: g2.scene, wornRoles: new Set(), resolveMaterial: () => null,
+      clips: [{ name: "idle" }],   // a man with one clip is not a man
+    });
+    check("an asset missing clips is REFUSED", !res.ok && /missing clips/.test(res.why), res.ok ? "accepted" : res.why);
+    check("...and the rig still holds its procedural body",
+      bad.body.children.length === before.length && bad.body.children[0] === bad.kept);
+    check("...and its pivots were not repointed",
+      bad.pivots.chest.procedural === true && bad.pivots.head.procedural === true);
+  }
+  {
+    const bad = fakeRig();
+    // A man who passes EVERY other test and has no skeleton: skinned meshes, all
+    // the clips, a role-named part so the roles check is satisfied — and not one
+    // bone the pose can write. This fixture is deliberate: an earlier version
+    // had no role part, so it was refused for THAT and never reached the joints
+    // check at all. The refusal was right and the test was measuring the wrong
+    // one, which is the whole failure mode this suite exists to catch.
+    const boneless = { name: "root", traverse(f) {
+      f(this);
+      f({ name: "helm_1", isMesh: true, isSkinnedMesh: true, visible: true, material: { name: "mail:5f6b7a" }, traverse: () => {} });
+    } };
+    const res = upgradeRigToAuthored(bad, {
+      scene: boneless, wornRoles: new Set(),
+      resolveMaterial: () => ({ isMaterial: true }),
+      clips: REQUIRED_CLIPS.map((n) => ({ name: n })),
+    });
+    check("an asset the pose cannot reach is REFUSED", !res.ok && /missing joints/.test(res.why), res.ok ? "accepted" : res.why);
+    check("...and that rig is untouched too",
+      bad.body.children[0] === bad.kept && bad.pivots.chest.procedural === true);
+  }
 }
 
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
