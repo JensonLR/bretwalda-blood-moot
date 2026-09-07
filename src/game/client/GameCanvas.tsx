@@ -29,6 +29,8 @@ import { createPostFx, type PostFxHandle } from "./render/postfx";
 import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
+import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
+import { upgradeRigToAuthored, AUTHORED_ROLES, type AuthoredRole } from "./render/authored";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -252,6 +254,26 @@ const takenKeyOf = (p: GamePlayer): string => (p.taken ? `${p.taken.cls}/${p.tak
  * off the victor's silhouette (art/shots/dof/tableau-high-dof.png, first cut).
  */
 const DOF_LOOK = { maxBlur: 0.0045 };
+
+/**
+ * Is the authored mesh wanted? A query flag while the visual verdict is the
+ * owner's (`ONE-CLIENT.md`, P2 inventory). When it lands this becomes a tier
+ * decision and this is the one place it changes.
+ */
+function authoredWanted(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return new URLSearchParams(window.location.search).get("authored") === "1"; }
+  catch { return false; }
+}
+
+/** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
+function wearsAuthoredRole(p: GamePlayer, role: AuthoredRole): boolean {
+  const ap = (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance;
+  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
+  // ABSENT is not "none": a loadout that does not mention beards is not a man
+  // who shaved, and keeps whatever the export baked in.
+  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+}
 
 interface WarriorSlot {
   rig: WarriorRig;
@@ -1127,6 +1149,41 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         if (!slot) {
           const rig = createWarriorRig(stage.scene, p, stage.materials, stage.quality);
           stage.hud.attach(p.id, p.name, rig.group, p.id === playerId, rig.headTop);
+          // ---- THE AUTHORED UPGRADE, IN THE ARENA (ONE-CLIENT.md P2) ----
+          //
+          // Procedural first, upgrade in background — the same shape the
+          // armoury preview uses, with the one thing the preview did not need:
+          // EIGHT MEN AND FOUR FILES. `loadAuthoredWarrior` caches the parse
+          // per class and `instanceAuthored` gives each man his own skeleton,
+          // because `upgradeRigToAuthored` RE-PARENTS what it is handed — two
+          // men swapping against one scene means the second takes the first's
+          // body off him.
+          if (authoredWanted()) {
+            void loadAuthoredWarrior(p.warriorClass).then((asset) => {
+              // He may have died, left, or taken up a dead man's weapon (which
+              // rebuilds the whole rig) during the fetch.
+              const live = warriorsRef.current.get(p.id);
+              if (!asset || !live || live.rig !== rig) return;
+              const worn = new Set<AuthoredRole>(AUTHORED_ROLES.filter((r) => wearsAuthoredRole(p, r)));
+              const res = upgradeRigToAuthored(
+                {
+                  body: rig.body,
+                  pivots: rig.pivots as unknown as Record<string, THREE.Object3D>,
+                  weapon: rig.weapon, offhand: rig.offhand, shield: rig.shield,
+                  drape: rig.pivots.drape as unknown as THREE.Object3D[] | undefined,
+                },
+                {
+                  scene: instanceAuthored(asset).scene,
+                  clips: asset.clips,
+                  wornRoles: worn,
+                  resolveMaterial: (ask) => (ask.surface
+                    ? stage.materials.tinted(ask.surface as Parameters<typeof stage.materials.tinted>[0], ask.color)
+                    : stage.materials.standard(ask.color)),
+                },
+              );
+              if (!res.ok) console.warn(`[authored] ${p.warriorClass}: ${res.why} — keeping the procedural man`);
+            });
+          }
           slot = {
             rig, motion: createMotion(p), prevHp: p.health, prevState: p.state,
             dustTick: 0, stepTick: 0, prevAbility: p.abilityActive,

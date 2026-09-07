@@ -358,5 +358,53 @@ for (const cls of CLASSES) {
   }
 }
 
+// ---- EIGHT MEN, FOUR FILES: one parse must not be one BODY ---------------
+//
+// The arena's requirement, and the defect it prevents is specific and ugly:
+// `upgradeRigToAuthored` RE-PARENTS the scene it is handed, so two men swapping
+// against the same cached object means the SECOND takes the FIRST'S body off
+// him — and the first is drawn as a floating nameplate over nothing.
+//
+// `instanceAuthored` is also NOT `Object3D.clone`, and that distinction is the
+// whole check: a skinned mesh cloned that way keeps a reference to the ORIGINAL
+// skeleton, so eight men would share one set of bones and pose as one animal.
+{
+  const { instanceAuthored } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authoredSource.ts")).href);
+  const asset = await parse(resolve(ART, "warrior-huscarl.glb"));
+  const a = instanceAuthored({ scene: asset.scene, clips: asset.animations });
+  const b = instanceAuthored({ scene: asset.scene, clips: asset.animations });
+
+  check("two instances are two different scenes", a.scene !== b.scene && a.scene !== asset.scene);
+
+  const bonesOf = (root) => { const out = []; root.traverse((o) => { if (o.isBone) out.push(o); }); return out; };
+  const [ba, bb] = [bonesOf(a.scene), bonesOf(b.scene)];
+  check("each instance has its own bones", ba.length > 0 && ba.length === bb.length && !ba.some((x) => bb.includes(x)),
+    `${ba.length} bones each, none shared`);
+
+  const skinsOf = (root) => { const out = []; root.traverse((o) => { if (o.isSkinnedMesh) out.push(o); }); return out; };
+  const [sa, sb] = [skinsOf(a.scene), skinsOf(b.scene)];
+  check("each instance's meshes are bound to their OWN skeleton — not one shared animal",
+    sa.length > 0 && sa.every((m, i) => m.skeleton && sb[i].skeleton && m.skeleton !== sb[i].skeleton),
+    `${sa.length} skinned meshes, skeletons distinct`);
+
+  // The saving that makes it worth doing: geometry is SHARED, not copied.
+  check("...while the geometry buffers are shared, not copied",
+    sa.some((m, i) => m.geometry === sb[i].geometry), "same BufferGeometry across instances");
+
+  // And a swap on one must not disturb the other.
+  const mkRig = () => {
+    const kept = { name: "procedural-body" };
+    const body = { name: "body", children: [kept], add(c) { this.children.push(c); }, remove(c) { this.children = this.children.filter((x) => x !== c); } };
+    return { body, pivots: {} };
+  };
+  const rigA = mkRig(), rigB = mkRig();
+  const mk = (scene) => ({ scene, wornRoles: new Set(["helm", "cloak"]), resolveMaterial: () => ({ isMaterial: true }), clips: asset.animations });
+  const ra = upgradeRigToAuthored(rigA, mk(a.scene));
+  const rb = upgradeRigToAuthored(rigB, mk(b.scene));
+  check("two men can both be upgraded, and neither steals the other's body",
+    ra.ok && rb.ok && rigA.body.children[0] === a.scene && rigB.body.children[0] === b.scene,
+    `${ra.ok ? ra.joints : ra.why} / ${rb.ok ? rb.joints : rb.why}`);
+}
+
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

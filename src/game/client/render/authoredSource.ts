@@ -10,8 +10,15 @@
  * WHY A CACHE AND NOT A LOAD PER MAN. Eight warriors in a moot are at most four
  * distinct classes, so eight men want four files. Loading per man would fetch
  * and parse the same 1.6 MB up to eight times and hold eight copies of it.
- * `THREE.SkeletonUtils.clone` is the right way to share one parse across many
- * bodies; until the arena wiring exists, this at least shares the DOWNLOAD.
+ *
+ * AND WHY EVERY MAN STILL GETS HIS OWN CLONE. The cache hands back ONE parsed
+ * scene, and `upgradeRigToAuthored` RE-PARENTS what it is given — so two men
+ * swapping against the same object means the second one takes the first one's
+ * body off him, and the first is drawn as a floating nameplate. `instance()`
+ * below is the answer and it is not `Object3D.clone`: a skinned mesh cloned
+ * that way keeps a reference to the ORIGINAL skeleton, so eight men would share
+ * one set of bones and pose as one animal. `SkeletonUtils.clone` rebuilds the
+ * skeleton and rebinds the meshes to it, which is exactly the difference.
  *
  * THE LAW, from `PLATFORM-PATH.md` §5b: an authored asset must never become the
  * only way a thing can be drawn. So every failure here resolves to `null` and
@@ -20,6 +27,7 @@
  * still happens.
  */
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type * as THREE from "three";
 
 export interface AuthoredAsset {
@@ -66,6 +74,17 @@ export function loadAuthoredWarrior(cls: string, base: string = AUTHORED_BASE): 
   })();
   cache.set(key, p);
   return p;
+}
+
+/**
+ * A private copy of an authored man: fresh skeleton, meshes rebound to it.
+ *
+ * One parse, many bodies. The download and the parse are paid once per class;
+ * this is paid once per man and is geometry-sharing, not geometry-copying —
+ * `SkeletonUtils.clone` keeps the buffers and rebuilds the bones.
+ */
+export function instanceAuthored(asset: AuthoredAsset): AuthoredAsset {
+  return { scene: cloneSkinned(asset.scene as never) as unknown as THREE.Object3D, clips: asset.clips };
 }
 
 /** For a harness that has to wait for the upgrade before it photographs it. */
