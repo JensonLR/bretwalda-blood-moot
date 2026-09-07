@@ -83,6 +83,7 @@ import {
 import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
+import { SWINGS, chainSwing, type Key, type Swing } from "./chain";
 
 /**
  * The one material every warrior's shadow proxy shares. It writes NOTHING —
@@ -2418,116 +2419,9 @@ function link(ph: number, lead: number, k: readonly [number, number, number], wh
   return mix(v, k[2], set);
 }
 
-type Key = readonly [number, number, number];
+// `Key` and `Swing` live in `chain.ts` — see its header for why.
 
-interface Swing {
-  arx: Key; arz: Key;
-  /**
-   * The elbow, and the link the swing was missing. Folded at the load, near
-   * straight at the moment of contact, gathered back in on the follow through:
-   * a blade that arrives on a straight arm arrives with the whole body behind
-   * it, and one that never folded never gathered anything to arrive with.
-   */
-  arb: Key;
-  crx: Key; cry: Key;
-  prx: Key; pry: Key;
-  py: Key; pz: Key;
-  /** Front foot (off side) and back foot (weapon side). */
-  front: Key; back: Key;
-  /**
-   * The knees under them. The back one coils and drives; the front one takes
-   * the weight at impact and bends under it — which through `settleOnFeet`
-   * drops the whole man onto the blow instead of leaving him level over it.
-   */
-  frontB: Key; backB: Key;
-  /**
-   * Which foot the man is standing on: −1 the back foot, +1 the front.
-   *
-   * Everything else in this table lives in the sagittal plane, and a camera in
-   * front of a warrior — which is `stance`, `portrait` and half of `brawl` —
-   * projects the whole of that plane onto nothing. A swing with no frontal
-   * content is a mannequin from the front however loaded it is from the side.
-   * This is the term that reads there: the pelvis rides over the loaded foot,
-   * the free hip drops off it and the shoulders stack back the other way, so
-   * the hip line and the shoulder line disagree by something an eye can see.
-   */
-  shift: Key;
-  /** Absolute blade pitch through the strike; see `Pose.wa`. */
-  aim: Key;
-  /** Blade lag about the arc — trails on the load, whips past on release. */
-  wz: Key;
-  /** Slide along the shaft, for a thrust. */
-  wy: Key;
-}
 
-// Four attacks, each a body throwing a weapon rather than an arm waving one.
-// Sign conventions: arm x negative reaches forward, leg x positive swings the
-// foot back, spine y positive turns the weapon shoulder away from the target.
-const SWINGS: Record<string, Swing> = {
-  overhead: {
-    // The elbow was folded to its anatomical stop at the top of this, on the
-    // reasoning that a hard fold is what makes an overhead read as an overhead.
-    // It is not, and the geometry says why: the shoulder already has the upper
-    // arm pointing up and *back*, so folding from there swings the forearm back
-    // down and buries the fist at the hip. Measured on the built rig the old
-    // load put the sword point at shoulder height aimed at the enemy and the
-    // "impact" put it 2.69 m in the air. The fold here is the 60° a raised arm
-    // actually keeps, and the arm extends through the blow instead of gathering.
-    arx: [2.78, -0.35, 0.06], arz: [0.30, -0.06, 0.14],
-    arb: [-0.39, 0.54, -0.20],
-    crx: [-0.28, 0.34, 0.07], cry: [0.50, -0.46, 0.02],
-    prx: [-0.11, 0.17, 0.01], pry: [0.26, -0.30, 0.03],
-    py: [0.025, -0.03, -0.01], pz: [-0.06, 0.15, 0.02],
-    front: [-0.06, -0.44, -0.13], back: [0.14, 0.22, 0.08],
-    frontB: [0.22, 0.64, 0.28], backB: [0.52, 0.14, 0.22],
-    shift: [-0.85, 1.00, 0.30],
-    aim: [-1.00, 1.98, 1.85], wz: [0, 0, 0], wy: [0, 0, 0],
-  },
-  // Forehand: cocked out on the weapon side, then dragged across the body. The
-  // arm reaches forward as it crosses rather than sweeping flat through the
-  // chest, because a hand that crosses the centreline at rib height on a
-  // straight arm takes the whole humerus through the mail with it. With an
-  // elbow the fold does that job properly — the hand can come inside the ribs
-  // while the shoulder stays out where a shoulder lives.
-  right: {
-    arx: [1.06, -0.26, 0.06], arz: [0.86, -0.50, 0.15],
-    arb: [-0.39, 0.44, -0.30],
-    crx: [-0.06, 0.17, 0.04], cry: [0.48, -0.50, 0.02],
-    prx: [0, 0.07, 0], pry: [0.24, -0.28, 0.03],
-    py: [0.012, -0.035, -0.01], pz: [-0.04, 0.11, 0.02],
-    front: [-0.09, -0.30, -0.11], back: [0.15, 0.22, 0.08],
-    frontB: [0.18, 0.54, 0.26], backB: [0.46, 0.14, 0.22],
-    shift: [-0.70, 0.95, 0.28],
-    aim: [2.20, 1.80, 2.00], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
-  },
-  // Backhand: wound behind the hip, then whipped out and away. Wound *behind*
-  // and not across, for the same reason — the shoulder clears its own ribcage
-  // going back, and does not going over.
-  left: {
-    arx: [1.02, -0.22, 0.06], arz: [-0.34, 0.72, 0.15],
-    arb: [-0.29, 0.40, -0.30],
-    crx: [0, 0.13, 0.04], cry: [-0.48, 0.44, 0.02],
-    prx: [0, 0.05, 0], pry: [-0.20, 0.28, 0.03],
-    py: [0.012, -0.03, -0.01], pz: [-0.03, 0.09, 0.02],
-    front: [-0.10, -0.28, -0.11], back: [0.14, 0.20, 0.08],
-    frontB: [0.18, 0.50, 0.26], backB: [0.44, 0.13, 0.22],
-    shift: [-0.60, 0.90, 0.28],
-    aim: [2.15, 1.75, 1.95], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
-  },
-  // Thrust: coil, then the whole body behind the point. The deepest fold of the
-  // four and the straightest arm at contact, which is what a thrust *is*.
-  stab: {
-    arx: [0.71, -1.02, 0.06], arz: [0.24, -0.03, 0.13],
-    arb: [-0.94, 0.56, -0.30],
-    crx: [-0.12, 0.16, 0.03], cry: [0.46, -0.42, 0.02],
-    prx: [-0.04, 0.09, 0], pry: [0.28, -0.32, 0.03],
-    py: [0.012, -0.03, -0.01], pz: [-0.10, 0.28, 0.04],
-    front: [-0.08, -0.42, -0.13], back: [0.14, 0.22, 0.08],
-    frontB: [0.22, 0.66, 0.30], backB: [0.54, 0.12, 0.22],
-    shift: [-0.75, 1.05, 0.36],
-    aim: [1.30, 1.68, 1.86], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
-  },
-};
 
 /**
  * How long a packet is allowed to be merely late before it is treated as held.
@@ -2900,8 +2794,8 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
 }
 
 /** Load, release, follow through — and, if it was heavy, pay for it. */
-function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, w: number): void {
-  const s = SWINGS[dir] ?? SWINGS.right;
+function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, w: number, combo = 1): void {
+  const s = chainSwing(SWINGS[dir] ?? SWINGS.right, combo);
   const gain = 1 + heavy * 0.24;
 
   P.pry += link(ph, 0.16, s.pry, false) * gain * w;
@@ -4950,7 +4844,7 @@ export function poseWarrior(
       c.visible = carried && wear > CRACK_AT[Number(c.name.slice(5))];
     }
   }
-  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction);
+  if (motion.wAction > 0.001) attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction, player.comboCount);
   if (motion.wBlock > 0.001) blockLayer(carried, clamp01(player.blockTimer / 0.22), motion.wBlock);
   if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), carried, smooth(clamp01(motion.actT / 0.06)));
 
