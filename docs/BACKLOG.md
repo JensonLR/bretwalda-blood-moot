@@ -10,6 +10,36 @@
 
 ---
 
+## WAVE P1 — THE WAR FIRES, 7 Sep 2026
+
+`docs/ONE-CLIENT.md` is the spec. The diagnosis that produced this wave is in
+its §2 and it is one line: **85 matches, 2 ledger rows, zero flips in four
+weeks.** The war was shipped, gated at 79 checks, and had never run.
+
+| # | Item | State |
+|---|---|---|
+| P0.1 | Retire the four Unity-only tools (`unitywire`, `unityui`, `unitycheck`, `palettesync`) | **DONE** — nothing in `src/` referenced Unity; all four hits were the number one |
+| P0.2 | Repoint `cliptime`, `shadercheck`, `severtest`, `portraittest` at the three.js client | **DONE** — 54 checks became 57. `cliptime` got a better subject: `engine.mjs` vs `types.ts`, a duplication that actually ships |
+| P0.3 | Retarget the Blender export sink to `art/gltf` | **DONE** — `tools/blender/sink.mjs` owns it; it is P2's input. `armourytest` green over it |
+| P1.1 | `war.mjs` prices a kind of fight — `bankedPoints`, `bankCap`, `WAR_WEIGHT` | **DONE** — `wartest` 79 → 95 |
+| P1.2 | The Moot's hour, DST-correct | **DONE** — `wartest` → 105; shown red against naive UTC, which is wrong for half the year |
+| P1.3 | `warReport` classifies instead of rejecting | **DONE** — `wartest` → 120. The anti-farm gate was REWRITTEN, not deleted: its intent now rides on the discount, the cap and the skill floor |
+| P1.4 | `war_ledger.kind` | **DONE** — proven against real Postgres |
+| P1.5 | The solo daily cap, and the re-clamp that would have eaten the Moot bonus | **DONE** — `warflow` 28 → 37. The clamp lost 20 points on any hand at 26 kills or above |
+| P1.6 | The gate that would have caught it: an evening of solo play must reach the ledger | **DONE** — `warflow` → 41, shown red at "0 rows after 3 matches" |
+| P1.7 | `/factions` polls; the Moot countdown | **DONE** — photographed, `art/ui/war-live-*` |
+| P1.8 | Web push — subscription half | **PARTLY DONE, deliberately.** No dispatcher, no VAPID keys, no permission prompt. `ONE-CLIENT.md` §6.3a lists it |
+| P1.9 | Tune 0.3 / 1.5 / cap 24 against real play | **NOT STARTED — and it is the next thing.** They were chosen against 26 players; revisit after a fortnight of a moving map |
+| P2 | The glTF asset loader in the three.js renderer | **NOT STARTED.** `art/gltf` is its input |
+| P3 | Ship — Tauri/Steam, Capacitor/iOS+Android | **NOT STARTED** |
+
+**Two corrections this wave made to its own plan**, both kept rather than
+edited away: the "two sites" claim in `ONE-CLIENT.md` §5.0 was wrong
+(`mode: "solo"` is training, not a lone man's match), and the 0.3 discount was
+silently breaking `wartest`'s oldest purse rule by flooring turnout to zero.
+
+---
+
 ## THE MASTER LIST — 12 Aug 2026
 
 The owner delivered ~40 items during the usage outage. Nine of them were

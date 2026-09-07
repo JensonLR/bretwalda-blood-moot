@@ -29,6 +29,85 @@ Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
 itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
 warm first load is 1.66 MB over 23 requests in 5.3 s.
 
+## LANDED 7 SEP 2026 — one client, and the war fires for the first time
+
+Read `docs/ONE-CLIENT.md` first; it is the ruling and the spec. Two things
+happened and the second matters more than the first.
+
+**The Unity build is retired.** The owner judged its quality worse than the web
+client's. Three targets, one client: web, Steam via Tauri, iOS/Android via
+Capacitor. Console is out of scope until this game holds an audience — it was
+the only thing Unity bought that three.js cannot deliver. Four tools retired,
+four repointed at the client we keep, the Blender exporters retargeted from
+StreamingAssets to `art/gltf` (they always wrote glTF; only the destination was
+Unity-shaped). **All four "unity" hits in `src/` were false positives** — three
+are the number one — so the web client had nothing to decouple.
+
+**THE WAR HAD NEVER FIRED.** The production database, read directly: **85
+matches, 2 war-ledger rows, ZERO territory flips, in four weeks.** `warReport`
+refused any match with fewer than two humans, and at 26 players that is a
+coincidence, not an event. Every one of the 79 checks over it was correct. The
+gate was starved — correct, tested, and structurally never satisfied.
+
+A lone man banks now, at 0.3, capped at 24 a UTC day, and only against bots at
+`warrior` or better. A Moot-window match pays 1.5x. `/factions` polls and
+carries a countdown to the Moot's hour.
+
+### The three things worth knowing before you touch this
+
+1. **The cap has to move with the weight.** `db/war.ts` re-clamped at
+   `POINTS.cap` 40; a Moot-window match pays up to 60, so a strong hand was
+   priced at 60 and clipped back to 40 with nothing raised. Measured: 26 kills
+   and above lost 20 points every time. `bankCap` is the only truth about a
+   ceiling.
+2. **Turnout must bank at least a point at every weight.** 2 x 0.3 floors to
+   ZERO, so a lone man who turned up and lost banked nothing and his whole
+   match was dropped. Three solo matches moved the map by nothing. Caught by
+   the alpha-session gate, which is exactly what that gate is for.
+3. **`mode: "solo"` is TRAINING, not "a lone man's match".** One endless round,
+   pays no gold, never reaches a match end. A lone man fights a real match in an
+   ordinary room he adds bots to — which was always dealt a territory. The spec
+   claimed the fix needed a second site in `dealGroundFor`; **it did not**, that
+   change was reverted, and `ONE-CLIENT.md` §5.0 keeps the correction.
+
+### The battery, re-run 7 Sep 2026
+
+| gate | count |
+|---|---|
+| `typecheck`, `lint` | clean |
+| `platformcheck` | 6/6 |
+| `wartest` | **123/123** (was 79) |
+| `warflow` | **41/41** (was 28) |
+| `warrace` | 13/13 |
+| `protocoltest` | 85/85 |
+| `weightprobe` | 24/24 |
+| `goretest` | 35/35 |
+| `soundtest` | 46/46 |
+| `cliptime` | **19/19**, repointed at `types.ts` |
+| `shadercheck` | **3/3**, repointed at the renderer's GLSL |
+| `severtest` | **25/25**, repointed |
+| `portraittest` | **10/10**, repointed |
+
+**`playtest` is 35/38 exit 1 — and it is 35/38 exit 1 on `main` too.**
+Pre-existing, checked rather than assumed.
+
+**`wartest --prove` does NOT fully arm, on `main` as well as here.** One
+neutrality gate — "a declared people is a COSTUME" — does not go red over its
+injected defect, so it is currently unproven. Pre-existing; filed, not fixed.
+
+### NOT built, and not hidden
+
+* **The push dispatcher.** `sw.js` has its listeners, `push_subscriptions`
+  exists, `POST /api/moot/subscribe` works. **Nothing sends a notification** —
+  no cron, no `web-push`, no VAPID keys (the owner's to generate), and no
+  screen asks for permission. `ONE-CLIENT.md` §6.3a is the list.
+* **The weights are unmeasured.** 0.3, 1.5 and a cap of 24 were chosen against
+  26 players and 85 matches, which is not enough to fit anything to. They are
+  labelled unvalidated in `war.mjs` and want revisiting once the map has moved
+  for a fortnight. **Do not cite them as tuned.**
+* **P2 (the glTF loader) and P3 (shipping) are not started.** `art/gltf` is
+  P2's input and the exporters already write there.
+
 ## Standing instructions (the owner's, every session)
 
 - **AAA quality** (`docs/VISUAL-BAR.md` 8+), harsh-critic discipline. R1 pull
