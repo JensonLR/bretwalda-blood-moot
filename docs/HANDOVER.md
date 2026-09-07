@@ -29,6 +29,66 @@ Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
 itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
 warm first load is 1.66 MB over 23 requests in 5.3 s.
 
+## LANDED 7 SEP 2026 (last) — P2 started, and two numbers I had wrong
+
+### THE SHADOW-LIGHT LEVER WAS OVER-QUOTED FOUR TIMES, BY ME
+
+I told the owner one shadow light was worth "~477 draw calls, about 20%", taken
+from `BACKLOG.md`. That line predates the merged per-bone caster, which cut
+casters 352 → ~129. Measured at `high`:
+
+```
+  drop one shadow light    129 draws of 1155  (11.2%)
+  halve one light's rate    65 draws of 1155  ( 5.6%)   <- the cadence shipped
+  the stage-5 merge        193 draws of 1155  (16.7%)   <- the LARGER lever
+```
+
+**The ordering I gave was backwards.** `framecost` now prints all three off its
+own census, and `BACKLOG.md`/`PERFORMANCE.md` are marked where the stale figure
+sits. The hearth cadence stays — 5.6% for a fire shadow at 30 Hz, one constant
+to revert — but 5.6% is what it should have been called.
+
+### AND THE OWNER'S A/B WAS NOT AN A/B
+
+Two `framecost` runs, `hearthcadence=1` against `=2`, read 898 draw calls
+against 836 — and the censuses in the same output said 486 warrior meshes
+against 476, 650 visible against 654. **The bots are dealt random loadouts, so
+two runs draw two different scenes.** Nobody looked, including me.
+
+`framecost` fingerprints its scene now and says outright whether a run is
+comparable to the last one. Verified both ways.
+
+### P2 IS STARTED, AND IT IS A PERFORMANCE WAVE
+
+**`tools/gltftest.mjs`, 28/28.** 303 MB of exported glTF had never been opened
+by three.js — written for Unity, judged in Blender renders, its only reader
+retired. It opens: all four warriors parse, every mesh skinned, all fifteen
+clips carry tracks **including the four attack directions by name** (so they
+slot straight into `chainSwing`'s vocabulary), cosmetic roles survived, rig
+sidecars name 25 bones.
+
+```
+  authored avg    45 meshes    29,522 triangles
+  procedural      65 meshes    66,184 triangles
+  over eight    -160 draws   -293,296 triangles
+```
+
+**P2 was sequenced as fidelity-only and it is not.** Comparable to stage 5 on
+draws, 16% of the frame's triangles, **not blocked** behind stage 5's
+pivot-to-bone rewrite, and it improves the picture rather than leaving it
+identical. It is also the structural fix for the beard `wearmeasure` began
+failing on today. `ONE-CLIENT.md` names it the next cycle.
+
+**`src/game/client/render/authored.ts` + `tools/authoredtest.mjs`, 27/27.**
+Finds the role-named parts, hides what the armoury did not sell, judges an
+asset usable before anything is drawn. Every refusal is a NULL, never a throw —
+§5b's law is that an authored asset must never become the only way a thing can
+be drawn, so a corrupt file costs a player his upgraded man and not his fight.
+
+**NOT YET WIRED.** `GameCanvas` still builds every man procedurally and nothing
+serves the glb. The next step needs the serving strategy: 303 MB cannot go in
+`public/`, and the approved shape is procedural-first with a background upgrade.
+
 ## LANDED 7 SEP 2026 (later still) — the input floor, and the render cost costed
 
 ### THE INPUT PATH IS CLEAN, and it is now measurable
