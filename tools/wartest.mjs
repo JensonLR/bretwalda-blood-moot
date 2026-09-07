@@ -55,6 +55,7 @@ import {
   newWar, bank, conservation, standings, endSeason, openingHoldings,
   SEASON_DAYS, FRONT_WINDOW, project,
   WAR_WEIGHT, WAR_SKILL_FLOOR, SOLO_DAILY_CAP, bankedPoints, bankCap,
+  MOOT_HOUR, MOOT_MINUTES, inMootWindow, nextMootAt,
 } from "../src/game/war.mjs";
 
 const argv = process.argv.slice(2);
@@ -244,6 +245,45 @@ head("2. The purse");
   check("the solo daily cap is more than one match and less than a day's grind",
     SOLO_DAILY_CAP > bankCap("solo") && SOLO_DAILY_CAP <= POINTS.cap,
     `cap ${SOLO_DAILY_CAP}, one solo match tops out at ${bankCap("solo")}`);
+
+  // ---- THE MOOT'S HOUR (docs/ONE-CLIENT.md §6.1) ----
+  //
+  // Two dates chosen for the OFFSET, not the season: 15 Jan is GMT (UTC+0) and
+  // 15 Jul is BST (UTC+1). A window computed in the wrong offset opens at the
+  // wrong hour for half the year and says nothing about it — which is the
+  // quietest class of bug there is, because it is right when you test it.
+  {
+    const gmtInside  = Date.UTC(2027, 0, 15, 20, 30);   // 20:30 London (GMT)
+    const gmtOutside = Date.UTC(2027, 0, 15, 19, 30);   // 19:30 London
+    const bstInside  = Date.UTC(2027, 6, 15, 19, 30);   // 20:30 London (BST)
+    const bstOutside = Date.UTC(2027, 6, 15, 20, 30);   // 21:30 London
+
+    check("the Moot is open at 20:30 London in winter", inMootWindow(gmtInside));
+    check("the Moot is shut at 19:30 London in winter", !inMootWindow(gmtOutside));
+    check("the Moot is open at 20:30 London in summer — BST, not UTC", inMootWindow(bstInside));
+    check("the Moot is shut at 21:30 London in summer", !inMootWindow(bstOutside));
+    check("the window is exactly MOOT_MINUTES long",
+      inMootWindow(Date.UTC(2027, 0, 15, MOOT_HOUR, 0))
+        && inMootWindow(Date.UTC(2027, 0, 15, MOOT_HOUR, MOOT_MINUTES - 1))
+        && !inMootWindow(Date.UTC(2027, 0, 15, MOOT_HOUR, MOOT_MINUTES)),
+      `${MOOT_HOUR}:00 for ${MOOT_MINUTES} minutes`);
+
+    const next = nextMootAt(gmtOutside);
+    check("nextMootAt from before the window points at today's window",
+      next === Date.UTC(2027, 0, 15, MOOT_HOUR, 0), new Date(next).toISOString());
+    check("nextMootAt from INSIDE the window points at tomorrow, not now",
+      nextMootAt(gmtInside) > gmtInside && nextMootAt(gmtInside) - gmtInside > 20 * 3600_000,
+      `${((nextMootAt(gmtInside) - gmtInside) / 3600_000).toFixed(1)}h away`);
+    check("nextMootAt always lands inside a window",
+      inMootWindow(nextMootAt(gmtOutside)) && inMootWindow(nextMootAt(bstOutside))
+        && inMootWindow(nextMootAt(gmtInside)));
+    // The clocks go back at 02:00 on 25 Oct 2026 and forward on 29 Mar 2026.
+    // A countdown that crosses one must still land on a real window.
+    check("a countdown across the autumn clock change still lands on a Moot",
+      inMootWindow(nextMootAt(Date.UTC(2026, 9, 24, 21, 0))), "24 Oct 2026, the evening before");
+    check("a countdown across the spring clock change still lands on a Moot",
+      inMootWindow(nextMootAt(Date.UTC(2026, 2, 28, 21, 0))), "28 Mar 2026, the evening before");
+  }
 }
 
 // ============================================================

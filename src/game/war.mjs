@@ -934,6 +934,82 @@ export function bankedPoints(result, kind, inMoot = false) {
 }
 
 /* --------------------------------------------------------------------------
+   THE MOOT'S HOUR — docs/ONE-CLIENT.md §6.1
+   -------------------------------------------------------------------------- */
+
+/**
+ * The hour the Moot convenes, in LONDON.
+ *
+ * A CONSTANT RATHER THAN A TABLE, deliberately: a table is what you build when
+ * a schedule needs to vary, and this one does not. When it does, this is the
+ * one place that changes.
+ *
+ * London and not UTC, because this is an appointment with people — an hour
+ * that drifted by one twice a year would be a broken appointment. The whole
+ * conversion is done by `Intl`, which knows when the clocks go back, so this
+ * file holds no DST arithmetic of its own and therefore cannot get it wrong.
+ * `wartest` proves it on a January date and a July date, which are the same
+ * wall clock at two different UTC offsets, and across both 2026 clock changes.
+ *
+ * Solo fights bank every hour of every day. What the Moot buys is the 1.5x in
+ * `WAR_WEIGHT` and a reason for eight men to be in the same rooms at once,
+ * which is the thing 85 matches over four weeks never once produced.
+ */
+export const MOOT_HOUR = 20;
+export const MOOT_MINUTES = 60;
+const MOOT_TZ = "Europe/London";
+
+const LONDON = new Intl.DateTimeFormat("en-GB", {
+  timeZone: MOOT_TZ, hour12: false,
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit",
+});
+
+/** Wall-clock London parts for an instant. */
+function londonParts(atMs) {
+  const p = {};
+  for (const part of LONDON.formatToParts(new Date(atMs))) p[part.type] = part.value;
+  // Some ICU builds render midnight as "24" under hour12:false. Normalise it,
+  // or the first hour of every day reads as the last hour of the day before.
+  return { hour: Number(p.hour) % 24, minute: Number(p.minute) };
+}
+
+/** Is the war watching more closely right now? */
+export function inMootWindow(atMs) {
+  const { hour, minute } = londonParts(atMs);
+  const mins = hour * 60 + minute;
+  const start = MOOT_HOUR * 60;
+  return mins >= start && mins < start + MOOT_MINUTES;
+}
+
+/**
+ * When the next window OPENS, as epoch ms.
+ *
+ * Inside a window this answers TOMORROW'S, not "now": a countdown a player
+ * reads should never sit at zero against a Moot that is already happening.
+ * `inMootWindow` is what says "now"; this says "next".
+ *
+ * Found by SEARCH rather than by arithmetic. Stepping a minute at a time from
+ * now costs nothing at this scale and cannot be wrong about a clock change,
+ * which closed-form UTC arithmetic repeatedly is — the hour that happens twice
+ * each October defeats every "add 24 hours" I have seen written.
+ */
+export function nextMootAt(atMs) {
+  const MINUTE = 60_000;
+  let t = Math.ceil((atMs + MINUTE) / MINUTE) * MINUTE;
+  // Walk out of the window we are in before looking for the next one.
+  while (inMootWindow(t)) t += MINUTE;
+  const limit = t + 49 * 60 * MINUTE;   // two days is always enough
+  for (; t <= limit; t += MINUTE) {
+    if (inMootWindow(t)) {
+      while (inMootWindow(t - MINUTE)) t -= MINUTE;   // rewind to its first minute
+      return t;
+    }
+  }
+  return limit;   // unreachable while MOOT_MINUTES > 0; never throws at a caller
+}
+
+/* --------------------------------------------------------------------------
    THE DEAL — which ground a match is fought over
    -------------------------------------------------------------------------- */
 

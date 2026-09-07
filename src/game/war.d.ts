@@ -158,4 +158,14 @@ declare module "@/game/war.mjs" {
   export function bankCap(kind: WarKind | string, inMoot?: boolean): number;
   /** What a man's match is worth, priced by kind. The engine names; this prices. */
   export function bankedPoints(result: unknown, kind: WarKind | string, inMoot?: boolean): number;
+
+  /* --- the Moot's hour (docs/ONE-CLIENT.md §6.1) --- */
+
+  /** The hour the Moot convenes, in Europe/London. */
+  export const MOOT_HOUR: number;
+  export const MOOT_MINUTES: number;
+  /** Is the war watching more closely right now? */
+  export function inMootWindow(atMs: number): boolean;
+  /** Epoch ms of the next window's OPENING. Inside a window, answers tomorrow's. */
+  export function nextMootAt(atMs: number): number;
 }
