@@ -345,8 +345,33 @@ const PATCHES = {
   },
   stall: {
     name: "count buffer stalls",
-    subs: [[`let i=ac(e,0);if(t<=i.t){e.rx=i.x,e.rz=i.z,e.yaw=i.yaw;return}`,
-            `let i=ac(e,0);if(t<=i.t){window.__jankStall&&window.__jankStall(),e.rx=i.x,e.rz=i.z,e.yaw=i.yaw;return}`]],
+    /**
+     * ANCHORED ON THE CLAMP'S SHAPE, NOT ON A MINIFIED NAME — repaired 7 Sep 2026.
+     *
+     * This was a LITERAL string: `let i=ac(e,0);if(t<=i.t){...}`. `ac` is not a
+     * name anybody wrote — it is what the minifier called `snapAt` on the day
+     * the patch was pasted. Identifier allocation shifts whenever anything else
+     * in the chunk changes, and by the time this was next run `snapAt` had
+     * become `am`. The patch missed, the phase went VOID, and the interpolator
+     * — half of the owner's "laggy / jolty / jumpy" — became unmeasurable.
+     *
+     * The file already knew this class of fault: the `judder` patch above uses
+     * `(\w+)` for exactly this reason, and the `epoch` note below says a probe
+     * pinned to a shape under repair "would go MISSED the moment the repair
+     * landed". This one was pinned to something worse than a shape under
+     * repair — a name nobody controls.
+     *
+     * So it matches the CLAMP itself: an `if (rt <= oldest.t)` guarding three
+     * assignments off one sample (`anim.ts`'s buffer-stall branch, where the
+     * interpolator has run out of future samples and holds the oldest). The
+     * backreferences tie the object and sample names together, so it cannot
+     * match a coincidentally similar triple. Verified to match EXACTLY ONCE in
+     * the shipped chunk.
+     */
+    subs: [[
+      /(if\(\w+<=(\w+)\.t\)\{)((\w+)\.rx=\2\.x,\4\.rz=\2\.z,\4\.yaw=\2\.yaw;return\})/,
+      `$1window.__jankStall&&window.__jankStall(),$3`,
+    ]],
   },
   /**
    * THE EPOCH, READ WHERE THE INTERPOLATOR READS IT.
