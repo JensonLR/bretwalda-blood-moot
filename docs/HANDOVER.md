@@ -73,6 +73,30 @@ minted once per warrior.
 **Still refused in writing:** the shadow-light count and render scale. They
 change what the player sees and they are the owner's.
 
+### A FOURTH DEAD INSTRUMENT, and the defect it was hiding
+
+`wearmeasure` crashed on its first rig (`materials.twin` on an undefined
+library, all three call sites) and **fails identically at `ef7c972`** — it has
+produced no number for at least as long as this session's starting commit. It
+took `cosmetictest` §5 with it, which shells out and asserts exit 0, and
+reported the crash as `FAIL ... — PASS: 16/16 kits` because the verdict falls
+back to the last PASS line when no FAIL lines were printed.
+
+Fixed with the mechanism the codebase already had: `characters.ts`'s `RAW`,
+commented *"Headless probes only"* and already what `buildCharacter` falls back
+to. It needed exporting, nothing more.
+
+**The working ruler immediately found what it was built for: 8 of 16 beard
+pairs seat 2.1–5.1 mm into the neck against a 2 mm bar.** Not a regression —
+nothing has moved the beard since the harness died. It is the same beard the
+owner photographed on 2 Sep, and `OPEN-DEFECTS.md` carries the numbers.
+
+**`cosmetictest` is 18/19 and its one red is now TRUE.** It was red before this
+work too — for a crashed child — so this is the same colour for a real reason.
+Deliberately not chased: the finding already on file is that the beard is ONE
+SHELL, and tuning a shell 3 mm off a neck is a pass on a construction known to
+be wrong. Quote this number against **P2**, do not chase it around the shell.
+
 ### THE HONEST LIMIT OF THIS BOX
 
 Nine drawn frames in seventy seconds, software-rasterising 1.8M triangles. The
