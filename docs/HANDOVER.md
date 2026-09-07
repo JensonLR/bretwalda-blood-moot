@@ -29,6 +29,62 @@ Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
 itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
 warm first load is 1.66 MB over 23 requests in 5.3 s.
 
+## LANDED 7 SEP 2026 (later still) — the input floor, and the render cost costed
+
+### THE INPUT PATH IS CLEAN, and it is now measurable
+
+`janktest --phases=input` is new and closes the gap janktest's own verdict block
+had been naming for months: *"Input latency (the other half of LAGGY) IS
+MEASURED BY NOTHING IN THIS REPOSITORY."* Three witnesses — a step, a swing, a
+guard — timed from `input` to the authoritative state carrying its consequence.
+
+**p50 30 ms on all three, and 70/72 then 72/72 presses answered inside ONE
+tick** over two runs. That p50 is the 20 Hz tick's own floor and nothing else.
+The two stragglers did not reproduce.
+
+Three corrections were needed before it could be believed, each the shape of the
+defects it exists to find: it first read n=1 on a corpse; it then reported "a
+guard: never observed" because it pressed mid-swing where the engine refuses a
+block **by design**; and its verdict thresholded a p99 that one outlier owned.
+
+### THE RENDER COST — costed, one piece taken, the rest is scheduling
+
+`framecost --quality=high`: **1,175 draw calls before anything else**, 8 warriors
+are **70% of every visible mesh**, and JS work is 0.6–0.9 ms p50 — comfortably
+inside a 60 Hz frame. **The cost is the GPU ask, not this thread.**
+
+**Taken:** the hearth beam's shadow now runs on the settlement cascade's cadence.
+Same shadow, half the passes, no light deleted.
+
+**Two things I told the owner that were wrong, corrected in the commit:** medium
+has no fourth light to drop (the beam is high-only, so "medium 3→2" meant
+deleting the AO caster, and that light exists *only* for its shadow); and
+framecost's "3 on medium, 4 on high" counts **configured lights, not passes** —
+the settlement cascade is already amortised.
+
+**Not taken, and costed instead: `docs/STAGE-5-MERGE.md`.** Merging warrior
+meshes across parts is worth ~22% and is blocked by moving `anim.ts`'s posing
+from pivots to bones, which two other branches hold. It is a scheduling problem.
+The document carries what a fixer will get wrong in advance — merge by
+(bone, material) or severing breaks — and one thing worth knowing: **reducing
+the material count first buys nothing**, because kit materials are already
+minted once per warrior.
+
+**Still refused in writing:** the shadow-light count and render scale. They
+change what the player sees and they are the owner's.
+
+### THE HONEST LIMIT OF THIS BOX
+
+Nine drawn frames in seventy seconds, software-rasterising 1.8M triangles. The
+A/B on the hearth cadence reads p95 1095 → 1029 draw calls, **over nine
+frames**, which is not a p95. To settle it where it matters:
+
+```
+npm run build
+node tools/framecost.mjs --quality=high --params=hearthcadence=1 --secs=30
+node tools/framecost.mjs --quality=high --params=hearthcadence=2 --secs=30
+```
+
 ## LANDED 7 SEP 2026 (later) — three broken instruments, and the chain
 
 The owner: *"game feels really laggy & buggy during gameplay & first load, what
