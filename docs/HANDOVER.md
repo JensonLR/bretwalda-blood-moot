@@ -29,6 +29,60 @@ Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
 itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
 warm first load is 1.66 MB over 23 requests in 5.3 s.
 
+## LANDED 7 SEP 2026 — P2 IS WIRED, CLOAK AND ALL
+
+**The authored man is drawn, in the shop and in the arena.** `?authored=1`.
+
+```
+                 draw calls p50    triangles p50
+  procedural            966            1,794.6k
+  authored              878            1,417.6k
+                       -88  (-9%)      -377k (-21%)
+```
+
+`gltftest` 28/28 · `authoredtest` 70/70 · `tools/authoredshot.mjs` captures both
+the mannequin and an eight-man fight, and **asserts the swap happened** so a
+pair of identical frames cannot be filed as "the mesh looks the same" when it
+was really a 404.
+
+### THE BRIDGE, WHICH IS WHY THIS WAS A WAVE AND NOT A REWRITE
+
+`applyPose` writes about a dozen NAMED joints; a `Bone` is an `Object3D`; the
+export names its 25 bones by identity. So the authored man moves on the SAME
+pose the procedural one does — same `SWINGS`, same `chainSwing` variants, same
+weight and hitstop — with no line of it changed. The cloak takes the same
+bridge: `exportrig` names the procedural drape array by index, so the export IS
+that grid and the cloth solver drives it unmodified.
+
+### FIVE DEFECTS THE PICTURES FOUND AND NO GATE COULD
+
+Every one had perfect geometry and a swap reporting success.
+
+1. The first authored man was drawn **unarmed** — the weapon and shield live
+   inside the procedural body and removing it took them along.
+2. The **shield was on the wrong joint** (a board straps to `elbowL`, a blade
+   goes in the fist).
+3. The **cloak** was withheld as a "topology mismatch" and was a missing lookup.
+4. The **armoury preview was mutating the shared cache**, so every arena clone
+   inherited the mannequin's kit — surfaced as "warden: 5 of 50 meshes
+   unskinned" against an export that is 45 of 45.
+5. A fixture reported "2 rehung" with nothing parented, because three.js's
+   `add()` refuses a non-Object3D quietly.
+
+**TWICE THE INTERESTING EXPLANATION BEAT THE CHEAP CHECK** — I blamed bind poses
+for a wrong mount and topology for a missing lookup, and wrote the first into
+the source. Both corrections are kept beside what they replaced.
+
+### WHAT REMAINS ON P2, AND IT IS SHORT
+
+* **It is a query flag, not a tier.** Making authored the default is a VISUAL
+  decision and it is the owner's. `authoredWanted()` in two files.
+* **No streaming policy.** 6.5 MB: which tier, whether the web takes it, whether
+  Steam and Capacitor bundle it locally.
+* **The 64 cosmetic props are not loaded.** The swap hides the baked role and
+  hangs nothing in its place, so a man wears what Blender baked rather than what
+  the armoury sold. This is the largest remaining piece.
+
 ## LANDED 7 SEP 2026 (last) — P2 started, and two numbers I had wrong
 
 ### THE SHADOW-LIGHT LEVER WAS OVER-QUOTED FOUR TIMES, BY ME
