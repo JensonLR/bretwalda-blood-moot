@@ -33,6 +33,8 @@ import { getFeel } from "./input";
 import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
+import { loadAuthoredWarrior } from "./render/authoredSource";
+import { upgradeRigToAuthored, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
@@ -501,6 +503,31 @@ export interface StageHandle {
 }
 
 
+/**
+ * Is the authored mesh wanted on this page?
+ *
+ * A query flag and not a tier, deliberately: the visual verdict on the authored
+ * man is UNMADE (`ONE-CLIENT.md`, "what of P2 is built"), and until an owner
+ * has looked at a capture the default has to be the man this project has spent
+ * months on. When the verdict lands this becomes a tier decision and this
+ * function is where it changes.
+ */
+function authoredWanted(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return new URLSearchParams(window.location.search).get("authored") === "1"; }
+  catch { return false; }
+}
+
+/** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
+function wearsRole(loadout: StageLoadout, role: AuthoredRole): boolean {
+  const ap = loadout.appearance as unknown as Record<string, unknown> | undefined;
+  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
+  // "none" is the armoury's word for a slot nobody bought, and an ABSENT value
+  // is not the same thing — a loadout that does not mention beards is not a man
+  // who shaved. Absent keeps whatever the export baked in.
+  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+}
+
 export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): StageHandle | null {
   const held = acquireForge();
   if (!held) return null;
@@ -561,6 +588,52 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     crown = built.headTop || 1.78;
     built.group.position.set(0, 0, 0);
     armRig();
+
+    // ---- THE AUTHORED UPGRADE (ONE-CLIENT.md P2) ------------------------
+    //
+    // PROCEDURAL FIRST, UPGRADE IN BACKGROUND — the shape the owner settled.
+    // The man above is already standing and already correct; this asks for the
+    // authored mesh and swaps him when it lands. If it never lands, or lands
+    // wrong, nothing happens and he stays as he is. That is §5b's law and it
+    // is why this is a swap rather than a branch in the builder.
+    //
+    // OPT-IN while the visual verdict is unmade. `?authored=1` turns it on;
+    // the default is the man this project has spent months on.
+    if (authoredWanted()) {
+      const want = built;
+      void loadAuthoredWarrior(player.warriorClass).then((asset) => {
+        // He may have been rebuilt or disposed while 1.6 MB was in flight.
+        if (!asset || rig !== want) return;
+        const worn = new Set<AuthoredRole>(
+          AUTHORED_ROLES.filter((r) => wearsRole(loadout, r)),
+        );
+        const res = upgradeRigToAuthored(
+          {
+            body: want.body,
+            pivots: want.pivots as unknown as Record<string, THREE.Object3D>,
+            // What he is holding, so the swap can put it back on the authored
+            // wrists instead of deleting it with the procedural arm.
+            weapon: want.weapon, offhand: want.offhand, shield: want.shield,
+          },
+          {
+            scene: asset.scene, clips: asset.clips, wornRoles: worn,
+            // The client's OWN library, which is the whole economy of this:
+            // the glTF ships `<surface>:<hex>` and no maps, and these surfaces
+            // are generated in code and downloaded never.
+            resolveMaterial: (ask) => (ask.surface
+              ? forge.materials.tinted(ask.surface as Parameters<MaterialLibrary["tinted"]>[0], ask.color)
+              : forge.materials.standard(ask.color)),
+          },
+        );
+        // Said out loud, because a swap that silently did nothing looks exactly
+        // like a swap that was never wired.
+        const w = window as unknown as Record<string, unknown>;
+        w.__authored = res.ok
+          ? { cls: player.warriorClass, ...res }
+          : { ok: false, cls: player.warriorClass, why: res.why };
+        if (!res.ok) console.warn(`[authored] ${player.warriorClass}: ${res.why} — keeping the procedural man`);
+      });
+    }
     // Re-aimed here and not only on resize: every framing decision in this
     // file is a fraction of the crown, and the berserker's crown is 90 mm
     // above the runekeeper's. Without this the lens keeps the last man's

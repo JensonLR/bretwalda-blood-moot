@@ -32,6 +32,52 @@ import type * as THREE from "three";
  * Head bone. Lose these names and every man wears everything.
  */
 export const AUTHORED_ROLES = ["helm", "beard", "hair", "cloak"] as const;
+
+/**
+ * ROLES THE AUTHORED MAN CANNOT WEAR YET, and the reason is topology.
+ *
+ * THE CLOAK. `anim.ts` solves a drape as a GRID — `DRAPE_BONES = 1 +
+ * DRAPE_COLS.length * DRAPE_RINGS`, with a per-bone velocity integrator that
+ * makes cloth swing behind a turning man. `exportrig.mjs` writes a CHAIN:
+ * `CloakYoke` and `Drape1..Drape6`. Those are different shapes, so the solver
+ * cannot drive the export's bones by naming them the way the pose drives its
+ * joints — this is the one place the bridge does NOT hold.
+ *
+ * Left unposed, the export's cloak stands in its rest pose: a wide cone that
+ * swallows the man. That is what the first authored capture showed, and it is
+ * why the cloak is hidden rather than shipped broken. `REBUILD-PLAN.md` already
+ * said it — "the cloak's drape chain is not yet animated (stiff in the clips)"
+ * — and this is that sentence meeting a renderer.
+ *
+ * What it costs: an authored man wears no cloak. What it buys: he is not a
+ * traffic cone. Closing it is either a chain solver in `anim.ts` or a grid
+ * export from Blender, and it is the largest single thing between here and a
+ * man who can replace the procedural one outright.
+ */
+export const AUTHORED_ROLES_UNPOSED = new Set<AuthoredRole>(["cloak"]);
+
+/**
+ * WHAT THE BRIDGE DOES NOT CARRY — the rest pose, and it is the next thing.
+ *
+ * The name map is exact and the pose reaches every joint, which is what makes
+ * this a wave rather than a rewrite. It does NOT make the two men stand the
+ * same way, and the first captures show why: the procedural skeleton and the
+ * Blender one have different BIND POSES, so an identical rotation on
+ * `LeftUpperArm` puts the hand in a different place. The shield is parented
+ * correctly to `HandL`, with its local transform cleared, and still hangs half
+ * a metre off the fist — because the fist itself is somewhere else.
+ *
+ * That is ordinary retargeting: a pose authored against bind pose A, replayed
+ * on bind pose B, needs the delta between them. `warrior-<cls>.rig.json`
+ * carries the exported rest transforms and `articulate` knows the procedural
+ * ones, so the delta is available on both sides; nothing here computes it yet.
+ *
+ * IT IS WRITTEN DOWN RATHER THAN GUESSED AT because the tempting fix — nudging
+ * the mount until this one class looks right — would be four hand-tuned offsets
+ * that drift the first time either rig changes, and would look like a fix in
+ * exactly one capture.
+ */
+export const AUTHORED_REST_POSE_DELTA_IS_UNSOLVED = true;
 export type AuthoredRole = (typeof AUTHORED_ROLES)[number];
 
 /** `helm_41`, `beard_40` — the role, then the exporter's own part number. */
@@ -279,6 +325,30 @@ export const PIVOT_BONE_NAMES = {
 export type PivotSlot = keyof typeof PIVOT_BONE_NAMES;
 
 /**
+ * THE HANDS, WHICH ARE NOT PART OF THE POSE AND ARE PART OF THE MAN.
+ *
+ * `anim.ts` does `rightHand.add(weapon)` — the weapon, the shield and the
+ * offhand hang off hand MOUNTS that live inside the procedural body. So a swap
+ * that replaces the body takes them with it, and the first authored man ever
+ * drawn came out unarmed and shieldless because of exactly that. The capture
+ * found it; no structural gate could have, because the geometry was all fine.
+ *
+ * `exportrig.mjs` writes the hand mounts and parents them to the wrists for
+ * exactly this reason, so the authored skeleton has somewhere to put them back.
+ * They are `HandR` and `HandL` — the MOUNTS, not the wrist bones themselves,
+ * which is the same distinction `anim.ts` draws with `rightHand.add(weapon)`:
+ * the mount carries the builder's grip pitch, and hanging a sword off the wrist
+ * instead would put it through the man's forearm.
+ */
+export const MOUNT_BONE_NAMES = {
+  weapon: "HandR",
+  offhand: "HandL",
+  shield: "HandL",
+} as const;
+
+export type MountSlot = keyof typeof MOUNT_BONE_NAMES;
+
+/**
  * Find the bone behind every joint the pose writes.
  *
  * ALL OR NOTHING, deliberately. A partial map is the worst outcome available:
@@ -321,6 +391,10 @@ export function missingPivotBones(root: THREE.Object3D): PivotSlot[] {
 export interface UpgradableRig {
   body: THREE.Object3D;
   pivots: Record<string, THREE.Object3D>;
+  /** What the man is holding. Re-parented onto the authored wrists. */
+  weapon?: THREE.Object3D;
+  offhand?: THREE.Object3D;
+  shield?: THREE.Object3D;
 }
 
 export interface AuthoredSwap {
@@ -335,7 +409,7 @@ export interface AuthoredSwap {
 }
 
 export type SwapResult =
-  | { ok: true; dressed: number; hidden: number; joints: number }
+  | { ok: true; dressed: number; hidden: number; joints: number; rehung: number }
   | { ok: false; why: string };
 
 /**
@@ -367,15 +441,51 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   const bones = pivotBonesOf(swap.scene);
   if (!bones) return { ok: false, why: `missing joints: ${missingPivotBones(swap.scene).join(", ")}` };
 
+  // 2b. AND CAN HE HOLD ANYTHING? A man whose wrists cannot be found is a man
+  //     who will be drawn unarmed, and that is what the first capture showed.
+  const byName = new Map<string, THREE.Object3D>();
+  swap.scene.traverse((o) => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  const held: Array<[THREE.Object3D, THREE.Object3D]> = [];
+  for (const slot of Object.keys(MOUNT_BONE_NAMES) as MountSlot[]) {
+    const carried = rig[slot];
+    if (!carried) continue;                    // he is not holding one
+    const mount = byName.get(MOUNT_BONE_NAMES[slot]);
+    if (!mount) return { ok: false, why: `no ${MOUNT_BONE_NAMES[slot]} to hang the ${slot} on` };
+    held.push([carried, mount]);
+  }
+
   // 3. Nothing above this line has mutated anything. From here it commits.
-  const hidden = hideBakedRoles(swap.scene, swap.wornRoles);
+  // Anything the armoury sold him, MINUS anything the renderer cannot yet pose.
+  // A role that cannot move is worse than a role that is absent.
+  const wearable = new Set<AuthoredRole>(
+    [...swap.wornRoles].filter((r) => !AUTHORED_ROLES_UNPOSED.has(r)),
+  );
+  const hidden = hideBakedRoles(swap.scene, wearable);
   const { dressed } = dressFromSurfaceNames(swap.scene, swap.resolveMaterial);
 
   // The procedural body goes; the authored one takes its place under the same
   // parent, so everything the rig hangs off `body` — the nameplate, the health
   // bar, the world transform — is untouched.
+  // THE HANDS COME OFF FIRST. `rig.body.remove` would otherwise take the whole
+  // arm chain — and the weapon and shield hanging inside it — out with the
+  // procedural mesh, which is precisely how the first authored man was drawn
+  // holding nothing.
+  for (const [carried] of held) carried.removeFromParent?.();
   for (const child of [...rig.body.children]) rig.body.remove(child);
   rig.body.add(swap.scene);
+  // And back on, at the authored mounts — WITH THE LOCAL TRANSFORM CLEARED.
+  //
+  // `anim.ts` places a weapon relative to the PROCEDURAL mount, which carries
+  // the builder's own grip pitch; the authored mount carries Blender's. Keeping
+  // the old local transform applies one man's grip offset inside the other
+  // man's hand, and the first capture showed exactly that — a shield floating
+  // half a metre off the fist. The mount is the frame; the thing it holds sits
+  // at its origin.
+  for (const [carried, mount] of held) {
+    carried.position?.set?.(0, 0, 0);
+    carried.rotation?.set?.(0, 0, 0);
+    mount.add(carried);
+  }
 
   // 4. And the pose now writes the authored skeleton. This is the whole bridge:
   //    `applyPose` sets rotations on these by name and does not care whether it
@@ -383,5 +493,5 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   let joints = 0;
   for (const [slot, bone] of Object.entries(bones)) { rig.pivots[slot] = bone; joints++; }
 
-  return { ok: true, dressed, hidden, joints };
+  return { ok: true, dressed, hidden, joints, rehung: held.length };
 }

@@ -243,13 +243,47 @@ for (const cls of CLASSES) {
     resolveMaterial: (ask) => ({ name: `lib:${ask.surface ?? "plain"}`, isMaterial: true }),
     clips: g.animations,
   });
-  check("the swap succeeds on a real export", r.ok, r.ok ? `${r.joints} joints, ${r.dressed} dressed, ${r.hidden} hidden` : r.why);
+  check("the swap succeeds on a real export", r.ok, r.ok ? `${r.joints} joints, ${r.dressed} dressed, ${r.hidden} hidden, ${r.rehung} rehung` : r.why);
   check("the procedural body is gone and the authored one is under the same parent",
     !rig.body.children.includes(rig.kept) && rig.body.children.includes(g.scene),
     `${rig.body.children.length} child(ren)`);
   check("every pose joint now points at an authored bone",
     Object.keys(PIVOT_BONE_NAMES).every((k) => rig.pivots[k] && !rig.pivots[k].procedural),
     `${Object.keys(rig.pivots).length} joints repointed`);
+
+  // ---- THE HANDS: what he was holding must still be on him -------------
+  //
+  // THE FIRST AUTHORED MAN EVER DRAWN CAME OUT UNARMED, and no structural gate
+  // could have caught it: the geometry was perfect and the swap reported
+  // success. `anim.ts` does `rightHand.add(weapon)`, so the weapon and shield
+  // live INSIDE the procedural body, and removing the body took them with it.
+  // Only a picture found it. This is that picture, as an assertion.
+  {
+    const g3 = await parse(resolve(ART, "warrior-berserker.glb"));
+    const rig3 = fakeRig();
+    // REAL Object3Ds, because three.js's `add()` refuses anything else and
+    // returns quietly — a plain-object fixture reported "2 rehung" while
+    // nothing had actually been parented, which is the same class of false
+    // green this suite exists to catch.
+    const { Group } = await import("three");
+    const wrist = new Group(); wrist.name = "the-weapon";
+    const board = new Group(); board.name = "the-shield";
+    rig3.weapon = wrist; rig3.shield = board;
+    const res = upgradeRigToAuthored(rig3, {
+      scene: g3.scene, wornRoles: new Set(["helm"]),
+      resolveMaterial: () => ({ isMaterial: true }), clips: g3.animations,
+    });
+    check("the swap re-hangs what he was holding", res.ok && res.rehung === 2,
+      res.ok ? `${res.rehung} rehung` : res.why);
+    // The proof is PARENTAGE, not a count: they must be under the authored
+    // wrist bones, which is the only place a hand can carry them.
+    const mounts = [];
+    g3.scene.traverse((o) => { if (o.name === "HandR" || o.name === "HandL") mounts.push(o); });
+    const carried = mounts.flatMap((b) => b.children.map((c) => c.name));
+    check("...onto the authored HAND MOUNTS, not the wrist bones",
+      carried.includes("the-weapon") && carried.includes("the-shield"),
+      `mounts carry: ${carried.join(", ") || "nothing"}`);
+  }
 
   // ---- AND THE REFUSALS LEAVE THE RIG EXACTLY AS THEY FOUND IT ----
   const g2 = await parse(resolve(ART, "warrior-warden.glb"));
