@@ -13,7 +13,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS } =
+const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS, COMBO_WINDOW } =
   await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 
 let passed = 0, failed = 0;
@@ -274,6 +274,94 @@ console.log("[fight] the fight's depth, headless\n");
   check("a parry is a timing read, never a direction test",
     parried && f.pa.state === "staggered" || parried,
     parried ? "wrong-direction guard inside the window still turned the blow" : `no parry seen; attacker=${f.pa.state}`);
+}
+
+// ---- §4 the chain is REACHABLE ------------------------------------------
+//
+// THE DEFECT THIS SECTION EXISTS FOR. `comboTimer` was set to `COMBO_WINDOW`
+// at the START of a swing, and a light swing is `attackSpeed` seconds long —
+// huscarl 1.02, warden 0.85, berserker 1.33, against a window of 0.8. The
+// window lapsed before the man finished the stroke that opened it, so for
+// three classes in four `comboCount` could never leave 1 and EVERYTHING built
+// on the chain was dead code they could not reach: the damage ramp, the
+// step-through and the pivot in `chainSwing`, and the cut cycle in
+// `render/chain.ts`. The owner played it and said the moves felt boring and
+// uninspired; for three men in four he had exactly one light attack.
+//
+// Nothing in this repository could see it. `chaintest` proves the SHAPES are
+// different given a combo count, `playtest` proves a click reaches the sim,
+// and neither asks the only question that matters: can a player holding the
+// button actually get there. This does, on the real engine, per class.
+{
+  console.log("");
+  // A man who cannot die and an attacker who cannot tire: this section is
+  // about the WINDOW, and a fixture that ends on a corpse or a spent bar
+  // measures stamina and health instead.
+  const reached = (cls) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { a: { warriorClass: cls } });
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    let max = 0;
+    for (let i = 0; i < RATE * 6; i++) {
+      f.pa.stamina = f.pa.maxStamina;
+      f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: true, attackDir: "right" });
+      eng.step();
+      max = Math.max(max, f.pa.comboCount);
+    }
+    return max;
+  };
+  // Three, because three is the whole authored vocabulary: `CHAIN_STEPS` is 3
+  // and the cut cycle needs three blows to show three different strokes. A
+  // class that can only ever reach 2 has half a combo system.
+  for (const cls of ["huscarl", "warden", "runekeeper", "berserker"]) {
+    const max = reached(cls);
+    check(`${cls}: holding the attack reaches the whole chain`, max >= 3,
+      `swing ${swingDurationOf(cls, false).toFixed(2)}s, window opens at the end + `
+      + `${COMBO_WINDOW}s, comboCount reached ${max}`);
+  }
+  // AND THE WINDOW IS LONGER THAN NO TIME AT ALL. A grace of zero would make
+  // the chain a frame-perfect input rather than a tempo, and every claim above
+  // would still pass while holding the button.
+  check("the combo grace is a tempo a hand can keep", COMBO_WINDOW >= 0.25 && COMBO_WINDOW <= 0.8,
+    `${COMBO_WINDOW}s after the stroke ends`);
+  // A DELIBERATE TAP CHAINS TOO. Holding the button is the easy case — the
+  // sim fires the moment `attackTimer` hits zero. This is the player who
+  // presses again a quarter of a second after his man has recovered.
+  {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { a: { warriorClass: "huscarl" } });
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    let max = 0;
+    for (let blow = 0; blow < 3; blow++) {
+      f.pa.stamina = f.pa.maxStamina;
+      f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: true, attackDir: "right" });
+      eng.step();
+      max = Math.max(max, f.pa.comboCount);
+      f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: false, attackDir: "right" });
+      for (let i = 0; i < RATE * 2 && f.pa.attackTimer > 0; i++) eng.step();
+      stepSeconds(eng, 0.25);                       // his hand, not the engine's
+    }
+    check("a deliberate tap a quarter-second after recovery keeps the chain", max >= 3,
+      `comboCount reached ${max} over three tapped blows`);
+  }
+  // AND IT IS LOST BY ANYONE WHO DOES SOMETHING ELSE. A window that survives a
+  // pause is not a window; the chain has to be a thing you keep, or the ramp
+  // is a gift rather than a reward.
+  {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { a: { warriorClass: "huscarl" } });
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: true, attackDir: "right" });
+    eng.step();
+    f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: false, attackDir: "right" });
+    for (let i = 0; i < RATE * 3 && f.pa.attackTimer > 0; i++) eng.step();
+    stepSeconds(eng, COMBO_WINDOW + 0.3);           // he hesitated
+    f.pa.stamina = f.pa.maxStamina;
+    f.a.send("input", { moveX: 0, moveZ: 0, rotationY: f.face, attack: true, attackDir: "right" });
+    eng.step();
+    check("a man who hesitates past the window opens a new chain", f.pa.comboCount === 1,
+      `comboCount=${f.pa.comboCount} after waiting ${(COMBO_WINDOW + 0.3).toFixed(2)}s past recovery`);
+  }
 }
 
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);

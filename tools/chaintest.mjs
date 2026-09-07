@@ -45,8 +45,11 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { SWINGS, chainSwing, CHAIN_STEPS } =
+const { SWINGS, chainSwing, CHAIN_STEPS, CUT_CYCLE, CHAIN_WINDOW, cutAt } =
   await import(pathToFileURL(resolve(ROOT, "src/game/client/render/chain.ts")).href);
+// The sim's own combo window, so the client's copy of it cannot drift.
+const { COMBO_WINDOW } =
+  await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -144,6 +147,70 @@ for (const d of DIRS) {
     JSON.stringify(flat(chainSwing(b, 4))) === JSON.stringify(flat(chainSwing(b, 3)))
     && JSON.stringify(flat(chainSwing(b, 99))) === JSON.stringify(flat(chainSwing(b, 3))));
 }
+
+// ---- 7. THE CUT CYCLE — no burst of blows is the same stroke twice --------
+//
+// The owner, after the chain above shipped: "the desktop moves for fighting
+// feel really boring & uninspired too". The swing table was never the problem;
+// `input.ts` picked the direction off the MOVEMENT KEYS and had no `else`, so a
+// desktop player standing his ground threw one identical cut for ever and one
+// walking forward threw an overhead every time. `cutAt` is the rule that
+// replaced it. These are the claims that make it a rule rather than a hope.
+
+check("the cycle is the four cuts, once each",
+  CUT_CYCLE.length === 4 && new Set(CUT_CYCLE).size === 4
+  && ["left", "right", "overhead", "stab"].every((d) => CUT_CYCLE.includes(d)),
+  CUT_CYCLE.join(" -> "));
+
+// THE DEFECT ITSELF, stated as a claim: three blows, three DIFFERENT strokes,
+// from every opening. A cycle that collapsed anywhere would put the game back
+// where it started and nothing else here would notice.
+for (const open of CUT_CYCLE) {
+  const burst = [0, 1, 2].map((n) => cutAt(open, n));
+  check(`opening ${open}: a three-blow burst throws three different strokes`,
+    new Set(burst).size === 3, burst.join(" -> "));
+}
+
+// THE OPENING IS THE PLAYER'S. Blow one is what he asked for, byte for byte —
+// the cycle is an addition to the vocabulary and must never be what a lone
+// blow falls back to.
+for (const open of CUT_CYCLE) {
+  check(`opening ${open}: blow one is the stroke he asked for`, cutAt(open, 0) === open);
+}
+
+// THE HISTORICAL ORDER, which is the design and not decoration: forehand into
+// backhand (the return stroke), backhand into the overhead (the blade is
+// already high), overhead into the thrust (the point is forward and low, and
+// that is the shield wall's killing blow), thrust back into the forehand.
+check("forehand returns as a backhand", cutAt("right", 1) === "left");
+check("the backhand finishes high and the blade drops", cutAt("left", 1) === "overhead");
+check("the downstroke leaves the point forward, so the point goes in", cutAt("overhead", 1) === "stab");
+check("a withdrawn point is a cocked forehand", cutAt("stab", 1) === "right");
+
+// IT WRAPS, and it wraps back to the opening. Four blows in eight tenths of a
+// second is not reachable, but a rule that walks off the end of its own table
+// is a rule that returns undefined into an animation lookup.
+for (const open of CUT_CYCLE) {
+  check(`opening ${open}: the cycle wraps to the opening on the fifth blow`,
+    cutAt(open, 4) === open && cutAt(open, 8) === open);
+}
+
+// NEVER UNDEFINED, whatever it is handed. This decides an animation inside a
+// fight; the one thing it may not do is fail.
+for (const [name, arg] of [["null", null], ["undefined", undefined], ["nonsense", "sideways"],
+  ["a number", 3], ["empty", ""]]) {
+  check(`an ${name} opening still yields a cut`, CUT_CYCLE.includes(cutAt(arg, 1)),
+    String(cutAt(arg, 1)));
+}
+for (const combo of [-5, -1, 0, 0.4, NaN, Infinity]) {
+  check(`combo ${combo} still yields a cut`, CUT_CYCLE.includes(cutAt("right", combo)),
+    String(cutAt("right", combo)));
+}
+
+// AND THE WINDOW IS THE SIM'S. `chain.ts` imports nothing on purpose, so its
+// copy of the combo window is a copy — held here against the engine's export.
+check("the client's chain window is the engine's combo window",
+  CHAIN_WINDOW === COMBO_WINDOW, `${CHAIN_WINDOW} vs ${COMBO_WINDOW}`);
 
 console.log(`\n[chaintest] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

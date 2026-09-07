@@ -163,8 +163,12 @@ export const SWINGS: Record<string, Swing> = {
  *               weight shift damped because he is rotating rather than going
  *               anywhere.
  *
- * `COMBO_WINDOW` in the engine is 0.8 s, so three is as far as this realistically
- * runs; four and beyond hold the pivot rather than inventing a fourth idea.
+ * Three is as far as this invents; four and beyond hold the pivot rather than
+ * inventing a fourth idea. A man holding the attack button chains past three —
+ * the engine's window opens when a stroke ENDS (see `COMBO_WINDOW`) — and what
+ * he sees there is the third shape repeating under a cut cycle that is still
+ * moving, which is the right answer: the body has run out of new ideas, the
+ * blade has not.
  */
 export const CHAIN_STEPS = 3;
 
@@ -221,4 +225,91 @@ export function chainSwing(base: Swing, combo: number): Swing {
     shift: rekey(base.shift, 0.45, 0.55, 0.7),
     wz: rekey(base.wz, 0.4, 1.25, 1),
   };
+}
+
+// ---------------------------------------------------------------------------
+// WHICH CUT COMES NEXT
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT. The owner, having played the chain work above: "the desktop moves
+// for fighting feel really boring & uninspired too". He is right, and the
+// reason is not in this file's swing table — it is that a desktop player never
+// gets to use it. `input.ts` picked the direction off the MOVEMENT KEYS:
+//
+//     if (down("left")) attackDir = "left";
+//     else if (down("right")) attackDir = "right";
+//     else if (down("forward")) attackDir = "overhead";
+//     else if (down("back")) attackDir = "stab";
+//     // and no else — so a man who is not walking keeps the last one
+//
+// So a desktop player standing his ground and clicking throws the IDENTICAL
+// cut forever, and one who is moving throws whichever cut his feet happen to
+// have chosen — advancing on W is an overhead every single time, which is the
+// slowest and most committed stroke in the game handed out as the default for
+// the most common thing a player does. Direction was never a decision on
+// desktop. A phone player flicks and has all four; the desktop player had one.
+//
+// THE RULE. A chain runs a CYCLE. The opening blow is the player's — the
+// movement keys still pick it, and on a phone the flick still picks every blow
+// it describes — and each follow-on inside the combo window is the next stroke
+// round the cycle, so no burst is ever the same stroke twice.
+//
+// AND THE CYCLE IS NOT ARBITRARY. It is how the strokes actually connect for a
+// man with a shield on his left arm and a sword or a hand-axe in his right,
+// which is what the period fought with (the shield is the weapon that decides
+// the footwork; the sword is what goes round it):
+//
+//   right -> left      Forehand into backhand: the return stroke. The blade
+//                      does not stop and does not re-wind — it comes back
+//                      along the line it left on. `chainSwing` step 2 already
+//                      inverts `shift` for this, and now the two agree: he
+//                      steps onto the other foot AND cuts off the other side.
+//   left  -> overhead  The backhand finishes high on the off side, so the
+//                      blade is already up. It drops. Over the rim of his
+//                      shield and down onto the head or the collar.
+//   overhead -> stab   The downstroke ends with the point forward and low and
+//                      the man's weight over his front foot. The thrust over
+//                      the shield rim is the cheapest thing to do from there
+//                      and it is the killing blow of the shield wall.
+//   stab -> right      The point comes back, and a withdrawn point is a cocked
+//                      forehand. Round again.
+//
+// THE TRADE, STATED. Holding a movement key steers only the OPENING blow: mid
+// chain the cycle owns the line. A player who wants three thrusts waits out
+// the 0.8 s window between them, which is a real cost and a real decision —
+// depth, not a control taken away. The phone flick is exempt because it is a
+// deliberate gesture made per blow rather than a key left held.
+
+/** The four cuts, in the order a chain walks them. */
+export const CUT_CYCLE = ["right", "left", "overhead", "stab"] as const;
+export type Cut = typeof CUT_CYCLE[number];
+
+/**
+ * `COMBO_WINDOW` from the engine, restated here because this module imports
+ * NOTHING (see the header) — `tools/chaintest.mjs` holds the two to the same
+ * number against `engine.mjs`'s own export, so the copy cannot drift.
+ */
+export const CHAIN_WINDOW = 0.45;
+
+/**
+ * The cut for blow `combo` of a chain that opened on `open`.
+ *
+ * `combo` is the engine's own `comboCount`: 0 when no chain is running, 1 once
+ * the first blow has been thrown, climbing while `comboTimer` holds. It is
+ * stable for the whole of a swing, which is what makes this safe to evaluate
+ * every input poll — the alternative, walking the cycle off the LAST direction,
+ * advances once per frame while the button is held and spins the man through
+ * all four cuts in a twentieth of a second.
+ *
+ * An unrecognised `open` is treated as the head of the cycle rather than
+ * refused: this decides an animation, and a fight is not the place to throw.
+ */
+export function cutAt(open: string, combo: number): Cut {
+  const i = CUT_CYCLE.indexOf(open as Cut);
+  const from = i < 0 ? 0 : i;
+  // `Math.floor(Infinity)` is Infinity and `Infinity % 4` is NaN, which indexes
+  // the table as `undefined` and hands an animation lookup nothing at all. The
+  // gate found it; a fight is not the place to return undefined.
+  const step = Number.isFinite(combo) ? Math.max(0, Math.floor(combo)) : 0;
+  return CUT_CYCLE[(from + step) % CUT_CYCLE.length];
 }

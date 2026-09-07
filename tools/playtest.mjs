@@ -813,6 +813,49 @@ async function main() {
   check("attack registers in the sim", a3.stam < b3.stam || a3.state === "attacking",
     `stamina ${b3.stam.toFixed(1)} -> ${a3.stam.toFixed(1)}`);
 
+  // ---- 4b. THE CUT CYCLE, over the wire, from a real mouse -----------------
+  //
+  // The owner: "the desktop moves for fighting feel really boring & uninspired
+  // too". He was describing two defects at once and this is the end-to-end
+  // witness for both. `input.ts` picked the swing direction off the MOVEMENT
+  // KEYS with no `else`, so a desktop player standing still threw the identical
+  // cut for ever; and the engine's combo window was measured from the START of
+  // a swing and was shorter than the swing, so three classes in four never
+  // reached blow two of a chain at all (gated in `fighttest` §4).
+  //
+  // `chaintest` proves the cycle is a correct cycle and `fighttest` proves the
+  // window is reachable. Neither of them presses a mouse. This does: it holds
+  // the button, reads what the CLIENT actually put on the wire, and asks
+  // whether the man is throwing different strokes.
+  await page.waitForTimeout(1000);                  // let the last chain lapse
+  await page.evaluate(() => { window.__probe.sent.length = 0; });
+  await page.mouse.down();
+  await page.waitForTimeout(4200);                  // three blows at any class's tempo
+  await page.mouse.up();
+  const cuts = await page.evaluate(() => {
+    const out = [];
+    for (const s of window.__probe.sent) {
+      const d = s.d && s.d.attackDir;
+      if (d && out[out.length - 1] !== d) out.push(d);
+    }
+    return out;
+  });
+  check("holding the attack throws different strokes, not one stroke",
+    new Set(cuts).size >= 3, cuts.length ? cuts.join(" -> ") : "no attackDir reached the wire at all");
+  // AND THEY ARE THE CYCLE'S OWN ORDER, not four random draws. A shuffle would
+  // pass the claim above and would not be a combination.
+  {
+    const CYCLE = ["right", "left", "overhead", "stab"];
+    const bad = [];
+    for (let i = 1; i < cuts.length; i++) {
+      const want = CYCLE[(CYCLE.indexOf(cuts[i - 1]) + 1) % CYCLE.length];
+      if (cuts[i] !== want) bad.push(`${cuts[i - 1]} -> ${cuts[i]} (wanted ${want})`);
+    }
+    check("...and in the cycle's own order", cuts.length >= 3 && bad.length === 0,
+      bad.length ? bad.join("; ") : `${cuts.length} strokes, every step the successor`);
+  }
+  await page.waitForTimeout(900);
+
   // ---- 5. dodge ----
   await page.waitForTimeout(900);
   const b4 = await me();

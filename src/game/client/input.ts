@@ -22,6 +22,9 @@ import type { AttackDirection, GamePlayer, WarriorClass } from "../types";
 import type { CameraRig } from "./render/camera";
 import { liveEnemies, sameSide } from "./targeting";
 import { clearTapped, ensureKeyTracking, isActionDown, isActionHit } from "./bindings";
+// `chain.ts` imports nothing and is the module a gate can execute — the cut
+// cycle lives there beside the swing table it walks. See `cutAt`.
+import { cutAt } from "./render/chain";
 
 export interface MobileFlags {
   attack: boolean;
@@ -842,6 +845,13 @@ function applyFacingAssist(
   rig.yaw += Math.max(-cap, Math.min(cap, step));
 }
 
+/**
+ * Where the running chain of blows started, so `cutAt` walks its cycle from a
+ * fixed point. Re-taken every time the engine's `comboCount` is back to zero,
+ * which is every time the combo window has lapsed.
+ */
+let openCut: AttackDirection = "right";
+
 export function sampleInput(
   sources: InputSources,
   rig: CameraRig,
@@ -901,17 +911,36 @@ export function sampleInput(
   // could not look anywhere he was not already walking, and every swing landed
   // somewhere other than where he aimed. Yaw is the right thumb's, alone.
 
-  let attackDir: AttackDirection = lastDir;
+  // WHICH CUT, AND IT IS NOW A CHAIN RATHER THAN A HABIT.
+  //
+  // The whole reasoning, the historical cycle and the trade it makes are in
+  // `render/chain.ts` beside `cutAt` — this is the wiring. In one line: the
+  // movement keys (and the phone's flick) still choose the OPENING blow, and
+  // every follow-on inside the engine's combo window is the next stroke round
+  // the cycle, so no burst of blows is ever the same stroke twice.
+  //
+  // `comboCount` is read off the WIRE — the sim's own counter, not a second
+  // clock kept here that could disagree with it — and it is constant for the
+  // whole of a swing, which is what makes this safe to evaluate at 60 Hz while
+  // the button is held down.
+  const chain = Math.max(0, Math.floor(local?.comboCount ?? 0));
+  let asked: AttackDirection | null = null;
   if (isMobile) {
-    // The flick, if there was one; the last direction if the player only
-    // tapped. A scheme where the only way to attack is a gesture loses people.
-    attackDir = swingDirection() ?? lastDir;
+    // The flick, if there was one. It always wins, mid chain included: it is a
+    // deliberate gesture made per blow, not a key left held.
+    asked = swingDirection();
   } else {
-    if (down("left")) attackDir = "left";
-    else if (down("right")) attackDir = "right";
-    else if (down("forward")) attackDir = "overhead";
-    else if (down("back")) attackDir = "stab";
+    if (down("left")) asked = "left";
+    else if (down("right")) asked = "right";
+    else if (down("forward")) asked = "overhead";
+    else if (down("back")) asked = "stab";
   }
+  // The opening is remembered so the cycle is walked from a FIXED point. Taken
+  // off the last direction instead, it would advance once per frame.
+  if (chain === 0) openCut = asked ?? lastDir;
+  const attackDir: AttackDirection = asked && isMobile ? asked
+    : chain === 0 ? (asked ?? lastDir)
+      : cutAt(openCut, chain);
 
   const sample: InputSample = {
     pressedAttack,
