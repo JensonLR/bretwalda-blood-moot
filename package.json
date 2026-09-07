@@ -84,6 +84,7 @@
     "rekeyprobe": "node tools/rekeyprobe.mjs",
     "chaintest": "node tools/chaintest.mjs",
     "gltftest": "node tools/gltftest.mjs",
+    "authoredtest": "node tools/authoredtest.mjs",
     "exporthead": "node tools/blender/exporthead.mjs",
     "exportportraits": "node tools/blender/exportportraits.mjs",
     "portraittest": "node tools/portraittest.mjs",
