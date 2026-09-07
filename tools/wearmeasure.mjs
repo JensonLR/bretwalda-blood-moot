@@ -106,7 +106,7 @@ const {
   wearNormalProbe, helmFitProbe, hairFitProbe, bodyFitProbe, handProbe, beardSeatProbe,
   backCarryProbe,
   HELM_VALUES, HAIR_VALUES, CLOAK_VALUES, BEARD_VALUES, defaultAppearance,
-  buildCharacter,
+  buildCharacter, RAW,
 } = await import(pathToFileURL(built).href);
 const anim = foundAnim[0] && existsSync(foundAnim[0])
   ? await import(pathToFileURL(foundAnim[0]).href)
@@ -902,7 +902,33 @@ for (const cls of anim ? CLASSES : []) {
     appearance: defaultAppearance(cls),
   };
   const parent = new THREE.Group();
-  const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+  // A MATERIAL LIBRARY THAT DOES THE ONE THING THE RIG ASKS OF IT.
+  //
+  // This passed `undefined` and CRASHED — `TypeError: Cannot read properties of
+  // undefined (reading 'twin')` at `articulate`, which hands every skinned part
+  // through `materials.twin(m)`. Pre-existing: it fails identically at ef7c972,
+  // before any of this session's work, so this harness has been dead for at
+  // least as long as that.
+  //
+  // AND IT TOOK `cosmetictest` DOWN WITH IT. That suite's §5 shells out to this
+  // file and asserts `r.status === 0`, so a crash here is a red gate there —
+  // reported as "FAIL ... — PASS: 16/16", because the verdict falls back to the
+  // last PASS line when the child printed no FAIL lines, and a child that dies
+  // prints none. `cosmetictest`'s own comment says why that shape matters: an
+  // earlier version of it "hid a 49.8 deg nape-guard flare for as long as it
+  // stood". Both ends are fixed.
+  //
+  // IT IS `RAW`, THE LIBRARY THE FILE ALREADY KEEPS FOR THIS. characters.ts
+  // carries it with the comment "Headless probes only; nothing renders RAW, so
+  // a shape twin is the material itself" — which is this harness exactly. It is
+  // what `buildCharacter` already falls back to when handed `undefined`
+  // (`const M = materials ?? RAW`), so passing it explicitly is what every
+  // other geometry probe here is doing implicitly.
+  //
+  // A hand-rolled `{ twin }` stub was tried first and was WORSE: truthy, so it
+  // DEFEATED the `?? RAW` fallback and moved the crash from `twin` to
+  // `M.armour`. A partial stand-in for a library is not a stand-in.
+  const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
   const motion = anim.createMotion(player);
   const ctx = {
     dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
@@ -1201,7 +1227,7 @@ if (!anim) {
         appearance: { ...defaultAppearance(cls), cloak },
       };
       const parent = new THREE.Group();
-      const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+      const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
       const motion = anim.createMotion(player);
       const ctx = {
         dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
@@ -1848,7 +1874,7 @@ if (!anim) {
         appearance: { ...defaultAppearance(cls), cloak },
       };
       const parent = new THREE.Group();
-      const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+      const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
       const motion = anim.createMotion(player);
       const ctx = {
         dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),

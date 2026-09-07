@@ -1403,9 +1403,26 @@ if (WEAR) {
   // verdicts only when there are none.
   const strip = (l) => l.replace(/^\[wear\] /, "");
   const failed = lines.filter((l) => /FAIL/.test(l)).map(strip);
-  const verdict = failed.length
-    ? failed.join(" | ")
-    : (lines.filter((l) => /PASS:/.test(l)).pop() ?? "").replace(/^\[wear\] /, "");
+  // A CHILD THAT CRASHED REPORTED NO FAILURES, AND THAT IS NOT A PASS.
+  //
+  // The fallback below quotes the last `PASS:` line when nothing failed — which
+  // is right when the child RAN and passed, and a lie when it DIED. On 7 Sep
+  // 2026 `wearmeasure` was found to have been crashing since at least ef7c972
+  // (`materials.twin` on an undefined library), and because it died before
+  // printing a single FAIL this check reported:
+  //
+  //     FAIL  no helmet shears through the head ... — PASS: 16/16 kits ...
+  //
+  // which is the exact shape the comment above says "sends the next reader
+  // after a phantom". It was fixed there for a child that REPORTS failures and
+  // left open for a child that never gets that far. Both are closed now.
+  const crashed = r.status !== 0 && failed.length === 0;
+  const stderrTail = (r.stderr || "").trim().split("\n").filter(Boolean).slice(-2).join(" / ");
+  const verdict = crashed
+    ? `wearmeasure CRASHED (exit ${r.status}) and reported nothing — ${stderrTail || "no stderr"}`
+    : failed.length
+      ? failed.join(" | ")
+      : (lines.filter((l) => /PASS:/.test(l)).pop() ?? "").replace(/^\[wear\] /, "");
   check("no helmet shears through the head it is worn on (32 heads x every shell)",
     r.status === 0, verdict || `wearmeasure exited ${r.status}`);
   TABLE.notes.push(`wearmeasure: ${verdict}`);

@@ -2482,7 +2482,14 @@ function rawNamed(surface: string, color: number, roughness: number, metalness: 
   m.name = `${surface}:${new THREE.Color(color).getHexString()}`;
   return m;
 }
-const RAW: CharacterMaterials = {
+/**
+ * THE HEADLESS LIBRARY. Exported 7 Sep 2026 so a probe can hand it to
+ * `createWarriorRig`, which — unlike `buildCharacter` — has no `?? RAW`
+ * fallback and dereferenced `materials.twin` straight into a TypeError.
+ * `tools/wearmeasure.mjs` had been dead on that line since at least ef7c972,
+ * and took `cosmetictest` §5 down with it.
+ */
+export const RAW: CharacterMaterials = {
   // Headless probes only; nothing renders RAW, so a shape twin is the material itself.
   twin: (m) => m,
   armour: (c) => rawNamed("mail", c, 0.45, 0.55),

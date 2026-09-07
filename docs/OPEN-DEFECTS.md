@@ -8,6 +8,64 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## THE BEARD SEATS INTO THE NECK ON 8 OF 16 PAIRS — and the ruler that says so had been dead — 7 Sep 2026
+
+**NEWLY VISIBLE, NOT NEWLY BROKEN.** `tools/wearmeasure.mjs` crashed on its
+first rig — `TypeError: Cannot read properties of undefined (reading 'twin')`,
+because `createWarriorRig` dereferences `materials.twin` and had been handed
+`undefined` at all three call sites. It fails identically at `ef7c972`, so this
+harness has produced no number for at least as long as that.
+
+**And it took `cosmetictest` with it.** That suite's §5 shells out to this file
+and asserts `r.status === 0`, so a crash here was a red gate there — reported as
+`FAIL ... — PASS: 16/16 kits`, because the verdict falls back to the last PASS
+line when the child printed no FAIL lines, and a child that dies prints none.
+`cosmetictest`'s own comment says why that shape matters: an earlier version of
+it *"hid a 49.8 deg nape-guard flare for as long as it stood"*. It was fixed
+there for a child that REPORTS failures and left open for one that never gets
+that far.
+
+Both ends are closed. `wearmeasure` passes `RAW` — the library `characters.ts`
+already keeps for exactly this, commented *"Headless probes only"* and already
+what `buildCharacter` falls back to — and `cosmetictest` now says CRASHED when
+the child crashed.
+
+### What the working ruler immediately found
+
+§7, `bars: exactly 1 connected component, at most 2 mm through the garment, at
+most 2 mm through the neck`:
+
+```
+class        beard     pieces   through mm   in neck mm   over mm   verdict
+huscarl      short         1          0.0          2.1      -2.1    FAIL
+huscarl      full          1          0.0          3.0      39.6    FAIL
+warden       full          1          0.0          2.6      39.6    FAIL
+runekeeper   full          1          0.0          2.3      44.5    FAIL
+berserker    short         1          0.0          2.6      -7.0    FAIL
+berserker    full          1          0.0          5.1      34.8    FAIL
+```
+
+`FAIL huscarl/short: 2.1 mm through the neck (y=1.653 az=0.34 r=0.058 neck=0.060)`
+
+**Eight of sixteen pairs seat 2.1–5.1 mm into the neck against a 2 mm bar.**
+This is not a new regression — nothing has moved the beard since the harness
+died — it is a defect that has been shipping unmeasured.
+
+### NOT FIXED HERE, and the reason is the one already on file
+
+The entry below records the owner photographing exactly this on his phone
+("the beards read thin and unnatural") and the finding that what remains is
+STRUCTURAL: *"it is one shell"*. Tuning a shell 3 mm off a neck is a pass on the
+thing that is already known to be the wrong construction. The strands exist in
+`art/gltf` and what is missing is the loader — **P2 in `docs/ONE-CLIENT.md`** —
+and this measurement is now available to judge that work when it lands, which
+it was not an hour ago.
+
+What changed today is that the number exists. It should be quoted against P2,
+not chased around the shell.
+
+---
+
 ## THE OWNER'S PHONE, 2 Sep 2026: the beards read thin and unnatural, and the thumb reads wrong — both worked, one of them honestly only half closed
 
 **The fist — CLOSED.** `art/look/beard-before/fist-huscarl-front.png` against
