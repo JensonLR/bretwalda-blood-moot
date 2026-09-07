@@ -285,6 +285,12 @@ makes them tempting:
   530 for the picture + 477 casters x 4 shadow light(s) = 2438 before anything else
 ```
 
+**STALE — corrected 7 Sep 2026.** That census predates the merged per-bone
+caster (352 -> ~129). Today, at `high`: `639 for the picture + 129 casters x 4
+= 1155`. Dropping one light is **129 draws, 11.2%** — not the ~20% this figure
+implies — and the stage-5 merge above is now the larger lever at 16.7%.
+`tools/framecost.mjs` prints all three from the scene it just censused.
+
 Both are **stage 6**. They change what the player sees, they belong to the owner,
 and they are named in the harness's own output so that they are not reached for
 by accident. Neither was made. The stage-5 answer is costed above instead.

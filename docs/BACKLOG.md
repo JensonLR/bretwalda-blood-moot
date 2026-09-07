@@ -809,8 +809,16 @@ material is the same trick applied one level out.
 
 **Refused, in writing: R12 stage 6.** The two easy levers are named so nobody
 has to rediscover them and so nobody reaches for them quietly — render scale,
-and the shadow-caster count (`530 for the picture + 477 casters x 4 shadow
-lights = 2,438` of the high tier's calls). Both change what the game looks like,
+and the shadow-caster count. ~~(`530 for the picture + 477 casters x 4 shadow
+lights = 2,438` of the high tier's calls).~~
+
+**THAT ARITHMETIC IS STALE AND WAS QUOTED AT THE OWNER — corrected 7 Sep 2026.**
+It predates the merged per-bone caster, which cut casters 352 -> ~129. Measured
+at `high` on a real scene the same day: `639 for the picture + 129 casters x 4
+= 1155`, so **dropping one light is 129 draws (11.2%), not ~20%** — and the
+stage-5 merge, at 193 draws (16.7%), is now the LARGER lever. `framecost`
+prints all three off its own census so nobody has to trust a number in a
+document again. Both change what the game looks like,
 which is the owner's decision and not a fixer's, and both are the quickest way
 to move this number without making anything cheaper.
 
