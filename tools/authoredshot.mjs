@@ -106,6 +106,17 @@ async function shootArena(browser, query, file) {
   // look at the picture. Now the arm that has work to do waits for the work —
   // each man logs `upgraded` — and the arm that has none takes the shortest
   // wait that gets eight men drawn.
+  // HE BACKS AWAY WHILE THE FILES LAND. A man who stands still in a training
+  // pit with seven AI in it is dead inside a minute, and the authored arm has
+  // to wait out four fetches and eight skeleton clones — so the shutter kept
+  // catching a red FALLEN wash instead of a fight. Holding `S` is what a player
+  // would do and it costs the harness nothing.
+  await page.keyboard.down("KeyS");
+  // AND HIS GUARD UP. Backing away alone was not enough — bots follow — and a
+  // blocked blow is a fraction of an open one, which between them buys the
+  // ninety seconds the authored arm needs to fetch four files and clone eight
+  // skeletons without the shutter catching a corpse's red wash.
+  await page.mouse.down({ button: "right" }).catch(() => { });
   const wanted = /authored=1/.test(query);
   const deadline = Date.now() + 90000;
   if (wanted) {
@@ -115,6 +126,8 @@ async function shootArena(browser, query, file) {
   } else {
     await page.waitForTimeout(14000);
   }
+  await page.keyboard.up("KeyS");
+  await page.mouse.up({ button: "right" }).catch(() => { });
   // The pointer-lock prompt stands over the arena until the canvas is clicked.
   await page.locator("canvas").first().click({ position: { x: 640, y: 620 } }).catch(() => { });
   await page.waitForTimeout(600);
