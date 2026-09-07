@@ -29,6 +29,94 @@ Everything else measured for the launch is in `docs/PERFORMANCE.md`: the fight
 itself is clean, the round-end freeze is closed, the forge is 315 ms, and the
 warm first load is 1.66 MB over 23 requests in 5.3 s.
 
+## LANDED 7 SEP 2026 (later) — three broken instruments, and the chain
+
+The owner: *"game feels really laggy & buggy during gameplay & first load, what
+does react doctor say? also think we need variation of attack animations &
+maybe combos with some distinct movement."*
+
+### THREE OF THE TOOLS THAT WOULD ANSWER HIM WERE NOT WORKING
+
+All the same shape, and it is this repository's oldest one — an instrument that
+reports something other than what it measured.
+
+1. **`janktest`'s motion phase was VOID.** It patched the served bundle by
+   matching `ac(e,0)` — `ac` being what the MINIFIER called `snapAt` on the day
+   the patch was pasted. Identifier allocation shifted, `snapAt` became `am`,
+   the patch missed and the phase produced no number at all. It is anchored on
+   the clamp's SHAPE now, verified to match exactly once.
+2. **`janktest` measured a THREE-DAY-OLD BUNDLE and never said so.** It spawned
+   `custom-server.mjs` at `NODE_ENV=production` unconditionally.
+   `tools/lib/freshbuild.mjs` exists for exactly this and five harnesses used
+   it; the one instrument built for the owner's four words was not among them.
+3. **`weightshot` photographed the FIRST MOOT'S CARD and captioned it
+   "attacking".** Eight identical frames of "THE FIELD / I AM READY" under sim
+   state reading `attacking / windup / swingT 0.03`. Both true: the sim was
+   swinging, the camera was pointed at a card. Two localStorage keys, the same
+   ones `playtest` has carried for months.
+
+### WHAT THE REPAIRED INSTRUMENTS SAY ABOUT THE LAG
+
+| | |
+|---|---|
+| Server pacing | **CLEAN** — snapshot p99 52.64 ms against a 50 ms target |
+| Wire, as the client sees it | p99 **80.40 ms**, 4 holes |
+| Frames invented from velocity | **9.0%** |
+| Drawn vs asked-for motion | **0.79x** — the client draws SMOOTHER than the wire asks |
+| Draw calls / triangles (high) | **962 / 1,587,285** |
+
+**The interpolator is not the problem and the client-side work is at its
+documented limit.** `anim.ts` already diagnosed this exact thing ("THE JITTER
+EXCEEDS THE BUFFER"), built the adaptive `netJit` term, and measured
+extrapolation from 17.8/14.2/13.5% down to 10.2/10.6/9.6%. Today's 9.0% is
+inside that band. Their own decomposition puts the residual in the wire.
+
+**The unexplored lever is the render cost**: 962 draw calls and 1.59M triangles
+is a great deal of main thread, and a starved main thread is a plausible
+mechanism for a client receiving at p99 80 ms from a server sending at p99 52.
+NOT PROVEN — it wants a real device, and this box has no GPU.
+
+**`react-doctor`: 122 issues, and its four ERRORS are false positives.** All
+four are "effect never cleaned up"; `GameCanvas:616` runs `disposers.reverse()`
+in its return and `factions:255` returns `stop()` + `removeEventListener`. It
+cannot follow closure indirection or the disposer-array pattern. Real and worth
+having: 7 `useRef(new THREE.Vector3())` allocations per render, 8 unchecked
+`fetch` responses, manual rAF instead of `setAnimationLoop`.
+
+### THE CHAIN — variation was half-built and wholly invisible
+
+Four directions, four distinct strokes, directional blocking, parry and riposte
+and a **working** combo multiplier were all already there. `SWINGS` held exactly
+four entries, so a man throwing three right-cuts threw the same animation three
+times: the chain was in the numbers and absent from the man.
+
+`chain.ts` derives the variants by stated rules rather than eight more tables —
+blow one as authored, blow two off the recovery with `shift` INVERTED so he
+steps through, blow three a pivot with the hips taking over what the feet no
+longer can. Grounded in the period: short controlled strokes, weight travelling
+through the man. **Zero engine changes** — `comboCount` was already on the wire.
+
+`tools/chaintest.mjs` 61/61, shown red first (`return base` takes it to 33/61
+with "mean channel delta 0.0000"). `chain.ts` imports nothing, which is why a
+gate can run it at all.
+
+### THE BATTERY, 7 Sep 2026 (later)
+
+`typecheck` `lint` clean · `platformcheck` 6/6 · `wartest` 123/123 · `--prove`
+123/123 · `chaintest` **61/61** · `protocoltest` 85/85 · `weightprobe` 24/24 ·
+`goretest` 35/35 · `soundtest` 46/46 · `cliptime` 19/19 · `shadercheck` 3/3 ·
+`severtest` 25/25 · `portraittest` 10/10 · `armourytest` ok
+
+### STILL OPEN
+
+* **The render cost.** 962 draw calls is the biggest unexamined number in the
+  build and the only remaining candidate for the owner's "laggy" that this box
+  cannot settle.
+* **Input latency is measured by nothing here.** `janktest` says so on its own
+  verdict line. It is half of LAGGY and there is no instrument.
+* **The beard is re-homed to P2**, not fixed — the strands exist in `art/gltf`
+  and the renderer has no loader.
+
 ## LANDED 7 SEP 2026 — one client, and the war fires for the first time
 
 Read `docs/ONE-CLIENT.md` first; it is the ruling and the spec. Two things
