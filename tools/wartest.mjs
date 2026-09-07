@@ -213,6 +213,18 @@ head("2. The purse");
         && Number.isInteger(bankedPoints(man(hand), "moot", true)));
     check("no kind can bank a negative",
       bankedPoints(man({ kills: 0, isWinner: false }), "solo") >= 0);
+
+    // TURNING UP IS WORTH SOMETHING AT EVERY WEIGHT, and this is the check the
+    // discount was quietly breaking. Turnout alone is 2; 2 x 0.3 floors to
+    // zero, so a lone man who turned up and lost banked nothing at all and
+    // classifyMatch dropped his whole match. warflow's alpha-session gate is
+    // what caught it — three solo matches moving the map by nothing.
+    check("turning up banks at least a point at EVERY weight, not just at full",
+      bankedPoints(man({ kills: 0, isWinner: false }), "solo") >= 1
+        && bankedPoints(man({ kills: 0, isWinner: false }), "moot") >= 1,
+      `solo ${bankedPoints(man({ kills: 0, isWinner: false }), "solo")}, moot ${bankedPoints(man({ kills: 0, isWinner: false }), "moot")}`);
+    check("...and nothing is still worth nothing",
+      bankedPoints(null, "solo") === 0 && bankedPoints({ kills: 0 }, "friendly") === 0);
   }
 
   // ---- THE CAP RISES WITH THE BONUS, OR THE BONUS IS A LIE ----
@@ -687,34 +699,44 @@ head("7. The load-bearing rule");
       JSON.stringify(report && report.entries));
   }
 
-  // ---- 7b2. A SOLO ROOM FIGHTS OVER GROUND (docs/ONE-CLIENT.md §5.0) ------
+  // ---- 7b2. WHICH ROOMS HAVE GROUND AT STAKE (docs/ONE-CLIENT.md §5.0) ----
   //
-  // THE GATE THAT WOULD HAVE CAUGHT THE ONE-SITE FIX.
+  // A CORRECTION, KEPT AS ONE. The plan for the solo-banking change claimed it
+  // needed two sites: `classifyMatch`, and `dealGroundFor`, which nulls the
+  // territory on a `mode: "solo"` room. The second was WRONG, and the reason
+  // is worth a gate rather than a commit message.
   //
-  // `dealGroundFor` nulled the territory on any solo room, and `warReport`'s
-  // third gate rejects a report without one. So relaxing the human count alone
-  // — the obvious fix, and the only one the spec's first draft contained —
-  // would have classified a solo match, priced it, and then dropped it for
-  // having nowhere to bank it. Green build, nothing banked, no error anywhere.
-  // Both sites move together or neither does.
+  // `mode: "solo"` is TRAINING — one endless round, pays no gold, and it never
+  // reaches a match end at all. It is not where a lone man fights a real
+  // match. He does that in an ordinary room he adds bots to, and such a room
+  // was NEVER refused a territory. So a training room having no ground is
+  // correct, and these checks say which rooms have one so the claim cannot be
+  // made again from memory.
   {
     const eng = makeEngine({ autoTick: false });
-    const a = open(eng);
-    a.send("solo", { name: "Alfa", difficulty: "warrior" });
-    const code = a.last("join").code;
-    const room = eng._rooms.get(code);
-    check("a solo room is dealt a real territory",
-      !!room && !!territory(room.territoryId),
-      room ? `territoryId=${room.territoryId}` : "no room");
 
-    // And the friendly branch is UNTOUCHED. It is the reason a friendly moot
-    // needs no second rule to stay out of the war: no ground, nothing to bank.
+    const t = open(eng);
+    t.send("solo", { name: "Alone", difficulty: "warrior", botCount: 2, autoStart: true });
+    const troom = eng._rooms.get(t.last("join").code);
+    check("a TRAINING room has no ground at stake — it is not a match",
+      !!troom && troom.territoryId === null,
+      troom ? `territoryId=${troom.territoryId}` : "no room");
+
     const f = open(eng);
     f.send("create", { name: "Bravo", mode: "blood_moot", friendly: true, bestOf: 1 });
     const froom = eng._rooms.get(f.last("join").code);
-    check("a friendly moot still has NO ground at stake — unchanged",
+    check("a friendly moot has no ground at stake either — unchanged",
       !!froom && froom.territoryId === null,
       froom ? `territoryId=${froom.territoryId}` : "no room");
+
+    // AND THE ROOM A LONE MAN ACTUALLY FIGHTS IN DOES have ground — which is
+    // why classifyMatch alone was enough.
+    const r = open(eng);
+    r.send("create", { name: "Ceol", mode: "blood_moot", bestOf: 1 });
+    const rroom = eng._rooms.get(r.last("join").code);
+    check("an ordinary room a lone man adds bots to IS dealt a territory",
+      !!rroom && !!territory(rroom.territoryId),
+      rroom ? `territoryId=${rroom.territoryId}` : "no room");
   }
 
   // ---- 7c. territory never touches a stat --------------------------------

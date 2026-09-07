@@ -214,6 +214,58 @@ async function fight(profileA, profileB) {
   return { end: end?.data, playerA: joinA.data.playerId, playerB: joinB.data.playerId, code: joinA.data.code };
 }
 
+/**
+ * ONE MAN AND HIS BOTS, through the whole live path.
+ *
+ * `fight()` above drives two humans, which is the case that has always banked.
+ * This is the case that never did.
+ *
+ * IT USES `create` + `add_bot`, NOT the `solo` MESSAGE, and the difference is
+ * the whole point. `solo` builds a TRAINING room — one endless round that pays
+ * no gold and never reaches a match end — so a harness built on it waits
+ * ninety seconds and reports that nothing banked, which is true and measures
+ * nothing. A lone man fights a real match in an ordinary room he adds bots to.
+ * That distinction cost a wrong "two sites" claim in the plan; it is spelled
+ * out here so the next harness does not pay for it again.
+ */
+async function soloFight(profile, { difficulty = "warrior", bots = 2 } = {}) {
+  const a = new Fighter("S");
+  await a.open();
+  a.send("create", { name: "Ceolwulf", bestOf: 1 });
+  const join = await a.expect("join");
+  if (profile) {
+    await post("/api/profile/bind", { id: profile.id, secret: profile.secret, playerId: join.data.playerId });
+  }
+  for (let i = 0; i < bots; i++) a.send("add_bot", { difficulty });
+  await sleep(200);
+  a.send("ready");
+  await sleep(200);
+  a.send("start");
+  const endPromise = a.expect("match_end", 90000);
+  // Walk him at the nearest living foe and swing. He does not have to win —
+  // turnout alone is worth points, which is why a lone man banking at all
+  // moves a border over an evening.
+  const swing = setInterval(() => {
+    const st = a.msgs.filter((m) => m.type === "game_state").pop();
+    const me = st?.data?.players?.[join.data.playerId];
+    if (!me || !st?.data?.players) return;
+    const foe = Object.values(st.data.players).find((p) => p.id !== join.data.playerId && p.health > 0);
+    if (!foe) return;
+    const dx = foe.position.x - me.position.x, dz = foe.position.z - me.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    a.send("input", {
+      moveX: dx / d, moveZ: dz / d, rotationY: Math.atan2(dx, dz),
+      sprint: true, attack: d < 2.2, heavyAttack: false, block: false,
+      dodge: false, crouch: false, ability: false, shove: false, attackDir: "right",
+    });
+  }, 100);
+  let end = null;
+  try { end = await endPromise; } catch { /* the gate below reports the silence */ }
+  finally { clearInterval(swing); }
+  a.close();
+  return { end: end?.data, playerId: join.data.playerId, code: join.data.code };
+}
+
 async function main() {
   console.log("[warflow] wiping the war tables and booting");
   sql(`DROP TABLE IF EXISTS war_ledger, war_flips, territories, seasons CASCADE;
@@ -546,6 +598,51 @@ async function main() {
       mid > beforeRetry, `${beforeRetry} -> ${mid}`);
     check("a retried match banks nothing twice, cap or no cap",
       mapTotal() === mid, `${beforeRetry} -> ${mid} -> ${mapTotal()}`);
+
+    // ======================================================================
+    // THE GATE THAT WOULD HAVE CAUGHT IT.
+    //
+    // On 7 Sep 2026 this repository had 79 green war checks and a production
+    // ledger holding TWO rows against EIGHTY-FIVE matches, with no territory
+    // ever flipped. Every one of those checks was correct. Not one of them
+    // asked the question a player asks: I played for an evening — did any of
+    // it count?
+    //
+    // This asks it. A representative alpha session — solo rooms, one human,
+    // ordinary difficulty, driven through the real socket and the real
+    // match-end subscription, which is the path every in-memory check of solo
+    // banking skips. A build where ordinary play banks nothing fails here,
+    // however green everything above it is.
+    //
+    // docs/HANDOVER.md: "a gate green because the case is absent is not a gate."
+    // ======================================================================
+    {
+      const alfred = (await post("/api/profile/new", { name: "Alfred" })).json;
+      await post("/api/war/swear", { id: alfred.id, secret: alfred.secret, people: "briton" });
+      const before = { rows: ledgerRows(), map: mapTotal() };
+
+      const SESSION = 3;
+      let played = 0;
+      for (let i = 0; i < SESSION; i++) {
+        const s = await soloFight(alfred, { difficulty: "warrior", bots: 2 });
+        if (s.end) played++;
+      }
+      check("an alpha session's solo matches actually finish", played === SESSION,
+        `${played} of ${SESSION} reached match_end`);
+
+      const rows = ledgerRows() - before.rows;
+      check("AN EVENING OF ORDINARY SOLO PLAY REACHES THE LEDGER AT ALL",
+        rows > 0, `${rows} new ledger rows after ${SESSION} solo matches — production had 2 rows in 85`);
+
+      const moved = mapTotal() - before.map;
+      check("...and it moved the contest, not just the ledger",
+        moved > 0, `contest moved by ${moved}`);
+
+      const soloRows = Number(sql(
+        "SELECT count(*) FROM war_ledger WHERE kind = 'solo' AND player_id LIKE '%'"));
+      check("those rows are recorded as solo, not mislabelled as moots",
+        soloRows > 0, `${soloRows} solo rows in the ledger`);
+    }
 
     // §5.0's OTHER HALF, end to end: the rows carry their kind, so a retune of
     // the weights is a visible change to future rows and not a silent

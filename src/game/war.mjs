@@ -930,7 +930,24 @@ export function bankedPoints(result, kind, inMoot = false) {
     ? WAR_WEIGHT.solo
     : kind === "moot" ? (inMoot ? WAR_WEIGHT.mootBonus : WAR_WEIGHT.moot) : 0;
   if (!weight) return 0;
-  return Math.max(0, Math.min(bankCap(kind, inMoot), Math.floor(pointsFor(result) * weight)));
+  const raw = pointsFor(result);
+  if (raw <= 0) return 0;
+  // A MAN WHO TOOK THE FIELD BANKS AT LEAST A POINT, and this floor of one is
+  // not a rounding nicety — it is the difference between the change working and
+  // not.
+  //
+  // Found by warflow's alpha-session gate, which is exactly what that gate is
+  // for. Turnout alone is worth 2, and 2 x 0.3 floors to ZERO — so a lone man
+  // who turned up and lost banked nothing, `entries` filtered him out, and
+  // `classifyMatch` returned null. Three solo matches in a row moved the map
+  // by nothing, which is the very condition this whole change exists to end.
+  // At 0.3 a man needed two kills before he banked a single point.
+  //
+  // `wartest` has asserted "turning up is worth something and nothing is worth
+  // nothing" since the purse was written. The discount was quietly breaking it
+  // for every lone man. The weight still decides how MUCH; it no longer decides
+  // WHETHER.
+  return Math.min(bankCap(kind, inMoot), Math.max(1, Math.floor(raw * weight)));
 }
 
 /* --------------------------------------------------------------------------
