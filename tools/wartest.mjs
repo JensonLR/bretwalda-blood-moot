@@ -906,7 +906,7 @@ head("8. The attribution write");
   };
 
   /** A blood moot of `humans` men and `bots` bots, fought to a finish. */
-  const fight = (eng, { humans = 2, bots = 0, mode = "blood_moot" } = {}) => {
+  const fight = (eng, { humans = 2, bots = 0, mode = "blood_moot", difficulty } = {}) => {
     const clients = [];
     const host = open(eng);
     host.send("create", { name: "H", mode, bestOf: 1 });
@@ -917,7 +917,12 @@ head("8. The attribution write");
       g.send("join", { code, name: `G${i}` });
       clients.push(g);
     }
-    for (let i = 0; i < bots; i++) host.send("add_bot", {});
+    // DIFFICULTY RIDES ON `add_bot`, NOT ON `create`. handleCreate never reads
+    // it; room.difficulty is first set by add_bot/set_bots/handleSolo, and with
+    // nothing said it normalises to "warrior". Passing it to create looked like
+    // it worked and set nothing, which is how the recruit case below first came
+    // up banking when it was meant to be refused.
+    for (let i = 0; i < bots; i++) host.send("add_bot", { ...(difficulty ? { difficulty } : {}) });
     clients.forEach((c) => c.send("ready"));
     host.send("start");
     // Three seconds of countdown and three of fighting, so the spawn grace has
@@ -973,20 +978,92 @@ head("8. The attribution write");
       `${m.end.war.matchKey} vs ${again.end.war.matchKey}`);
   }
 
-  // Bots and lone men bank nothing. This is the anti-farm gate: a man alone
-  // with seven recruits could otherwise take Britain overnight.
+  // ---- classifyMatch DIRECTLY, for the cases a real fight cannot cheaply reach
+  //
+  // The engine's own seam (docs/ONE-CLIENT.md §5.1). No socket, no countdown,
+  // no database — a room shape and a results table, which is all the function
+  // reads. The integration-level version of the same rules is the anti-farm
+  // gate below; this is here because "a room with no territory" and "a
+  // difficulty nobody has heard of" are states a real fight will not produce
+  // on request, and they are exactly the states a refusal must survive.
   {
     const eng = makeEngine({ autoTick: false });
-    const solo = fight(eng, { humans: 1, bots: 3 });
-    check("one man and three recruits bank nothing at all",
-      !!solo.end && (solo.end.war === null || solo.end.war === undefined),
-      JSON.stringify(solo.end && solo.end.war));
+    const R = (over) => ({
+      mode: "public", solo: false, friendly: false,
+      matchId: "m1", code: "ROOM", territoryId: TERRITORIES[0].id,
+      difficulty: "warrior", ...over,
+    });
+    const two = [{ id: "p1", name: "A", kills: 2, isWinner: true },
+                 { id: "p2", name: "B", kills: 1, isWinner: false }];
+    const one = [{ id: "p1", name: "A", kills: 2, isWinner: true },
+                 { id: "bot_1", name: "Bot", kills: 1, isWinner: false }];
+
+    check("two humans make a moot", eng.classifyMatch(R(), two)?.kind === "moot");
+    check("one human against warrior bots makes a solo report",
+      eng.classifyMatch(R({ mode: "solo", solo: true }), one)?.kind === "solo");
+    check("one human against RECRUIT bots banks nothing",
+      eng.classifyMatch(R({ mode: "solo", solo: true, difficulty: "recruit" }), one) === null);
+    check("a friendly match banks nothing, whoever is in it",
+      eng.classifyMatch(R({ friendly: true }), two) === null);
+    check("a match with no territory banks nothing",
+      eng.classifyMatch(R({ territoryId: null }), two) === null);
+    check("a match with no matchId banks nothing",
+      eng.classifyMatch(R({ matchId: null }), two) === null);
+    check("an unknown difficulty banks nothing rather than defaulting to pass",
+      eng.classifyMatch(R({ mode: "solo", solo: true, difficulty: "sleepy" }), one) === null,
+      "BOT_SKILL is a map, so an unknown key scores undefined and fails the >= ");
+    check("a room of bots alone banks nothing",
+      eng.classifyMatch(R(), [{ id: "bot_1", name: "B", kills: 9, isWinner: true }]) === null);
+    check("a solo report carries only the human, never the bot",
+      eng.classifyMatch(R({ mode: "solo", solo: true }), one)?.entries.length === 1);
+    check("the solo entry is worth less than the same hand in a moot",
+      eng.classifyMatch(R({ mode: "solo", solo: true }), one).entries[0].points
+        < eng.classifyMatch(R(), two).entries[0].points,
+      `${eng.classifyMatch(R({ mode: "solo", solo: true }), one).entries[0].points} vs ${eng.classifyMatch(R(), two).entries[0].points}`);
+    check("the report names its kind and whether the Moot was sitting",
+      typeof eng.classifyMatch(R(), two).kind === "string"
+        && typeof eng.classifyMatch(R(), two).inMoot === "boolean");
+  }
+
+  // THE ANTI-FARM GATE, REWRITTEN 7 Sep 2026 — and the rule it holds CHANGED.
+  //
+  // It used to read "one man and three bots bank nothing at all", and that was
+  // right when the war's only problem was imagined to be farming. The real
+  // problem turned out to be the opposite one: at 26 players the two-human
+  // rule banked 2 matches out of 85 and no territory ever moved
+  // (docs/ONE-CLIENT.md §2). A lone man banks now.
+  //
+  // THE ANTI-FARM INTENT IS NOT ABANDONED, it is carried by three things
+  // instead of by a refusal — the 0.3 discount, the daily cap, and the skill
+  // floor below. "A man alone with seven recruits could take Britain
+  // overnight" is still false, and these are the checks that say so.
+  {
+    const eng = makeEngine({ autoTick: false });
+
+    const recruits = fight(eng, { humans: 1, bots: 3, difficulty: "recruit" });
+    check("one man and three RECRUITS still bank nothing — the tutorial is not a war",
+      !!recruits.end && !recruits.end.war,
+      JSON.stringify(recruits.end && recruits.end.war));
+
+    const warriors = fight(eng, { humans: 1, bots: 3, difficulty: "warrior" });
+    check("one man and three WARRIORS bank, at the discount",
+      !!warriors.end.war && warriors.end.war.kind === "solo" &&
+      warriors.end.war.entries.length === 1 &&
+      !warriors.end.war.entries[0].playerId.startsWith("bot_"),
+      JSON.stringify(warriors.end.war && warriors.end.war.entries));
 
     const pair = fight(eng, { humans: 2, bots: 2 });
-    check("two men and two recruits bank for the two men only",
-      !!pair.end.war && pair.end.war.entries.length === 2 &&
+    check("two men and two bots bank for the two men only, as a moot",
+      !!pair.end.war && pair.end.war.kind === "moot" && pair.end.war.entries.length === 2 &&
       pair.end.war.entries.every((e) => !e.playerId.startsWith("bot_")),
       JSON.stringify(pair.end.war && pair.end.war.entries.map((e) => e.playerId.slice(0, 4))));
+
+    // THE DISCOUNT IS REAL, MEASURED ON THE SAME ENGINE. A solo entry must be
+    // worth strictly less than a moot entry, or 0.3 is decoration.
+    const soloPts = warriors.end.war.entries[0].points;
+    const mootPts = Math.max(...pair.end.war.entries.map((e) => e.points));
+    check("a solo man's points are worth strictly less than a moot man's",
+      soloPts < mootPts, `solo ${soloPts} vs moot ${mootPts}`);
   }
 
   // Training pays no gold and must not pay the war either.

@@ -36,6 +36,8 @@ declare module "@/game/engine.mjs" {
     /** Say something to every seat in a room from outside the sim. Never throws. */
     tellRoom(roomCode: string, msg: { type: string; data?: unknown }): boolean;
     onMatchEnd(handler: (report: MatchEndReport) => unknown): () => void;
+    /** Test seam: what kind of fight this was, with no socket and no database. */
+    classifyMatch(room: unknown, results: unknown[]): MatchEndReport | null;
   }
   /** The map, as far as the simulation is allowed to know it. */
   export interface WarFront {
@@ -57,6 +59,16 @@ declare module "@/game/engine.mjs" {
     /** `${roomCode}:${matchId}`, minted at match START. The replay guard. */
     matchKey: string;
     territoryId: string;
+    /**
+     * WHAT KIND OF FIGHT THIS WAS, priced by war.mjs rather than by the engine.
+     * "moot" is two or more humans; "solo" is one man against bots worth
+     * beating. A friendly match, and a solo match below the skill floor,
+     * produce no report at all. docs/ONE-CLIENT.md §5.1.
+     */
+    kind: "moot" | "solo";
+    /** Whether it fell inside the Moot's hour. Decides the bonus weight. */
+    inMoot: boolean;
+    /** `points` is what was BANKED — already weighted by `bankedPoints`. */
     entries: WarEntry[];
     at: number;
   }

@@ -22,7 +22,8 @@ import { resolveSolids } from "./solidground.mjs";
 // simulation to have no way of asking. See `warReport` at the foot of
 // `endMatch`, and `tools/wartest.mjs` §7, which holds this engine to it with a
 // wholly conquered map in its hands.
-import { TERRITORIES, territory, pointsFor, dealTerritory } from "./war.mjs";
+import { TERRITORIES, territory, pointsFor, dealTerritory,
+         bankedPoints, WAR_SKILL_FLOOR, inMootWindow } from "./war.mjs";
 import { forgeName, botName } from "./names.mjs";
 import { buildBracket, settle, reportDuel, champion } from "./bracket.mjs";
 
@@ -4578,27 +4579,57 @@ export function makeEngine(options = {}) {
    * about its people in a join message therefore lies to nobody — see
    * `docs/WIRE-PROTOCOL.md` §11.
    */
-  function warReport(room, results) {
-    if (room.mode === "solo" || room.solo) return null;
+  /**
+   * WHAT KIND OF FIGHT THIS WAS. The engine names the situation; `war.mjs`
+   * prices it. An engine that knows what 0.3 means is an engine with a second
+   * opinion about the war, and two opinions is how a ledger stops reconciling.
+   *
+   * THIS USED TO RETURN NULL ON ANY MATCH WITH FEWER THAN TWO HUMANS, and on
+   * 7 Sep 2026 the production ledger was read: 2 rows against 85 matches, and
+   * no territory had changed hands in four weeks. At 26 players, two humans in
+   * one room at one moment is a coincidence rather than an event. The gate was
+   * not wrong — it was starved. docs/ONE-CLIENT.md §2.
+   *
+   * Exported as `classifyMatch` so `tools/wartest.mjs` can hold the
+   * classification without a database and without a socket.
+   */
+  function classifyMatch(room, results) {
+    if (!room) return null;
     // A friendly moot is a fight the war agreed not to watch. No report, ever —
     // the emit site above answers the room with kind "friendly" instead.
     if (room.friendly) return null;
     if (!room.matchId || !territory(room.territoryId)) return null;
-    const humans = results.filter((r) => r && typeof r.id === "string" && !r.id.startsWith("bot_"));
-    if (humans.length < 2) return null;
+
+    const humans = (results || []).filter((r) => r && typeof r.id === "string" && !r.id.startsWith("bot_"));
+    if (humans.length === 0) return null;
+
+    const kind = humans.length >= 2 ? "moot" : "solo";
+    // A WAR THAT CAN BE DRAGGED BY BEATING THE TUTORIAL IS NOT A WAR. The floor
+    // is a SKILL NUMBER, not a difficulty name, because BOT_SKILL is a map and
+    // not an ordering — so an unknown difficulty scores `undefined`, fails the
+    // comparison, and banks nothing, which is the answer we want.
+    if (kind === "solo" && !(BOT_SKILL[room.difficulty] >= WAR_SKILL_FLOOR)) return null;
+
+    const at = wallNow();
+    const inMoot = inMootWindow(at);
     const entries = humans
-      .map((r) => ({ playerId: r.id, name: r.name, points: pointsFor(r) }))
+      .map((r) => ({ playerId: r.id, name: r.name, points: bankedPoints(r, kind, inMoot) }))
       .filter((e) => e.points > 0);
     if (entries.length === 0) return null;
+
     return {
       // Stable for the life of this match and unique across matches: the room
       // code names the room, the match id names the match inside it.
       matchKey: `${room.code}:${room.matchId}`,
       territoryId: room.territoryId,
+      kind,
+      inMoot,
       entries,
-      at: wallNow(),
+      at,
     };
   }
+  function warReport(room, results) { return classifyMatch(room, results); }
+
 
   /** The summary is over. Everything the match left on the room and the men. */
   function resetToLobby(room) {
@@ -5772,6 +5803,7 @@ export function makeEngine(options = {}) {
      * happened and pass. Underscored because no client path may use it.
      */
     _rooms: rooms,
+    classifyMatch,
   };
 
   /**
