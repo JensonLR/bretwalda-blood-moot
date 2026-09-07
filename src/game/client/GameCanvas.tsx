@@ -11,7 +11,7 @@ import GameHud from "./GameHud";
 import { getFeel, sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { setTeamContrast, buildWeaponForClass } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
-import { roundBoundary } from "@/game/roundreset.mjs";
+import { roundBoundary, matchBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
 import { createReplayBuffer, createKillReplay, REPLAY, runUpOf,
   type ReplayPlayer } from "@/game/replay.mjs";
@@ -1094,7 +1094,21 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       // `tools/goretest.mjs`, so what this frame calls a new round and what the
       // harness asserts about one are the same function.
       const phase = { state: roomState.state, roundIndex: roomState.roundIndex ?? 0 };
-      if (roundBoundary(roundPhaseRef.current, phase)) {
+      // AND THE MATCH ENDING, which is the same organ and a different edge.
+      //
+      // From a screenshot of the live game, 7 Sep 2026: blood floating in mid
+      // air on BATTLE COMPLETE. `roundBoundary` fires on the round index going
+      // up or on the edge into `countdown`; `endMatch` goes straight from
+      // `fighting` to `finished`, so it fires on neither and the arena was
+      // never cleaned before the summary staged its TABLEAU — different men,
+      // standing in different places from the ones who just fought.
+      //
+      // The marks on skin are stored in the spine bone's local frame, so each
+      // is redrawn at chest height wherever that bone has got to. On a tableau
+      // it has got somewhere else, or belongs to a man who is not on it. That
+      // is the mid-air blood, and it is the sentence the comment above already
+      // wrote about the other edge.
+      if (roundBoundary(roundPhaseRef.current, phase) || matchBoundary(roundPhaseRef.current, phase)) {
         stage.vfx.clearBattle();
         // The same seam, for the same reason. A new round stands every man up
         // whole; a hold still running on the last round's corpse and a stump

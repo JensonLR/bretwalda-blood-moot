@@ -49,3 +49,33 @@ export function roundBoundary(prev, next) {
   const ps = prev ? prev.state : null;
   return next.state === "countdown" && ps !== "countdown";
 }
+
+/**
+ * THE MATCH ENDING, which `roundBoundary` above deliberately does not catch.
+ *
+ * THE DEFECT, from a screenshot of the live game on 7 Sep 2026: blood floating
+ * in mid air on the BATTLE COMPLETE screen. It is the same organ as the
+ * round-boundary case and a different edge.
+ *
+ * `roundBoundary` fires on the round INDEX going up, or on the edge into
+ * `countdown`. A match ending is neither — `endMatch` sets `finished` straight
+ * out of `fighting` — so `clearBattle` was never called, and the summary then
+ * stages a TABLEAU: different men, standing in different places from the ones
+ * who just fought.
+ *
+ * The blood does not know that. `vfx.ts` stores marks on skin in the LOCAL
+ * FRAME OF THE SPINE BONE, so each one is redrawn at chest height wherever that
+ * bone has got to — and on a tableau the bone has got somewhere else entirely,
+ * or belongs to a man who is not on it. That is the mid-air blood, and it is
+ * the same sentence the round-boundary comment in `GameCanvas.tsx` already
+ * wrote about the other edge.
+ *
+ * Separate from `roundBoundary` rather than folded into it, because that
+ * function is shared with `tools/goretest.mjs` and its meaning — "a new round
+ * is being dealt" — is not this one. Two edges, two names.
+ */
+export function matchBoundary(prev, next) {
+  if (!next) return false;
+  const ps = prev ? prev.state : null;
+  return next.state === "finished" && ps !== "finished";
+}

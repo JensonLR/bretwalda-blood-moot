@@ -78,7 +78,7 @@ import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import * as THREE from "three";
 import { getEngine } from "../src/game/engine.mjs";
-import { roundBoundary } from "../src/game/roundreset.mjs";
+import { roundBoundary, matchBoundary } from "../src/game/roundreset.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".goretest");
@@ -315,7 +315,10 @@ function replay({ blind = false, load = false, tier = TIER, fps = 60 } = {}) {
     const players = room.players || {};
 
     // ---- the seam. One predicate, shared with GameCanvas.tsx.
-    if (roundBoundary(prevRoom, room) && !blind) stage.vfx.clearBattle();
+    // BOTH EDGES, exactly as GameCanvas does them — a harness that models the
+    // client with one of the two is a harness that cannot see the defect the
+    // other one causes.
+    if ((roundBoundary(prevRoom, room) || matchBoundary(prevRoom, room)) && !blind) stage.vfx.clearBattle();
     prevRoom = room;
 
     // ---- bodies where the wire says they are
@@ -1126,5 +1129,35 @@ check("the lens film only ever TAKES light away — no glow, per DESIGN-SYSTEM �
   subtractive ? "Beer-Lambert absorption, nothing added" : "something in the lens block adds light to the frame");
 
 const failed = results.filter((r) => !r.pass);
+// ---- THE MATCH ENDING IS AN EDGE TOO (7 Sep 2026) -------------------------
+//
+// From a screenshot of the LIVE game: blood floating in mid air on BATTLE
+// COMPLETE. `roundBoundary` fires on the round index going up or on the edge
+// into `countdown`; `endMatch` goes straight from `fighting` to `finished`, so
+// it fires on NEITHER — and the arena was never cleaned before the summary
+// staged a tableau of different men in different places. The marks on skin are
+// held in the spine bone's local frame, so they redraw at chest height wherever
+// that bone has got to.
+//
+// Two edges, two functions, and both are asserted here so the next person to
+// touch either finds out.
+{
+  const F = (state, roundIndex = 0) => ({ state, roundIndex });
+  check("a match ending IS a match boundary",
+    matchBoundary(F("fighting"), F("finished")) === true);
+  check("...and is NOT a round boundary — which is why the blood floated",
+    roundBoundary(F("fighting"), F("finished")) === false);
+  check("a match boundary fires ONCE, not every frame of the summary",
+    matchBoundary(F("finished"), F("finished")) === false);
+  check("an intermission is neither — the round boundary takes the next countdown",
+    matchBoundary(F("fighting"), F("intermission")) === false
+    && roundBoundary(F("fighting"), F("intermission")) === false);
+  check("a fresh round is still a ROUND boundary and not a match one",
+    roundBoundary(F("intermission", 0), F("countdown", 1)) === true
+    && matchBoundary(F("intermission", 0), F("countdown", 1)) === false);
+  check("a null previous phase does not throw at either",
+    matchBoundary(null, F("finished")) === true && roundBoundary(null, F("countdown")) === true);
+}
+
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 process.exit(failed.length ? 1 : 0);
