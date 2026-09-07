@@ -37,6 +37,18 @@ const OUT = resolve(ROOT, ".authored");
 const PORT = 3971;
 const CLASS = (process.argv.find((a) => a.startsWith("--class=")) || "--class=huscarl").split("=")[1];
 
+/**
+ * WHAT THE PICKER CALLS HIM, which is not always his class id.
+ *
+ * `src/app/page.tsx`: "RUNEKEEPER became WRECCA — a name a player reads is
+ * allowed to change". The asset, the engine and the wire all still say
+ * `runekeeper`, so a harness that clicks on the id waits three minutes for a
+ * button that does not exist. Mapped here rather than matched loosely: a
+ * substring match on a class grid is how you click the wrong man.
+ */
+const PICKER_LABEL = { runekeeper: "WRECCA" };
+const LABEL = (PICKER_LABEL[CLASS] ?? CLASS).toUpperCase();
+
 let failed = false;
 const say = (s) => console.log(s);
 const good = (s) => say(`  PASS  ${s}`);
@@ -73,7 +85,7 @@ async function shoot(browser, query, file) {
   await page.getByText("CREATE BATTLE", { exact: false }).first().click();
   await page.getByText("BLOOD MOOT", { exact: false }).first().click();
   await page.getByText("CREATE ROOM", { exact: false }).first().click();
-  await page.getByText(CLASS.toUpperCase(), { exact: false }).first().click();
+  await page.getByText(LABEL, { exact: false }).first().click();
   const stage = page.locator("canvas").first();
   await stage.waitFor({ state: "visible", timeout: 120000 });
   // A software rasteriser drawing a 400 px man at `high`, plus 1.6 MB to fetch
