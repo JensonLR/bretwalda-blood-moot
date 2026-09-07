@@ -208,6 +208,20 @@ export const warLedger = pgTable("war_ledger", {
   territoryId: text("territory_id").notNull(),
   points: integer("points").notNull(),
   /**
+   * HOW THIS POINT WAS EARNED — "moot" (two or more humans) or "solo" (one man
+   * against bots worth beating). `points` above is what was BANKED, already
+   * weighted by `war.mjs`'s `bankedPoints`.
+   *
+   * The column exists so that retuning the solo discount is VISIBLE rather than
+   * invisible. A retune changes future banking and leaves history alone, and
+   * without this nobody could tell which rows were priced under which weight —
+   * the ledger would silently mix two economies and still add up.
+   *
+   * The default backfills correctly: the two rows that existed when this landed
+   * (7 Sep 2026) were both two-human matches. docs/ONE-CLIENT.md §5.3.
+   */
+  kind: text("kind").notNull().default("moot"),
+  /**
    * THE SECOND ATTRIBUTION KEY — backlog 4.4. Read off the profile's hearth
    * at bank time, never off the wire, exactly as `people` is. Nullable: most
    * men fight for no house, and a null here is that fact, not a default.

@@ -1,3 +1,12 @@
+CREATE TABLE "hearths" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"people" text NOT NULL,
+	"standard" text,
+	"founder_id" integer NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "legacy_claims" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"fingerprint" text NOT NULL,
@@ -32,6 +41,7 @@ CREATE TABLE "players" (
 	"wins" integer DEFAULT 0 NOT NULL,
 	"matches" integer DEFAULT 0 NOT NULL,
 	"favorite_class" text DEFAULT 'warden' NOT NULL,
+	"hearth_id" integer,
 	"cosmetics" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"unlocked_cosmetics" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"bindings" jsonb,
@@ -40,6 +50,7 @@ CREATE TABLE "players" (
 	"allegiance" text,
 	"sworn_at" timestamp,
 	"bretwalda_seasons" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"steam_id" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -84,11 +95,15 @@ CREATE TABLE "war_ledger" (
 	"people" text NOT NULL,
 	"territory_id" text NOT NULL,
 	"points" integer NOT NULL,
+	"kind" text DEFAULT 'moot' NOT NULL,
+	"hearth_id" integer,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX "hearths_people_idx" ON "hearths" USING btree ("people");--> statement-breakpoint
 CREATE UNIQUE INDEX "legacy_claims_fingerprint_idx" ON "legacy_claims" USING btree ("fingerprint");--> statement-breakpoint
 CREATE INDEX "legacy_claims_player_idx" ON "legacy_claims" USING btree ("player_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "players_steam_id_idx" ON "players" USING btree ("steam_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "players_recovery_code_idx" ON "players" USING btree ("recovery_code");--> statement-breakpoint
 CREATE UNIQUE INDEX "seasons_index_idx" ON "seasons" USING btree ("index");--> statement-breakpoint
 CREATE UNIQUE INDEX "seasons_one_running_idx" ON "seasons" USING btree ("state") WHERE "seasons"."state" = 'running';--> statement-breakpoint

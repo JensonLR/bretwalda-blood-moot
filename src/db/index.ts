@@ -370,6 +370,10 @@ async function ensureSchema(db: Db): Promise<boolean> {
     // list in src/game/standards.mjs, or null. Same idempotent route.
     await db.execute(sql`ALTER TABLE hearths ADD COLUMN IF NOT EXISTS standard text`);
     await db.execute(sql`ALTER TABLE war_ledger ADD COLUMN IF NOT EXISTS hearth_id integer`);
+    // How the point was earned — "moot" or "solo". The default is correct for
+    // every row that predates it: nothing but a two-human match could bank
+    // before 7 Sep 2026. docs/ONE-CLIENT.md §5.3.
+    await db.execute(sql`ALTER TABLE war_ledger ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'moot'`);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS war_ledger_season_hearth_idx
         ON war_ledger (season_id, hearth_id) WHERE hearth_id IS NOT NULL`);
