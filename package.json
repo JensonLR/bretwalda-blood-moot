@@ -83,6 +83,7 @@
     "helmrungs": "node tools/helmrungs.mjs",
     "rekeyprobe": "node tools/rekeyprobe.mjs",
     "chaintest": "node tools/chaintest.mjs",
+    "swingstrip": "node tools/swingstrip.mjs",
     "gltftest": "node tools/gltftest.mjs",
     "authoredtest": "node tools/authoredtest.mjs",
     "authoredshot": "node tools/authoredshot.mjs",

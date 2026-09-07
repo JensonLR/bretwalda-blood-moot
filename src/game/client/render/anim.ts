@@ -83,7 +83,7 @@ import {
 import { getHandedness, subscribeHandedness } from "../input";
 import type { MaterialLibrary } from "./materials";
 import type { FrameContext, QualitySettings } from "./quality";
-import { SWINGS, chainSwing, type Key, type Swing } from "./chain";
+import { SWINGS, chainSwing, heavySwing, type Key, type Swing } from "./chain";
 
 /**
  * The one material every warrior's shadow proxy shares. It writes NOTHING —
@@ -302,6 +302,33 @@ export interface WarriorRig {
   readonly shield?: THREE.Group;
   /** Distance from fist to weapon tip, measured once. Where trails are emitted. */
   readonly reach: number;
+  /**
+   * WHERE THE BLADE WAS LAST FRAME, unwrapped — the only mutable field on this
+   * interface, and it is here rather than on `WarriorMotion` because it is a
+   * property of the weapon's pose and not of the man's intent.
+   *
+   * `applyPose` solves the wrist out of an ABSOLUTE blade pitch, and an angle
+   * solved on its own each frame has to pick which turn of the circle it means.
+   * Picking the turn nearest the carry line is what shipped, and it is not
+   * continuous: as the aim sweeps, the nearest branch flips and the solve jumps
+   * a whole turn, which the envelope then resolves by slamming the blade onto
+   * the opposite limit. Measured on a huscarl's light overhead, two adjacent
+   * frames at 60 fps:
+   *
+   *     f=0.474  wrist 2.612  tip [-0.67, 0.46, -0.31]   (behind him, low)
+   *     f=0.490  wrist 0.312  tip [ 0.55, 0.70,  1.18]   (in front of him)
+   *
+   * The blade was behind the man and then it was past him. It never crossed the
+   * space between, which is the space the man he is hitting is standing in — so
+   * on the game's most-thrown attack there was no contact frame at all. Sampled
+   * at 240 Hz the same jump reports 403 m/s, and a speed that climbs with the
+   * sample rate is not a speed, it is a discontinuity.
+   *
+   * Holding the branch nearest to LAST FRAME'S solve instead makes it
+   * continuous by construction. Null between swings, so each blow starts from
+   * the carry rather than inheriting the last one's turn.
+   */
+  wristRef: number | null;
   /**
    * Where the off fist sits in the forearm bone's frame. The huscarl's shield is
    * hung off this rather than off a tuned constant — see `SHIELD_GRIP_Z`.
@@ -895,6 +922,7 @@ export function createWarriorRig(
     offhand,
     shield,
     reach,
+    wristRef: null,
     offGrip,
     gripPitch,
     headTop: crown > 0.5 ? crown : 2.0,
@@ -991,6 +1019,17 @@ const SHIELD_GRIP_Z = 0.04;
  * angles legitimately live outside them, because a spear stood upright against
  * the shoulder is the arm's doing and not the wrist's.
  */
+/**
+ * How fast the wrist may turn the blade, in radians a second.
+ *
+ * 26 rad/s is about 1500 degrees a second, which is at the top of what a hand
+ * does in a strike and well under what the envelope's two limits are 2.30 rad
+ * apart — so a blade crossing the whole band takes about five frames at 60 fps
+ * rather than one. It exists to make the solve CONTINUOUS (see `applyPose`);
+ * that it is also a true statement about a wrist is why it is a rate and not a
+ * smoothing constant.
+ */
+const WRIST_RATE = 26;
 const WRIST_BACK = 1.55;
 const WRIST_FWD = 0.75;
 /**
@@ -1656,6 +1695,14 @@ export function settleDeath(motion: WarriorMotion, t: number): void {
   // else. A portrait is one frame and owes nothing to the frame before it.
   motion.blend = 0;
 }
+
+/**
+ * The dt of the frame being posed. Module scope because `applyPose` is the last
+ * stage of a synchronous, one-rig-at-a-time pass and threading a second clock
+ * through four call sites to reach it would say less than this comment does.
+ * Only `WRIST_RATE` reads it.
+ */
+let POSE_DT = 1 / 60;
 
 const P: Pose = { ...ZERO };
 const CHANNELS = Object.keys(ZERO) as (keyof Pose)[];
@@ -2837,8 +2884,18 @@ function gaitLayer(motion: WarriorMotion, speed: number, legLen: number, dt: num
 
 /** Load, release, follow through — and, if it was heavy, pay for it. */
 function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, w: number, combo = 1): void {
-  const s = chainSwing(SWINGS[dir] ?? SWINGS.right, combo);
-  const gain = 1 + heavy * 0.24;
+  // THE CHAIN FIRST, THEN THE COMMITMENT. `chainSwing` says which blow of a
+  // combination this is; `heavySwing` says how hard it is being thrown. Both
+  // are shapes, and they compose: the second blow of a chain thrown heavy is
+  // the step-through with a committed load on it.
+  const s = heavySwing(chainSwing(SWINGS[dir] ?? SWINGS.right, combo), heavy, dir);
+  // 0.06, DOWN FROM 0.24. That constant used to BE the heavy attack — every
+  // channel multiplied, which traces the same curve on a bigger sheet of paper
+  // and measured 0.039 of shape difference against a 0.10 bar (see
+  // `heavySwing`). The table now carries the difference; what is left here is a
+  // little residual size for the channels the table does not touch, so the
+  // blow is a shade bigger as well as a different shape.
+  const gain = 1 + heavy * 0.06;
 
   P.pry += link(ph, 0.16, s.pry, false) * gain * w;
   P.prx += link(ph, 0.14, s.prx, false) * gain * w;
@@ -2890,9 +2947,26 @@ function attackLayer(dir: string, ph: number, heavy: number, shielded: boolean, 
     //
     // Held a shade wider than the block, so it stays on his shield side rather
     // than parking on his sternum, which is where his own blade has to cross.
-    P.olx += (0.34 - arx * 0.07) * w;
-    P.olz += (0.14 - arz * 0.09) * w;
-    P.olb += (-0.78 - arb * 0.05) * w;
+    //
+    // AND ON A HEAVY THE BOARD SWINGS OUT OF THE WAY, which is the cost of a
+    // committed blow and the whole reason to fear one.
+    //
+    // A light cut is thrown from BEHIND the shield: the sentence above is the
+    // rule for it and it is right. A full stroke is not — you cannot put a
+    // trunk turn and a weight transfer through a blow while the other arm holds
+    // a board across your chest, and a man in a shield wall who tries it opens
+    // himself to the man opposite. `heavy` is the animator's own 0..1 ease into
+    // the commitment, so the guard gives way with the load rather than snapping
+    // aside on the frame the wire says "heavy", and it comes back as he
+    // recovers.
+    //
+    // This is a READ before it is a rule: the tell for a heavy is now the board
+    // dropping, half a second before the blade arrives, and it is visible from
+    // the front — which the trunk and the footwork are not.
+    const open = heavy * 0.9;
+    P.olx += ((0.34 - arx * 0.07) * (1 - open) + (0.20 + arx * 0.34) * open) * w;
+    P.olz += ((0.14 - arz * 0.09) * (1 - open) + (-0.95 - arz * 0.26) * open) * w;
+    P.olb += ((-0.78 - arb * 0.05) * (1 - open) + (-0.22 + arb * 0.34) * open) * w;
   } else {
     // The off arm is a counterweight, not a passenger — and a counterweight on a
     // straight arm is a sandbag on a rope. It folds hardest where the weapon arm
@@ -4628,6 +4702,11 @@ export function poseWarrior(
   ctx: FrameContext,
   hooks?: AnimHooks,
 ): void {
+  // The frame's clock, for the one stage that needs a rate rather than a curve.
+  // See `POSE_DT`. Clamped, because a tab that was in the background hands the
+  // first frame back a dt of several seconds and a rate limit multiplied by it
+  // is not a limit.
+  POSE_DT = Math.min(0.05, Math.max(1 / 240, dt));
   const piv = rig.pivots;
   const t = ctx.time;
   const body = STANCE[rig.warriorClass] ?? STANCE.warden;
@@ -5073,7 +5152,34 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   const carry = wrapPi(base + P.wx);
   const want = mix(carry, Math.min(P.wa / (P.waw || 1), floor), clamp01(P.waw)) - base;
   const solved = clamp(want + TAU * Math.round((inLine - want) / TAU), inLine - WRIST_BACK, inLine + WRIST_FWD);
-  const wrist = P.waw > 1e-4 ? solved : P.wx;
+  // A WRIST HAS A TOP SPEED, and this is the whole of the repair.
+  //
+  // The branch above is chosen fresh each frame — nearest the carry line — and
+  // that is the right way to choose an ORIENTATION. It is not continuous. As
+  // the aim sweeps, the request leaves the envelope on one side and re-enters
+  // on the other, and the clamp resolves it by putting the blade on the far
+  // limit in a single frame. See `WarriorRig.wristRef` for the two frames that
+  // found it: the tip was 0.31 m behind the man and then 1.18 m in front of
+  // him, so on the game's most-thrown attack there was no contact frame at all.
+  //
+  // Rate-limiting is continuous by construction and it is also true: a wrist
+  // cannot cross 132° instantly. It keeps the cocked windup, because the
+  // request is out of range on the forward side for the whole load and the
+  // blade simply sits at the limit — and then it TRAVELS to the other limit
+  // over about five frames instead of jumping, which is the sweep through the
+  // man that a blow is supposed to be made of.
+  // AND THE HAND-BACK IS RATE-LIMITED TOO. The aim's authority falls away as
+  // the swing recovers, and handing the blade straight back to the class carry
+  // angle on the frame it crosses zero is the same discontinuity at the other
+  // end of the stroke — `swingstrip` found it at f=0.59, in the recovery, at
+  // 80 m/s. There is one target and one rate, and the target is whatever has
+  // the say this frame.
+  const aiming = P.waw > 1e-4;
+  const target = aiming ? solved : P.wx;
+  const prev = rig.wristRef;
+  const step = WRIST_RATE * POSE_DT;
+  const wrist = prev === null ? target : prev + clamp(target - prev, -step, step);
+  rig.wristRef = wrist;
   // What the corpse dropped. A weapon that left with the arm holding it now
   // lives under a piece of body somewhere else in the scene, and writing a carry
   // angle onto it every frame would spin an axe about a fist that is no longer

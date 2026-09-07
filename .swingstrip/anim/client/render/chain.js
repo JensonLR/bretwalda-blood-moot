@@ -10,120 +10,75 @@
  * The types live here rather than in `anim.ts` for the same reason — a gate
  * that builds a `Swing` needs the shape.
  */
-
-export type Key = readonly [number, number, number];
-
-export interface Swing {
-  arx: Key; arz: Key;
-  /**
-   * The elbow, and the link the swing was missing. Folded at the load, near
-   * straight at the moment of contact, gathered back in on the follow through:
-   * a blade that arrives on a straight arm arrives with the whole body behind
-   * it, and one that never folded never gathered anything to arrive with.
-   */
-  arb: Key;
-  crx: Key; cry: Key;
-  prx: Key; pry: Key;
-  py: Key; pz: Key;
-  /** Front foot (off side) and back foot (weapon side). */
-  front: Key; back: Key;
-  /**
-   * The knees under them. The back one coils and drives; the front one takes
-   * the weight at impact and bends under it — which through `settleOnFeet`
-   * drops the whole man onto the blow instead of leaving him level over it.
-   */
-  frontB: Key; backB: Key;
-  /**
-   * Which foot the man is standing on: −1 the back foot, +1 the front.
-   *
-   * Everything else in this table lives in the sagittal plane, and a camera in
-   * front of a warrior — which is `stance`, `portrait` and half of `brawl` —
-   * projects the whole of that plane onto nothing. A swing with no frontal
-   * content is a mannequin from the front however loaded it is from the side.
-   * This is the term that reads there: the pelvis rides over the loaded foot,
-   * the free hip drops off it and the shoulders stack back the other way, so
-   * the hip line and the shoulder line disagree by something an eye can see.
-   */
-  shift: Key;
-  /** Absolute blade pitch through the strike; see `Pose.wa`. */
-  aim: Key;
-  /** Blade lag about the arc — trails on the load, whips past on release. */
-  wz: Key;
-  /** Slide along the shaft, for a thrust. */
-  wy: Key;
-}
-
 // Four attacks, each a body throwing a weapon rather than an arm waving one.
-export const SWINGS: Record<string, Swing> = {
-  overhead: {
-    // The elbow was folded to its anatomical stop at the top of this, on the
-    // reasoning that a hard fold is what makes an overhead read as an overhead.
-    // It is not, and the geometry says why: the shoulder already has the upper
-    // arm pointing up and *back*, so folding from there swings the forearm back
-    // down and buries the fist at the hip. Measured on the built rig the old
-    // load put the sword point at shoulder height aimed at the enemy and the
-    // "impact" put it 2.69 m in the air. The fold here is the 60° a raised arm
-    // actually keeps, and the arm extends through the blow instead of gathering.
-    arx: [2.78, -0.35, 0.06], arz: [0.30, -0.06, 0.14],
-    arb: [-0.39, 0.54, -0.20],
-    crx: [-0.28, 0.34, 0.07], cry: [0.50, -0.46, 0.02],
-    prx: [-0.11, 0.17, 0.01], pry: [0.26, -0.30, 0.03],
-    py: [0.025, -0.03, -0.01], pz: [-0.06, 0.15, 0.02],
-    front: [-0.06, -0.44, -0.13], back: [0.14, 0.22, 0.08],
-    frontB: [0.22, 0.64, 0.28], backB: [0.52, 0.14, 0.22],
-    shift: [-0.85, 1.00, 0.30],
-    aim: [-1.00, 1.98, 1.85], wz: [0, 0, 0], wy: [0, 0, 0],
-  },
-  // Forehand: cocked out on the weapon side, then dragged across the body. The
-  // arm reaches forward as it crosses rather than sweeping flat through the
-  // chest, because a hand that crosses the centreline at rib height on a
-  // straight arm takes the whole humerus through the mail with it. With an
-  // elbow the fold does that job properly — the hand can come inside the ribs
-  // while the shoulder stays out where a shoulder lives.
-  right: {
-    arx: [1.06, -0.26, 0.06], arz: [0.86, -0.50, 0.15],
-    arb: [-0.39, 0.44, -0.30],
-    crx: [-0.06, 0.17, 0.04], cry: [0.48, -0.50, 0.02],
-    prx: [0, 0.07, 0], pry: [0.24, -0.28, 0.03],
-    py: [0.012, -0.035, -0.01], pz: [-0.04, 0.11, 0.02],
-    front: [-0.09, -0.30, -0.11], back: [0.15, 0.22, 0.08],
-    frontB: [0.18, 0.54, 0.26], backB: [0.46, 0.14, 0.22],
-    shift: [-0.70, 0.95, 0.28],
-    aim: [2.20, 1.80, 2.00], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
-  },
-  // Backhand: wound behind the hip, then whipped out and away. Wound *behind*
-  // and not across, for the same reason — the shoulder clears its own ribcage
-  // going back, and does not going over.
-  left: {
-    arx: [1.02, -0.22, 0.06], arz: [-0.34, 0.72, 0.15],
-    arb: [-0.29, 0.40, -0.30],
-    crx: [0, 0.13, 0.04], cry: [-0.48, 0.44, 0.02],
-    prx: [0, 0.05, 0], pry: [-0.20, 0.28, 0.03],
-    py: [0.012, -0.03, -0.01], pz: [-0.03, 0.09, 0.02],
-    front: [-0.10, -0.28, -0.11], back: [0.14, 0.20, 0.08],
-    frontB: [0.18, 0.50, 0.26], backB: [0.44, 0.13, 0.22],
-    shift: [-0.60, 0.90, 0.28],
-    aim: [2.15, 1.75, 1.95], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
-  },
-  // Thrust: coil, then the whole body behind the point. The deepest fold of the
-  // four and the straightest arm at contact, which is what a thrust *is*.
-  stab: {
-    arx: [0.71, -1.02, 0.06], arz: [0.24, -0.03, 0.13],
-    arb: [-0.94, 0.56, -0.30],
-    crx: [-0.12, 0.16, 0.03], cry: [0.46, -0.42, 0.02],
-    prx: [-0.04, 0.09, 0], pry: [0.28, -0.32, 0.03],
-    py: [0.012, -0.03, -0.01], pz: [-0.10, 0.28, 0.04],
-    front: [-0.08, -0.42, -0.13], back: [0.14, 0.22, 0.08],
-    frontB: [0.22, 0.66, 0.30], backB: [0.54, 0.12, 0.22],
-    shift: [-0.75, 1.05, 0.36],
-    aim: [1.30, 1.68, 1.86], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
-  },
+export const SWINGS = {
+    overhead: {
+        // The elbow was folded to its anatomical stop at the top of this, on the
+        // reasoning that a hard fold is what makes an overhead read as an overhead.
+        // It is not, and the geometry says why: the shoulder already has the upper
+        // arm pointing up and *back*, so folding from there swings the forearm back
+        // down and buries the fist at the hip. Measured on the built rig the old
+        // load put the sword point at shoulder height aimed at the enemy and the
+        // "impact" put it 2.69 m in the air. The fold here is the 60° a raised arm
+        // actually keeps, and the arm extends through the blow instead of gathering.
+        arx: [2.78, -0.35, 0.06], arz: [0.30, -0.06, 0.14],
+        arb: [-0.39, 0.54, -0.20],
+        crx: [-0.28, 0.34, 0.07], cry: [0.50, -0.46, 0.02],
+        prx: [-0.11, 0.17, 0.01], pry: [0.26, -0.30, 0.03],
+        py: [0.025, -0.03, -0.01], pz: [-0.06, 0.15, 0.02],
+        front: [-0.06, -0.44, -0.13], back: [0.14, 0.22, 0.08],
+        frontB: [0.22, 0.64, 0.28], backB: [0.52, 0.14, 0.22],
+        shift: [-0.85, 1.00, 0.30],
+        aim: [-1.00, 1.98, 1.85], wz: [0, 0, 0], wy: [0, 0, 0],
+    },
+    // Forehand: cocked out on the weapon side, then dragged across the body. The
+    // arm reaches forward as it crosses rather than sweeping flat through the
+    // chest, because a hand that crosses the centreline at rib height on a
+    // straight arm takes the whole humerus through the mail with it. With an
+    // elbow the fold does that job properly — the hand can come inside the ribs
+    // while the shoulder stays out where a shoulder lives.
+    right: {
+        arx: [1.06, -0.26, 0.06], arz: [0.86, -0.50, 0.15],
+        arb: [-0.39, 0.44, -0.30],
+        crx: [-0.06, 0.17, 0.04], cry: [0.48, -0.50, 0.02],
+        prx: [0, 0.07, 0], pry: [0.24, -0.28, 0.03],
+        py: [0.012, -0.035, -0.01], pz: [-0.04, 0.11, 0.02],
+        front: [-0.09, -0.30, -0.11], back: [0.15, 0.22, 0.08],
+        frontB: [0.18, 0.54, 0.26], backB: [0.46, 0.14, 0.22],
+        shift: [-0.70, 0.95, 0.28],
+        aim: [2.20, 1.80, 2.00], wz: [0.42, -0.36, 0], wy: [0, 0, 0],
+    },
+    // Backhand: wound behind the hip, then whipped out and away. Wound *behind*
+    // and not across, for the same reason — the shoulder clears its own ribcage
+    // going back, and does not going over.
+    left: {
+        arx: [1.02, -0.22, 0.06], arz: [-0.34, 0.72, 0.15],
+        arb: [-0.29, 0.40, -0.30],
+        crx: [0, 0.13, 0.04], cry: [-0.48, 0.44, 0.02],
+        prx: [0, 0.05, 0], pry: [-0.20, 0.28, 0.03],
+        py: [0.012, -0.03, -0.01], pz: [-0.03, 0.09, 0.02],
+        front: [-0.10, -0.28, -0.11], back: [0.14, 0.20, 0.08],
+        frontB: [0.18, 0.50, 0.26], backB: [0.44, 0.13, 0.22],
+        shift: [-0.60, 0.90, 0.28],
+        aim: [2.15, 1.75, 1.95], wz: [-0.36, 0.40, 0], wy: [0, 0, 0],
+    },
+    // Thrust: coil, then the whole body behind the point. The deepest fold of the
+    // four and the straightest arm at contact, which is what a thrust *is*.
+    stab: {
+        arx: [0.71, -1.02, 0.06], arz: [0.24, -0.03, 0.13],
+        arb: [-0.94, 0.56, -0.30],
+        crx: [-0.12, 0.16, 0.03], cry: [0.46, -0.42, 0.02],
+        prx: [-0.04, 0.09, 0], pry: [0.28, -0.32, 0.03],
+        py: [0.012, -0.03, -0.01], pz: [-0.10, 0.28, 0.04],
+        front: [-0.08, -0.42, -0.13], back: [0.14, 0.22, 0.08],
+        frontB: [0.22, 0.66, 0.30], backB: [0.54, 0.12, 0.22],
+        shift: [-0.75, 1.05, 0.36],
+        aim: [1.30, 1.68, 1.86], wz: [0, 0, 0], wy: [-0.04, 0.13, 0],
+    },
 };
-
 /* --------------------------------------------------------------------------
    THE CHAIN — what the second blow looks like, and the third
    -------------------------------------------------------------------------- */
-
 /**
  * A BLOW IN A CHAIN IS NOT THE SAME BLOW AGAIN.
  *
@@ -171,11 +126,8 @@ export const SWINGS: Record<string, Swing> = {
  * blade has not.
  */
 export const CHAIN_STEPS = 3;
-
 /** Scale one [load, release, settle] triple per phase. */
-const rekey = (k: Key, load: number, release: number, settle: number): Key =>
-  [k[0] * load, k[1] * release, k[2] * settle] as const;
-
+const rekey = (k, load, release, settle) => [k[0] * load, k[1] * release, k[2] * settle];
 /**
  * The stroke this blow of the chain should draw.
  *
@@ -185,48 +137,46 @@ const rekey = (k: Key, load: number, release: number, settle: number): Key =>
  * addition to the vocabulary and must never be the thing a lone blow falls
  * back to.
  */
-export function chainSwing(base: Swing, combo: number): Swing {
-  const step = Math.min(CHAIN_STEPS, Math.max(1, Math.floor(combo || 1)));
-  if (step <= 1) return base;
-
-  if (step === 2) {
-    // OFF THE RECOVERY. Load cut to a third, release carried further, and the
-    // weight crossing to the other foot rather than rocking back onto its own.
+export function chainSwing(base, combo) {
+    const step = Math.min(CHAIN_STEPS, Math.max(1, Math.floor(combo || 1)));
+    if (step <= 1)
+        return base;
+    if (step === 2) {
+        // OFF THE RECOVERY. Load cut to a third, release carried further, and the
+        // weight crossing to the other foot rather than rocking back onto its own.
+        return {
+            ...base,
+            arx: rekey(base.arx, 0.34, 1.14, 1), arz: rekey(base.arz, 0.38, 1.12, 1),
+            arb: rekey(base.arb, 0.44, 1.10, 1),
+            crx: rekey(base.crx, 0.5, 1.15, 1), cry: rekey(base.cry, 0.55, 1.12, 1),
+            prx: rekey(base.prx, 0.5, 1.05, 1), pry: rekey(base.pry, 0.6, 1.08, 1),
+            py: rekey(base.py, 0.4, 1.2, 1), pz: rekey(base.pz, 0.5, 1.25, 1),
+            // The feet swap roles: what was the back foot drives, and the front one
+            // steps past. This is the term a camera in front of him actually reads.
+            front: rekey(base.front, 0.3, 1.35, 1), back: rekey(base.back, 0.35, 1.30, 1),
+            frontB: rekey(base.frontB, 0.45, 1.20, 1), backB: rekey(base.backB, 0.4, 1.25, 1),
+            // THE STEP THROUGH. Negated, not scaled: he ends on the other foot.
+            shift: [-base.shift[0] * 0.55, -base.shift[1] * 0.85, -base.shift[2] * 0.6],
+            wz: rekey(base.wz, 0.5, 1.15, 1),
+        };
+    }
+    // THE PIVOT. He has run out of forward; the body turns.
     return {
-      ...base,
-      arx: rekey(base.arx, 0.34, 1.14, 1), arz: rekey(base.arz, 0.38, 1.12, 1),
-      arb: rekey(base.arb, 0.44, 1.10, 1),
-      crx: rekey(base.crx, 0.5, 1.15, 1), cry: rekey(base.cry, 0.55, 1.12, 1),
-      prx: rekey(base.prx, 0.5, 1.05, 1), pry: rekey(base.pry, 0.6, 1.08, 1),
-      py: rekey(base.py, 0.4, 1.2, 1), pz: rekey(base.pz, 0.5, 1.25, 1),
-      // The feet swap roles: what was the back foot drives, and the front one
-      // steps past. This is the term a camera in front of him actually reads.
-      front: rekey(base.front, 0.3, 1.35, 1), back: rekey(base.back, 0.35, 1.30, 1),
-      frontB: rekey(base.frontB, 0.45, 1.20, 1), backB: rekey(base.backB, 0.4, 1.25, 1),
-      // THE STEP THROUGH. Negated, not scaled: he ends on the other foot.
-      shift: [-base.shift[0] * 0.55, -base.shift[1] * 0.85, -base.shift[2] * 0.6] as const,
-      wz: rekey(base.wz, 0.5, 1.15, 1),
+        ...base,
+        arx: rekey(base.arx, 0.24, 1.06, 1), arz: rekey(base.arz, 0.28, 1.05, 1),
+        arb: rekey(base.arb, 0.32, 1.02, 1),
+        crx: rekey(base.crx, 0.4, 1.10, 1), cry: rekey(base.cry, 0.45, 1.30, 1),
+        prx: rekey(base.prx, 0.4, 1.02, 1),
+        // The one channel that GROWS: the hips are doing what the feet no longer can.
+        pry: rekey(base.pry, 0.5, 1.32, 1.1),
+        py: rekey(base.py, 0.35, 1.05, 1), pz: rekey(base.pz, 0.3, 0.85, 1),
+        front: rekey(base.front, 0.25, 0.80, 1), back: rekey(base.back, 0.3, 0.85, 1),
+        frontB: rekey(base.frontB, 0.4, 0.95, 1), backB: rekey(base.backB, 0.35, 1.0, 1),
+        // Damped, not inverted: a pivot goes round, not across.
+        shift: rekey(base.shift, 0.45, 0.55, 0.7),
+        wz: rekey(base.wz, 0.4, 1.25, 1),
     };
-  }
-
-  // THE PIVOT. He has run out of forward; the body turns.
-  return {
-    ...base,
-    arx: rekey(base.arx, 0.24, 1.06, 1), arz: rekey(base.arz, 0.28, 1.05, 1),
-    arb: rekey(base.arb, 0.32, 1.02, 1),
-    crx: rekey(base.crx, 0.4, 1.10, 1), cry: rekey(base.cry, 0.45, 1.30, 1),
-    prx: rekey(base.prx, 0.4, 1.02, 1),
-    // The one channel that GROWS: the hips are doing what the feet no longer can.
-    pry: rekey(base.pry, 0.5, 1.32, 1.1),
-    py: rekey(base.py, 0.35, 1.05, 1), pz: rekey(base.pz, 0.3, 0.85, 1),
-    front: rekey(base.front, 0.25, 0.80, 1), back: rekey(base.back, 0.3, 0.85, 1),
-    frontB: rekey(base.frontB, 0.4, 0.95, 1), backB: rekey(base.backB, 0.35, 1.0, 1),
-    // Damped, not inverted: a pivot goes round, not across.
-    shift: rekey(base.shift, 0.45, 0.55, 0.7),
-    wz: rekey(base.wz, 0.4, 1.25, 1),
-  };
 }
-
 // ---------------------------------------------------------------------------
 // WHICH CUT COMES NEXT
 // ---------------------------------------------------------------------------
@@ -279,18 +229,14 @@ export function chainSwing(base: Swing, combo: number): Swing {
 // the 0.8 s window between them, which is a real cost and a real decision —
 // depth, not a control taken away. The phone flick is exempt because it is a
 // deliberate gesture made per blow rather than a key left held.
-
 /** The four cuts, in the order a chain walks them. */
-export const CUT_CYCLE = ["right", "left", "overhead", "stab"] as const;
-export type Cut = typeof CUT_CYCLE[number];
-
+export const CUT_CYCLE = ["right", "left", "overhead", "stab"];
 /**
  * `COMBO_WINDOW` from the engine, restated here because this module imports
  * NOTHING (see the header) — `tools/chaintest.mjs` holds the two to the same
  * number against `engine.mjs`'s own export, so the copy cannot drift.
  */
 export const CHAIN_WINDOW = 0.45;
-
 /**
  * The cut for blow `combo` of a chain that opened on `open`.
  *
@@ -304,16 +250,15 @@ export const CHAIN_WINDOW = 0.45;
  * An unrecognised `open` is treated as the head of the cycle rather than
  * refused: this decides an animation, and a fight is not the place to throw.
  */
-export function cutAt(open: string, combo: number): Cut {
-  const i = CUT_CYCLE.indexOf(open as Cut);
-  const from = i < 0 ? 0 : i;
-  // `Math.floor(Infinity)` is Infinity and `Infinity % 4` is NaN, which indexes
-  // the table as `undefined` and hands an animation lookup nothing at all. The
-  // gate found it; a fight is not the place to return undefined.
-  const step = Number.isFinite(combo) ? Math.max(0, Math.floor(combo)) : 0;
-  return CUT_CYCLE[(from + step) % CUT_CYCLE.length];
+export function cutAt(open, combo) {
+    const i = CUT_CYCLE.indexOf(open);
+    const from = i < 0 ? 0 : i;
+    // `Math.floor(Infinity)` is Infinity and `Infinity % 4` is NaN, which indexes
+    // the table as `undefined` and hands an animation lookup nothing at all. The
+    // gate found it; a fight is not the place to return undefined.
+    const step = Number.isFinite(combo) ? Math.max(0, Math.floor(combo)) : 0;
+    return CUT_CYCLE[(from + step) % CUT_CYCLE.length];
 }
-
 // ---------------------------------------------------------------------------
 // THE HEAVY, WHICH WAS NOT A DIFFERENT BLOW
 // ---------------------------------------------------------------------------
@@ -366,24 +311,23 @@ export function cutAt(open: string, combo: number): Cut {
 // `aim` and the absolute blade pitch are deliberately untouched. They are
 // angles, not deltas, and a multiplier on an absolute pitch points the sword at
 // the sky.
-
 /** How much deeper each channel LOADS on a full heavy. See the note above. */
-const HEAVY_LOAD: Readonly<Record<string, number>> = {
-  arx: 2.40, arz: 2.20, arb: 2.20,
-  crx: 2.40, cry: 2.40,
-  prx: 2.50, pry: 2.50,
-  py: 2.60, pz: 2.20,
-  front: 2.20, back: 2.20, frontB: 1.80, backB: 1.80,
-  shift: 2.30, wz: 2.00, wy: 1.30,
+const HEAVY_LOAD = {
+    arx: 2.40, arz: 2.20, arb: 2.20,
+    crx: 2.40, cry: 2.40,
+    prx: 2.50, pry: 2.50,
+    py: 2.60, pz: 2.20,
+    front: 2.20, back: 2.20, frontB: 1.80, backB: 1.80,
+    shift: 2.30, wz: 2.00, wy: 1.30,
 };
 /** ...and how much further it RELEASES. Small on purpose: see the note. */
-const HEAVY_RELEASE: Readonly<Record<string, number>> = {
-  arx: 1.10, arz: 1.08, arb: 1.15,
-  crx: 1.15, cry: 1.12,
-  prx: 1.20, pry: 1.22,
-  py: 1.30, pz: 1.35,
-  front: 1.30, back: 1.30, frontB: 1.25, backB: 1.25,
-  shift: 1.15, wz: 1.30, wy: 1.45,
+const HEAVY_RELEASE = {
+    arx: 1.10, arz: 1.08, arb: 1.15,
+    crx: 1.15, cry: 1.12,
+    prx: 1.20, pry: 1.22,
+    py: 1.30, pz: 1.35,
+    front: 1.30, back: 1.30, frontB: 1.25, backB: 1.25,
+    shift: 1.15, wz: 1.30, wy: 1.45,
 };
 /**
  * A committed CHOP has nowhere to put more shoulder, so it puts it elsewhere.
@@ -397,56 +341,53 @@ const HEAVY_RELEASE: Readonly<Record<string, number>> = {
  * steps through it. Which is also how a man actually throws an axe blow —
  * nobody makes an overhead bigger by lifting their shoulder further.
  */
-const HEAVY_CHOP_LOAD: Readonly<Record<string, number>> = {
-  arx: 1.13,                    // the last 13% the shoulder has left, and no more
-  // 1.00 — the light's own fold, UNCHANGED, and it took two goes to get here.
-  // 3.20 folded the elbow right up and dropped the blade behind the back, which
-  // is a true cock of an axe and made the stroke worse: the tip's high point
-  // fell from 2.18 m to 1.84 m, barely over the man's own crown, and the blow
-  // stopped reading as an overhead. 1.60 still cost the runekeeper — the
-  // shortest blade in the game — his clearance. A chop is sold by the blade
-  // being HIGH before it comes down, and the elbow is the one channel that
-  // lowers it. The commitment goes into the trunk and the step instead.
-  arb: 1.00,
-  crx: 3.00, cry: 2.00,         // he arches back into it
-  prx: 3.00, pry: 3.00,         // and the hips wind under the arch
-  py: 3.40, pz: 3.20,           // rises onto the load, and gathers
-  front: 3.00, back: 3.00, frontB: 2.40, backB: 2.40,
+const HEAVY_CHOP_LOAD = {
+    arx: 1.13, // the last 13% the shoulder has left, and no more
+    // 1.00 — the light's own fold, UNCHANGED, and it took two goes to get here.
+    // 3.20 folded the elbow right up and dropped the blade behind the back, which
+    // is a true cock of an axe and made the stroke worse: the tip's high point
+    // fell from 2.18 m to 1.84 m, barely over the man's own crown, and the blow
+    // stopped reading as an overhead. 1.60 still cost the runekeeper — the
+    // shortest blade in the game — his clearance. A chop is sold by the blade
+    // being HIGH before it comes down, and the elbow is the one channel that
+    // lowers it. The commitment goes into the trunk and the step instead.
+    arb: 1.00,
+    crx: 3.00, cry: 2.00, // he arches back into it
+    prx: 3.00, pry: 3.00, // and the hips wind under the arch
+    py: 3.40, pz: 3.20, // rises onto the load, and gathers
+    front: 3.00, back: 3.00, frontB: 2.40, backB: 2.40,
 };
 /** ...and comes down through the man with everything he has. */
-const HEAVY_CHOP_RELEASE: Readonly<Record<string, number>> = {
-  arb: 1.50,
-  crx: 1.60, cry: 1.35,
-  prx: 1.50, pry: 1.40,
-  py: 1.90, pz: 2.40,           // the step through, which is the whole of a chop
-  front: 1.90, back: 1.90, frontB: 1.60, backB: 1.60,
+const HEAVY_CHOP_RELEASE = {
+    arb: 1.50,
+    crx: 1.60, cry: 1.35,
+    prx: 1.50, pry: 1.40,
+    py: 1.90, pz: 2.40, // the step through, which is the whole of a chop
+    front: 1.90, back: 1.90, frontB: 1.60, backB: 1.60,
 };
-
 /** A committed THRUST loads its elbow and its hips, not its shoulder line. */
-const HEAVY_LUNGE_LOAD: Readonly<Record<string, number>> = {
-  arb: 3.00,          // the elbow folds right up — the point comes back to the ribs
-  pz: 3.20, py: 3.00, // and he sinks and coils over the front foot
-  front: 3.00, back: 3.00, frontB: 2.60, backB: 2.60,
-  wy: 2.20,           // the shaft runs back through the hand before it runs out
+const HEAVY_LUNGE_LOAD = {
+    arb: 3.00, // the elbow folds right up — the point comes back to the ribs
+    pz: 3.20, py: 3.00, // and he sinks and coils over the front foot
+    front: 3.00, back: 3.00, frontB: 2.60, backB: 2.60,
+    wy: 2.20, // the shaft runs back through the hand before it runs out
 };
 /** ...and then the whole man goes with the point. */
-const HEAVY_LUNGE_RELEASE: Readonly<Record<string, number>> = {
-  arb: 1.60,          // and straightens completely: a thrust is a straight arm
-  pz: 2.40,           // the step-through, which is the whole of a lunge
-  front: 2.00, back: 2.00, frontB: 1.70, backB: 1.70,
-  wy: 2.60,           // and a foot more of shaft than a controlled thrust shows
+const HEAVY_LUNGE_RELEASE = {
+    arb: 1.60, // and straightens completely: a thrust is a straight arm
+    pz: 2.40, // the step-through, which is the whole of a lunge
+    front: 2.00, back: 2.00, frontB: 1.70, backB: 1.70,
+    wy: 2.60, // and a foot more of shaft than a controlled thrust shows
 };
-
 /** The follow-through. A heavy does not come back to where it started. */
-const HEAVY_SETTLE: Readonly<Record<string, number>> = {
-  arx: 1.60, arz: 1.50, arb: 1.40,
-  crx: 1.40, cry: 1.40,
-  prx: 1.35, pry: 1.35,
-  py: 1.30, pz: 1.30,
-  front: 1.30, back: 1.30, frontB: 1.20, backB: 1.20,
-  shift: 1.40, wz: 1.30, wy: 1.20,
+const HEAVY_SETTLE = {
+    arx: 1.60, arz: 1.50, arb: 1.40,
+    crx: 1.40, cry: 1.40,
+    prx: 1.35, pry: 1.35,
+    py: 1.30, pz: 1.30,
+    front: 1.30, back: 1.30, frontB: 1.20, backB: 1.20,
+    shift: 1.40, wz: 1.30, wy: 1.20,
 };
-
 /**
  * AND NOTHING GOES PAST WHAT A BODY CAN DO.
  *
@@ -462,21 +403,18 @@ const HEAVY_SETTLE: Readonly<Record<string, number>> = {
  * of the table: a light stroke never approaches one, and a heavy is stopped by
  * them rather than by taste.
  */
-const HEAVY_CAP: Readonly<Record<string, number>> = {
-  arx: 3.14, arz: 1.60, arb: 2.40,     // shoulder pitch (a shoulder flexes to
-                                       // about 180 deg and no further), swing, elbow
-  crx: 0.90, cry: 1.10,                // the chest, which is ribs and not a hinge
-  prx: 0.70, pry: 0.90,                // the pelvis turns less than the chest
-  py: 0.12, pz: 0.40,                  // METRES: how far he sinks and steps
-  front: 1.10, back: 1.10,             // the feet
-  frontB: 1.40, backB: 1.40,           // and the knees, which fold further
-  shift: 1.80,                         // weight, in stances
-  wz: 1.00, wy: 0.30,                  // blade lag, and METRES of shaft slide
+const HEAVY_CAP = {
+    arx: 3.14, arz: 1.60, arb: 2.40, // shoulder pitch (a shoulder flexes to
+    // about 180 deg and no further), swing, elbow
+    crx: 0.90, cry: 1.10, // the chest, which is ribs and not a hinge
+    prx: 0.70, pry: 0.90, // the pelvis turns less than the chest
+    py: 0.12, pz: 0.40, // METRES: how far he sinks and steps
+    front: 1.10, back: 1.10, // the feet
+    frontB: 1.40, backB: 1.40, // and the knees, which fold further
+    shift: 1.80, // weight, in stances
+    wz: 1.00, wy: 0.30, // blade lag, and METRES of shaft slide
 };
-
-const capped = (v: number, cap: number): number =>
-  (cap === undefined ? v : Math.sign(v) * Math.min(Math.abs(v), cap));
-
+const capped = (v, cap) => (cap === undefined ? v : Math.sign(v) * Math.min(Math.abs(v), cap));
 /**
  * AND THE BLADE'S OWN PITCH, WHICH IS THE ONE CHANNEL THAT CANNOT BE SCALED.
  *
@@ -492,13 +430,12 @@ const capped = (v: number, cap: number): number =>
  * does not stop where a controlled one stops — it goes past the man and down,
  * and the recovery is the price.
  */
-const HEAVY_AIM: Readonly<Record<string, readonly [number, number, number]>> = {
-  overhead: [0.40, 0.22, 0.95],
-  right: [-0.25, 0.10, 0.38],
-  left: [0.25, -0.10, -0.38],      // the backhand turns the other way
-  stab: [-0.10, 0.05, 0.18],       // a thrust barely changes its pitch at all
+const HEAVY_AIM = {
+    overhead: [0.40, 0.22, 0.95],
+    right: [-0.25, 0.10, 0.38],
+    left: [0.25, -0.10, -0.38], // the backhand turns the other way
+    stab: [-0.10, 0.05, 0.18], // a thrust barely changes its pitch at all
 };
-
 /**
  * The stroke this blow becomes as it commits.
  *
@@ -509,48 +446,49 @@ const HEAVY_AIM: Readonly<Record<string, readonly [number, number, number]>> = {
  * keeps: a variant is an addition to the vocabulary and must never be what the
  * plain blow falls back to.
  */
-export function heavySwing(base: Swing, heavy: number, dir = ""): Swing {
-  const h = Math.min(1, Math.max(0, heavy || 0));
-  if (h <= 0.0005) return base;
-  // THE THRUST IS THE ONE THAT NEEDS ITS OWN ANSWER, and the ruler said so
-  // before this was written: a heavy thrust scored 0.098 of shape against a
-  // 0.10 bar while every cut cleared it comfortably. It is obvious in hindsight
-  // — a thrust is a LINE, and there is only so much you can do to a line by
-  // loading it. What makes a thrust committed is not a bigger wind-up, it is
-  // that the whole man goes with the point: a long step through, the shaft
-  // running through the hand, and the elbow folded right up and then straight.
-  // So the thrust's own channels get the treatment the cuts do not need.
-  const lunge = dir === "stab";
-  const chop = dir === "overhead";
-  const own = lunge ? HEAVY_LUNGE_LOAD : chop ? HEAVY_CHOP_LOAD : null;
-  const ownR = lunge ? HEAVY_LUNGE_RELEASE : chop ? HEAVY_CHOP_RELEASE : null;
-  const key = (name: keyof Swing): Key => {
-    const k = base[name] as Key;
-    const L = (own ? own[name as string] : undefined) ?? HEAVY_LOAD[name as string] ?? 1;
-    const R = (ownR ? ownR[name as string] : undefined) ?? HEAVY_RELEASE[name as string] ?? 1;
-    const S = HEAVY_SETTLE[name as string] ?? 1;
-    // Lerped by `h`, so a factor of 2.4 is 1.0 at rest and arrives with the
-    // commitment rather than being switched on — and then capped, because a
-    // factor on an angle is a factor on an angle. See `HEAVY_CAP`.
-    const cap = HEAVY_CAP[name as string];
-    return [
-      capped(k[0] * (1 + (L - 1) * h), cap),
-      capped(k[1] * (1 + (R - 1) * h), cap),
-      capped(k[2] * (1 + (S - 1) * h), cap),
-    ] as const;
-  };
-  const aimAdd = HEAVY_AIM[dir];
-  const aim: Key = aimAdd
-    ? [base.aim[0] + aimAdd[0] * h, base.aim[1] + aimAdd[1] * h, base.aim[2] + aimAdd[2] * h] as const
-    : base.aim;
-  return {
-    ...base,
-    aim,
-    arx: key("arx"), arz: key("arz"), arb: key("arb"),
-    crx: key("crx"), cry: key("cry"),
-    prx: key("prx"), pry: key("pry"),
-    py: key("py"), pz: key("pz"),
-    front: key("front"), back: key("back"), frontB: key("frontB"), backB: key("backB"),
-    shift: key("shift"), wz: key("wz"), wy: key("wy"),
-  };
+export function heavySwing(base, heavy, dir = "") {
+    const h = Math.min(1, Math.max(0, heavy || 0));
+    if (h <= 0.0005)
+        return base;
+    // THE THRUST IS THE ONE THAT NEEDS ITS OWN ANSWER, and the ruler said so
+    // before this was written: a heavy thrust scored 0.098 of shape against a
+    // 0.10 bar while every cut cleared it comfortably. It is obvious in hindsight
+    // — a thrust is a LINE, and there is only so much you can do to a line by
+    // loading it. What makes a thrust committed is not a bigger wind-up, it is
+    // that the whole man goes with the point: a long step through, the shaft
+    // running through the hand, and the elbow folded right up and then straight.
+    // So the thrust's own channels get the treatment the cuts do not need.
+    const lunge = dir === "stab";
+    const chop = dir === "overhead";
+    const own = lunge ? HEAVY_LUNGE_LOAD : chop ? HEAVY_CHOP_LOAD : null;
+    const ownR = lunge ? HEAVY_LUNGE_RELEASE : chop ? HEAVY_CHOP_RELEASE : null;
+    const key = (name) => {
+        const k = base[name];
+        const L = (own ? own[name] : undefined) ?? HEAVY_LOAD[name] ?? 1;
+        const R = (ownR ? ownR[name] : undefined) ?? HEAVY_RELEASE[name] ?? 1;
+        const S = HEAVY_SETTLE[name] ?? 1;
+        // Lerped by `h`, so a factor of 2.4 is 1.0 at rest and arrives with the
+        // commitment rather than being switched on — and then capped, because a
+        // factor on an angle is a factor on an angle. See `HEAVY_CAP`.
+        const cap = HEAVY_CAP[name];
+        return [
+            capped(k[0] * (1 + (L - 1) * h), cap),
+            capped(k[1] * (1 + (R - 1) * h), cap),
+            capped(k[2] * (1 + (S - 1) * h), cap),
+        ];
+    };
+    const aimAdd = HEAVY_AIM[dir];
+    const aim = aimAdd
+        ? [base.aim[0] + aimAdd[0] * h, base.aim[1] + aimAdd[1] * h, base.aim[2] + aimAdd[2] * h]
+        : base.aim;
+    return {
+        ...base,
+        aim,
+        arx: key("arx"), arz: key("arz"), arb: key("arb"),
+        crx: key("crx"), cry: key("cry"),
+        prx: key("prx"), pry: key("pry"),
+        py: key("py"), pz: key("pz"),
+        front: key("front"), back: key("back"), frontB: key("frontB"), backB: key("backB"),
+        shift: key("shift"), wz: key("wz"), wy: key("wy"),
+    };
 }
