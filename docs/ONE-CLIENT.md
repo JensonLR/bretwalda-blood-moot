@@ -418,6 +418,33 @@ believed green.
 - **P2, the glTF loader.** Its own cycle. Procedural-first with a background
   upgrade and a live swap: the web keeps its four-second open, Steam and mobile
   load authored meshes immediately because the download has already happened.
+
+  **ITS PRECONDITION IS DONE — 7 Sep 2026, `tools/gltftest.mjs`, 28/28.** The
+  303 MB of exported glTF had never been opened by three.js: written for Unity,
+  judged in Blender renders, and its only reader retired. It opens. All four
+  warriors parse, every mesh is skinned, all fifteen clips carry tracks
+  including the four attack directions **by name** — which slots them straight
+  into `chainSwing`'s vocabulary — the cosmetic roles (helm, beard, hair, cloak)
+  survived so a loader can hide what the armoury did not sell, and the rig
+  sidecars name 25 bones each.
+
+  **AND P2 IS A PERFORMANCE WAVE AS WELL AS A VISUAL ONE, which was not known
+  when this document was written:**
+
+  ```
+    authored avg    45 meshes    29,522 triangles
+    procedural      65 meshes    66,184 triangles
+    over eight    -160 draws   -293,296 triangles
+  ```
+
+  Comparable to the stage-5 merge on draw calls (−160 against −193), it takes
+  16% of the frame's triangles with it, it is **not blocked** behind stage 5's
+  pivot-to-bone rewrite, and unlike stage 5 it makes the game look better rather
+  than identical. It is also the structural fix for the beard that `wearmeasure`
+  began failing on the same day.
+
+  **P2 should be the next cycle.** It was sequenced after the war on the
+  assumption it was fidelity-only; it is not.
 - **P3, shipping.**
 - **`neon_auth`.** Provisioned on the Neon project with **0 users**. Real
   cross-device accounts would serve `PLATFORM-PATH.md` §8.2's "one hoard, three
