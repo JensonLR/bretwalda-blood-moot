@@ -4,6 +4,7 @@
  *
  *   node tools/janktest.mjs                    everything, ~6 min
  *   node tools/janktest.mjs --phases=server    the tick and the wire, no browser
+ *   node tools/janktest.mjs --phases=input     press to authority, no browser
  *   node tools/janktest.mjs --phases=epoch     does the wire epoch count PACKETS?
  *   node tools/janktest.mjs --phases=motion    the interpolator, GPU-free
  *   node tools/janktest.mjs --phases=render    what a frame costs, with drawing on
@@ -119,7 +120,7 @@ const SECS = Math.max(5, parseInt(argOf("secs", "20"), 10) || 20);
 const LEVER = argOf("lever", null);
 /** R1's second lever — see the `nostop` patch. A ruler test, never a fix. */
 const NOSTOP = argv.includes("--nostop");
-const PHASES = (argOf("phases", "server,wire,epoch,motion,render,strip")).split(",").map((s) => s.trim());
+const PHASES = (argOf("phases", "server,input,wire,epoch,motion,render,strip")).split(",").map((s) => s.trim());
 const has = (p) => PHASES.includes(p);
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 
@@ -240,6 +241,189 @@ async function phaseServer() {
   printHistogram("snapshot interval", iv, [45, 48, 52, 55, 75, 100, 150]);
   say(`\n  READING: the server is ${s.p99 < 60 && s.max < 120 ? "CLEAN — it is not the source" : "IRREGULAR — it is a source"}.`);
   return { s, cons, carried: c, doubled, n: arrive.length };
+}
+
+/**
+ * §1b  PRESS TO AUTHORITY — the half of LAGGY that has never been measured.
+ *
+ * THE GAP THIS CLOSES IS ONE THIS FILE NAMED ITSELF. Its own verdict block has
+ * carried, for as long as the block has existed:
+ *
+ *     Input latency (the other half of LAGGY) IS MEASURED BY NOTHING IN THIS
+ *     REPOSITORY. ... The gap is real and it is stated here rather than
+ *     pointed at.
+ *
+ * Pointing at a gap honestly is better than a false clean sheet and worse than
+ * an instrument. This is the instrument, and it deliberately measures the part
+ * that DOES NOT NEED A GPU: from the instant a client hands the engine an
+ * `input` to the instant the authoritative state carries its consequence.
+ *
+ * WHAT THIS IS NOT. It is not press-to-pixel. Press-to-pixel adds the browser's
+ * event dispatch, the client's own frame, and — for a REMOTE man — the whole
+ * interpolation buffer that §3 measures. Those need a device with a GPU and an
+ * eye on it. What this measures is the floor underneath all of them, and a
+ * floor is worth knowing because nothing above it can be faster.
+ *
+ * WHY IT IS NOT ZERO, AND WHAT GOOD LOOKS LIKE. The sim steps at 20 Hz, so an
+ * input arriving just after a tick waits most of 50 ms for the next one. A
+ * uniformly-arriving press therefore has a floor of ~25 ms MEAN and ~50 ms
+ * WORST from the tick alone, and that is the design rather than a defect. What
+ * would be a defect is a p99 far past one tick: that is an input that missed a
+ * wake, which is a press the player made and the world did not answer.
+ *
+ * `autoTick: true`, like §1, and for the same reason: every other harness here
+ * drives `step(dt)` for determinism, and determinism is exactly what hides
+ * whether the real timer wakes on time.
+ */
+async function phaseInput() {
+  rule("§1b  PRESS TO AUTHORITY   (Node, no GPU, absolute — the floor under LAGGY)");
+  const { makeEngine } = await import(resolve(ROOT, "src/game/engine.mjs"));
+  const eng = makeEngine({ autoTick: true });
+
+  let snap = null;
+  const sid = eng.connect((str) => {
+    const m = JSON.parse(str);
+    if (m.data && m.data.players) snap = m.data;
+  });
+  eng.message(sid, { type: "create", data: { name: "Ruler", mode: "blood_moot", bestOf: 1 } });
+  eng.message(sid, { type: "add_bot", data: { difficulty: "warrior", warriorClass: "warden" } });
+  eng.message(sid, { type: "start", data: {} });
+
+  // Wait for the bell. A press during the countdown is a press the rules are
+  // entitled to ignore, and timing one would be timing the countdown.
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20000 && snap?.state !== "fighting") await new Promise((r) => setTimeout(r, 20));
+  if (snap?.state !== "fighting") { say("  no fight was dealt — nothing measured"); eng.stop?.(); return null; }
+
+  const me = Object.keys(snap.players).find((id) => !id.startsWith("bot_"));
+  if (!me) { say("  no human seat — nothing measured"); eng.stop?.(); return null; }
+
+  const NEUTRAL = {
+    moveX: 0, moveZ: 0, rotationY: 0, sprint: false, attack: false, heavyAttack: false,
+    block: false, dodge: false, crouch: false, ability: false, shove: false, attackDir: "right",
+  };
+
+  /**
+   * THE MAN IS HELD ALIVE AND ALONE, and the first draft of this phase was not
+   * a measurement without it.
+   *
+   * Timed against a live bot it returned n=4, n=3 and n=1 usable presses out of
+   * 24 — he was killed a few seconds in, and every rep after that measured a
+   * corpse. A p99 quoted off ONE sample is exactly the shape this repository
+   * keeps writing defects about, so it is fixed rather than reported.
+   *
+   * Worse than sparse, it was WRONG where it did read: a bot shoving him moves
+   * his position on ticks he did not press, so a position-delta witness could
+   * fire on the bot's doing and be charged to the player's press. He is made
+   * invincible and the bot is parked far enough away to be out of every reach
+   * in the game, so the only thing that can move this man is the input under
+   * test.
+   */
+  const room = eng._rooms.get(snap.code ?? [...eng._rooms.keys()][0]);
+  const hold = () => {
+    if (!room) return;
+    for (const [id, p] of room.players) {
+      if (id === me) { p.invincible = true; p.invincibleTimer = 9999; p.health = p.maxHealth; }
+      // Far outside ARENA_RADIUS 18 and every weapon reach in the game, so he
+      // cannot be struck, shoved, or separated into by the body-spacing pass.
+      else { p.position = { x: 400, y: 0, z: 400 }; p.health = p.maxHealth; }
+    }
+  };
+  hold();
+
+  /**
+   * One press, timed. `arm` sends the neutral input and settles; `press` sends
+   * the real one and the clock runs until `seen` is true of a snapshot.
+   *
+   * Sampled off SNAPSHOTS and not off a poll, because the snapshot IS the
+   * authority: the question is when the world told somebody, not when a local
+   * variable changed.
+   */
+  const timeOne = async (press, seen, settleMs = 120) => {
+    hold();
+    eng.message(sid, { type: "input", data: { ...NEUTRAL } });
+    // WAIT FOR HIM TO BE IDLE, and this is a correction to this phase's first
+    // draft rather than a nicety. It settled a fixed 260 ms and then pressed —
+    // but a warden's stroke plus its recovery outlasts that, so the guard press
+    // always arrived mid-swing, where `engine.mjs` REFUSES it by design
+    // (`input.block && player.state !== "attacking"`). The phase duly reported
+    // "a guard: never observed", which reads as a broken block and is nothing
+    // of the kind. A ruler that times a press the rules were entitled to ignore
+    // is measuring its own impatience.
+    const idleBy = performance.now() + 2500;
+    while (performance.now() < idleBy) {
+      const st = snap?.players?.[me]?.state;
+      if (st === "idle" || st === "moving" || st === "running") break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await new Promise((r) => setTimeout(r, settleMs));
+    if (!snap?.players?.[me] || snap.players[me].health <= 0) return null;
+    const before = snap.players[me];
+    const sent = performance.now();
+    eng.message(sid, { type: "input", data: { ...NEUTRAL, ...press } });
+    const deadline = performance.now() + 600;
+    while (performance.now() < deadline) {
+      const now = snap?.players?.[me];
+      if (now && seen(before, now)) return performance.now() - sent;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    return null;
+  };
+
+  const moved = [], swung = [], blocked = [];
+  const REPS = 24;
+  for (let i = 0; i < REPS; i++) {
+    // A press that MOVES him. The threshold is 2 cm — well past float noise and
+    // well under one tick of a sprint, so it catches the first tick that acted.
+    const m = await timeOne({ moveX: 1, moveZ: 0, sprint: true },
+      (b, n) => Math.hypot(n.position.x - b.position.x, n.position.z - b.position.z) > 0.02);
+    if (m !== null) moved.push(m);
+
+    // A press that COMMITS him. State is the cleanest possible witness: the
+    // engine either entered the swing on that tick or it did not.
+    const a = await timeOne({ attack: true }, (b, n) => n.state === "attacking");
+    if (a !== null) swung.push(a);
+
+    // And a press that only changes a FLAG, which is the cheapest thing the
+    // engine can do with an input — the floor of the floor.
+    const g = await timeOne({ block: true }, (b, n) => n.state === "blocking");
+    if (g !== null) blocked.push(g);
+  }
+  eng.stop?.();
+
+  const rows = [["a step (position moves)", moved], ["a swing (state commits)", swung], ["a guard (state flips)", blocked]];
+  say(`  ${REPS} presses of each, one human and one bot, engine on its own timer`);
+  say(`  the sim steps at 20 Hz, so a press waits 0-50 ms for the next tick by DESIGN.`);
+  say(`  what would be a defect is a p99 past one tick — a press that missed a wake.\n`);
+  say(`    press -> authority             n    p50      p95      p99    worst`);
+  const out = {};
+  let worstP99 = 0;
+  for (const [label, xs] of rows) {
+    const st = stats(xs);
+    if (!st) { say(`    ${label.padEnd(28)}  —  never observed`); continue; }
+    out[label] = st;
+    worstP99 = Math.max(worstP99, st.p99);
+    say(`    ${label.padEnd(28)} ${String(xs.length).padStart(2)}  ${f2(st.p50).padStart(7)}  ${f2(st.p95).padStart(7)}  ${f2(st.p99).padStart(7)}  ${f2(st.max).padStart(7)}`);
+  }
+  if (moved.length) printHistogram("press -> the man moves", moved, [10, 25, 50, 60, 75, 100, 150]);
+  // THE VERDICT COUNTS, IT DOES NOT THRESHOLD A p99. With 24 presses a single
+  // outlier IS the p99, so a `p99 < 75` verdict flipped the whole reading to
+  // IRREGULAR on one sample — which is the same error this phase had already
+  // made once with n=1, wearing a different hat. It states the share instead
+  // and names the sample size, so a reader can see whether a number is a
+  // finding or a hiccup on a box that is also running three other builds.
+  const all = [...moved, ...swung, ...blocked];
+  const late = all.filter((x) => x > 75);
+  const tick = all.filter((x) => x > 50);
+  say(`\n  READING, over ${all.length} timed presses:`);
+  say(`    inside ONE tick (50 ms):        ${all.length - tick.length} of ${all.length}  (${(100 * (all.length - tick.length) / (all.length || 1)).toFixed(1)}%)`);
+  say(`    past a tick and a half (75 ms): ${late.length} of ${all.length}  (${(100 * late.length / (all.length || 1)).toFixed(1)}%)${late.length ? ` — worst ${f2(Math.max(...late))}` : ""}`);
+  say(`  A press past 75 ms MISSED A WAKE. The sample here is small by design —`);
+  say(`  this phase is a floor check, not a soak — so read the share, not the p99.`);
+  say(`  This is the FLOOR. Press-to-pixel adds the browser's dispatch, the client's`);
+  say(`  own frame, and for a REMOTE man the interpolation buffer §3 measures. Those`);
+  say(`  need a device with a GPU and an eye on it; this number does not.`);
+  return { moved: out["a step (position moves)"], swung: out["a swing (state commits)"], blocked: out["a guard (state flips)"], worstP99 };
 }
 
 // ---------------------------------------------------------------------------
@@ -940,6 +1124,7 @@ async function main() {
   if (has("strip")) rmSync(resolve(OUT, "strip"), { recursive: true, force: true });
   const result = {};
   if (has("server")) result.server = await phaseServer();
+  if (has("input")) result.input = await phaseInput();
 
   const needBrowser = has("wire") || has("motion") || has("render") || has("strip") || has("epoch");
   if (!needBrowser) return finish(result);

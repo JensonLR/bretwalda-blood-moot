@@ -133,8 +133,18 @@ export class Transport {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "open" }),
     });
-    const json = await res.json();
-    if (!json.ok || !json.sid) throw new Error("http_session_failed");
+    // THE STATUS IS READ BEFORE THE BODY IS, and this is the fallback transport
+    // — the path taken when the WebSocket would not open, which is to say the
+    // path taken when things are ALREADY going wrong for this player.
+    //
+    // `res.json()` on a 502's HTML error page throws a SyntaxError about an
+    // unexpected token, and that is what surfaced instead of
+    // `http_session_failed`: a parse error from a proxy's error page, attributed
+    // to nothing, on the one code path whose whole job is to degrade cleanly.
+    // A transport that cannot fail legibly cannot be debugged from a report.
+    if (!res.ok) throw new Error(`http_session_failed_${res.status}`);
+    const json = await res.json().catch(() => null) as { ok?: boolean; sid?: string } | null;
+    if (!json || !json.ok || !json.sid) throw new Error("http_session_failed");
     this.sid = json.sid;
 
     this.es = new EventSource(`/api/game/stream?sid=${encodeURIComponent(json.sid)}`);
@@ -162,9 +172,14 @@ export class Transport {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sid: this.sid, type: msg.type, data: msg.data || {} }),
         });
-        const json = await res.json();
-        if (json.replies) {
-          (json.replies as GameMsg[]).forEach((r) => this.emit(r));
+        // Same reasoning as `connectHTTP`. The catch below would have swallowed
+        // a parse error anyway, so the player saw "Message to the war council
+        // failed" whether the server refused him or a proxy returned a page —
+        // two different problems wearing one sentence.
+        if (!res.ok) throw new Error(`http_send_${res.status}`);
+        const json = await res.json().catch(() => null) as { replies?: GameMsg[] } | null;
+        if (json && Array.isArray(json.replies)) {
+          json.replies.forEach((r) => this.emit(r));
         }
       } catch {
         this.emit({ type: "error", data: { message: "Message to the war council failed." } });
