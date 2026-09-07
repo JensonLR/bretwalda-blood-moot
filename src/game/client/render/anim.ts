@@ -1645,6 +1645,16 @@ export function settleDeath(motion: WarriorMotion, t: number): void {
   motion.actT = Math.max(motion.actT, t);
   motion.lastState = DEAD_GROUP;
   motion.lastRaw = "dead";
+  // AND NO CROSSFADE. `commit` mixes `rig.last` — the pose of a frame ago —
+  // back in by `motion.blend`, which is set to 1 on any change of pose group
+  // and bleeds off over about a tenth of a second of RENDERED time. A match
+  // ends on the killing blow, so the man the portrait is about to photograph
+  // died milliseconds ago and his blend is still most of the way up: the
+  // collapse underneath him is finished and he is drawn as the standing man he
+  // was. Caught intermittently by the gate below at 1.556 m with actT 1.62 —
+  // a settled clock and a standing body, which is the crossfade and nothing
+  // else. A portrait is one frame and owes nothing to the frame before it.
+  motion.blend = 0;
 }
 
 const P: Pose = { ...ZERO };

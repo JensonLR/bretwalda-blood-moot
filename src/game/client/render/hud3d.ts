@@ -91,6 +91,18 @@ export interface Hud3D {
    * Stand every plate down without detaching it. The end-of-match tableau is a
    * portrait and owns the whole frame; the plates come back the moment the
    * caller stops asking, so a rematch costs nothing.
+   *
+   * AND IT RETIRES EVERY DAMAGE NUMBER STILL IN THE AIR, on the edge into
+   * suppression. A number is a transient of the BLOW — it is written where the
+   * blow landed, in world space, and it rises and fades on its own clock. The
+   * tableau then teleports every man to a mark somewhere else and the numbers
+   * stay exactly where the fight left them: two "18"s hanging over empty mud
+   * in a BATTLE COMPLETE capture, twenty metres from anybody. They do not even
+   * fade out of it, because their clock is `update`'s and the portrait's frame
+   * is not spending it on them.
+   *
+   * Same family as the mid-air blood on this edge, and the same sentence:
+   * state pinned to the WORLD, surviving a boundary that moves the bodies.
    */
   setSuppressed(on: boolean): void;
   setHealth(id: string, current: number, max: number): void;
@@ -1411,6 +1423,24 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
     if (at >= 0) order.splice(at, 1);
   }
 
+  /**
+   * HOW MANY NUMBERS ARE IN THE AIR, for the harness only.
+   *
+   * A floating number that outlives the fight is invisible to every claim this
+   * project makes about the tableau: the summary's cast report knows about
+   * BODIES, and a number is not one. This is the field that lets a gate say
+   * "the portrait has no combat text hanging in it" — see `summaryflow`.
+   *
+   * Written on the suppression edge as well as from `update`, because the
+   * portrait's frame is not guaranteed to spend a tick on this module and a
+   * value left over from the last frame of the fight would read as a defect
+   * that had already been fixed.
+   */
+  function publishLive(): void {
+    const w = globalThis as unknown as { __summaryDiag?: boolean; __hudNumbers?: number };
+    if (w.__summaryDiag) w.__hudNumbers = live.length;
+  }
+
   function retire(n: FloatingNumber): void {
     scene.remove(n.mesh);
     // Order matters: hand the material a live map before releasing the one it
@@ -1595,7 +1625,14 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
     detach,
 
     setSuppressed(on) {
+      // The EDGE, not the frame: `update` is not guaranteed to run again on
+      // this path, so a check inside it would never fire. See the interface.
+      if (on && !suppressed) {
+        for (const n of live) retire(n);
+        live.length = 0;
+      }
       suppressed = on;
+      publishLive();
     },
 
     setHealth(id, current, max) {
@@ -2229,6 +2266,7 @@ export function createHud3d(scene: THREE.Scene, settings: QualitySettings): Hud3
         // The threshold is the plate's 0.01, for one rule and not two.
         n.mesh.visible = n.mat.opacity > 0.01;
       }
+      publishLive();
     },
 
     dispose() {

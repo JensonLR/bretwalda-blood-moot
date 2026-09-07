@@ -235,6 +235,28 @@ async function castNow(page) {
  * left it, which is the frame a player can be shown and the frame a shutter
  * can catch.
  */
+/**
+ * NOTHING FROM THE FIGHT IS LEFT HANGING IN THE PORTRAIT.
+ *
+ * A damage number is written in WORLD space where the blow landed and rises on
+ * `update`'s clock. The tableau then moves every man somewhere else and stops
+ * spending frames on the HUD, so the last numbers of the match hang over empty
+ * mud until the rollback — two "18"s twenty metres from anybody, in a real
+ * BATTLE COMPLETE capture. `hud3d` retires them on the edge into suppression;
+ * this is the claim that says so.
+ */
+async function noCombatTextLeft(page, where) {
+  const n = await page.evaluate(() => window.__hudNumbers ?? null);
+  if (n === null) {
+    skipped.push(`${where}: no combat text is left hanging in the portrait`);
+    console.log(`[flow] SKIP ${where}: no combat text is left hanging in the portrait — `
+      + `the HUD reported no count. NOT A PASS — counted as skipped.`);
+    return;
+  }
+  check(`${where}: no combat text is left hanging in the portrait`, n === 0,
+    n === 0 ? "the 3D HUD holds no damage numbers" : `${n} damage number(s) still in the air`);
+}
+
 async function everyCorpseDown(page, where) {
   const men = await page.evaluate(() => window.__summaryFirst ?? null);
   const dead = (men ?? []).filter((m) => !m.standing && typeof m.headY === "number");
@@ -246,8 +268,10 @@ async function everyCorpseDown(page, where) {
   }
   const up = dead.filter((m) => m.headY > 1.0);
   check(`${where}: every corpse is on the ground`, up.length === 0,
-    up.length ? up.map((m) => `${m.id.slice(0, 6)} head ${m.headY}m up, actT=${m.actT}`).join("; ")
-      : `${dead.length} fallen, worst skull ${Math.max(...dead.map((m) => m.headY)).toFixed(2)}m off the turf`);
+    up.length ? up.map((m) => `${m.id.slice(0, 6)} head ${m.headY}m up, actT=${m.actT} `
+      + `fall=${m.fall} blend=${m.blend} state=${m.state} last=${m.lastState}/${m.lastRaw}`).join("; ")
+      : `${dead.length} fallen, worst skull ${Math.max(...dead.map((m) => m.headY)).toFixed(2)}m off the turf, `
+        + `worst crossfade ${Math.max(...dead.map((m) => m.blend ?? 0)).toFixed(2)}`);
 }
 
 async function tableau(page, frames = 6) {
@@ -298,6 +322,7 @@ async function ffaPhase(browser) {
     men.length === 8 && stood.length === 3 && lying.length === 5,
     `cast=${men.length} standing=${stood.length} dead=${lying.length} kind=${stage?.kind}`);
   await everyCorpseDown(page, "free-for-all");
+  await noCombatTextLeft(page, "free-for-all");
   // Every man the stage did NOT honour has to be a corpse in the animator's
   // eyes too, or he is a live man lying face-down — a different bug with the
   // same silhouette.
@@ -617,6 +642,7 @@ async function teamPhase(browser) {
     men.length === 4 && wrong.length === 0 && stage?.kind === "warband",
     `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
   await everyCorpseDown(page, "war band");
+  await noCombatTextLeft(page, "war band");
   // A war band ranks BANDS, so every man on a side shares its place and its
   // rounds. This is where that has to be visible: four rows reading #1 #1 #2 #2,
   // not four rows quietly re-ranked by who happened to swing most.
@@ -857,6 +883,7 @@ async function duelPhase(browser) {
     && duelCast.men.some((m) => !m.standing && m.state === "dead"),
     `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
   await everyCorpseDown(page, "duel");
+  await noCombatTextLeft(page, "duel");
 
   await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 30000)   // see `until`;
   await until(() => page.evaluate(() => {

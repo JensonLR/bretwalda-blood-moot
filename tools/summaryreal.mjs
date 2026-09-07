@@ -223,7 +223,7 @@ async function oneShot(shot) {
   for (const m of first ?? []) {
     if (m.standing) continue;
     console.log(`[real]   first-frame ${m.id.slice(0, 6)} actT=${m.actT} headY=${m.headY} `
-      + `lastState=${m.lastState}/${m.lastRaw}`);
+      + `lastState=${m.lastState}/${m.lastRaw} blend=${m.blend} state=${m.state}`);
   }
   // WHERE EVERY MAN LANDED ON THE GLASS, against the band of it the DOM left
   // free. `ndc` is his whole bounding box projected — a body below `band[0]`

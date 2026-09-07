@@ -460,6 +460,10 @@ function reportBodies(
       // corpse whose clock keeps returning to zero is a corpse whose state is
       // being handed back and forth, not one the stage failed to wind on.
       lastState: b.motion.lastState, lastRaw: b.motion.lastRaw,
+      // How much of the PREVIOUS pose is still mixed into this one. A body
+      // committed at blend 1 is drawn as whatever it was doing a frame ago,
+      // however settled the clock underneath it says the collapse is.
+      blend: +b.motion.blend.toFixed(2),
       // What he is PERFORMING, if anything. A corpse mid-flourish is the exact
       // failure the standing rule exists to prevent, and it is a field rather
       // than a screenshot argument.
