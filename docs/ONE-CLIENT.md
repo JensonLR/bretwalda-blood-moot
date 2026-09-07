@@ -483,14 +483,38 @@ believed green.
 
   **NOT built, and none of it is hidden:**
 
-  * **Nothing calls the swap.** `GameCanvas` builds every man procedurally and
-    always will until something fetches a glb and hands it over. That is the
-    async orchestration: when to fetch, on which tier, and what to do about the
-    eight men who want the same four files.
-  * **Nothing has been drawn.** Not one authored man has been rendered by
-    three.js — every gate here reads structure, not pixels. **The visual verdict
-    is unmade**, and on a project whose bar is `VISUAL-BAR.md` 8+ that is the
-    half that matters. It wants a capture pass and the owner's eye.
+  * ~~**Nothing calls the swap.**~~ **WIRED 7 Sep 2026** — `armouryStage` builds
+    the procedural man, fetches 1.6 MB and swaps him, behind `?authored=1`. Not
+    yet in `GameCanvas`: the arena wants one parse shared across eight men
+    (`SkeletonUtils.clone`) and a tier decision, neither of which the preview
+    needs.
+  * ~~**Nothing has been drawn.**~~ **ALL FOUR CLASSES ARE DRAWN** —
+    `tools/authoredshot.mjs`, captures in `.authored/`. It photographs the same
+    man twice on one build, one query flag apart, and ASSERTS the swap happened
+    so a pair of identical frames cannot be filed as "the mesh looks the same"
+    when it was really a 404. **The visual verdict is still the owner's**, but
+    there is now something to make it on.
+
+  **THREE DEFECTS THE CAPTURES FOUND THAT NO STRUCTURAL GATE COULD:**
+
+  1. **The first authored man was drawn unarmed.** `anim.ts` does
+     `rightHand.add(weapon)`, so the weapon and shield live INSIDE the
+     procedural body and removing it took them along. The geometry was perfect
+     and the swap reported success. Now gated on PARENTAGE.
+  2. **The shield was strapped to the wrong joint.** A board goes on the
+     forearm (`joints.elbowL`), a blade in the fist. Mounted on `HandL` it hung
+     half a metre off the man — and I blamed the BIND POSES and wrote a
+     retargeting theory into the file before noticing the berserker was holding
+     his axe perfectly in the same build. The comment is corrected in place with
+     what it got wrong.
+  3. **The cloak is withheld, and it is topology.** `anim.ts` solves a drape as
+     a GRID (`1 + cols × rings`, velocity-integrated); `exportrig` writes a
+     CHAIN (`CloakYoke`, `Drape1..6`). The solver cannot drive those by naming
+     them — **the one place the bridge does not hold.** Unposed, the export's
+     cloak is a wide cone that swallows the man. Closing it is either a chain
+     solver in `anim.ts` or a grid export from Blender, and it is the largest
+     single thing between here and a man who can replace the procedural one
+     outright.
   * **`public/authored` is a copy step, not a deploy strategy.** 6.5 MB is fine
     on a warm connection and is not nothing on a phone; the streaming policy —
     which tier, how many classes, and whether the web takes it at all — is
