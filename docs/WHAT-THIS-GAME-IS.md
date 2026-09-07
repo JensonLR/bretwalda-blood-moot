@@ -117,15 +117,27 @@ says "the war layer is done" is worth less than no document at all.
   for the season once a man has banked his first point.
 * **The attribution write**, in `endMatch` — the one place the fight touches
   the war. Idempotent under retry, never blocks the round ending, never throws
-  into the engine, and refuses to bank a match fought by fewer than two humans.
+  into the engine. ~~and refuses to bank a match fought by fewer than two
+  humans.~~ **That last clause was the defect (7 Sep 2026, `ONE-CLIENT.md` §2):
+  it made this write correct and unreachable.** It now CLASSIFIES instead —
+  `moot` for two or more humans, `solo` for one man against bots worth beating,
+  at 0.3 and capped daily — and a friendly match still banks nothing.
 * **Contest and flips.** A territory changes hands when a challenger's lead
   over its holder reaches its threshold. Points are conserved and the whole map
   reconciles in one SQL query.
 * **The map screen** at `/factions`: who holds what, what moved and when, where
   the season stands, and which four borders are closest to falling.
-* **The rulers.** `tools/wartest.mjs` (79 checks, plus a `--prove` arm that
-  injects the two defects the neutrality gates exist to catch and requires them
-  to go red) and `tools/warflow.mjs` (22 checks, end to end, real Postgres).
+* **The rulers.** `tools/wartest.mjs` (**123** checks as of 7 Sep 2026, plus a
+  `--prove` arm) and `tools/warflow.mjs` (**41**, end to end, real Postgres) —
+  including the one that was missing for four weeks: an evening of ordinary
+  solo play must reach the ledger. It is shown red by restoring the two-human
+  rule, where it reports zero rows after three matches.
+
+  **`--prove` is currently NOT fully arming**, on `main` as well as after this
+  work: one neutrality gate does not go red over its injected defect, so that
+  gate is unproven. Found 7 Sep 2026, pre-existing, and filed rather than
+  quietly left — an unarmed red arm is "a gate green because the case is
+  absent" one level up.
 
 **NOT built, and none of it is hidden in a corner.**
 
@@ -146,9 +158,30 @@ says "the war layer is done" is worth less than no document at all.
   a sourced device from its kingdom's `FACTIONS.md` §9 list, on its kingdom's
   colour, as a glyph beside its men's names. Not yet a banner planted in the
   ground.
-* **The map is not live.** `/factions` reads the war when it opens and does not
-  poll. "The map moved while you were asleep" is true; "the map is moving while
-  you watch" is not.
+* ~~**The map is not live.**~~ **BOTH ARE TRUE NOW (7 Sep 2026)** — `/factions`
+  polls every thirty seconds while the tab is visible, and carries a countdown
+  to the Moot's hour. `docs/ONE-CLIENT.md` §6.2.
+
+* **AND THE SENTENCE ABOVE IT WAS NOT TRUE WHEN IT WAS WRITTEN. Recorded here
+  rather than only where it was found.** "The map moved while you were asleep"
+  is this document's answer to why anyone would come back, and on 7 Sep 2026
+  the production database was read directly: **85 matches, 2 war-ledger rows,
+  and ZERO territory flips in four weeks.** The map had never moved, awake or
+  asleep.
+
+  Nothing was broken. `warReport` refused any match with fewer than two humans
+  and every one of the 79 checks over it was correct — but at 26 players, two
+  humans in one room at one moment is a coincidence rather than an event, so
+  the gate was STARVED: correct, tested, and structurally never satisfied. A
+  lone man's fight banks now, at a discount, capped daily, and only against
+  bots worth beating (`ONE-CLIENT.md` §5). The first three solo matches ever
+  played into the new rules put three rows in the ledger and moved the contest
+  by three.
+
+  It is worth being exact about what this cost, because the shape recurs: for
+  four weeks the third loop — the one this document calls the whole point —
+  was shipped, gated, documented, and had never once run. Every visual pass and
+  every gore gate in that time was work on the two loops that already worked.
 
 ### How the war works — the concrete proposal
 
