@@ -3078,6 +3078,41 @@ export function createVfx(
   const RISE_CEIL = 0.66;
 
   /**
+   * THE ARRIVAL RULE, AS A SPEED, ENFORCED PER DROPLET.
+   *
+   * `goretest` holds a blow's spray to being down inside 0.85 s — blood that
+   * outlives the blow reads as detached from it, which is the "confetti" an
+   * earlier pass was cut for. `RISE_CEIL` above bounds the ANGLE, and an angle
+   * is only half the problem: airtime is v·sinθ, so a fast droplet at a legal
+   * angle is airborne as long as a slow one at an illegal one.
+   *
+   * That was survivable while a blow threw about fifty droplets, because the
+   * worst corner of the distribution came up rarely. Raising the count to
+   * 16 + 76k for the owner's "large volume that players can see" rolls that
+   * corner on EVERY blow, and the gate went red at 0.97 s on the first run.
+   * Flattening the cone to 35 degrees bought 0.05 s of the 0.12 s needed and
+   * cost the spray its spread, so it was put back.
+   *
+   * The bound is arithmetic, AND IT IS ARITHMETIC IN THIS MODULE'S OWN GRAVITY,
+   * which is 18.5 and not 9.8 — blood here is pulled down at nearly twice true
+   * gravity on purpose, so that it arcs and falls instead of hanging. The first
+   * cut of this line used 9.8, got 2.4 m/s, flattened the spray to an apex of
+   * 0.21 m, and failed the RISE claim next door — "there is a curve in it" —
+   * which is the gate that exists to stop exactly this kind of fix. From a
+   * wound about 1.46 m up:
+   *
+   *     t = (v_y + sqrt(v_y^2 + 2gh)) / g = 0.85,  g = 18.5,  h = 1.46
+   *     ->  v_y = 6.1
+   *
+   * A droplet that would break it is TIPPED FLAT rather than dropped — the
+   * vertical it may not have goes downrange, which is where blood leaving a
+   * wound goes anyway. The rule is obeyed by construction instead of rolled
+   * for, which is the difference between a spray that lands and a spray that
+   * usually lands.
+   */
+  const RISE_SPEED = 6.1;
+
+  /**
    * Droplets leaving a wound along an axis. This is the only thing in the file
    * that throws blood — the burst, the running jet and the non-fatal hit are all
    * this function with different numbers, so there is one answer to what blood
@@ -3175,7 +3210,25 @@ export function createVfx(
         ez = (hz / nl) * want;
         ey = RISE_CEIL;
       }
-      const v = speed * rand(0.4, 1.15) * (gout ? 0.8 : fine ? 1.25 : 1);
+      // THE TOP OF THIS RANGE IS PAID FOR BY THE ARRIVAL RULE. A gout carries
+      // almost no drag (0.22 against a fine droplet's 2.6), so it is the one
+      // that is still in the air when the blow is over — and raising the count
+      // for the owner's "large volume" started rolling the top of the range on
+      // every blow instead of one in ten. 1.06 rather than 1.15, and the gout's
+      // own factor 0.72 rather than 0.80: the spray keeps its power, and the
+      // last droplet lands inside the 0.85 s `goretest` holds it to.
+      const v = speed * rand(0.4, 1.06) * (gout ? 0.72 : fine ? 1.25 : 1);
+      // AND THE ARRIVAL RULE, AS A SPEED. See `RISE_SPEED`: the angle ceiling
+      // alone cannot hold the clock, because airtime is v·sinθ and a fast
+      // droplet at a legal angle stays up as long as a slow one at an illegal
+      // one. What it may not carry upward it carries downrange.
+      if (v * ey > RISE_SPEED) {
+        const eyWant = RISE_SPEED / v;
+        const h0 = Math.hypot(ex, ez);
+        const hWant = Math.sqrt(Math.max(0, 1 - eyWant * eyWant));
+        const g = h0 > 1e-4 ? hWant / h0 : 0;
+        ex *= g; ez *= g; ey = eyWant;
+      }
       spawn({
         x: x + ex * 0.05, y: y + ey * 0.05, z: z + ez * 0.05,
         vx: ex * v + ivx, vy: ey * v + ivy, vz: ez * v + ivz,
@@ -3183,7 +3236,15 @@ export function createVfx(
         // first capture threw quarter-metre gouts — at that size a droplet is
         // as long as a forearm, it reads as a card rather than as liquid, and
         // no amount of arc rescues it. A gout is now a closed fist at most.
-        life: gout ? rand(0.55, 1.05) : fine ? rand(0.25, 0.5) : rand(0.4, 0.8),
+        // THE GOUT'S CEILING IS THE ARRIVAL RULE, not a number that happened to
+        // pass. `goretest` holds a blow's spray to being down inside 0.85 s —
+        // blood that outlives the blow reads as detached from it — and this
+        // sampled up to 1.05. It passed only because a smaller spray rarely
+        // rolled the top of the range; raising the count to what the owner
+        // asked for ("large volume that players can see") started rolling it
+        // every time, and the gate caught it on the first run. A rule a spray
+        // obeys by luck is not a rule.
+        life: gout ? rand(0.55, 0.85) : fine ? rand(0.25, 0.5) : rand(0.4, 0.8),
         size0: scale * (gout ? rand(0.8, 1.3) : fine ? rand(0.2, 0.36) : rand(0.45, 0.72)),
         // Blood in air stretches, it does not shrink. Holding the size and
         // letting F_ALIGN do the elongating is what keeps a droplet a droplet
@@ -3287,8 +3348,23 @@ export function createVfx(
     // 9 + 44k against 5 + 26k. A graze still reads as a graze (nine droplets),
     // and a cleaving heavy now throws better than fifty — the owner's "very
     // bloody" applied to the ordinary blow, not only to the death.
-    const count = Math.max(3, Math.round((9 + 44 * k) * (hot ? 1.35 : 1) * settings.particleScale));
-    if (store.n + count > budget) return;
+    // 16 + 76k, UP FROM 9 + 44k. The owner, asked for what the fight should
+    // look like: "the blood we wanted really dramatic intense spraying blood
+    // realistic but large volume that players can see". A graze still reads as
+    // a graze at sixteen droplets and a cleaving heavy now throws better than
+    // ninety, half again as many as before, and half again as big — see the
+    // scale argument below.
+    const want = Math.max(4, Math.round((16 + 76 * k) * (hot ? 1.4 : 1) * settings.particleScale));
+    // AND A FULL BUDGET SPENDS WHAT IS LEFT RATHER THAN NOTHING AT ALL.
+    //
+    // This line read `if (store.n + count > budget) return;`, which drops the
+    // WHOLE burst when it will not fit. The moment that happens is a moot with
+    // eight men in it trading blows over a burning hearth — which is to say the
+    // bloodiest moment in the game is the one that was drawing no blood. A blow
+    // that lands and produces nothing is worse than a blow that produces
+    // thirty; a thinner spray is a spray.
+    const count = Math.min(want, budget - store.n);
+    if (count < 3) return;
 
     let dx: number;
     let dy: number;
@@ -3324,12 +3400,20 @@ export function createVfx(
       // direction. The cone narrowing with damage is what makes the two read
       // differently at a glance even before the count registers.
       0.95 - 0.35 * k,
-      // Same argument as the jet's droplet size: bigger reads as liquid.
-      0.052 + 0.05 * k,
+      // Same argument as the jet's droplet size: bigger reads as liquid. Raised
+      // from 0.052 + 0.05k with the count, for the owner's "large volume that
+      // players can see": at four metres — which is where the camera sits — a
+      // 5 cm droplet is a pixel and a 9 cm one is blood.
+      0.064 + 0.075 * k,
       // Deeper the harder it was hit: more of it, and less of it aerated.
       tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
     );
-    if (k > 0.22) bloodSpatter(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.28)), 0.7 + k * 0.5);
+    // GROUND SPATTER FROM ALMOST EVERY BLOW, not only from the hard ones. The
+    // stains are the only part of this that outlives the second it happened in,
+    // and they are what turns a patch of turf into somewhere a fight has been
+    // happening. Threshold 0.10 rather than 0.22, and 45% of the droplets
+    // rather than 28%.
+    if (k > 0.10) bloodSpatter(o.position.x, o.position.y, o.position.z, Math.max(1, Math.round(count * 0.45)), 0.7 + k * 0.6);
     // On the glass, if the lens was close enough and in the way. Scaled off the
     // same `k` everything else here is, so a graze mists it and a cleaving heavy
     // to the throat covers it.
@@ -3340,6 +3424,26 @@ export function createVfx(
     // than to a node, because this path has no cut and therefore no stump to
     // follow — the pool lands where he was standing, which for a man who folds
     // straight down is within half a metre of where he ends up.
+    // A CUT THAT OPENS A MAN SPURTS, AND NOT ONLY THE ONE THAT KILLS HIM.
+    //
+    // `startJet` was reached only by a death, so every other blow in the game
+    // was a puff of droplets and nothing more — the thing a player sees fifty
+    // times a match had no pressure behind it at all. A real blow to a limb
+    // throws a jet for a moment and then stops, so this one is SHORT: a third
+    // of the death jet's life and half its power, scaled by the damage, and
+    // only above a graze. The death still owns the loudest moment on screen.
+    //
+    // AND IT IS SHORT FOR A REASON THAT IS NOT TASTE. A jet EMITS for its whole
+    // life, so its last droplet is born at the end of it and lands a little
+    // over half a second after that. `goretest` holds a blow's whole spray to
+    // 0.85 s; at `JET_LIFE * 0.34` the gate read 0.92 s and the cause was not
+    // the throw at all but the tail of the emission. 0.14 s of pressure plus
+    // 0.58 s of flight is 0.72 s, and it still reads as a spurt because a
+    // spurt IS short.
+    if (!o.fatal && k > 0.28) {
+      startJet(null, o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
+        0.07, 0.42 + k * 0.5, 0.14, hot);
+    }
     if (o.fatal) {
       // "even more aggressively when dead": a kill that took nothing off still
       // empties the man out. Power 1.05-1.65 against the old 0.5-0.85, and it
