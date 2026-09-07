@@ -231,3 +231,79 @@ export function dressFromSurfaceNames(
   });
   return { dressed, unknown: [...unknown] };
 }
+
+/* --------------------------------------------------------------------------
+   THE BRIDGE — an authored skeleton, driven by the pose system that ships
+   -------------------------------------------------------------------------- */
+
+/**
+ * WHAT MAKES P2 A BRIDGE RATHER THAN A REWRITE.
+ *
+ * `docs/PERFORMANCE.md` reads the authored-mesh problem as "the eight parts are
+ * posed by their PIVOT's transform rather than by a bone", and costs the fix as
+ * a rewrite of `anim.ts`'s posing. That is true of the stage-5 MERGE, which
+ * needs one geometry buffer across parts. It is **not** true of drawing an
+ * authored man.
+ *
+ * `applyPose` writes rotations onto about a dozen NAMED JOINTS — chest, head,
+ * rightArm, leftArm, rightLeg, leftLeg, and the four hinges — and a pivot is an
+ * `Object3D`. So is a `Bone`. The authored rig names its 25 bones by identity
+ * (`exportrig.mjs`, and `warrior-<cls>.rig.json` beside every glb), and every
+ * slot the pose writes has exactly one:
+ *
+ *     chest -> Spine        rightArm -> RightUpperArm   elbowR -> RightElbow
+ *     head  -> Head         rightLeg -> RightThigh      kneeR  -> RightKnee
+ *
+ * So an authored man can be driven by the SAME pose the procedural one is —
+ * the same `SWINGS`, the same `chainSwing` variants, the same weight, hitstop
+ * and stagger — with no change to a line of it. The upgrade is the mesh
+ * underneath, and everything this project has learned about how a man moves
+ * stays exactly where it is.
+ *
+ * That is the difference between a wave and a rewrite, and it is worth being
+ * exact about because the roadmap costed it as the latter.
+ */
+export const PIVOT_BONE_NAMES = {
+  chest: "Spine",
+  head: "Head",
+  rightArm: "RightUpperArm",
+  leftArm: "LeftUpperArm",
+  rightLeg: "RightThigh",
+  leftLeg: "LeftThigh",
+  elbowR: "RightElbow",
+  elbowL: "LeftElbow",
+  kneeR: "RightKnee",
+  kneeL: "LeftKnee",
+} as const;
+
+export type PivotSlot = keyof typeof PIVOT_BONE_NAMES;
+
+/**
+ * Find the bone behind every joint the pose writes.
+ *
+ * ALL OR NOTHING, deliberately. A partial map is the worst outcome available:
+ * the man would pose from the waist up and stand rigid from the waist down, on
+ * a build where every gate still passed because every gate reads geometry. So a
+ * single missing bone answers null and the caller keeps the procedural man,
+ * which is §5b's law — an authored asset must never become the only way a thing
+ * can be drawn.
+ */
+export function pivotBonesOf(root: THREE.Object3D): Record<PivotSlot, THREE.Object3D> | null {
+  const byName = new Map<string, THREE.Object3D>();
+  root.traverse((o) => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  const out = {} as Record<PivotSlot, THREE.Object3D>;
+  for (const slot of Object.keys(PIVOT_BONE_NAMES) as PivotSlot[]) {
+    const bone = byName.get(PIVOT_BONE_NAMES[slot]);
+    if (!bone) return null;
+    out[slot] = bone;
+  }
+  return out;
+}
+
+/** Which pose joints an asset cannot supply — for a message, not a decision. */
+export function missingPivotBones(root: THREE.Object3D): PivotSlot[] {
+  const names = new Set<string>();
+  root.traverse((o) => { if (o.name) names.add(o.name); });
+  return (Object.keys(PIVOT_BONE_NAMES) as PivotSlot[])
+    .filter((slot) => !names.has(PIVOT_BONE_NAMES[slot]));
+}

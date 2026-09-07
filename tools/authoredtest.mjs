@@ -32,6 +32,7 @@ const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const {
   rolePartsOf, hideBakedRoles, warriorIsUsable, AUTHORED_ROLES, REQUIRED_CLIPS,
   readSurfaceName, dressFromSurfaceNames,
+  pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
 const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/textures.ts")).href)
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
@@ -86,6 +87,41 @@ for (const cls of CLASSES) {
   // A man is re-dressed whenever his appearance changes, and a second pass that
   // "hid" more would mean the first had missed some.
   check(`${cls}: dressing again hides nothing further`, hideBakedRoles(g.scene, wanted) === 0);
+}
+
+// ---- THE BRIDGE: can the SHIPPED pose system drive an authored man? -------
+//
+// This is the check that decides whether P2 is a wave or a rewrite.
+// `docs/PERFORMANCE.md` costs authored meshes as "a rewrite of anim.ts's
+// posing". That is true of the stage-5 MERGE and not of DRAWING an authored
+// man: `applyPose` writes rotations onto about a dozen named joints, a pivot
+// is an Object3D, and so is a Bone. If every joint the pose writes has a bone
+// in the export, the authored man moves on the same SWINGS, the same
+// chainSwing variants, the same weight and hitstop, with no line of it changed.
+{
+  check("the bridge names a bone for every joint the pose writes",
+    Object.keys(PIVOT_BONE_NAMES).length >= 10,
+    Object.entries(PIVOT_BONE_NAMES).map(([k, v]) => `${k}->${v}`).join(" "));
+
+  for (const cls of CLASSES) {
+    const f = resolve(ART, `warrior-${cls}.glb`);
+    if (!existsSync(f)) continue;
+    const g = await parse(f);
+    const missing = missingPivotBones(g.scene);
+    check(`${cls}: the export carries every joint the pose writes`,
+      missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : "all ten");
+    const piv = pivotBonesOf(g.scene);
+    check(`${cls}: the bridge resolves to real objects with rotations`,
+      !!piv && Object.values(piv).every((o) => o && o.rotation && typeof o.rotation.set === "function"),
+      piv ? `${Object.keys(piv).length} joints` : "null");
+  }
+
+  // ALL OR NOTHING. A partial map poses a man from the waist up and leaves him
+  // rigid below, on a build where every geometry gate still passes.
+  const half = { name: "root", rotation: {}, traverse(f) { f(this); f({ name: "Spine", rotation: {}, traverse: () => {} }); } };
+  check("a partial skeleton is REFUSED whole, not half-mapped",
+    pivotBonesOf(half) === null,
+    `missing ${missingPivotBones(half).length} of ${Object.keys(PIVOT_BONE_NAMES).length}`);
 }
 
 // ---- THE SURFACE NAMES, WHICH ARE THE WHOLE ECONOMY OF THIS ---------------
