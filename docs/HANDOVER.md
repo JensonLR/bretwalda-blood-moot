@@ -91,9 +91,23 @@ carries a countdown to the Moot's hour.
 **`playtest` is 35/38 exit 1 — and it is 35/38 exit 1 on `main` too.**
 Pre-existing, checked rather than assumed.
 
-**`wartest --prove` does NOT fully arm, on `main` as well as here.** One
-neutrality gate — "a declared people is a COSTUME" — does not go red over its
-injected defect, so it is currently unproven. Pre-existing; filed, not fixed.
+~~**`wartest --prove` does NOT fully arm.**~~ **FIXED 7 Sep 2026.** All six
+neutrality gates arm now; `--prove` is 123/123. The COSTUME gate had **never**
+been armed since the day it was written: it was added in `181f3c3`, after the
+red arm landed in `ec13286`, and it correctly called `gate()` — but both
+defects `--prove` builds are keyed on TERRITORY (`splitTheQueue` at the
+engine's door, and the holdings bonus in §7c), and that section's only
+quantity is `appearance.people`. There was no defect for it to see. It was
+born blind rather than broken by anything.
+
+The injection now applies the naive "the people a man declares makes him
+tougher" bonus, keyed on the blob so it fires only in the declaring run: the
+runekeeper burns five ticks longer and `steps` goes 84 to 89. Verified in both
+directions — turning the injection off returns the gate to BLIND at 122/123.
+
+**One half of that gate is still unproven and its comment says so:** the gate
+asserts steps AND table AND war, and this defect only moves `steps`. A livery
+that reached the BANKING path would want its own defect, and does not have one.
 
 ### NOT built, and not hidden
 

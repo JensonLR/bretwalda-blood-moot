@@ -133,11 +133,13 @@ says "the war layer is done" is worth less than no document at all.
   solo play must reach the ledger. It is shown red by restoring the two-human
   rule, where it reports zero rows after three matches.
 
-  **`--prove` is currently NOT fully arming**, on `main` as well as after this
-  work: one neutrality gate does not go red over its injected defect, so that
-  gate is unproven. Found 7 Sep 2026, pre-existing, and filed rather than
-  quietly left — an unarmed red arm is "a gate green because the case is
-  absent" one level up.
+  **`--prove` arms all six gates as of 7 Sep 2026, and one of them never had
+  before.** The COSTUME gate was written after the red arm and no injection was
+  ever built for it — both existing defects are keyed on territory, and that
+  gate's only quantity is `appearance.people`. It has been given the defect a
+  naive livery implementation would ship, and goes red on it. An unarmed red
+  arm is "a gate green because the case is absent" one level up, which is why
+  this was worth its own pass rather than a note.
 
 **NOT built, and none of it is hidden in a corner.**
 

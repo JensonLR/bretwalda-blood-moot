@@ -858,6 +858,45 @@ head("7. The load-bearing rule");
       a.send("ready"); b.send("ready"); a.send("start");
       for (let i = 0; i < 4 * RATE; i++) eng.step();
       const room = eng._rooms.get(code);
+      // THE INJECTED DEFECT (--prove only): the naive implementation of
+      // "the people a man declares makes him tougher".
+      //
+      // THIS SECTION HAD NO INJECTION AT ALL UNTIL 7 Sep 2026, and the gate
+      // below has therefore never been armed since the day it was written.
+      // It called `gate()` — correctly, it IS a neutrality gate — but the two
+      // defects `--prove` builds are both keyed on TERRITORY: `splitTheQueue`
+      // at the engine's door, and the holdings bonus in §7c's `spawn`. Neither
+      // touches `appearance.people`, which is the only quantity this section
+      // measures, so `--prove` reported it BLIND rather than red. An unarmed
+      // red arm is "a gate green because the case is absent" one level up,
+      // which is the exact failure `docs/PROCESS.md` counts thirteen of.
+      //
+      // Keyed on the blob and NOT on the room, so it fires in the `declare`
+      // run and does nothing in the bare one — which is what makes the two
+      // runs diverge. Five health is enough: the runekeeper burns to death in
+      // this fixture, so a point of health is a tick of burning, and `steps`
+      // is one of the three things the gate compares.
+      //
+      // Injected HERE and never in `engine.mjs`, for the reason
+      // `splitTheQueue` gives: the fixture must be able to SEE a livery bonus
+      // without one ever being shipped.
+      //
+      // WHAT THIS ARMS AND WHAT IT DOES NOT, stated because the whole point of
+      // this arm is that an unproven gate must not read as a proven one. The
+      // gate asserts a CONJUNCTION — same steps, same table, same war report —
+      // and this defect moves `steps` (84 to 89: five health is five more ticks
+      // of burning). It therefore proves the gate can see a livery that BUYS A
+      // POINT OF SOMETHING. It does NOT prove the gate can see a livery that
+      // REACHES THE BANKING PATH, which is the other half of what the comment
+      // above claims; `war` comes out identical under this injection. That half
+      // wants its own defect and does not have one yet.
+      if (PROVE) {
+        room.players.forEach((p) => {
+          if (p.appearance && p.appearance.people && p.appearance.people !== "none") {
+            p.maxHealth += 5; p.health = p.maxHealth;
+          }
+        });
+      }
       const men = [...room.players.values()];
       men[0].kills = 3; men[0].damage = 480;
       men[1].kills = 1; men[1].damage = 260;
