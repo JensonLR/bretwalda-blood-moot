@@ -99,6 +99,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".jank");
@@ -949,8 +950,24 @@ async function main() {
     say("  built bundle. Refusing to measure a build the player will never run.");
     process.exitCode = 1; return;
   }
-  const server = spawn("node", ["custom-server.mjs"], {
-    cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
+  // REFUSE A BUNDLE OLDER THAN THE SOURCE IT CLAIMS TO MEASURE — added
+  // 7 Sep 2026, and it is the same failure this file's own `stall` patch had.
+  //
+  // This spawned `custom-server.mjs` at NODE_ENV=production unconditionally,
+  // and nothing anywhere asked how old `.next` was. On 7 Sep the bundle it
+  // served was THREE DAYS behind the worktree, and every number this harness
+  // printed was about code that had not been compiled — including the numbers
+  // read against the owner's report that the game "feels really laggy". They
+  // happened to be close to the fresh ones. That is luck, not method.
+  //
+  // `tools/lib/freshbuild.mjs` exists for exactly this and five harnesses
+  // already used it; the one instrument built to answer the owner's four words
+  // was not among them. A stale bundle makes every case absent at once, which
+  // is this repository's oldest failure mode wearing a new coat.
+  const choice = chooseServer(ROOT, "janktest");
+  console.log(`  [janktest] measuring against: ${choice.note}`);
+  const server = spawn("node", [choice.script], {
+    cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: choice.prod ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   watchBoot(server, "janktest");

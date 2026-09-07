@@ -32,9 +32,26 @@ style, `helmclash` §5 — so no helm or garment moved.
 What a critic will still say from the side is true: **it is one shell**. A
 beard reads as hair through strands — cards or fibres with anisotropic
 shading — and this construction has none; it is an authored surface with a
-tinted skin fade and lengthwise ridges. The owner ruled the same day that the
+tinted skin fade and lengthwise ridges. ~~The owner ruled the same day that the
 visual rebuild happens in Unity and Blender; the beard is the clearest case
-for it and is filed there rather than pushed further as a shell.
+for it and is filed there rather than pushed further as a shell.~~
+
+**RE-HOMED 7 Sep 2026 — the file it was filed against no longer exists.**
+Unity is retired (`docs/ONE-CLIENT.md`), so "filed for the Unity rebuild" was
+an entry pointing at nothing, which is worse than an entry pointing at nobody.
+
+**The work itself survives intact and is closer than that sentence implies.**
+`tools/blender/strands.py` already grows real strands off this shell — 11,000
+per m² on the beard, rooted by face area, clumped, tapered over five segments,
+with the shell kept as a darkened underfur — and they are already exported to
+glTF and judged in 35 mm head renders. What is missing is not the beard. It is
+the LOADER: the three.js renderer has no glTF path, so the strands exist in
+`art/gltf` and the browser draws the shell.
+
+So this is **P2** in `ONE-CLIENT.md` — the asset loader — and it is the single
+best argument for building it. It is not a beard defect any more; it is one
+line item of a renderer feature, and it should be closed by a capture of the
+loaded strands rather than by another pass on the shell.
 
 ---
 
