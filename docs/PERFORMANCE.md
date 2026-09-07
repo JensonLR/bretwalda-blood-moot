@@ -255,6 +255,20 @@ Multiply by one plus the shadow-casting light count — every caster is drawn ag
 per casting light — and at `high` that is about **940 draw calls of 4,204, or
 22%**. Real, and it is not the order of magnitude the framing implied.
 
+> **THIS SECTION IS ABOUT THE MERGE, AND WAS READ AS BEING ABOUT AUTHORED
+> MESHES — corrected 7 Sep 2026.** "A rewrite of `anim.ts`'s posing" is true of
+> merging geometry ACROSS parts, which needs one buffer and therefore one
+> transform. It is **not** true of DRAWING an authored man, and nobody had
+> checked the difference.
+>
+> `applyPose` writes rotations onto about a dozen NAMED JOINTS. A pivot is an
+> `Object3D`; so is a `Bone`; and `exportrig` names its 25 bones by identity.
+> Every joint the pose writes has exactly one — `chest→Spine`,
+> `rightArm→RightUpperArm`, `elbowR→RightElbow` — gated on all four exports in
+> `tools/authoredtest.mjs`. **An authored man moves on the same pose the
+> procedural one does**, including `chainSwing`'s variants, with no line of it
+> changed. `ONE-CLIENT.md` P2 is a wave; stage 5 below is still the rewrite.
+
 **It is also more work than it sounds, and less than the last round assumed.**
 The rig already carries `THREE.Skeleton` — `anim.ts:articulate` builds one
 skeleton of seventeen bones per warrior and rebinds every limb and cloak mesh as

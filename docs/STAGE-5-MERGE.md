@@ -56,6 +56,19 @@ Step 1 is **a rewrite of `anim.ts`'s posing**, and `PERFORMANCE.md` records that
 **two other branches also hold that file**. That is the actual reason this is a
 scheduling problem and not a coding one.
 
+> **AND IT IS NOT P2'S BLOCKER — corrected 7 Sep 2026, having been written here
+> as though it were.** This document implied that authored meshes wait on the
+> same rewrite. They do not. The merge needs one geometry buffer across parts
+> and therefore one transform; DRAWING an authored man needs only that the pose
+> can reach his joints, and it can: `applyPose` writes about a dozen named
+> pivots, a `Bone` is an `Object3D`, and every slot has a bone of the same
+> identity in all four exports (`tools/authoredtest.mjs`, gated).
+>
+> **So P2 can land first and alone**, and it should — it is −160 draws against
+> stage 5's −193, it takes 16% of the frame's triangles with it, and it makes
+> the game look better rather than identical. The two are complementary, not
+> sequential, and only the merge waits on the posing branches.
+
 ## 3. What a fixer will get wrong, listed in advance
 
 * **Merging naively breaks severing.** Limbs come off (`ZONE_SEAM` in
