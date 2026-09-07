@@ -4128,6 +4128,19 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
   }, []);
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-4 pt-7 sm:p-6">
+      {/* A GROUND FOR THE PANEL ON WIDE SCREENS.
+          The owner, of a desktop capture: "this desktop view is pretty ugly &
+          hard to see the players". On a phone the roll sits in the one column
+          there is and the tableau is behind it, which is the only arrangement
+          that fits. On a 1440-wide screen the same centred column lands square
+          on both victors — the men the screen exists to show — with a third of
+          the frame empty on either side of them.
+          So on `lg` the roll moves to the right rail and this is the ground it
+          sits on: a soft edge-to-centre wash so the panel has contrast without
+          a hard-edged box in the middle of the picture, on the same reasoning
+          as the top scrim. Below `lg` it is not drawn at all. */}
+      <div aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 hidden w-[34rem] bg-gradient-to-l from-black/80 via-black/45 to-transparent lg:block" />
       {/* A SCRIM, BECAUSE A TEXT SHADOW IS NOT CONTRAST.
           The owner: "the text on end screen the yellow is sometimes hard to
           read & blended into the background of the arena". It is amber type on
@@ -4139,7 +4152,10 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
           behind the words and in front of the fight, and it is tall enough to
           cover the whole top cluster including the war line. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-black/75 via-black/45 to-transparent sm:h-60" />
-      <div className="animate-fadeIn relative flex flex-col items-center gap-1.5 text-center">
+      {/* The headline stays centred on the FRAME up to `lg`; past it the rail
+          takes the right third, so it centres on what is left instead of
+          sitting half-under the roll. */}
+      <div className="animate-fadeIn relative flex flex-col items-center gap-1.5 text-center lg:pr-[32rem]">
         <div className="label-overline">BATTLE COMPLETE</div>
         {/* Near-white rather than amber-100. Over a warm arena an amber
             headline is the same hue as its background; the glow stays because
@@ -4192,11 +4208,18 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
         <MatchTally data={data} playerId={playerId} />
       </div>
 
-      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2">
+      {/* THE ROLL, ON THE RIGHT RAIL WHEN THERE IS ROOM FOR ONE.
+          `mx-auto` up to `lg` — a phone has one column and the tableau lives
+          behind it. From `lg` the men are framed centre-left and this pins
+          right, so nothing the screen is FOR is covered by the numbers.
+          `lg:justify-end` puts it at the foot of the rail rather than floating
+          in the middle of it, and the taller `max-h` is affordable there
+          because it is no longer competing with the fight for the same pixels. */}
+      <div className="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-2 lg:mx-0 lg:ml-auto lg:mr-2 lg:max-w-sm lg:justify-end">
         {/* The flourish, performed live on the tableau behind these numbers.
             The stage shares the fight's rigs, so the press plays mid-portrait. */}
         {onEmote && <EmoteRow onEmote={onEmote} />}
-        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col p-2 backdrop-blur">
+        <div className="card !bg-stone-950/85 flex max-h-[34vh] flex-col p-2 backdrop-blur lg:max-h-[46vh]">
           {/* THE COLUMN HEADS, AND THEY ARE HERE FOR THE MIDDLE ONE. The owner:
               "rounds won should be recorded somehow for all to see in the
               table". A bare number in a column nobody has named is not

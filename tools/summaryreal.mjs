@@ -61,7 +61,12 @@ const SETTLE = parseInt(arg("settle", "11"), 10) * 1000;
 const QUALITY = arg("quality", "low");
 const SHOTS = [
   { name: "phone", width: 390, height: 844, mobile: true },
-  { name: "desktop", width: 1280, height: 720, mobile: false },
+  // 1440x900, not 1280x720: it is the owner's own screen (a MacBook Air's
+  // logical size) and it is where he reported "this desktop view is pretty
+  // ugly & hard to see the players". A capture taken at a size nobody has is
+  // a capture of a layout nobody sees — and `lg:` starts at 1024, so both
+  // widths take the same branch and only this one shows how much air it has.
+  { name: "desktop", width: 1440, height: 900, mobile: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

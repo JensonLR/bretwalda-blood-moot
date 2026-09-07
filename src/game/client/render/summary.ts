@@ -250,8 +250,28 @@ const KEY_BIAS_METRES = 0.012;
 // them. Full-screen containers are skipped (they are layout, not panels) and
 // so is anything too narrow to matter to a centred composition.
 const BAND_FALLBACK = { lo: -0.55, hi: 0.66 };
-/** A panel narrower than this fraction of the viewport is not in the way. */
-const BAND_MIN_WIDTH = 0.24;
+/**
+ * A PANEL IS IN THE WAY IF IT CROSSES THE MIDDLE OF THE GLASS, not if it is
+ * merely wide — and this is the same reasoning the comment above already gave
+ * ("too narrow to matter to a centred composition"), sharpened until it is
+ * true of a screen that is not a phone.
+ *
+ * The old test was a fraction of the VIEWPORT WIDTH, which is only the same
+ * question while every panel is centred. On a wide screen the roll is a right
+ * rail: it covers the right third and nothing else, so by width it counts as a
+ * panel and by position it occludes nothing the tableau is composed around.
+ * Measured at 1440x900 the whole page then failed the width test, the band came
+ * back unmeasured, and the lens framed eight men into a PHONE'S fallback slot
+ * on a screen with half its height going spare — the owner's "hard to see the
+ * players", in the one number that decides how big they are drawn.
+ *
+ * An element must span the centre column — half-width `BAND_CENTRE` of the
+ * viewport either side of the middle — to push the band in. A centred phone
+ * panel spans it by construction; a rail does not.
+ */
+const BAND_CENTRE = 0.12;
+/** Below this a box is a rule, a hairline or a badge, not a panel. */
+const BAND_MIN_WIDTH = 0.06;
 /** A box taller than this fraction of the viewport is a container, not a panel. */
 const BAND_MAX_HEIGHT = 0.62;
 /** Breathing room between the outermost man and the panel edge, in ndc. */
@@ -271,6 +291,7 @@ function measureSafeBand(): SafeBand {
     if (el === canvas || (canvas && el.contains(canvas))) continue;
     const r = el.getBoundingClientRect();
     if (r.width < vw * BAND_MIN_WIDTH || r.height < 10) continue;
+    if (r.left > vw * (0.5 - BAND_CENTRE) || r.right < vw * (0.5 + BAND_CENTRE)) continue;
     if (r.height > vh * BAND_MAX_HEIGHT) continue;
     const style = window.getComputedStyle(el);
     if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
