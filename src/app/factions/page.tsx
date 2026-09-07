@@ -32,6 +32,7 @@ import Hearth, { type HearthViewData, type HearthSeatData } from "@/game/client/
 import { POINTS, SEASON_DAYS, FRONT_WINDOW, TERRITORIES } from "@/game/war.mjs";
 import { FIELD, PEOPLE_NAME, DRAWN } from "@/game/client/factionMap/territories";
 import { readCreds } from "../profileLink";
+import { inMootWindow, nextMootAt } from "@/game/war.mjs";
 
 const PEOPLES = ["saxon", "norse", "briton", "pict"] as const;
 type PeopleId = (typeof PEOPLES)[number];
@@ -240,6 +241,49 @@ export default function WarPage() {
   useEffect(() => { void load(); }, [load]);
 
   /**
+   * THE MAP MOVES WHILE YOU WATCH IT.
+   *
+   * `docs/WHAT-THIS-GAME-IS.md` §3.1 listed "the map is not live" as an open
+   * gap and it was: this screen read the war once, on open, and never again.
+   * Everything else in P1 makes the map move, and a map that moves where
+   * nobody can see it move is not the feature. docs/ONE-CLIENT.md §6.2.
+   *
+   * Thirty seconds, and only while the tab is VISIBLE. A backgrounded phone
+   * polling a 20 Hz game server for a number that changes slowly is a battery
+   * complaint waiting to be filed, and this screen is most often opened on one.
+   */
+  useEffect(() => {
+    const POLL_MS = 30_000;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => { if (!timer) timer = setInterval(() => { void load(); }, POLL_MS); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") { void load(); start(); } else stop();
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [load]);
+
+  /**
+   * THE MOOT'S HOUR, counted down. docs/ONE-CLIENT.md §6.2.
+   *
+   * `nextMootAt` answers TOMORROW while a window is open, so this never reads
+   * zero against a Moot already sitting — `inMootWindow` is what says "now",
+   * and it gets its own line rather than a countdown of 0h 0m.
+   */
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const mootOpen = inMootWindow(now);
+  const untilMoot = Math.max(0, nextMootAt(now) - now);
+  const mootLabel = mootOpen
+    ? "The Moot is sitting — every blow counts for half again"
+    : `The Moot convenes in ${Math.floor(untilMoot / 3_600_000)}h ${Math.floor((untilMoot % 3_600_000) / 60_000)}m`;
+
+  /**
    * THE ROLL'S ASK (7.6): which axis and scope the leaderboard ranks. A
    * change refetches ONLY the roll — a slim POST with the same body shape —
    * so flipping between DEEDS and KILLS never re-reads the whole map.
@@ -328,6 +372,7 @@ export default function WarPage() {
                   ? "You have stood your first fight. One thing remains: Britain is four peoples at war, and every match you win from here takes ground for one of them. Touch a kingdom on the map, read what it holds, and swear. The oath is for the season — choose like it matters."
                   : "The one year all four coexist: Alfred's Wessex against the Danelaw, the Britons holding the west, and the Picts still Picts for another generation. Swear to one, and the map becomes yours to drag."}
             </p>
+            <p className="label-overline" data-moot={mootOpen ? "sitting" : "waiting"}>{mootLabel}</p>
           </header>
 
           <div className="knot-band" />
