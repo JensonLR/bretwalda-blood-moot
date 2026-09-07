@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Real-flow probe: real MATCHES through the shipped page at 390x844, of the
-// three shapes the end-of-match tableau has to compose.
+// Real-flow probe: real MATCHES through the shipped page, of the three shapes
+// the end-of-match tableau has to compose. Default 390x844; `--desktop` runs
+// the same three at 1440x900 with a mouse (see the viewport note in `main`).
 //
 //   duel    one man stands over one corpse, and the rematch flow works: the
 //           summary overlay mounts over the live canvas, the verdict is
@@ -33,6 +34,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
 const OUT = process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : "art/shots";
+// Module scope, not main's, because the phases assert against it too — the
+// satisfaction check reports the size it measured at, and `duelPhase` runs
+// outside main's closure.
+const DESKTOP = process.argv.includes("--desktop");
 let server;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -151,8 +156,22 @@ async function tapNow(page, label) {
 
 /** A fresh phone, tapped and named, on the landing screen. */
 async function phone(browser) {
+  // THE VIEWPORT, AND WHY THERE IS NOW A CHOICE OF ONE.
+  //
+  // This probe has only ever run at 390x844. The owner, of a DESKTOP capture on
+  // 7 Sep 2026: "this desktop view is pretty ugly & hard to see the players" —
+  // and he was right, and nothing here could have told him, because the end-of-
+  // match tableau had never been photographed at a desktop width in its life.
+  // A phone has one column and the roll sits in it; a 1440-wide screen has
+  // three, and the same centred column lands square on the men the screen
+  // exists to show.
+  //
+  // `--desktop` runs the same flows at 1440x900 with a mouse instead of a
+  // finger. It is not a second suite: it is the same assertions asked at the
+  // size the defect lives at.
   const ctx = await browser.newContext({
-    viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true,
+    viewport: DESKTOP ? { width: 1440, height: 900 } : { width: 390, height: 844 },
+    hasTouch: !DESKTOP, isMobile: !DESKTOP,
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   });
   await ctx.addInitScript(PROBE);
@@ -192,6 +211,45 @@ async function castNow(page) {
  * off frame one is measured against a lens that is not the lens the shot is
  * taken with, which is a whole class of false failure.
  */
+/**
+ * EVERY CORPSE IS ON THE GROUND, in every shape of moot.
+ *
+ * The tableau's own cast report used to model a dead man as a box 0.62 m tall
+ * and every claim built on it — in the picture, not under the ledger, not
+ * cropped — inherited that assumption. It said 0.62 whether the body had gone
+ * over or was standing bolt upright, so the whole suite was green over a
+ * portrait in which the dead man was on his feet.
+ *
+ * `headY` is the skull's world height read off the posed skeleton. Measured on
+ * real matches: a settled corpse 0.11–0.81 m depending which way he went over,
+ * a standing man 1.64–1.70 m, and the body this caught — a collapse frozen a
+ * twentieth of a second in — 1.39 m. One metre is the bar and it is clear of
+ * all three. See `settleDeath` in anim.ts for the defect itself.
+ *
+ * AND IT ASKS ABOUT THE FIRST FRAME OF THE PORTRAIT, not a sample taken three
+ * seconds later. The defect was frame-rate dependent — the collapse ran on
+ * rendered time at about a fifth of real speed, so a fast box finished it
+ * before this suite looked and reported 0.72 m over a build that was broken.
+ * Held against the red arm at 390x844 the late reading went GREEN. `window.
+ * __summaryFirst` is the cast exactly as the stage's own first posed frame
+ * left it, which is the frame a player can be shown and the frame a shutter
+ * can catch.
+ */
+async function everyCorpseDown(page, where) {
+  const men = await page.evaluate(() => window.__summaryFirst ?? null);
+  const dead = (men ?? []).filter((m) => !m.standing && typeof m.headY === "number");
+  if (!dead.length) {
+    skipped.push(`${where}: every corpse is on the ground`);
+    console.log(`[flow] SKIP ${where}: every corpse is on the ground — the stage's first `
+      + `posed frame carried no headY for any fallen man. NOT A PASS — counted as skipped.`);
+    return;
+  }
+  const up = dead.filter((m) => m.headY > 1.0);
+  check(`${where}: every corpse is on the ground`, up.length === 0,
+    up.length ? up.map((m) => `${m.id.slice(0, 6)} head ${m.headY}m up, actT=${m.actT}`).join("; ")
+      : `${dead.length} fallen, worst skull ${Math.max(...dead.map((m) => m.headY)).toFixed(2)}m off the turf`);
+}
+
 async function tableau(page, frames = 6) {
   await until(async () => {
     const n = await page.evaluate(() => {
@@ -239,6 +297,7 @@ async function ffaPhase(browser) {
   check("eight men fought, three stand and five lie",
     men.length === 8 && stood.length === 3 && lying.length === 5,
     `cast=${men.length} standing=${stood.length} dead=${lying.length} kind=${stage?.kind}`);
+  await everyCorpseDown(page, "free-for-all");
   // Every man the stage did NOT honour has to be a corpse in the animator's
   // eyes too, or he is a live man lying face-down — a different bug with the
   // same silhouette.
@@ -557,6 +616,7 @@ async function teamPhase(browser) {
   check("the winning side stands whole and the losing side lies whole",
     men.length === 4 && wrong.length === 0 && stage?.kind === "warband",
     `cast=${men.length} winner=${verdict?.winnerTeam} misplaced=${wrong.length} kind=${stage?.kind}`);
+  await everyCorpseDown(page, "war band");
   // A war band ranks BANDS, so every man on a side shares its place and its
   // rounds. This is where that has to be visible: four rows reading #1 #1 #2 #2,
   // not four rows quietly re-ranked by who happened to swing most.
@@ -697,60 +757,96 @@ async function duelPhase(browser) {
     const canvasUp = await page.evaluate(() => !!document.querySelector("canvas"));
     check("the summary overlay stands over a live canvas", overlayUp && canvasUp,
       `verdict=${overlayUp}, canvas=${canvasUp}`);
-  }
-  // A CONTROL MAY NEVER SIT ON WORDS — backlog 8.2, the owner's screenshot:
-  // the sound toggle mid-left, ON TOP of the war banner ("THE WAR WATCHES
-  // MEN…"). It was moved to the corner the moment he reported it, and then
-  // nothing held it there: this suite stands a real summary up at phone width
-  // and had no claim about what covers what, so the fix was a comment and a
-  // hope.
-  //
-  // Buttons against TEXT, not buttons against buttons — `touchtest` already
-  // owns the second question and it owns it during a FIGHT, which is a
-  // different screen with different furniture. Leaves only, so one paragraph
-  // is not reported once per nested span, and only what is actually painted.
-  {
-    const sat = await page.evaluate(() => {
-      const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-      const btns = [...document.querySelectorAll("button,a[href]")]
-        .map((el) => ({ name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 22), r: el.getBoundingClientRect() }))
-        .filter((b) => b.r.width > 4 && b.r.height > 4);
-      const words = [...document.querySelectorAll("div,span,p,h1,h2,h3,li")].filter((el) => {
-        // A CONTAINER IS NOT A WORD, and the first run of this claim proved it:
-        // the emote row is a bare flex div holding three buttons, so a leaf test
-        // that only looked for nested TEXT elements read it as a text node
-        // saying "RAISE BOSS TAUNT" and then reported all three of its own
-        // buttons for sitting on it. An element whose text comes FROM buttons
-        // is not text a button can cover.
-        if (el.querySelector("div,span,p,h1,h2,h3,li,button,a[href]")) return false;
-        if (el.closest("button,a[href]")) return false;
-        const t = el.textContent.trim();
-        if (t.length < 3) return false;
-        const st = window.getComputedStyle(el);
-        if (st.visibility === "hidden" || st.display === "none" || parseFloat(st.opacity || "1") < 0.05) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 4 && r.height > 4;
-      });
-      const out = [];
-      for (const w of words) {
-        for (const b of btns) {
-          if (hits(w.getBoundingClientRect(), b.r)) {
-            out.push(`"${b.name}" sits on "${w.textContent.trim().slice(0, 26)}"`);
+
+    // A CONTROL MAY NEVER SIT ON WORDS — backlog 8.2, the owner's screenshot:
+    // the sound toggle mid-left, ON TOP of the war banner ("THE WAR WATCHES
+    // MEN…"). It was moved to the corner the moment he reported it, and then
+    // nothing held it there: this suite stands a real summary up at phone width
+    // and had no claim about what covers what, so the fix was a comment and a
+    // hope.
+    //
+    // Buttons against TEXT, not buttons against buttons — `touchtest` already
+    // owns the second question and it owns it during a FIGHT, which is a
+    // different screen with different furniture. Leaves only, so one paragraph
+    // is not reported once per nested span, and only what is actually painted.
+    //
+    // AND IT IS PINNED TO THE SUMMARY. Moved up here beside the shutter after a
+    // 1440x900 run reported `"START" sits on "warden · customised"` — both of
+    // which are LOBBY furniture. The ten-second rollback had fired and the claim
+    // was quietly about a different screen. It now refuses to answer at all
+    // unless the verdict is on the glass.
+    {
+      const onSummary = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
+      const sat = !onSummary ? null : await page.evaluate(() => {
+        const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const btns = [...document.querySelectorAll("button,a[href]")]
+          .map((el) => ({ name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 22), r: el.getBoundingClientRect() }))
+          .filter((b) => b.r.width > 4 && b.r.height > 4);
+        const words = [...document.querySelectorAll("div,span,p,h1,h2,h3,li")].filter((el) => {
+          // A CONTAINER IS NOT A WORD, and the first run of this claim proved it:
+          // the emote row is a bare flex div holding three buttons, so a leaf test
+          // that only looked for nested TEXT elements read it as a text node
+          // saying "RAISE BOSS TAUNT" and then reported all three of its own
+          // buttons for sitting on it. An element whose text comes FROM buttons
+          // is not text a button can cover.
+          if (el.querySelector("div,span,p,h1,h2,h3,li,button,a[href]")) return false;
+          if (el.closest("button,a[href]")) return false;
+          const t = el.textContent.trim();
+          if (t.length < 3) return false;
+          const st = window.getComputedStyle(el);
+          if (st.visibility === "hidden" || st.display === "none" || parseFloat(st.opacity || "1") < 0.05) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 4 && r.height > 4;
+        });
+        const out = [];
+        for (const w of words) {
+          for (const b of btns) {
+            if (hits(w.getBoundingClientRect(), b.r)) {
+              out.push(`"${b.name}" sits on "${w.textContent.trim().slice(0, 26)}"`);
+            }
           }
         }
+        return { out: [...new Set(out)], btns: btns.length, words: words.length };
+      });
+      if (!sat) {
+        skipped.push("no control on the summary sits on any words");
+        console.log("[flow] SKIP no control on the summary sits on any words — the rollback fired "
+          + "before the sweep could run, and this claim is only about the summary. NOT A PASS.");
+      } else {
+        check("no control on the summary sits on any words",
+          sat.out.length === 0,
+          sat.out.length ? sat.out.join("; ")
+            : `${sat.btns} controls against ${sat.words} painted texts at ${DESKTOP ? "1440x900" : "390x844"}, none overlapping`);
       }
-      return { out: [...new Set(out)], btns: btns.length, words: words.length };
-    });
-    check("no control on the summary sits on any words",
-      sat.out.length === 0,
-      sat.out.length ? sat.out.join("; ")
-        : `${sat.btns} controls against ${sat.words} painted texts at 390x844, none overlapping`);
-  }
+    }
 
+    // THE PICTURE IS TAKEN HERE, AND IT IS CHECKED.
+    //
+    // It used to be taken forty lines further down, after the flourish check,
+    // and on a 1440x900 run that landed AFTER the ten-second rollback: the
+    // file called `summary-real-*.png` was a photograph of the LOBBY. Nobody
+    // would have known, because a screenshot asserts nothing about what is in
+    // it — the same shape as `weightshot` photographing a menu.
+    //
+    // So: earliest moment the verdict is provably up, and a claim that it is
+    // still up at the shutter. Named for the size, so a desktop run cannot
+    // overwrite the phone shot with a picture of a different layout.
+    const shot = `${OUT}/summary-real-${DESKTOP ? "desktop" : "phone"}.png`;
+    const inFrame = await page.getByText("BATTLE COMPLETE", { exact: false }).first().isVisible().catch(() => false);
+    if (!inFrame) {
+      // NOT a failure and NOT a picture. A slow box can lose the whole
+      // ten-second window, and the one thing that must not happen is a file
+      // called `summary-real-*.png` holding a photograph of the lobby — so on
+      // that box the shutter simply does not fire.
+      console.log(`[flow] SKIP the summary shot — the rollback fired before the shutter. `
+        + `${shot} left as it was.`);
+    } else {
+      await page.screenshot({ path: shot });
+      console.log(`[flow] wrote ${shot} — taken with the verdict on screen`);
+    }
+  }
   const duelEarly = await castNow(page);
   await emoteCheck(page, duelEarly, "duel");
-  await page.screenshot({ path: `${OUT}/summary-real-phone.png` });
-  console.log(`[flow] wrote ${OUT}/summary-real-phone.png`);
 
   // The tableau itself, asserted once the timing-critical press is out of the
   // way: the podium work must not quietly stand the duel's corpse back up.
@@ -760,6 +856,7 @@ async function duelPhase(browser) {
     && duelCast.men.filter((m) => m.standing).length === 1
     && duelCast.men.some((m) => !m.standing && m.state === "dead"),
     `kind=${duelCast.stage?.kind} standing=${duelCast.men.filter((m) => m.standing).length}`);
+  await everyCorpseDown(page, "duel");
 
   await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 30000)   // see `until`;
   await until(() => page.evaluate(() => {
@@ -768,7 +865,7 @@ async function duelPhase(browser) {
   }), "the parked ready to stick", 60000)   // a full round trip through that stall — and it timed out once at 30s on this box; see `until`;
   const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
   check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
-  await page.screenshot({ path: `${OUT}/summary-real-lobby.png` });
+  await page.screenshot({ path: `${OUT}/summary-real-lobby${DESKTOP ? "-desktop" : ""}.png` });
   await ctx.close();
 }
 

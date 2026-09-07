@@ -26,7 +26,7 @@
 import * as THREE from "three";
 import type { GamePlayer, MatchEndData } from "../../types";
 import {
-  stepWarriorTransform, poseWarrior, triggerEmote, carryGore, cutNetHistory,
+  stepWarriorTransform, poseWarrior, triggerEmote, carryGore, cutNetHistory, settleDeath,
   type WarriorRig, type WarriorMotion, type AnimHooks,
 } from "./anim";
 import type { EmoteId } from "../../types";
@@ -382,6 +382,8 @@ function publishDiag(d: Record<string, unknown>): void {
 
 const _box = new THREE.Box3();
 const _v = new THREE.Vector3();
+/** For world reads off a posed bone. Kept apart from `_v`, which is projected. */
+const _w = new THREE.Vector3();
 
 /**
  * Where the staged bodies ACTUALLY ended up, per frame, for a harness that has
@@ -442,6 +444,22 @@ function reportBodies(
       foot, head,
       ndc: [+nx0.toFixed(3), +ny0.toFixed(3), +nx1.toFixed(3), +ny1.toFixed(3)],
       actT: +b.motion.actT.toFixed(2), fall: b.motion.fall,
+      // MEASURED, not assumed — and this is the difference between a
+      // diagnostic and a wish.
+      //
+      // `lo`/`hi` above is a MODEL: 0.62 m for a corpse, 1.88 m for a standing
+      // man, chosen because it is the box the framing solver reasons about. It
+      // reports 0.62 whether the body went over or is standing bolt upright,
+      // so every claim built on it — "in the picture", "not under the ledger" —
+      // is green over a corpse that never fell. `headY` is the head bone's
+      // actual world height off the posed skeleton. A man laid out has his
+      // skull within a forearm of the turf; a man still on his feet does not.
+      headY: +b.rig.pivots.head.getWorldPosition(_w).y.toFixed(3),
+      // The two fields that say WHY a death clock reads what it reads:
+      // `poseWarrior` restarts `actT` whenever the pose GROUP changes, so a
+      // corpse whose clock keeps returning to zero is a corpse whose state is
+      // being handed back and forth, not one the stage failed to wind on.
+      lastState: b.motion.lastState, lastRaw: b.motion.lastRaw,
       // What he is PERFORMING, if anything. A corpse mid-flourish is the exact
       // failure the standing rule exists to prevent, and it is a field rather
       // than a screenshot argument.
@@ -755,6 +773,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       const facing = Math.atan2(nx, nz);
       // Head up-frame, away from the lens. See `lay`.
       const dead = warriors.get(loser.id);
+      const wasState = dead ? dead.motion.lastState : null;
       const lie = ((dead?.motion.fall ?? -1) >= 0
         ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz)) + 0.35;
       staged.push({ id: loser.id, player: lay(loser, cx, cz, lie), standing: false });
@@ -775,7 +794,10 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         // shipped with: not a pose bug, a pose caught mid-fall and then
         // photographed. The stage runs the clock out so the first frame of the
         // portrait is a body that has already landed, whatever the frame rate.
-        dead.motion.actT = Math.max(dead.motion.actT, DEATH_SETTLED);
+        // `settleDeath`, not a bare `actT` write: the clock alone does not
+        // survive the next pose. See its comment — this line looked right and
+        // was thrown away every single time.
+        settleDeath(dead.motion, DEATH_SETTLED);
         // His arm goes with him. A severed piece is integrated in world space
         // off the arena root, so a corpse carried out of the fire would
         // otherwise leave its own head behind in the flames.
@@ -811,6 +833,16 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         new THREE.Vector3(vx, gy + 1.1, vz), new THREE.Vector3(nx, 0, nz), q,
         new THREE.Vector3(cx, gy + 0.3, cz));
       publishDiag({
+        // Did the stage actually FIND the dead man's rig, and what did his
+        // death clock read when it let go of him? Without these two the
+        // difference between "the stage never wound the clock on" and "the
+        // clock was wound and then something reset it" is unanswerable from
+        // outside, and they are one word each.
+        found: !!dead, settled: dead ? +dead.motion.actT.toFixed(2) : null,
+        // What the animator had last been told about this body when the stage
+        // took it. "" is a rig that has never been posed — which is what the
+        // tableau's rigs are, and why the wound clock used to be discarded.
+        wasState,
         kind: "duel", fell: [fellX, fellZ], fellR: r0, carried,
         corpse: [cx, cz], corpseR: R, victor: [vx, vz],
         lensR: endR, lie, ...shot, cause: loser.deathCause ?? null,
@@ -927,7 +959,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         // chosen rather than remembered — see poseWarrior, which only sets it
         // on the first frame of a death this stage has already run past.
         if (p.state !== "dead") body.motion.fall = k % 2 === 0 ? 1 : -1;
-        body.motion.actT = Math.max(body.motion.actT, DEATH_SETTLED);
+        settleDeath(body.motion, DEATH_SETTLED);
         // Carried to his mark with his own severed pieces: they are integrated
         // in world space off the arena root, so a body moved without them
         // leaves an arm lying where he died.
@@ -963,6 +995,7 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
   return {
     update(dt, ctx, room, verdict, warriors, localId) {
       void localId;
+      const built = !cast;
       if (!cast) {
         cast = buildStage(room, verdict, warriors, ctx.quality);
         onFeet = new Set(cast.filter((m) => m.standing).map((m) => m.id));
@@ -1006,6 +1039,14 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
         }
       }
       reportBodies(cast, warriors, deps.rig.camera);
+      // THE FIRST FRAME OF THE PORTRAIT, kept. Everything the stage does to a
+      // body it does before this line, and every later reading is one the
+      // animator has had its hands on — so a value the stage wrote and the
+      // first pose then threw away is invisible in any sample taken later.
+      if (built) {
+        const w = globalThis as unknown as { __summaryDiag?: boolean; __summaryFirst?: unknown };
+        if (w.__summaryDiag) w.__summaryFirst = (globalThis as unknown as { __summaryBodies?: unknown }).__summaryBodies;
+      }
     },
 
     canPerform(id) {
