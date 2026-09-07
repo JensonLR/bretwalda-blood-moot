@@ -614,6 +614,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
             // What he is holding, so the swap can put it back on the authored
             // wrists instead of deleting it with the procedural arm.
             weapon: want.weapon, offhand: want.offhand, shield: want.shield,
+            // The cloth solver's own array. Repointed at the export's
+            // CloakYoke/Drape1..6, which ARE these bones renamed by index.
+            drape: want.pivots.drape as unknown as THREE.Object3D[] | undefined,
           },
           {
             scene: asset.scene, clips: asset.clips, wornRoles: worn,

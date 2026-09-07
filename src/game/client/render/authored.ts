@@ -34,27 +34,46 @@ import type * as THREE from "three";
 export const AUTHORED_ROLES = ["helm", "beard", "hair", "cloak"] as const;
 
 /**
- * ROLES THE AUTHORED MAN CANNOT WEAR YET, and the reason is topology.
+ * THE DRAPE, AND THE "TOPOLOGY MISMATCH" THAT WAS NOT ONE — corrected 7 Sep 2026.
  *
- * THE CLOAK. `anim.ts` solves a drape as a GRID — `DRAPE_BONES = 1 +
- * DRAPE_COLS.length * DRAPE_RINGS`, with a per-bone velocity integrator that
- * makes cloth swing behind a turning man. `exportrig.mjs` writes a CHAIN:
- * `CloakYoke` and `Drape1..Drape6`. Those are different shapes, so the solver
- * cannot drive the export's bones by naming them the way the pose drives its
- * joints — this is the one place the bridge does NOT hold.
+ * This file declared the cloak unfixable-for-now on the grounds that `anim.ts`
+ * solves a drape as a GRID (`1 + DRAPE_COLS.length * DRAPE_RINGS`) while the
+ * export writes a CHAIN (`CloakYoke`, `Drape1..6`), and withheld it. **That was
+ * wrong, and the counts should have been the first thing checked**: the grid is
+ * 1 + 3 × 2 = SEVEN bones, and the export carries SEVEN. `exportrig.mjs` line 80:
  *
- * Left unposed, the export's cloak stands in its rest pose: a wide cone that
- * swallows the man. That is what the first authored capture showed, and it is
- * why the cloak is hidden rather than shipped broken. `REBUILD-PLAN.md` already
- * said it — "the cloak's drape chain is not yet animated (stiff in the clips)"
- * — and this is that sentence meeting a renderer.
+ *     (pv.drape ?? []).forEach((b, i) => nameIt(b, i === 0 ? "CloakYoke" : `Drape${i}`));
  *
- * What it costs: an authored man wears no cloak. What it buys: he is not a
- * traffic cone. Closing it is either a chain solver in `anim.ts` or a grid
- * export from Blender, and it is the largest single thing between here and a
- * man who can replace the procedural one outright.
+ * `pv.drape` is the procedural rig's own drape array — the very array the
+ * solver indexes. The export IS that grid, renamed by index. There is no
+ * mismatch; there is a name map, exactly as there is for the pose joints.
+ *
+ * Twice now the interesting explanation has been reached before the cheap
+ * check: the floating shield was blamed on bind poses and was a wrong mount,
+ * and this was blamed on topology and was a missing lookup.
  */
-export const AUTHORED_ROLES_UNPOSED = new Set<AuthoredRole>(["cloak"]);
+export const DRAPE_BONE_NAMES = [
+  "CloakYoke", "Drape1", "Drape2", "Drape3", "Drape4", "Drape5", "Drape6",
+] as const;
+
+/**
+ * The drape bones in the solver's own index order, or null.
+ *
+ * ALL OR NOTHING, for the reason the pose joints are: a half-found drape is a
+ * cloak with some bones swinging and some standing in rest pose, which is worse
+ * to look at than a cloak that is simply absent.
+ */
+export function drapeBonesOf(root: THREE.Object3D): THREE.Object3D[] | null {
+  const byName = new Map<string, THREE.Object3D>();
+  root.traverse((o) => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  const out: THREE.Object3D[] = [];
+  for (const n of DRAPE_BONE_NAMES) {
+    const b = byName.get(n);
+    if (!b) return null;
+    out.push(b);
+  }
+  return out;
+}
 
 /**
  * WHAT I BLAMED ON THE REST POSE, AND IT WAS A WRONG MOUNT — 7 Sep 2026.
@@ -401,10 +420,16 @@ export function missingPivotBones(root: THREE.Object3D): PivotSlot[] {
 export interface UpgradableRig {
   body: THREE.Object3D;
   pivots: Record<string, THREE.Object3D>;
-  /** What the man is holding. Re-parented onto the authored wrists. */
+  /** What the man is holding. Re-parented onto the authored mounts. */
   weapon?: THREE.Object3D;
   offhand?: THREE.Object3D;
   shield?: THREE.Object3D;
+  /**
+   * The drape the cloth solver integrates, in its own index order. Repointed at
+   * the authored bones so the cloak swings on the same springs the procedural
+   * one does — `exportrig` named them straight off this array.
+   */
+  drape?: THREE.Object3D[];
 }
 
 export interface AuthoredSwap {
@@ -419,7 +444,7 @@ export interface AuthoredSwap {
 }
 
 export type SwapResult =
-  | { ok: true; dressed: number; hidden: number; joints: number; rehung: number }
+  | { ok: true; dressed: number; hidden: number; joints: number; rehung: number; drape: number }
   | { ok: false; why: string };
 
 /**
@@ -465,12 +490,7 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   }
 
   // 3. Nothing above this line has mutated anything. From here it commits.
-  // Anything the armoury sold him, MINUS anything the renderer cannot yet pose.
-  // A role that cannot move is worse than a role that is absent.
-  const wearable = new Set<AuthoredRole>(
-    [...swap.wornRoles].filter((r) => !AUTHORED_ROLES_UNPOSED.has(r)),
-  );
-  const hidden = hideBakedRoles(swap.scene, wearable);
+  const hidden = hideBakedRoles(swap.scene, swap.wornRoles);
   const { dressed } = dressFromSurfaceNames(swap.scene, swap.resolveMaterial);
 
   // The procedural body goes; the authored one takes its place under the same
@@ -499,5 +519,17 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   let joints = 0;
   for (const [slot, bone] of Object.entries(bones)) { rig.pivots[slot] = bone; joints++; }
 
-  return { ok: true, dressed, hidden, joints, rehung: held.length };
+  // 5. AND THE CLOTH. The solver integrates a spring per drape bone and writes
+  //    the result onto `rig.drape[i]`; pointing that array at the export's own
+  //    `CloakYoke`/`Drape1..6` is the whole of making an authored cloak swing.
+  //    Optional: a class with no cloak has no drape, and that is not a failure.
+  let drape = 0;
+  if (rig.drape && rig.drape.length) {
+    const authored = drapeBonesOf(swap.scene);
+    if (authored && authored.length === rig.drape.length) {
+      for (let i = 0; i < authored.length; i++) { rig.drape[i] = authored[i]; drape++; }
+    }
+  }
+
+  return { ok: true, dressed, hidden, joints, rehung: held.length, drape };
 }

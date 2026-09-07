@@ -33,7 +33,7 @@ const {
   rolePartsOf, hideBakedRoles, warriorIsUsable, AUTHORED_ROLES, REQUIRED_CLIPS,
   readSurfaceName, dressFromSurfaceNames,
   pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
-  upgradeRigToAuthored,
+  upgradeRigToAuthored, drapeBonesOf, DRAPE_BONE_NAMES,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
 const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/textures.ts")).href)
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
@@ -250,6 +250,41 @@ for (const cls of CLASSES) {
   check("every pose joint now points at an authored bone",
     Object.keys(PIVOT_BONE_NAMES).every((k) => rig.pivots[k] && !rig.pivots[k].procedural),
     `${Object.keys(rig.pivots).length} joints repointed`);
+
+  // ---- THE CLOAK: the drape the solver integrates ----------------------
+  //
+  // This was declared an unfixable topology mismatch and withheld, on the
+  // grounds that anim.ts solves a GRID and the export writes a CHAIN. The
+  // counts should have been checked first: the grid is 1 + 3 x 2 = SEVEN and
+  // the export carries SEVEN, because `exportrig.mjs` names the procedural
+  // rig's OWN drape array by index. It is a lookup, not a mismatch.
+  {
+    const gc = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const found = drapeBonesOf(gc.scene);
+    check("the export carries the whole drape, in the solver's index order",
+      !!found && found.length === DRAPE_BONE_NAMES.length,
+      found ? found.map((b) => b.name).join(", ") : "null");
+
+    // ALL OR NOTHING: a half-found drape is a cloak with some bones swinging
+    // and some standing in rest pose, which is worse than one that is absent.
+    const partial = { name: "r", traverse(f) { f(this); f({ name: "CloakYoke", traverse: () => {} }); } };
+    check("a partial drape is refused whole", drapeBonesOf(partial) === null);
+
+    // And the swap repoints the solver's array at them.
+    const rigC = fakeRig();
+    rigC.drape = DRAPE_BONE_NAMES.map(() => ({ procedural: true }));
+    const res = upgradeRigToAuthored(rigC, {
+      scene: gc.scene, wornRoles: new Set(["cloak", "helm"]),
+      resolveMaterial: () => ({ isMaterial: true }), clips: gc.animations,
+    });
+    check("the swap repoints the cloth solver at the authored drape",
+      res.ok && res.drape === DRAPE_BONE_NAMES.length, res.ok ? `${res.drape} drape bones` : res.why);
+    check("...and every one of them is an authored bone now",
+      rigC.drape.every((b) => b && !b.procedural),
+      rigC.drape.map((b) => b?.name ?? "?").join(", "));
+    check("the cloak is NOT hidden any more — it can be posed",
+      res.ok && res.hidden < 4, res.ok ? `${res.hidden} hidden` : res.why);
+  }
 
   // ---- THE HANDS: what he was holding must still be on him -------------
   //
