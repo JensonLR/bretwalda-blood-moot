@@ -30,7 +30,7 @@ weeks.** The war was shipped, gated at 79 checks, and had never run.
 | P1.7 | `/factions` polls; the Moot countdown | **DONE** — photographed, `art/ui/war-live-*` |
 | P1.8 | Web push — subscription half | **PARTLY DONE, deliberately.** No dispatcher, no VAPID keys, no permission prompt. `ONE-CLIENT.md` §6.3a lists it |
 | P1.9 | Tune 0.3 / 1.5 / cap 24 against real play | **NOT STARTED — and it is the next thing.** They were chosen against 26 players; revisit after a fortnight of a moving map |
-| P2 | The glTF asset loader in the three.js renderer | **NOT STARTED.** `art/gltf` is its input |
+| P2 | The glTF asset loader in the three.js renderer | **BUILT AND GATED, BEHIND `?authored=1` — the row said NOT STARTED until 8 Sep 2026 and was stale.** `src/game/client/render/authored.ts` and `authoredProps.ts` load the sink's output, socket a head, and dress it; `authoredWanted()` in `GameCanvas.tsx:267` and `armouryStage.ts:519` is the switch, and it reads the query string, so the DEFAULT is still the procedural mesh. `gltftest` 31/31, `authoredtest` 90/90, `npm run authored` stages the bundle. **What is left is an owner's call, not code:** making authored the default is two functions, and nobody has judged the two side by side at the play lens |
 | P3 | Ship — Tauri/Steam, Capacitor/iOS+Android | **NOT STARTED** |
 
 **Two corrections this wave made to its own plan**, both kept rather than

@@ -8857,7 +8857,45 @@ numbers instead of looking at pictures.
 Verified after: cosmetictest PASS with war paint at 12.4/18.8/18.7% of
 subject — the morning's healthy magnitudes.
 
-## /shot hydrates with React #418 on the production build (LOW)
+## CLOSED 8 Sep 2026 — /shot hydrates clean, and the fix had shipped without anyone closing the row
+
+Measured the way the entry below asks to be measured: **a production build**,
+`npm run build` then `custom-server.mjs`, Playwright collecting `console` and
+`pageerror` over a nine-second settle on `/shot?preset=duel&clean=1` and on `/`.
+
+    /shot   console error/warning: 0   pageerror: 0   hydration: 0
+    /       console error/warning: 0   pageerror: 0   hydration: 0
+
+**The repair was already in the tree and the row was never struck.**
+`src/app/shot/page.tsx:1014` carries the reason in its own comment —
+*"HYDRATION: `useSyncExternalStore`, NOT a lazy `useState` initialiser"* — and
+`SHOT_SUBSCRIBE` / `shotServerParams` are the server snapshot the client is
+required to agree with. A lazy initialiser reads `window.location.search` on the
+client and nothing on the server, which is the mismatch this entry describes;
+`useSyncExternalStore` makes the server's answer explicit and stable.
+
+### And the probe found something the entry was not looking for
+
+Every build on this machine printed:
+
+    We detected multiple lockfiles and selected the directory of
+    /Users/jensonlr/package-lock.json as the root directory.
+
+Turbopack walks up from the project and takes the OUTERMOST lockfile, so a
+stray `package.json` in the home directory — one Neon dependency, installed
+there once — had silently made the **home directory** the workspace root.
+Module resolution and the server output's file trace are both scoped to that
+root, so the build was reaching a level above the repository. Nothing had
+visibly broken; the failure it can produce is a module resolved from outside
+the tree, which only ever shows up on somebody else's machine.
+
+Pinned in `next.config.ts` (`turbopack.root`), not by deleting the developer's
+file: that file is not this repository's to delete and a fresh checkout would
+meet the same hazard. The warning is gone and the build compiles in 3.5 s.
+
+---
+
+## The original entry — /shot hydrates with React #418 on the production build (LOW)
 
 Seen 27 Aug 2026 while chasing a factionread "hang" that turned out to be
 two healthy hour-long runs killed for having block-buffered stdout. The
