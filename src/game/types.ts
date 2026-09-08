@@ -406,6 +406,13 @@ export interface GamePlayer {
    * to see why his block button is doing nothing. See `HOOK` in engine.mjs.
    */
   hookedTimer?: number;
+  /**
+   * Whether the stroke in flight was thrown AT A RUN. Public because the blow
+   * looks different — the body low and forward behind it, and the lunge nearly
+   * three times a standing one — and a player has to be able to see a charge
+   * coming at him. See `CHARGE` in engine.mjs.
+   */
+  swingCharge?: boolean;
   vulnerableTimer?: number;
   /**
    * Whose window it is. Only this player id collects the riposte; everybody

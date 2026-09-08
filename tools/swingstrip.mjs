@@ -127,7 +127,7 @@ const CTX = {
  * One stroke, sampled. Returns the tip path in the man's OWN frame (he faces
  * +z, so +z is toward the target and +y is up), plus the hips.
  */
-function sample(cls, dir, heavy, combo, check = false) {
+function sample(cls, dir, heavy, combo, check = false, charge = false) {
   const parent = new THREE.Group();
   const player = manOf(cls);
   const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
@@ -150,6 +150,7 @@ function sample(cls, dir, heavy, combo, check = false) {
   player.state = "attacking";
   player.attackDir = dir;
   player.swingHeavy = heavy;
+  player.swingCharge = charge;
   player.swingDuration = dur;
   player.comboCount = combo;
   const frames = [];
@@ -645,6 +646,40 @@ say("");
   check("...and the arrest itself does not jump the blade",
     jumpy.length === 0,
     jumpy.length ? `${jumpy.length} jump: ${jumpy.slice(0, 4).join(", ")}` : "16 checked strokes, none");
+}
+
+// ---- 10. A CHARGE IS A DIFFERENT BLOW ------------------------------------
+//
+// The first thing in this game a man's FEET decide rather than his hands. The
+// sim carries the mechanic — `CHARGE` in engine.mjs, nearly three times the
+// lunge and half again the poise, gated in `fighttest` §7 — and the wire
+// carries the flag; this is the claim that the PICTURE says so too, because a
+// rule a player cannot see coming at him is a rule he experiences as unfair.
+say("");
+{
+  const rows = [], weak = [];
+  for (const cls of CLASSES) {
+    for (const dir of DIRS) {
+      const stood = strokes.get(key(cls, dir, false, 1));
+      const run = sample(cls, dir, false, 1, false, true);
+      const arc = measure(stood).arc || 1;
+      let worst = 0;
+      for (let i = 0; i < Math.min(stood.frames.length, run.frames.length); i++) {
+        worst = Math.max(worst, dist(stood.frames[i].hip, run.frames[i].hip));
+      }
+      // Measured on the HIPS and not on the blade, deliberately: a charge is
+      // not a different stroke, it is the same stroke thrown by a body that is
+      // somewhere else. If the arms had to move for it to read, it would be
+      // fighting `chainSwing` and `heavySwing` for the same channels.
+      rows.push(`${cls}/${dir} ${(worst * 100).toFixed(0)}cm`);
+      if (worst < 0.06) weak.push(`${cls}/${dir} ${(worst * 100).toFixed(1)}cm`);
+      void arc;
+    }
+  }
+  check("a blow thrown at a run puts his body somewhere a standing one does not",
+    weak.length === 0,
+    weak.length ? `${weak.length} barely move: ${weak.slice(0, 5).join(", ")}`
+      : `hips displaced by ${rows.slice(0, 6).join(", ")} …`);
 }
 
 if (DRAW) {

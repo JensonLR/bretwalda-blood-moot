@@ -4339,6 +4339,28 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
         // removed, so it can never drive the blade further on.
         const struck = 1 - Math.min(1, motion.checkEase) * 0.75;
         attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction * struck, player.comboCount);
+        // ---- AND WHETHER HIS FEET THREW IT ----
+        //
+        // A charge is his own momentum arriving with the blade: he is low, he is
+        // forward, and the back leg is still where he left it. The sim carries the
+        // whole of the mechanic (`CHARGE` in engine.mjs — nearly three times the
+        // lunge, half again the poise) and the wire carries the flag, so the only
+        // thing this has to do is make it LOOK like what it is, because a player
+        // has to be able to see a charge coming at him.
+        //
+        // Written before the check, so a charge that is stopped dead by a board is
+        // arrested out of the charged pose rather than the standing one.
+        if (player.swingCharge) {
+            const c = motion.wAction;
+            P.prx += 0.30 * c; // the trunk pitched over the front foot
+            P.crx += 0.14 * c;
+            P.py += -0.075 * c; // and dropped into it
+            P.pz += 0.16 * c;
+            P.lrx += -0.42 * c; // the back leg trails, still where he left it
+            P.lrb += 0.30 * c;
+            P.llb += 0.22 * c; // the front knee takes him
+            P.hrx += -0.10 * c; // head up: he is looking at the man, not the turf
+        }
         // AND WHAT IT MET. See `checkLayer`: after the stroke, because it is a
         // correction to it, and behind the same weight so it cannot fire on a man
         // who is not swinging.
@@ -4359,6 +4381,29 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
     motion.checkEase = approach(motion.checkEase, motion.check, dt, 22);
     if (motion.wBlock > 0.001)
         blockLayer(carried, clamp01(player.blockTimer / 0.22), motion.wBlock);
+    // ---- THE HOOKED GUARD ----
+    //
+    // The beard of an axe has his rim and the board is somewhere near his knee.
+    // `hookedTimer` rides the wire for exactly this: the man opposite has to be
+    // able to SEE that the shield is down, and the man it happened to has to be
+    // able to see why his block button has stopped answering. A rule the player
+    // cannot see is a rule the player experiences as the game being broken.
+    //
+    // Eased off its own tail so the arm comes back up as the window runs out
+    // rather than snapping to guard on the frame the timer hits zero, and read
+    // from the WIRE rather than from a local clock — the server owns how long a
+    // man is open, the same way it owns every other timer in this file.
+    {
+        const hooked = clamp01((player.hookedTimer ?? 0) / 0.35);
+        if (hooked > 0.001) {
+            P.olx += 0.95 * hooked; // the arm dragged down and forward
+            P.olz += 0.45 * hooked; // and across his own body
+            P.olb += 0.55 * hooked; // pulled straight by the weight on the rim
+            P.crz += 0.13 * hooked; // his shoulders tip after it
+            P.cry += 0.10 * hooked;
+            P.prz += 0.06 * hooked;
+        }
+    }
     if (shoving)
         shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), carried, smooth(clamp01(motion.actT / 0.06)));
     // The emote rides on top of idle, walk and guard, and is simply dropped by

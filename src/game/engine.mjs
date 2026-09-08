@@ -872,6 +872,35 @@ export const GUARD = { mismatch: 0.5 };
  * blow does what a blocked heavy always did; what it buys is that for the next
  * eight tenths of a second the man cannot raise his guard at all.
  */
+/**
+ * THE CHARGE — a blow thrown at a run, and the first thing in this game that a
+ * player's FEET decide rather than his hands.
+ *
+ * Every attack until now was the same attack whether the man was stood still or
+ * coming down the field at eight metres a second: the same lunge, the same
+ * damage, the same everything. That is the flattest thing a melee game can do,
+ * because closing the distance is the decision a fight is actually made of.
+ *
+ * A charge is his own momentum arriving with the blade. It carries him nearly
+ * three times as far, it lands half again as hard on a man's balance, and it
+ * costs him the one thing a sprinting man has already given up — he has no
+ * guard, he is spending stamina to be there, and the lunge takes him PAST the
+ * man he swung at whether it landed or not. It is not a bonus. It is a
+ * commitment made with the legs a second before the arms know about it.
+ */
+export const CHARGE = {
+  /** How fast he must already be going, as a multiple of his own walk. */
+  speed: 1.05,
+  /** The ground it carries him, against LUNGE_LIGHT's 0.9. */
+  lunge: 2.6,
+  /** What his own weight adds to the blow. */
+  damage: 1.35,
+  /** ...and to the poise it takes off the man it lands on. A running man floors people. */
+  balance: 1.5,
+  /** Extra stamina on top of the light's 13, so a charge is spent and not free. */
+  stamina: 9,
+};
+
 export const HOOK = {
   /** The heads with a beard to catch a rim with. */
   arms: Object.freeze(["dane_axe", "hand_axes", "twin_beards"]),
@@ -2246,6 +2275,8 @@ export function makeEngine(options = {}) {
       vulnerableTimer: 0, vulnerableTo: "",
       // Seconds his guard is dragged down by an axe's beard. See HOOK.
       hookedTimer: 0,
+      // Whether the stroke in flight was thrown at a run. See CHARGE.
+      swingCharge: false,
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -3738,10 +3769,22 @@ export function makeEngine(options = {}) {
       player.state = "idle"; player.blockTimer = 0;
     }
 
-    if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 13) {
-      player.stamina -= 13;
+    // IS HE ALREADY MOVING? Read off his own speed rather than off the sprint
+    // key: what makes a charge a charge is the momentum that arrives with the
+    // blade, and a man who has just been shoved or is coming out of a roll is
+    // carrying momentum he did not ask for. The bar is his own WALK, so it is
+    // per class and needs no second table.
+    const running = Math.hypot(player.velocity.x, player.velocity.z)
+      >= stats.moveSpeed * CHARGE.speed;
+    const chargeCost = running ? CHARGE.stamina : 0;
+    if (input.attack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 13 + chargeCost) {
+      player.stamina -= 13 + chargeCost;
+      // THE CHARGE, and it is set before `beginSwing` because the lunge reads it.
+      player.swingCharge = running;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
-      beginSwing(player, input.attackDir, stats.attackDamage + (armsDeltaOf(player).attackDamage || 0), false);
+      beginSwing(player, input.attackDir,
+        Math.round((stats.attackDamage + (armsDeltaOf(player).attackDamage || 0))
+          * (running ? CHARGE.damage : 1)), false);
       // AFTER `beginSwing`, and that order is the fix: the window is the
       // stroke's own length plus the grace, so it opens when the blow is over
       // rather than expiring inside it. See `COMBO_WINDOW`.
@@ -3766,6 +3809,10 @@ export function makeEngine(options = {}) {
     // `COMBO_WINDOW`. The reasoning above is the reasoning that now holds.
     if (input.heavyAttack && player.attackTimer <= 0 && player.state !== "blocking" && player.state !== "dodging" && player.state !== "shoving" && player.stamina >= 30) {
       player.stamina -= 30;
+      // A HEAVY IS ITS OWN COMMITMENT and does not also charge. It already
+      // lunges 1.25, already costs 30, and already opens the guard; stacking a
+      // run on top would make the answer to everything "sprint and press E".
+      player.swingCharge = false;
       player.comboCount = 0; player.comboTimer = 0;
       beginSwing(player, input.attackDir, stats.heavyDamage + (armsDeltaOf(player).heavyDamage || 0), true);
     }
@@ -3880,7 +3927,7 @@ export function makeEngine(options = {}) {
     player.attackPhaseT = 0;
     player.pendingSwing = { damage, heavy: isHeavy };
     applyImpulse(player, Math.sin(player.rotation), Math.cos(player.rotation),
-      isHeavy ? LUNGE_HEAVY : LUNGE_LIGHT, false);
+      isHeavy ? LUNGE_HEAVY : player.swingCharge ? CHARGE.lunge : LUNGE_LIGHT, false);
   }
 
   /**
@@ -3895,6 +3942,8 @@ export function makeEngine(options = {}) {
     player.swingT = 0;
     player.swingDuration = 0;
     player.swingHeavy = false;
+    // The charge belongs to the stroke, not to the man. See CHARGE.
+    player.swingCharge = false;
     player.pendingSwing = null;
   }
 
@@ -4258,7 +4307,10 @@ export function makeEngine(options = {}) {
     // fall BEFORE it heard the blow that caused it would have to reorder two
     // messages to play one sound. Cause, then effect, in the order they left.
     const cost = (BALANCE.cost[hitType] ?? BALANCE.cost.light) * mass
-      * (weight.offGuard ? BALANCE.offGuard : 1) * (riposte ? RIPOSTE.balanceScale : 1);
+      * (weight.offGuard ? BALANCE.offGuard : 1) * (riposte ? RIPOSTE.balanceScale : 1)
+      // A RUNNING MAN FLOORS PEOPLE. The blow's own weight is his class's; what
+      // a charge adds is everything he was already carrying. See CHARGE.
+      * (attacker.swingCharge ? CHARGE.balance : 1);
     if (target.health > 0) spendBalance(room, attacker, target, cost, ax, az);
     if (target.health <= 0) {
       target.health = 0;

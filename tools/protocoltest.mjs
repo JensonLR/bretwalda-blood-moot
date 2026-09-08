@@ -227,6 +227,10 @@ const PUBLISHED = [
   // is a TELL — the man opposite has to see the shield is down, and the man it
   // happened to has to see why his block button has stopped answering.
   "hookedTimer",
+  // Whether the stroke in flight was thrown at a run. See `CHARGE` in
+  // engine.mjs: public because the blow looks different and a player has to be
+  // able to see one coming.
+  "swingCharge",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",

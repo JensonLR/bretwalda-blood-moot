@@ -312,6 +312,14 @@ The 55, grouped by what a client does with them:
   guard has stopped answering. `anim.ts` draws the arm dragged across, and the
   turned blow's own `hit` is followed by one of `type: "hook"`, damage 0 — cause
   then effect, the same order the burst and the knockdown keep.
+- **The charge** `swingCharge` — whether the stroke in flight was thrown AT A
+  RUN. Set when the man's own speed at the press is past `CHARGE.speed` of his
+  walk; it costs `CHARGE.stamina` on top of the light's 13, carries him
+  `CHARGE.lunge` instead of `LUNGE_LIGHT`, lands at `CHARGE.damage` and takes
+  `CHARGE.balance` of the poise a standing cut would. A heavy never charges —
+  it is already its own commitment. Public because the blow LOOKS different
+  (`anim.ts` pitches the trunk over the front foot and trails the back leg) and
+  a player has to be able to see one coming.
 - **Weight** `balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo` —
   the five fields the weight wave added, and every one of them is public
   because a player has to be able to SEE it:

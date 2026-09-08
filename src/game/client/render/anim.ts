@@ -5145,6 +5145,28 @@ export function poseWarrior(
     // removed, so it can never drive the blade further on.
     const struck = 1 - Math.min(1, motion.checkEase) * 0.75;
     attackLayer(player.attackDir, swing, motion.heavy, carried, motion.wAction * struck, player.comboCount);
+    // ---- AND WHETHER HIS FEET THREW IT ----
+    //
+    // A charge is his own momentum arriving with the blade: he is low, he is
+    // forward, and the back leg is still where he left it. The sim carries the
+    // whole of the mechanic (`CHARGE` in engine.mjs — nearly three times the
+    // lunge, half again the poise) and the wire carries the flag, so the only
+    // thing this has to do is make it LOOK like what it is, because a player
+    // has to be able to see a charge coming at him.
+    //
+    // Written before the check, so a charge that is stopped dead by a board is
+    // arrested out of the charged pose rather than the standing one.
+    if (player.swingCharge) {
+      const c = motion.wAction;
+      P.prx += 0.30 * c;          // the trunk pitched over the front foot
+      P.crx += 0.14 * c;
+      P.py += -0.075 * c;         // and dropped into it
+      P.pz += 0.16 * c;
+      P.lrx += -0.42 * c;         // the back leg trails, still where he left it
+      P.lrb += 0.30 * c;
+      P.llb += 0.22 * c;          // the front knee takes him
+      P.hrx += -0.10 * c;         // head up: he is looking at the man, not the turf
+    }
     // AND WHAT IT MET. See `checkLayer`: after the stroke, because it is a
     // correction to it, and behind the same weight so it cannot fire on a man
     // who is not swinging.

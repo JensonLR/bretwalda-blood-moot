@@ -505,5 +505,72 @@ console.log("[fight] the fight's depth, headless\n");
   check("a light axe blow does not hook", !intoGuard("berserker", "dane_axe", false).hooked);
 }
 
+// ---- §7 THE CHARGE — the first blow a man's FEET decide -----------------
+//
+// Every attack in this game was the same attack whether he was stood still or
+// coming down the field at eight metres a second: the same lunge, the same
+// damage, the same everything. That is the flattest thing a melee game can do,
+// because closing the distance is the decision a fight is actually made of.
+//
+// The fixture RUNS HIM IN rather than writing a velocity onto him, because
+// what is being tested is the path a player takes: sprint, arrive, swing.
+{
+  console.log("");
+  const runIn = (heavy) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng);
+    f.pa.position = { x: 3.4, y: 0, z: 0 };
+    f.pb.position = { x: 9.2, y: 0, z: 0 };
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    f.pb.balance = f.pb.maxBalance;
+    const face = Math.atan2(1, 0);
+    const run = (attack) => f.a.send("input", {
+      moveX: 1, moveZ: 0, rotationY: face, sprint: true, attackDir: "right",
+      ...(attack ? (heavy ? { heavyAttack: true } : { attack: true }) : {}),
+    });
+    // Up to speed, and close.
+    for (let i = 0; i < 60 && f.pb.position.x - f.pa.position.x > 1.6; i++) { run(false); eng.step(); }
+    const speed = Math.hypot(f.pa.velocity.x, f.pa.velocity.z);
+    const stam0 = f.pa.stamina, x0 = f.pa.position.x, bal0 = f.pb.balance;
+    run(true);
+    eng.step();
+    const charged = f.pa.swingCharge === true;
+    const spent = stam0 - f.pa.stamina;
+    for (let i = 0; i < 40 && f.pa.attackTimer > 0; i++) { run(false); eng.step(); }
+    return { f, speed, charged, spent, carried: f.pa.position.x - x0, balance: bal0 - f.pb.balance,
+      dmg: (f.b.byType.get("hit") || []).reduce((t, h) => t + (h.damage || 0), 0) };
+  };
+  const stood = (() => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng);
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    f.pb.balance = f.pb.maxBalance;
+    const stam0 = f.pa.stamina, x0 = f.pa.position.x, bal0 = f.pb.balance;
+    swing(f.a, f.face, false);
+    for (let i = 0; i < 40 && f.pa.attackTimer > 0; i++) eng.step();
+    return { spent: stam0 - f.pa.stamina, carried: Math.abs(f.pa.position.x - x0),
+      balance: bal0 - f.pb.balance,
+      dmg: (f.b.byType.get("hit") || []).reduce((t, h) => t + (h.damage || 0), 0) };
+  })();
+
+  const charge = runIn(false);
+  check("a blow thrown at a run is marked as a charge",
+    charge.charged, `he was doing ${charge.speed.toFixed(2)} u/s`);
+  check("...and it carries him nearly three times as far",
+    Math.abs(charge.carried) > stood.carried * 2,
+    `${stood.carried.toFixed(2)}m stood against ${Math.abs(charge.carried).toFixed(2)}m at a run`);
+  check("...and it lands harder", charge.dmg > stood.dmg,
+    `${stood.dmg} stood against ${charge.dmg} at a run`);
+  check("...and takes more of his balance", charge.balance > stood.balance * 1.2,
+    `${stood.balance.toFixed(0)} against ${charge.balance.toFixed(0)}`);
+  // AND IT IS PAID FOR. A charge that costs the same as a standing cut is a
+  // free upgrade for anyone holding the sprint key, which is everyone.
+  check("...and it costs him more than a standing cut", charge.spent > stood.spent,
+    `${stood.spent.toFixed(0)} stamina stood against ${charge.spent.toFixed(0)} at a run`);
+  // A HEAVY IS ITS OWN COMMITMENT. Stacking a run on it would make the answer
+  // to everything "sprint and press E".
+  check("a heavy does not also charge", runIn(true).charged === false);
+}
+
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);
 process.exit(failed ? 1 : 0);
