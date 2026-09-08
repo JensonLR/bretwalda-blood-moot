@@ -79,7 +79,14 @@ const check = (name, pass, detail) => {
 const gate = (name, pass, detail) => {
   if (!PROVE) return check(name, pass, detail);
   results.push({ section, name: `${name} [must go red under --prove]`, pass: !pass });
-  console.log(`  ${!pass ? "PASS" : "FAIL"}  ${name} [red arm]${!pass ? " — went red as required" : " — STAYED GREEN OVER AN INJECTED DEFECT: THIS GATE IS BLIND"}`);
+  // THE DETAIL IS PRINTED ON THE RED ARM TOO, and it did not used to be.
+  // "Went red as required" alone cannot tell a gate that saw the injected
+  // defect from a gate that went red for some unrelated reason — and a red arm
+  // reading green-for-the-wrong-reason is the same class of fault as the blind
+  // gate it is here to find. The detail is the evidence that the quantity the
+  // defect moves is the quantity the assertion reads.
+  const why = detail ? `\n          ${detail}` : "";
+  console.log(`  ${!pass ? "PASS" : "FAIL"}  ${name} [red arm]${!pass ? ` — went red as required${why}` : " — STAYED GREEN OVER AN INJECTED DEFECT: THIS GATE IS BLIND"}`);
 };
 
 const sum = (a) => a.reduce((t, n) => t + n, 0);
@@ -843,10 +850,64 @@ head("7. The load-bearing rule");
   // duration must come out byte-identical. If a livery ever buys a point of
   // anything, or reaches the banking path, this is red.
   {
-    const played = (declare) => {
+    /**
+     * THE SECOND INJECTED DEFECT (`--prove` only): the livery that REACHES THE
+     * BANKING PATH.
+     *
+     * The gate below asserts a CONJUNCTION — same ticks, same table, same war
+     * report — and until now only the first two clauses were armed. The health
+     * defect further down moves `steps`, so it proves the gate can see a livery
+     * that BUYS A POINT OF SOMETHING; `war` came out identical under it, so the
+     * clause about the war ledger had never been off. That is one level of
+     * "green because the case is absent", inside the very file that exists to
+     * refuse it.
+     *
+     * SO THIS ONE IS BUILT AT THE SEAM THE LEAK WOULD ACTUALLY HAPPEN AT, and
+     * it is not a contrivance. `classifyMatch` hands out `entries` carrying
+     * player ids and nothing else, and `src/db/war.ts` is what turns those ids
+     * into a people — by reading the profile's SWORN allegiance out of the
+     * database, never the blob the client sent. `docs/WIRE-PROTOCOL.md` §11 is
+     * the rule; this is the naive violation of it: something downstream of the
+     * engine reads `appearance.people` off the wire and pays for it. The
+     * appearance blob and the war entries travel in the SAME `match_end` frame,
+     * so the defect is one join away for anyone who writes it.
+     *
+     * It moves `war` and leaves `steps` and `table` alone, which is what makes
+     * it a proof of the third clause rather than a second copy of the first.
+     *
+     * Injected at the door, never in `engine.mjs` — the reason `splitTheQueue`
+     * gives: the fixture has to be able to SEE the leak without one being
+     * shipped.
+     */
+    const openLivery = (eng, defect) => {
+      const c = { byType: new Map(), snapshot: null, people: new Map() };
+      c.sid = eng.connect((str) => {
+        const m = JSON.parse(str);
+        // Every frame that carries players tells us who is wearing what. Kept
+        // as it goes past rather than read off the last snapshot, because
+        // `match_end` carries players of its own and would overwrite it.
+        if (m.data && m.data.players) {
+          for (const [id, p] of Object.entries(m.data.players)) {
+            const who = p && p.appearance && p.appearance.people;
+            if (who && who !== "none") c.people.set(id, who);
+          }
+        }
+        if (PROVE && defect === "bank" && m.type === "match_end" && m.data && m.data.war) {
+          for (const e of m.data.war.entries) if (c.people.has(e.playerId)) e.points += 7;
+        }
+        if (!c.byType.has(m.type)) c.byType.set(m.type, []);
+        c.byType.get(m.type).push(m.data);
+        if (m.data && m.data.players) c.snapshot = m.data;
+      });
+      c.send = (type, data) => eng.message(c.sid, { type, data: data || {} });
+      c.last = (t) => { const a = c.byType.get(t) || []; return a[a.length - 1]; };
+      return c;
+    };
+
+    const played = (declare, defect = null) => {
       const eng = makeEngine({ autoTick: false });
       eng.setWarFront(CONQUERED);
-      const a = open(eng), b = open(eng);
+      const a = openLivery(eng, defect), b = openLivery(eng, defect);
       const dress = (i) => (declare
         ? { helm: "iron", cloak: "red", people: PEOPLES[i % PEOPLES.length] }
         : { helm: "iron", cloak: "red" });
@@ -881,16 +942,20 @@ head("7. The load-bearing rule");
       // `splitTheQueue` gives: the fixture must be able to SEE a livery bonus
       // without one ever being shipped.
       //
-      // WHAT THIS ARMS AND WHAT IT DOES NOT, stated because the whole point of
-      // this arm is that an unproven gate must not read as a proven one. The
-      // gate asserts a CONJUNCTION — same steps, same table, same war report —
-      // and this defect moves `steps` (84 to 89: five health is five more ticks
-      // of burning). It therefore proves the gate can see a livery that BUYS A
-      // POINT OF SOMETHING. It does NOT prove the gate can see a livery that
-      // REACHES THE BANKING PATH, which is the other half of what the comment
-      // above claims; `war` comes out identical under this injection. That half
-      // wants its own defect and does not have one yet.
-      if (PROVE) {
+      // WHAT THIS ARMS, AND WHAT NOW ARMS THE REST. This defect moves `steps`
+      // (84 to 89: five health is five more ticks of burning) and leaves the
+      // table and the war report exactly where they were. It therefore proves
+      // the gate can see a livery that BUYS A POINT OF SOMETHING, and that is
+      // all it proves.
+      //
+      // The claim used to be one `gate()` over the whole conjunction — same
+      // ticks, same table, same war report — so this one defect was reading as
+      // a proof of all three clauses while `war` had never been off. 8 Sep 2026
+      // split the claim in two and built `openLivery`'s banking defect for the
+      // other half, which moves the war report ([17,3] to [24,10]) and leaves
+      // `steps` and the table alone. Each clause now names the defect that
+      // arms it, and neither arm can be mistaken for the other.
+      if (PROVE && defect === "health") {
         room.players.forEach((p) => {
           if (p.appearance && p.appearance.people && p.appearance.people !== "none") {
             p.maxHealth += 5; p.health = p.maxHealth;
@@ -913,15 +978,34 @@ head("7. The load-bearing rule");
         wore: Object.values(a.snapshot.players).map((p) => (p.appearance || {}).people ?? null),
       };
     };
+    // TWO DRESSED RUNS, ONE PER ARM, AND THE CLAIM IS SPLIT TO MATCH THEM.
+    //
+    // It used to be one run and one `gate()` over the whole conjunction, which
+    // read as a single proven assertion and was two clauses proven and one
+    // clause never off. A conjunction is only as armed as its weakest clause,
+    // so each clause now has a defect of its own and says which. In a run
+    // without `--prove` both injections are inert, both `played(true, ...)` are
+    // the same dressed fight, and the two gates are the one neutrality claim
+    // they always were.
     const bare = played(false);
-    const dressed = played(true);
-    const scrub2 = (r) => JSON.stringify({ steps: r.steps, table: r.table, war: r.war });
-    gate("a declared people is a COSTUME — same ticks, same table, same war report",
-      scrub2(bare) === scrub2(dressed), `${scrub2(bare)} vs ${scrub2(dressed)}`);
+    const dressedFight = played(true, "health");
+    const dressedBank = played(true, "bank");
+    const fightOf = (r) => JSON.stringify({ steps: r.steps, table: r.table });
+    const warOf = (r) => JSON.stringify(r.war);
+    gate("a declared people buys nothing in the fight — same ticks, same table",
+      fightOf(bare) === fightOf(dressedFight), `${fightOf(bare)} vs ${fightOf(dressedFight)}`);
+    gate("a declared people never reaches the banking path — same war report",
+      warOf(bare) === warOf(dressedBank), `${warOf(bare)} vs ${warOf(dressedBank)}`);
+    // And the war report has to be a REPORT for that second gate to mean
+    // anything. A fixture that banked nothing would compare null to null and
+    // pass over any leak at all — the same fault one level down.
+    check("and the fixture actually banks, so the war clause has something to compare",
+      Array.isArray(bare.war) && bare.war.length > 0 && bare.war.every((n) => n > 0),
+      `bare war = ${JSON.stringify(bare.war)}`);
     check("and the engine echoes it back untouched, having never looked inside",
       JSON.stringify(bare.wore) === JSON.stringify([null, null])
-      && JSON.stringify(dressed.wore) === JSON.stringify([PEOPLES[0], PEOPLES[1]]),
-      `${JSON.stringify(bare.wore)} vs ${JSON.stringify(dressed.wore)}`);
+      && JSON.stringify(dressedFight.wore) === JSON.stringify([PEOPLES[0], PEOPLES[1]]),
+      `${JSON.stringify(bare.wore)} vs ${JSON.stringify(dressedFight.wore)}`);
 
     // And the leak check §7b makes at the top level, made where the blob is.
     // A people is allowed in `appearance` and nowhere else on the record.

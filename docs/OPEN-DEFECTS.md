@@ -8,6 +8,66 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED 8 Sep 2026 — THE NEUTRALITY GATE ASSERTED THREE THINGS AND HAD A DEFECT FOR ONE OF THEM
+
+`wartest` §7c is the assertion that keeps this game from being pay-to-win:
+**a declared people is a costume.** Two rooms are fought to a finish over the
+same conquered map — one where every man declares a people in his appearance,
+one where nobody declares anything — and the fight must come out identical.
+
+It was one `gate()` over a conjunction:
+
+    "a declared people is a COSTUME — same ticks, same table, same war report"
+
+and `--prove` injected ONE defect: five health for a man who declares. That
+moves `steps` (84 -> 89, because the runekeeper burns to death in this fixture
+and five health is five more ticks of burning), so the clause about the fight
+was armed. **`war` came out identical under that injection, so the clause about
+the war ledger had never been off.** One `gate()` reading as a proven assertion
+while a third of it was decoration — `docs/PROCESS.md` failure mode 3, one level
+up, inside the file written to refuse it.
+
+### The second defect, and it is not a contrivance
+
+`classifyMatch` hands out `entries` carrying player ids and nothing else, and
+`src/db/war.ts` is what turns an id into a people — by reading the profile's
+**sworn** allegiance out of the database, never the blob the client sent.
+`docs/WIRE-PROTOCOL.md` §11 is that rule. The naive violation of it is
+something downstream reading `appearance.people` off the wire and paying for
+it, and the appearance blob and the war entries travel in **the same
+`match_end` frame**, so the defect is one join away for whoever writes it.
+
+`openLivery` is that, injected at the door the way `splitTheQueue` is: it
+watches every frame that carries players, remembers who declared what, and adds
+7 points to any war entry whose player wore a people. It moves the war report
+and leaves `steps` and the table alone, which is what makes it a proof of the
+third clause rather than a second copy of the first.
+
+The claim is now two gates, each naming the defect that arms it:
+
+    a declared people buys nothing in the fight — same ticks, same table
+      red arm:  steps 84 vs 89, table identical
+    a declared people never reaches the banking path — same war report
+      red arm:  [17,3] vs [24,10], steps and table identical
+
+A third check was added under them, because the second gate is worthless if the
+fixture banks nothing: **the bare run must actually bank**, or the comparison is
+null against null and passes over any leak at all — the same fault one level
+down again. It reads `[17,3]`.
+
+### And the red arm now prints its evidence
+
+`gate()` under `--prove` printed "went red as required" and threw the detail
+away. That cannot tell a gate that saw the injected defect from a gate that went
+red for some unrelated reason, which is the same class of fault as the blind
+gate it exists to find. It prints the detail now — the two lines above are that
+output.
+
+    wartest            125/125
+    wartest --prove    125/125   every neutrality gate red over its own defect
+
+---
+
 ## CLOSED 8 Sep 2026 — EVERY SHADOW IN THE FIGHT WAS HARD, AND THE SETTING THAT WAS SUPPOSED TO SOFTEN THEM HAD BEEN A NO-OP SINCE THE THREE UPGRADE
 
 Found sideways. A Playwright probe of `/shot`, run to settle a different
