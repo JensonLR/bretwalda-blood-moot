@@ -94,6 +94,7 @@
     "exportportraits": "node tools/blender/exportportraits.mjs",
     "portraittest": "node tools/portraittest.mjs",
     "shadercheck": "node tools/shadercheck.mjs",
+    "shadowtest": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/shadowtest.mjs",
     "cliptime": "node tools/cliptime.mjs",
     "severtest": "node tools/severtest.mjs",
     "exportarmoury": "node tools/blender/exportarmoury.mjs",

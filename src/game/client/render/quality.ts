@@ -19,8 +19,6 @@ export interface QualitySettings {
   // ---- shadows ----
   shadows: boolean;
   shadowMapSize: number;
-  /** PCFSoft costs ~4x the taps of PCF; low tier eats the hard edge. */
-  softShadows: boolean;
   /** Half-extent of the key light's orthographic shadow frustum, in metres. */
   shadowDistance: number;
   /**
@@ -106,7 +104,6 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     antialias: true,
     shadows: true,
     shadowMapSize: 2048,
-    softShadows: true,
     shadowDistance: 24,
     settlementShadowCadence: 2,
     hearthShadowCadence: 2,
@@ -211,7 +208,6 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     antialias: true,
     shadows: true,
     shadowMapSize: 1024,
-    softShadows: true,
     shadowDistance: 24,
     settlementShadowCadence: 2,
     hearthShadowCadence: 2,
@@ -253,7 +249,6 @@ export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
     antialias: false,
     shadows: true,
     shadowMapSize: 512,
-    softShadows: false,
     shadowDistance: 18,
     settlementShadowCadence: 2,
     hearthShadowCadence: 2,
@@ -675,6 +670,96 @@ export function resolveQuality(override?: QualityTier | null): QualitySettings {
 }
 
 /**
+ * How wide to blur a shadow edge, in TEXELS OF THAT CASCADE'S OWN MAP, given
+ * the world size of one of its texels.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS REPLACED, AND WHY THE OLD LEVER WAS SPENDING NOTHING
+ * ---------------------------------------------------------------------------
+ *
+ * `QualitySettings` used to carry a `softShadows: boolean`, documented as
+ * "PCFSoft costs ~4x the taps of PCF; low tier eats the hard edge", and
+ * `configureRenderer` spent it on
+ *
+ *     renderer.shadowMap.type = soft ? PCFSoftShadowMap : PCFShadowMap;
+ *
+ * On the three this repository ships (0.185.1) BOTH HALVES OF THAT ARE FALSE,
+ * and the first half is false loudly — `WebGLShadowMap.render` opens with
+ *
+ *     if ( this.type === PCFSoftShadowMap ) {
+ *       warn( 'WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead.' );
+ *       this.type = PCFShadowMap;
+ *     }
+ *
+ * (node_modules/three/src/renderers/webgl/WebGLShadowMap.js:99). So every tier
+ * has been rendering PCFShadowMap since the upgrade, the console has said so on
+ * every load, and the branch above was choosing between a value and itself.
+ *
+ * The second half died with it. There is now ONE PCF path, and it is
+ * `shadowmap_pars_fragment.glsl.js:117` — five Vogel-disk samples, rotated per
+ * pixel by interleaved gradient noise, each one a hardware `sampler2DShadow`
+ * fetch that is itself a 4-tap bilinear comparison. Twenty filtered taps,
+ * always, whatever the radius. The disk's WIDTH is the one free parameter:
+ *
+ *     float radius = shadowRadius * texelSize.x;    // texelSize = 1 / mapSize
+ *
+ * Five taps at radius 3 cost exactly what five taps at radius 1 cost. THE
+ * SAVING THE LOW TIER WAS BUYING ITS HARD EDGE WITH DOES NOT EXIST. So the
+ * boolean is gone and this function is what replaced it: the softness is now
+ * derived from the only quantity that can decide it, which is how much world
+ * one texel of that particular map covers.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THREE NUMBERS
+ * ---------------------------------------------------------------------------
+ *
+ * PENUMBRA is 4.5 cm, and it is a world width rather than a texel count on
+ * purpose: a cascade with 1.5 cm texels and a cascade with 5 cm texels are
+ * looking at different things at different distances, and the one thing they
+ * should agree on is how soft an edge LOOKS. A low sun's true penumbra at the
+ * crown of a standing man is about 2.2 cm and at his boot is nil; 4.5 cm is a
+ * shade wider than the widest of that, which is the usual game trade — the blur
+ * that is slightly too generous is also the blur that hides the map's own
+ * stairstep, and nobody has ever looked at a shadow and complained that it was
+ * two centimetres too soft.
+ *
+ * The FLOOR is 1 because that is three's own default and because below it the
+ * Vogel disk sits inside the bilinear footprint the hardware gives away free —
+ * a radius of 0.4 does not make a sharper shadow, it makes the same shadow with
+ * four of its five samples landing on one texel.
+ *
+ * The CEILING is 3 because five samples cannot fill a wider disk. The IGN
+ * rotation turns that undersampling into per-pixel noise rather than banding,
+ * which is the better of the two failures, but it is still a failure: past
+ * about three texels a long straight shadow edge begins to fizz. A penumbra
+ * wider than that is what `shadowMapSize` is for, not this.
+ *
+ * WHAT EACH CASCADE GETS, on the three tiers (see `frame` in lighting.ts):
+ *
+ *              texel     radius   penumbra     was
+ *   near  hi   1.5 cm     3.00     4.5 cm     1.00   <- the fight, on desktop
+ *   near  med  2.1 cm     2.09     4.5 cm     1.00
+ *   near  low  4.3 cm     1.05     4.5 cm     1.00
+ *   far        5.0 cm     1.00     5.0 cm     1.00   <- a 16 cm palisade stake
+ *   ao         2.5 cm     1.80     4.5 cm     1.00      stays a stripe
+ *
+ * The settlement cascade lands on the floor by arithmetic rather than by
+ * exception, which is the point of deriving this instead of tabulating it: its
+ * texel budget was chosen so that ONE texel is the feature it draws, so one
+ * texel is also all the blur it can afford, and the formula says so without
+ * being told.
+ */
+const SHADOW_PENUMBRA_METRES = 0.045;
+const SHADOW_RADIUS_MIN = 1;
+export const SHADOW_RADIUS_MAX = 3;
+
+export function shadowRadiusFor(texelMetres: number): number {
+  if (!(texelMetres > 0)) return SHADOW_RADIUS_MIN;
+  const want = SHADOW_PENUMBRA_METRES / texelMetres;
+  return Math.max(SHADOW_RADIUS_MIN, Math.min(SHADOW_RADIUS_MAX, want));
+}
+
+/**
  * The renderer-level knobs that are purely a function of the tier — and the one
  * place both entry points (GameCanvas and armouryStage) hand the governor a
  * renderer, so a demotion has something to act on inside this file rather than
@@ -683,7 +768,10 @@ export function resolveQuality(override?: QualityTier | null): QualitySettings {
 export function configureRenderer(renderer: THREE.WebGLRenderer, settings: QualitySettings): void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.maxPixelRatio));
   renderer.shadowMap.enabled = settings.shadows;
-  renderer.shadowMap.type = settings.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  // PCFShadowMap unconditionally: on three 0.185 it is the only surviving
+  // filter, and how soft its edge comes out is `shadowRadiusFor` above,
+  // spent per cascade rather than per renderer.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   QUALITY_GOVERNOR.attach(renderer);
 }
 

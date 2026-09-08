@@ -8,6 +8,125 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED 8 Sep 2026 — EVERY SHADOW IN THE FIGHT WAS HARD, AND THE SETTING THAT WAS SUPPOSED TO SOFTEN THEM HAD BEEN A NO-OP SINCE THE THREE UPGRADE
+
+Found sideways. A Playwright probe of `/shot`, run to settle a different
+entry in this file, printed one line nobody had gone looking for:
+
+    THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead.
+
+### What it actually was
+
+`quality.ts` carried a `softShadows: boolean`, true on high and medium and
+false on low, documented as
+
+    /** PCFSoft costs ~4x the taps of PCF; low tier eats the hard edge. */
+
+and spent in one place:
+
+    renderer.shadowMap.type = settings.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+
+**Both halves of that comment were false, and had been since three 0.185.**
+`WebGLShadowMap.render` opens with
+
+    if ( this.type === PCFSoftShadowMap ) {
+      warn( 'WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead.' );
+      this.type = PCFShadowMap;
+    }
+
+— so the branch was choosing between a value and itself, on every tier, and
+saying so out loud on every load. That is the small half.
+
+The large half is what the warning did NOT say. There is now ONE PCF path in
+three and it is a five-sample Vogel disk rotated per pixel by interleaved
+gradient noise (`shadowmap_pars_fragment.glsl.js:117`), each sample a hardware
+`sampler2DShadow` fetch that is itself a 4-tap bilinear comparison. Twenty
+filtered taps, always, whatever the radius. **The disk's WIDTH is the only free
+parameter, and it is `light.shadow.radius`, in texels:**
+
+    float radius = shadowRadius * texelSize.x;    // texelSize = 1 / mapSize
+
+`lighting.ts` — the rig the FIGHT is lit by — **never set it.** Three cascades
+(the near one under the warriors, the settlement one, the sky-occlusion one),
+all of them sitting on three's bare default of 1.
+
+`summary.ts:680` and `armouryStage.ts:251` **did** set it, to 3.
+
+So the death portrait and the armoury had visibly softer shadows than the
+death. The most-looked-at surface in the game — a man's boot on the turf,
+three metres from the lens — was the one running the hardest edge in the
+build, and the tier that needed the blur most (low: 4.3 cm texels) was the one
+tier explicitly opted out of it.
+
+### The saving it was opting out of does not exist
+
+This is the part worth keeping. `softShadows: false` on the low tier was
+buying back "~4x the taps". On this three, five taps at radius 3 cost exactly
+what five taps at radius 1 cost — the radius moves where the samples land, not
+how many there are. The phone was paying a hard edge for nothing.
+
+### The fix
+
+`softShadows` is gone. The penumbra is now derived from the only quantity that
+can decide it — the world size of one texel of that particular map —
+`shadowRadiusFor(texelMetres)` in `quality.ts`, spent in `frame()` in
+`lighting.ts` and at both portrait rigs:
+
+    radius = clamp(0.045 m / texel, 1, 3)
+
+|              | texel  | radius | penumbra | was  |
+|--------------|--------|--------|----------|------|
+| near, high   | 1.5 cm | 3.00   | 4.5 cm   | 1.00 |
+| near, medium | 2.1 cm | 2.09   | 4.5 cm   | 1.00 |
+| near, low    | 4.3 cm | 1.05   | 4.5 cm   | 1.00 |
+| settlement   | 5.0 cm | 1.00   | 5.0 cm   | 1.00 |
+| sky occ.     | 2.5 cm | 1.80   | 4.5 cm   | 1.00 |
+
+Every tier now reads the same softness in metres, which is the thing a player
+can actually see. The settlement cascade lands on the floor **by arithmetic
+rather than by exception** — its 5 cm texel budget was chosen so that one texel
+is the palisade stake it draws, so one texel is also all the blur it can
+afford, and the formula says so without being told. The hearth beam is the one
+light that does not derive: a bonfire is about twelve degrees across at four
+metres, its true penumbra is ~20 cm, and nothing five samples can do reaches
+that, so it takes the ceiling on every tier and is still sharper than the fire.
+
+### The gate, and the round of it that was green over its own defect
+
+`tools/shadowtest.mjs`, 15 checks, `npm run shadowtest`. It builds the real rig
+headless on all three tiers — `lighting.ts` imports `three` and two values from
+`quality.ts` and nothing else — walks every shadow-casting light and recomputes
+what its penumbra ought to be from its own orthographic frustum. §1 reads the
+deprecation OUT OF THREE rather than naming `PCFSoftShadowMap`, so the next
+retirement trips it on the upgrade commit without an edit.
+
+**§3 shipped green over its own injected defect and had to be rewritten.** It
+excused a caster whose radius sat on a clamp bound — and the defect *is* radius
+1 everywhere, which is the floor, so it excused all seven casters and passed.
+`docs/PROCESS.md` failure mode 3, committed by the gate written to catch it.
+The excuse is now computed from what the DERIVATION asks for, which is a fact
+about the map, not from what was observed. It now reds 5 of 7.
+
+Two levers, and they are not redundant:
+
+    clean            15 passed / 0 failed
+    --lever=default  12 passed / 3 failed   the shipped defect, byte for byte
+    --lever=table    11 passed / 4 failed   a tabulated per-tier ladder
+
+`default` **cannot** red §5's "penumbra never shrinks as the map coarsens",
+because radius 1 everywhere still leaves the penumbra rising with the texel —
+the phone's shadow really was softer in metres, it was just three times
+blockier. Only a tabulated ladder inverts that claim, so only `table` reaches
+it. One lever would have left that check unproven.
+
+### What this does not close
+
+Nothing here touches the shadow *cadence*, the draw-call count, or the bias
+family — see the three earlier shadow entries in this file. And `three` may
+retire `VSMShadowMap` next; §1 is now the thing that will say so.
+
+---
+
 ## CLOSED 8 Sep 2026 — THE BEARD SEATS INTO THE NECK ON 8 OF 16 PAIRS, and the cause was the SLOPE and not the shell
 
 **`wearmeasure` §7 and `beardseat` both read PASS on all sixteen pairs.** The

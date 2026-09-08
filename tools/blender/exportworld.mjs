@@ -78,7 +78,7 @@ const { createMaterialLibrary } = await import(pathToFileURL(find("materials.js"
 const { createWorld } = await import(pathToFileURL(find("world.js")).href);
 // The other grounds register themselves on import; world.ts does not import them.
 for (const g of ["moor.js", "fort.js", "camp.js", "dyke.js"]) if (find(g)) await import(pathToFileURL(find(g)).href);
-const settings = { anisotropy: 8, textureSize: 512, spriteSize: 128, tier: "high", dynamicLights: true, instancing: false, propDensity: 1, shadows: true, softShadows: true, shadowMapSize: 2048 };
+const settings = { anisotropy: 8, textureSize: 512, spriteSize: 128, tier: "high", dynamicLights: true, instancing: false, propDensity: 1, shadows: true, shadowMapSize: 2048 };
 const textures = createTextureLibrary({ capabilities: { getMaxAnisotropy: () => 8 } }, settings);
 const materials = createMaterialLibrary(textures, settings);
 const scene = new THREE.Scene();

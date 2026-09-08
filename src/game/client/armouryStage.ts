@@ -43,7 +43,7 @@ import {
   CLASS_TUNIC,
 } from "./render/anim";
 import {
-  resolveQuality, configureRenderer,
+  resolveQuality, configureRenderer, shadowRadiusFor,
   type QualitySettings, type FrameContext,
 } from "./render/quality";
 import {
@@ -248,7 +248,10 @@ function raiseLights(q: QualitySettings): {
     const near = 0.5, far = 9, z = 3.0;
     key.shadow.bias = -(0.010 * far * near) / ((far - near) * z * z);
     key.shadow.normalBias = 0.022;
-    key.shadow.radius = q.softShadows ? 3 : 1;
+    // Same derivation as summary.ts, at this rig's own cone and distance, and
+    // for the same reason: `q.softShadows ? 3 : 1` was branching on a lever that
+    // no longer moved anything. See `shadowRadiusFor`.
+    key.shadow.radius = shadowRadiusFor((2 * z * Math.tan(key.angle)) / map);
   }
   g.add(key, key.target);
   // RIM — cool, off the far shoulder, three-quarters behind and LEVEL with the

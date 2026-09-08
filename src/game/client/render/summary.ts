@@ -31,6 +31,7 @@ import {
 } from "./anim";
 import type { EmoteId } from "../../types";
 import type { CameraRig, SummaryShot } from "./camera";
+import { shadowRadiusFor } from "./quality";
 import type { FrameContext, QualitySettings } from "./quality";
 
 /** The one slice of a warrior slot the stage needs. */
@@ -677,7 +678,14 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
       const near = KEY_SHADOW_NEAR, far = KEY_RANGE, z = KEY_SHADOW_REF;
       key.shadow.bias = -(KEY_BIAS_METRES * far * near) / ((far - near) * z * z);
       key.shadow.normalBias = 0.03;
-      key.shadow.radius = q.softShadows ? 3 : 1;
+      // Derived, not tabulated. This used to read `q.softShadows ? 3 : 1`, and
+      // `softShadows` was a lever that had stopped moving anything — see
+      // `shadowRadiusFor`. three sizes a spot's shadow camera off the cone
+      // (fov = 2 * angle * focus, focus 1), so at the reference distance the map
+      // spans 2 * z * tan(angle) and one texel is that over the map's width.
+      // Reading `key.angle` rather than repeating 0.7 is deliberate: the number
+      // is in the constructor above and this must not be able to drift from it.
+      key.shadow.radius = shadowRadiusFor((2 * z * Math.tan(key.angle)) / map);
     }
     g.add(key, key.target);
     // RIM — cool, off the shoulder the key is not on, three-quarters behind

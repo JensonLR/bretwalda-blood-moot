@@ -35,7 +35,7 @@ globalThis.document ??= { createElement: () => ({ getContext: () => null, width:
 const { createTextureLibrary } = await import(pathToFileURL(find("textures.js")).href);
 const { createMaterialLibrary } = await import(pathToFileURL(find("materials.js")).href);
 const { createWarriorRig } = await import(pathToFileURL(find("anim.js")).href);
-const settings = { anisotropy: 8, textureSize: 512, spriteSize: 128, tier: "high", dynamicLights: true, instancing: false, propDensity: 1, shadows: true, softShadows: true, shadowMapSize: 2048 };
+const settings = { anisotropy: 8, textureSize: 512, spriteSize: 128, tier: "high", dynamicLights: true, instancing: false, propDensity: 1, shadows: true, shadowMapSize: 2048 };
 const textures = createTextureLibrary({ capabilities: { getMaxAnisotropy: () => 8 } }, settings);
 const materials = createMaterialLibrary(textures, settings);
 const ARMS = { huscarl: "sword_board", warden: "gar", runekeeper: "twin_seax", berserker: "hand_axes" };

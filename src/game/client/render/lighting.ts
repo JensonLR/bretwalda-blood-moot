@@ -309,6 +309,7 @@
 // contact darkening the pass above just bought.
 
 import * as THREE from "three";
+import { shadowRadiusFor, SHADOW_RADIUS_MAX } from "./quality";
 import type { FrameContext, Mood, QualitySettings } from "./quality";
 
 export interface LightingHandle {
@@ -1457,6 +1458,14 @@ export function createLighting(
     const texel = (2 * half) / Math.max(1, settings.shadowMapSize);
     light.shadow.bias = -(biasMetres / (cam.far - cam.near));
     light.shadow.normalBias = Math.min(texel * normalBiasSlope, normalBiasCap);
+    // How soft this cascade's edge comes out, and it is set HERE rather than at
+    // the renderer because it is the only shadow parameter in three that is
+    // denominated in the map's own texels — which makes `texel`, three lines up,
+    // the only number that can decide it. Nothing set it until now: every
+    // cascade in the fight ran at three's default of 1 while summary.ts and
+    // armouryStage.ts, which do set it, ran at 3. The death portrait had softer
+    // shadows than the death. See `shadowRadiusFor`.
+    light.shadow.radius = shadowRadiusFor(texel);
     return texel;
   }
 
@@ -1661,6 +1670,15 @@ export function createLighting(
     // Written by applyRig, because the far plane it is normalised against is
     // `light.distance`, and that is a mood value.
     beam.shadow.normalBias = 0.02;
+    // The widest penumbra the filter holds, and the one light in the rig that
+    // does not have to derive it. Every other source here is standing in for a
+    // sun or a moon — half a degree across, a near-hard edge, and a penumbra
+    // small enough that the map's texel is the thing deciding it. A bonfire is
+    // about a metre across at four and a half metres, which is twelve degrees:
+    // a warrior's shadow a metre behind him has twenty centimetres of true
+    // penumbra. Nothing five Vogel samples can do reaches that, so this takes
+    // the ceiling on every tier and is still sharper than the fire it is for.
+    beam.shadow.radius = SHADOW_RADIUS_MAX;
     root.add(beam.target);
     root.add(beam);
   }
