@@ -8,6 +8,56 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED 8 Sep 2026 — THE BEARD SEATS INTO THE NECK ON 8 OF 16 PAIRS, and the cause was the SLOPE and not the shell
+
+**`wearmeasure` §7 and `beardseat` both read PASS on all sixteen pairs.** The
+entry below is kept whole, because its reasoning was right about the measurement
+and wrong about the repair, and the difference is worth more than either.
+
+### What it actually was
+
+`throatR` models the neck the fall hangs past as a radius and a linear taper —
+`0.90 × max(neckHW, neckHD) + 1 mm`, shrinking at `throatTaper` per metre of
+rise toward the jaw. **The taper was steeper than the neck it models.** So the
+further above his own collar a man's chin sat, the further INSIDE his throat the
+fall modelled itself, and the worst row in the table was the berserker — who
+carries the highest chin over the highest collar in the roster, and who is
+therefore reading the slope from furthest away. That signature is a slope, not
+an offset, and it is visible in the original numbers: 2.1 mm on a huscarl's
+short beard against 5.1 mm on a berserker's full one.
+
+    throatTaper   0.20  ->  0.05
+    berserker/full, at y=1.747 where his built neck is 65 mm:
+       0.20 -> the model presents 58 mm   (5.1 mm inside)
+       0.12 -> 61 mm                      (3.2 mm inside)
+       0.08 -> 62 mm                      (2.4 mm inside)
+       0.05 -> 66 mm                      (clear)
+
+0.05 is very nearly a cylinder, and that is the answer rather than a retreat.
+**The beard's inner surface has to be OUTSIDE the neck, not equal to it.**
+Standing a millimetre or two proud of the throat is invisible; sinking two to
+five inside it is the defect — the shell clips through the skin and the man has
+a hole in his jaw. A model that tapers with the neck is only worth having if it
+is guaranteed to taper SLOWER, and a linear one against a curve is not.
+
+**The 1 mm clearance was NOT touched.** It was 5 mm once and the profile
+captures showed daylight behind the fall; a beard lies ON the throat. Buying
+this number with margin would have paid for it by reintroducing the defect the
+margin was cut for.
+
+### And the entry below was right to refuse the fix it was offered
+
+It refused to tune the shell, on the grounds that the shell is the wrong
+construction and the strands are the answer. That reasoning stands and the
+strands landed on 7 Sep — `authoredProps.ts` hangs the exported
+`beard-<class>-<style>.glb`, strand mesh and all. What it could not know is that
+the shell was not merely coarse here: it was **wrong about the neck**, by a
+slope, and no strand loader would have fixed a procedural man who is still the
+default. Both were true. The structural answer is built and behind a flag; this
+is the shipped man's own geometry, measured and closed.
+
+---
+
 ## THE BEARD SEATS INTO THE NECK ON 8 OF 16 PAIRS — and the ruler that says so had been dead — 7 Sep 2026
 
 **NEWLY VISIBLE, NOT NEWLY BROKEN.** `tools/wearmeasure.mjs` crashed on its

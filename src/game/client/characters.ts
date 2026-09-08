@@ -18197,7 +18197,38 @@ export function buildCharacter(
       // 1 mm of clearance, not 5: the profile captures (2 Sep 2026) showed the
       // fall hanging with daylight behind it, and a beard lies ON the throat.
       const throatR = Math.max(S.neckHW, S.neckHD) * 0.90 + 0.001;
-      const throatTaper = 0.20;
+      // 0.05, DOWN FROM 0.20, AND THE RULER IS WHY.
+      //
+      // This is a LINEAR model of a neck that is not linear, and it was steeper
+      // than the thing it models — so the further above the seat the fall went,
+      // the further INSIDE the throat it modelled itself. `wearmeasure` §7
+      // measures the beard against the neck that is actually BUILT, and once it
+      // was repaired (it had been crashing on its first rig for weeks) it found
+      // eight of sixteen pairs seated 2.1 to 5.1 mm into the neck against a
+      // 2 mm bar — worst on the berserker, whose chin sits highest above his own
+      // collar. That is the signature of a taper too steep, not a radius too
+      // small: the error grows with height, so the tallest chin reads it from
+      // furthest away and is the last row any flatter slope reaches.
+      //
+      // He is therefore the row the number is set by. His built neck is 65 mm
+      // where the fall meets it, 147 mm above his seat, and the model presents:
+      //
+      //     0.20 -> 58 mm   (5.1 mm inside)      0.08 -> 62 mm  (2.4 inside)
+      //     0.12 -> 61 mm   (3.2 mm inside)      0.05 -> 66 mm  (clear)
+      //
+      // 0.05 is nearly a cylinder, and that is the right answer rather than a
+      // retreat. The beard's inner surface has to be OUTSIDE the neck, not equal
+      // to it: standing a millimetre or two proud of the throat is invisible,
+      // and sinking two to five inside it is a hole in the man's jaw. A model
+      // that tapers with the neck is only worth having if it is guaranteed to
+      // taper SLOWER than the neck, and a straight line against a curve is not.
+      //
+      // THE 1 MM CLEARANCE ABOVE IS UNTOUCHED, deliberately. It was 5 mm once
+      // and the profile captures (2 Sep 2026) showed daylight behind the fall.
+      // Buying this number back with margin would have reintroduced the defect
+      // the margin was cut for. What was wrong here was the slope, not the
+      // offset.
+      const throatTaper = 0.05;
       // Hanks down the fall and a ragged hem. Both are harmonics in u and both
       // stay inside what `nu` columns can carry: the third that used to live
       // here was above Nyquist and drew four triangular bites out of the jaw
