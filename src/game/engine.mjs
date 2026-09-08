@@ -5238,9 +5238,23 @@ export function makeEngine(options = {}) {
       // having spent its swing window on nothing.
       const heavy = bot.stamina >= 30
         && Math.random() < 0.2 * bot.aiSkill + (target.state === "blocking" ? 0.18 : 0);
+      // UNDER THE RIM, AND KNOWING TO IS SKILL.
+      //
+      // The low cut (`LOW`) exists for exactly one situation — a man behind a
+      // board — and until this line no bot had ever been in it, because
+      // `botAct`'s default is `crouch: false` and nothing overrode it. So the
+      // tactic a player can use against the AI was one the AI could never use
+      // against him, and half of a two-sided rule is not a rule.
+      //
+      // A jarl goes under a raised guard seven times in ten and a recruit twice;
+      // that spread is the ladder, and `bottest` gates it as one. Only on a
+      // LIGHT: a crouched heavy is a commitment on top of a commitment, and the
+      // heavy already has the hook to answer a shield with.
+      const low = !heavy && target.state === "blocking"
+        && Math.random() < 0.15 + bot.aiSkill * 0.55;
       botAct(room, bot, {
         rotationY: bot.yaw + (Math.random() - 0.5) * 0.15,
-        attack: !heavy, heavyAttack: heavy, attackDir,
+        attack: !heavy, heavyAttack: heavy, attackDir, crouch: low,
       });
       bot.nextAttackAt = now + swingDurationOf(bot.warriorClass, heavy, bot.arms)
         + BOT_SWING_GAP - bot.aiSkill * BOT_SWING_GAP_SKILL + Math.random() * 0.4;

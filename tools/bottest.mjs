@@ -333,6 +333,10 @@ head("3. A man, not a lawnmower");
         if (b.attackPhase === "windup" && b.swingT < 0.15) {
           tally[i].dirs[b.attackDir] = (tally[i].dirs[b.attackDir] || 0) + 1;
           if (b.swingHeavy) tally[i].heavies++;
+          // UNDER THE RIM. `swingLow` is latched when the blow is thrown, so
+          // counting it on the windup counts the decision and not the input.
+          if (b.swingLow) (tally[i].lows = (tally[i].lows || 0) + 1);
+          if (!b.swingHeavy) (tally[i].lights = (tally[i].lights || 0) + 1);
         }
         if (b.state === "blocking") tally[i].guards++;
         if (b.state === "rolling" || b.state === "dodging") tally[i].rolls++;
@@ -349,7 +353,7 @@ head("3. A man, not a lawnmower");
   const table = {};
   const perClass = {};
   for (const d of ["recruit", "warrior", "jarl"]) {
-    const agg = { guards: 0, rolls: 0, heavies: 0, swings: 0, ticks: 0, dirSpread: [] };
+    const agg = { guards: 0, rolls: 0, heavies: 0, swings: 0, ticks: 0, dirSpread: [], lows: 0, lights: 0 };
     perClass[d] = {};
     for (const cls of WATCHED) {
       const one = { guards: 0, ticks: 0 };
@@ -357,6 +361,7 @@ head("3. A man, not a lawnmower");
         for (const bot of watch(d, SEED + 777 * i + 13 * WATCHED.indexOf(cls), cls)) {
           const swings = Object.values(bot.dirs).reduce((a, b) => a + b, 0);
           agg.guards += bot.guards; agg.rolls += bot.rolls; agg.heavies += bot.heavies;
+          agg.lows += bot.lows || 0; agg.lights += bot.lights || 0;
           agg.swings += swings; agg.ticks += 600;
           one.guards += bot.guards; one.ticks += 600;
           if (swings > 4) {
@@ -373,10 +378,74 @@ head("3. A man, not a lawnmower");
     note(`${d.padEnd(9)} guard ${(agg.guards / agg.ticks * 100).toFixed(1)}% of ticks, ` +
       `roll ${(agg.rolls / agg.ticks * 100).toFixed(1)}%, ` +
       `heavy ${agg.swings ? (agg.heavies / agg.swings * 100).toFixed(1) : "0.0"}% of swings, ` +
-      `favourite side ${(agg.dirSpread.reduce((a, b) => a + b, 0) / (agg.dirSpread.length || 1) * 100).toFixed(0)}% of them`);
+      `favourite side ${(agg.dirSpread.reduce((a, b) => a + b, 0) / (agg.dirSpread.length || 1) * 100).toFixed(0)}% of them, ` +
+      `under the rim ${agg.lights ? (agg.lows / agg.lights * 100).toFixed(1) : "0.0"}% of lights`);
     note(`          ...guard by opponent: ` +
       WATCHED.map((c) => `${c} ${(perClass[d][c] * 100).toFixed(1)}%`).join("  "));
   }
+  // ---- UNDER THE RIM, WHERE THE CASE IS ACTUALLY PRESENT ----
+  //
+  // The census above reports 0.0% of lights thrown low at every rung, and that
+  // is not the bots failing to know the tactic — it is the OPPORTUNITY being
+  // absent. A low cut exists for one situation, a man behind a raised board,
+  // and bots hold a guard on 0.8% to 6.9% of their ticks; the window in which
+  // one is swinging while the other is blocking barely occurs in a bot-vs-bot
+  // fixture. `classmatrix` says the same thing about the same hole from the
+  // other side: only 6.4% of the damage in its duels meets a raised guard.
+  //
+  // A rate measured where the case does not arise is a rate about the fixture.
+  // So this stands the case up: one bot of each rung against a man who simply
+  // HOLDS HIS GUARD, which is what a player does, and counts what fraction of
+  // the lights come in under it.
+  {
+    const rimRate = (difficulty) => {
+      seedStream(SEED + 4242);
+      const eng = makeEngine({ autoTick: false });
+      const seen = { latest: null, playerId: null };
+      const sid = eng.connect((str) => {
+        const m = JSON.parse(str);
+        if (m.type === "join") seen.playerId = m.data.playerId;
+        if ((m.type === "game_state" || m.type === "countdown") && m.data.players) seen.latest = m.data;
+      });
+      eng.message(sid, { type: "create", data: { name: "Post", mode: "blood_moot", bestOf: 1 } });
+      eng.message(sid, { type: "add_bot", data: { difficulty, warriorClass: "huscarl" } });
+      eng.message(sid, { type: "start", data: {} });
+      let settled = 0;
+      while (settled < SETTLE_CAP && seen.latest?.state !== "fighting") { eng.step(TICK); settled += TICK; }
+      const room = eng._rooms.get(seen.latest.code);
+      const me = room.players.get(seen.playerId);
+      const bot = [...room.players.values()].find((p) => p.bot);
+      let lows = 0, lights = 0, was = null;
+      for (let t = 0; t < 40 && room.state === "fighting"; t += TICK) {
+        // He stands his ground with his guard up and does not die of it.
+        me.health = me.maxHealth; me.stamina = me.maxStamina; me.shield = 100;
+        bot.stamina = bot.maxStamina;
+        eng.message(sid, { type: "input", data: {
+          moveX: 0, moveZ: 0,
+          rotationY: Math.atan2(bot.position.x - me.position.x, bot.position.z - me.position.z),
+          block: true, attackDir: "right",
+        } });
+        eng.step(TICK);
+        // Counted on the EDGE into a swing, so one stroke is one sample.
+        if (bot.attackPhase === "windup" && was !== "windup") {
+          if (!bot.swingHeavy) { lights++; if (bot.swingLow) lows++; }
+        }
+        was = bot.attackPhase;
+      }
+      eng.stop(); releaseStream();
+      return { lows, lights, rate: lights ? lows / lights : 0 };
+    };
+    const r = rimRate("recruit"), w = rimRate("warrior"), j = rimRate("jarl");
+    note(`under a HELD guard: recruit ${(r.rate * 100).toFixed(0)}% of ${r.lights} lights, `
+      + `warrior ${(w.rate * 100).toFixed(0)}% of ${w.lights}, jarl ${(j.rate * 100).toFixed(0)}% of ${j.lights}`);
+    check("a bot goes under a raised guard at all — the low cut is not a tactic only a player has",
+      j.lights >= 5 && j.rate > 0.35,
+      `jarl ${(j.rate * 100).toFixed(0)}% of ${j.lights} lights under a held board`);
+    check("...and knowing to is SKILL: the ladder is ordered",
+      r.lights >= 5 && w.lights >= 5 && j.lights >= 5 && r.rate < w.rate && w.rate < j.rate,
+      `${(r.rate * 100).toFixed(0)}% < ${(w.rate * 100).toFixed(0)}% < ${(j.rate * 100).toFixed(0)}%`);
+  }
+
   // WHOSE WINDUP EACH RUNG CAN ACTUALLY SEE, printed rather than left to be
   // inferred from a pooled average. A rung that reads NOBODY has no defence at
   // all and the pooled number would hide it behind the three rungs that do.
