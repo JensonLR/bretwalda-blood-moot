@@ -2702,10 +2702,18 @@ export function triggerEmote(motion, emote) {
  * one is authored to read at nameplate distance in under two seconds, because
  * the audience is a phone across a group chat, not a cinematic.
  */
-function emoteLayer(kind, ph, shielded) {
+function emoteLayer(kind, ph, shielded, seed = 0) {
     // Eased in and out on its own envelope so the flourish enters and leaves the
     // standing pose without a snap, whatever the body was doing either side.
-    const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16));
+    //
+    // AND SCALED BY A PER-MAN CONSTANT, for the same reason `deathLayer` paces
+    // its collapse off one: three men on a podium performing the identical
+    // gesture at the identical size is one recording played three times, and the
+    // podium is the shot most likely to leave the game and be looked at. Eight
+    // per cent either way is under what anybody can name and over what an eye
+    // notices the absence of.
+    const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16))
+        * (1 + Math.sin(seed * 12.9898) * 0.08);
     if (kind === "raise") {
         // The blade to the sky: a short coil, then the arm thrust straight up and
         // held, eyes following it. The aim channel is what actually points the
@@ -4361,12 +4369,20 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
             motion.emote = null;
         }
         else {
-            motion.emoteT += dt;
+            // NO TWO MEN CELEBRATE ON THE SAME CLOCK. `seed` is the per-warrior
+            // constant the idle already rides on, and one sine of it is a
+            // decorrelated number in [-1, 1] that costs nothing. Plus or minus 14%
+            // on the tempo is not something anybody can name in a single flourish,
+            // and it is the whole difference between three men hailing a victory and
+            // one recording played three times — which is what a moot's podium is,
+            // and it is the shot most likely to be sent to somebody.
+            const tempo = 1 + Math.sin(motion.seed * 7.3891) * 0.14;
+            motion.emoteT += dt * tempo;
             const ph = motion.emoteT / EMOTE_SECONDS;
             if (ph >= 1)
                 motion.emote = null;
             else
-                emoteLayer(motion.emote, ph, carried);
+                emoteLayer(motion.emote, ph, carried, motion.seed);
         }
     }
     if (staggered) {

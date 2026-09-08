@@ -1668,6 +1668,9 @@ const WIRE_EXTRA = {
   shove: {},
   knockdown: {},
   shield_burst: {},
+  // The beard of an axe catching a rim. Damage 0, like the burst and the parry:
+  // it follows the turned heavy's own `hit` and takes nothing off. See `HOOK`.
+  hook: {},
 };
 
 async function vocabulary(page, rel) {

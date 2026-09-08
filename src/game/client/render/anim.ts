@@ -5164,6 +5164,29 @@ export function poseWarrior(
   // the wrist rate limit exists to remove.
   motion.checkEase = approach(motion.checkEase, motion.check, dt, 22);
   if (motion.wBlock > 0.001) blockLayer(carried, clamp01(player.blockTimer / 0.22), motion.wBlock);
+  // ---- THE HOOKED GUARD ----
+  //
+  // The beard of an axe has his rim and the board is somewhere near his knee.
+  // `hookedTimer` rides the wire for exactly this: the man opposite has to be
+  // able to SEE that the shield is down, and the man it happened to has to be
+  // able to see why his block button has stopped answering. A rule the player
+  // cannot see is a rule the player experiences as the game being broken.
+  //
+  // Eased off its own tail so the arm comes back up as the window runs out
+  // rather than snapping to guard on the frame the timer hits zero, and read
+  // from the WIRE rather than from a local clock — the server owns how long a
+  // man is open, the same way it owns every other timer in this file.
+  {
+    const hooked = clamp01((player.hookedTimer ?? 0) / 0.35);
+    if (hooked > 0.001) {
+      P.olx += 0.95 * hooked;      // the arm dragged down and forward
+      P.olz += 0.45 * hooked;      // and across his own body
+      P.olb += 0.55 * hooked;      // pulled straight by the weight on the rim
+      P.crz += 0.13 * hooked;      // his shoulders tip after it
+      P.cry += 0.10 * hooked;
+      P.prz += 0.06 * hooked;
+    }
+  }
   if (shoving) shoveLayer(clamp01(motion.actT / (SHOVE.windup + SHOVE.recover)), carried, smooth(clamp01(motion.actT / 0.06)));
 
   // The emote rides on top of idle, walk and guard, and is simply dropped by

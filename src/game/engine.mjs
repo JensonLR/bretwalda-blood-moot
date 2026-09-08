@@ -643,13 +643,31 @@ export const SHOVE = {
 const KNOCKBACK = {
   light: 0.42,
   heavy: 0.95,
-  blocked: 0.14,
-  blocked_heavy: 0.30,
+  // THE BIND. 0.34 and 0.72, raised from 0.14 and 0.30.
+  //
+  // A blow into a board is a COLLISION, and it was the quietest thing in the
+  // game: a blocked light moved the man behind the shield fourteen centimetres
+  // and the man who threw it two. Two men in a shield wall trading blows stood
+  // exactly where they started, which is the one thing that never happens.
+  //
+  // A shield-bearer who turtles now GIVES GROUND — a third of a metre a light
+  // and three quarters a heavy — and that is the whole of what turns blocking
+  // from a damage discount into a decision. It also makes driving a man back
+  // into the hearth a real tactic with a real tool, which is what the fire in
+  // the middle of the arena is for.
+  blocked: 0.34,
+  blocked_heavy: 0.72,
   // The striker's own share. A blow that sweeps through a man weighs nothing;
   // one that stops against him puts the striker back on his heels. Small, and
   // one-sixth of what the target takes — it is a check on the swing, not a
   // second knockback pointed the wrong way.
   recoil: 1 / 6,
+  // EXCEPT AGAINST A BOARD, where it is not small. Steel into limewood stops
+  // DEAD — there is no meat to sink into and no man to move out of the way —
+  // so a third of it comes back up the arm. This is the number that makes a
+  // bind read as two men colliding rather than as one man being nudged, and it
+  // is the sim's half of the same fact `checkLayer` draws on the striker.
+  bindRecoil: 1 / 3,
 };
 
 // Weapon mass, as a multiplier on everything above. This is what makes a
@@ -834,6 +852,55 @@ export const EXECUTION = {
 // multiplier that zeroed the guard would make blocking strictly worse than
 // rolling the moment you misread once.
 export const GUARD = { mismatch: 0.5 };
+
+/**
+ * THE HOOK — what the beard of an axe is actually FOR.
+ *
+ * An axe with a beard is not a heavier sword. Its whole point, and the reason
+ * it is the weapon of this period rather than a curiosity, is that the hook
+ * behind the edge catches the RIM OF A SHIELD and drags it down — and the man
+ * behind it is then standing in the open with his arm pulled across his body.
+ * It is the answer to a shield wall, and it is the answer a game with a shield
+ * wall in it needs, because otherwise the correct play against a turtle is to
+ * wait.
+ *
+ * Only a heavy hooks: a controlled cut has no weight behind the beard. Only a
+ * blow the guard TURNED hooks — one that got past the board never touched it.
+ * And only a bearded head hooks; a sword, a spear and a stave slide off a rim.
+ *
+ * The payoff is the OPENING, not the damage. The axe went into limewood, so the
+ * blow does what a blocked heavy always did; what it buys is that for the next
+ * eight tenths of a second the man cannot raise his guard at all.
+ */
+export const HOOK = {
+  /** The heads with a beard to catch a rim with. */
+  arms: Object.freeze(["dane_axe", "hand_axes", "twin_beards"]),
+  /**
+   * Seconds his guard is dragged down, and the number is arithmetic.
+   *
+   * A hook that only lasts as long as the stagger the blocked heavy already
+   * caused is not a mechanic, it is a second name for the same 0.6 s — and
+   * 0.85 was that: a quarter of a second of daylight past what the blow bought
+   * anyway. The opening has to be one THE HOOKER HIMSELF CAN USE, or the move
+   * is a gift to whoever else happens to be standing there.
+   *
+   * A berserker's heavy is 1.66 s long and its contact is 55% through it, so he
+   * is still recovering for 0.75 s after the hook lands. His next blow needs
+   * another 0.66 s to reach contact (40% of a 1.66 s stroke). 1.41 s to get
+   * back to the man, so 1.6 s is the window: hook the board down, and the axe
+   * that comes next has somewhere to land.
+   *
+   * It is a long time to stand with no guard, and it is meant to be. That is
+   * what was paid for it.
+   */
+  window: 1.6,
+  /**
+   * Extra boards it takes, on top of the block's own wear. Hooking a rim is
+   * harder on a shield than turning a blow with it: the beard is pulling on
+   * the boards rather than sliding off them.
+   */
+  boards: 9,
+};
 
 export const RIPOSTE = {
   window: 0.90,
@@ -1495,6 +1562,20 @@ function dropArms(room, p) {
 /** The one resolver. Every weapon-priced read point routes through here;
  *  an unknown or foreign arms id resolves to the class default's empty
  *  delta, so a forged value can only ever give a man his own old weapon. */
+/**
+ * WHICH HEAD IS IN HIS HANDS, by the same rule the delta follows: a taken
+ * weapon is the DEAD MAN'S, whatever class the hand belongs to now. `HOOK`
+ * needs the name and not the numbers — a beard is a shape, not a stat.
+ */
+export function armsOf(player) {
+  if (player.taken && ARMS[player.taken.cls] && ARMS[player.taken.cls][player.taken.arms]) {
+    return player.taken.arms;
+  }
+  const table = ARMS[player.warriorClass];
+  if (table && table[player.arms]) return player.arms;
+  return defaultArmsOf(player.warriorClass);
+}
+
 export function armsDeltaOf(player) {
   // A taken weapon's delta rides the WEAPON: it is read off the dead man's
   // class table, whatever class the hand belongs to now.
@@ -2163,6 +2244,8 @@ export function makeEngine(options = {}) {
       // `docs/DESIGN-SYSTEM.md` puts that tell on the opponent's brackets for
       // the window's real duration, which needs the real duration on the wire.
       vulnerableTimer: 0, vulnerableTo: "",
+      // Seconds his guard is dragged down by an axe's beard. See HOOK.
+      hookedTimer: 0,
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -3643,7 +3726,12 @@ export function makeEngine(options = {}) {
       return;
     }
 
-    if (input.block && player.state !== "attacking" && player.state !== "dodging" && player.state !== "shoving") {
+    // A HOOKED GUARD CANNOT BE RAISED. His shield arm has been dragged down and
+    // across by the beard of an axe; the board is somewhere near his knee and
+    // there is nothing between him and the next blow. See HOOK.
+    if (input.block && player.hookedTimer > 0) {
+      if (player.state === "blocking") { player.state = "idle"; player.blockTimer = 0; }
+    } else if (input.block && player.state !== "attacking" && player.state !== "dodging" && player.state !== "shoving") {
       player.state = "blocking"; player.blockDir = input.attackDir;
       player.blockTimer = player.blockTimer || 0.001;
     } else if (player.state === "blocking" && !input.block) {
@@ -4047,6 +4135,25 @@ export function makeEngine(options = {}) {
         if (isHeavy && !shieldWall) {
           target.state = "staggered"; target.staggerTimer = STAGGER_DURATION;
           applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff * 0.5)), "blocked_heavy", hitZone, { offGuard, riposte: isRiposte });
+          // ---- THE HOOK (see the HOOK constant) ----
+          //
+          // A bearded axe swung hard into a board does not glance off it: the
+          // hook behind the edge catches the rim and drags the whole shield
+          // down, and the man is then standing in the open with his arm pulled
+          // across him. It is the period's own answer to a wall of shields,
+          // and without it the correct play against a man who turtles is to
+          // wait for his stamina, which is not a fight.
+          //
+          // AFTER the blow's own message, deliberately — cause then effect, the
+          // same law the burst and the knockdown keep. And only on a board: a
+          // haft has no rim to catch, and a man already burst has no shield to
+          // pull down.
+          if (board && !burst && HOOK.arms.includes(armsOf(attacker)) && target.state !== "dead") {
+            target.hookedTimer = HOOK.window;
+            target.blockTimer = 0;
+            target.shield = Math.max(0, target.shield - HOOK.boards);
+            broadcast(room, { type: "hit", data: { type: "hook", attackerId: attacker.id, targetId: target.id, damage: 0, window: HOOK.window } });
+          }
         } else {
           target.stamina -= 10;
           applyDamage(room, attacker, target, Math.floor(zoned * (1 - eff)), "blocked", hitZone, { offGuard, riposte: isRiposte });
@@ -4139,7 +4246,9 @@ export function makeEngine(options = {}) {
     // ...and the striker's own share. The blow stops against mass, so it puts
     // him back the way he came — away from the man he just hit. Applied to the
     // ATTACKER from the TARGET's position, which is the same line reversed.
-    applyKnockback(attacker, target.position.x, target.position.z, push * KNOCKBACK.recoil);
+    const bound = hitType === "blocked" || hitType === "blocked_heavy";
+    applyKnockback(attacker, target.position.x, target.position.z,
+      push * (bound ? KNOCKBACK.bindRecoil : KNOCKBACK.recoil));
 
     broadcast(room, { type: "hit", data: { type: hitType, attackerId: attacker.id, targetId: target.id, damage, health: target.health, direction: attacker.attackDir, hitZone, hitstop: stop, riposte, knockback: Number(travelled.toFixed(3)) } });
 
@@ -5202,6 +5311,7 @@ export function makeEngine(options = {}) {
     player.downTimer = 0;
     player.staggerTimer = 0;
     player.vulnerableTimer = 0;
+    player.hookedTimer = 0;
     player.vulnerableTo = "";
     player.maxBalance = BALANCE.max[player.warriorClass] ?? 80;
     player.balance = player.maxBalance;
@@ -5512,6 +5622,7 @@ export function makeEngine(options = {}) {
       }
 
       // ---- the riposte window drains ----
+      if (player.hookedTimer > 0) player.hookedTimer = Math.max(0, player.hookedTimer - dt);
       if (player.vulnerableTimer > 0) {
         player.vulnerableTimer -= dt;
         if (player.vulnerableTimer <= 0) { player.vulnerableTimer = 0; player.vulnerableTo = ""; }

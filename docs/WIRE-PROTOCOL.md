@@ -303,6 +303,15 @@ The 55, grouped by what a client does with them:
   else. Every turned blow wears it; at 0 it has burst — the rig drops the
   boards, his guard leaks like a haft, and a `shield_burst` hit follows the
   blow that did it. Restored only by a fresh spawn or a new round.
+- **The hook** `hookedTimer` — seconds this man's guard is dragged down by the
+  beard of an axe, 0 when it is not. A heavy from a bearded head (`dane_axe`,
+  `hand_axes`, `twin_beards`) that a BOARD turns catches the rim and pulls the
+  whole shield down; for `HOOK.window` seconds afterwards `input.block` is
+  refused. It rides the wire because it is a **tell**: the man opposite has to
+  see the shield coming down, and the man it happened to has to see why his
+  guard has stopped answering. `anim.ts` draws the arm dragged across, and the
+  turned blow's own `hit` is followed by one of `type: "hook"`, damage 0 — cause
+  then effect, the same order the burst and the knockdown keep.
 - **Weight** `balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo` —
   the five fields the weight wave added, and every one of them is public
   because a player has to be able to SEE it:

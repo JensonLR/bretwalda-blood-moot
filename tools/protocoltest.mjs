@@ -222,6 +222,11 @@ const PUBLISHED = [
   // how close he is to being floored, which half of the fall he is in, and the
   // window he earned on the man he read. See WIRE-PROTOCOL.md §2.
   "balance", "maxBalance", "downTimer", "vulnerableTimer", "vulnerableTo",
+  // Seconds his guard is dragged down by the beard of an axe. See `HOOK` in
+  // engine.mjs, and WIRE-PROTOCOL.md's Weight section: it is public because it
+  // is a TELL — the man opposite has to see the shield is down, and the man it
+  // happened to has to see why his block button has stopped answering.
+  "hookedTimer",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",

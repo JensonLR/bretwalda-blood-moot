@@ -399,6 +399,13 @@ export interface GamePlayer {
    * which requires the real duration to be replicated. A window nobody can see
    * is not a mechanic, it is a dice roll.
    */
+  /**
+   * Seconds his guard is dragged down by the beard of an axe, and 0 when it is
+   * not. Public because it is a TELL: the man opposite has to be able to see
+   * that the shield is coming down, and the man it happened to has to be able
+   * to see why his block button is doing nothing. See `HOOK` in engine.mjs.
+   */
+  hookedTimer?: number;
   vulnerableTimer?: number;
   /**
    * Whose window it is. Only this player id collects the riposte; everybody

@@ -13,7 +13,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS, COMBO_WINDOW } =
+const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS, COMBO_WINDOW, HOOK } =
   await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 
 let passed = 0, failed = 0;
@@ -362,6 +362,147 @@ console.log("[fight] the fight's depth, headless\n");
     check("a man who hesitates past the window opens a new chain", f.pa.comboCount === 1,
       `comboCount=${f.pa.comboCount} after waiting ${(COMBO_WINDOW + 0.3).toFixed(2)}s past recovery`);
   }
+}
+
+// ---- §5 THE BIND — steel into a board moves BOTH men --------------------
+//
+// A blow into a shield is a COLLISION, and it was the quietest thing in the
+// game: a blocked light moved the man behind the board fourteen centimetres and
+// the man who threw it two. Two men in a shield wall trading blows stood
+// exactly where they started, which is the one thing that never happens.
+//
+// It matters beyond the look. A shield-bearer who turtles now gives ground, so
+// blocking is a decision rather than a damage discount — and driving a man
+// backwards into the hearth becomes a real tactic with a real tool, which is
+// what the fire in the middle of the arena is for.
+{
+  console.log("");
+  const bind = (heavy) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng);
+    // He holds his guard, facing the blow, and the line between them is +x.
+    const hold = () => f.b.send("input", {
+      moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, block: true, attackDir: "overhead",
+    });
+    hold();
+    stepSeconds(eng, 0.4);                      // past the parry window
+    const ax0 = f.pa.position.x, bx0 = f.pb.position.x;
+    swing(f.a, f.face, heavy);
+    for (let i = 0; i < 40 && !(eng._rooms.size === 0); i++) { hold(); eng.step(); }
+    return {
+      target: f.pb.position.x - bx0,
+      striker: f.pa.position.x - ax0,
+      turned: (f.b.byType.get("hit") || []).some((h) => /^blocked/.test(h.type || "")),
+    };
+  };
+  const L = bind(false), H = bind(true);
+  check("a blocked blow was actually turned by the guard", L.turned && H.turned,
+    `light ${L.turned}, heavy ${H.turned}`);
+  // A third of a metre and three quarters. The bar is half of each, so the
+  // claim survives the sim's own separation push and the tick's granularity.
+  check("a blocked light drives the man behind the board back", L.target > 0.15,
+    `${L.target.toFixed(2)}m`);
+  check("a blocked heavy drives him back further still", H.target > L.target * 1.5,
+    `${L.target.toFixed(2)}m -> ${H.target.toFixed(2)}m`);
+  // AND THE STRIKER GIVES GROUND TOO — measured against a WHIFF, not against
+  // where he started. A heavy lunges him 1.25 units forward whatever it meets,
+  // so the bind's quarter-metre back never makes his net travel negative; the
+  // first form of this claim asked for that and was simply wrong about the
+  // arithmetic. What the bind does is take ground off the lunge, and the only
+  // way to see it is to throw the same blow at nobody.
+  const whiff = (() => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng);
+    f.pb.position = { x: 40, y: 0, z: 0 };      // out of every reach in the game
+    const x0 = f.pa.position.x;
+    swing(f.a, f.face, true);
+    stepSeconds(eng, 2);
+    return f.pa.position.x - x0;
+  })();
+  check("...and the man who threw it is put back on his heels",
+    H.striker < whiff - 0.12,
+    `he carries ${whiff.toFixed(2)}m through air and ${H.striker.toFixed(2)}m into a board`);
+}
+
+// ---- §6 THE HOOK — what the beard of an axe is FOR -----------------------
+//
+// An axe with a beard is not a heavier sword. Its whole point, and the reason
+// it is the weapon of this period rather than a curiosity, is that the hook
+// behind the edge catches the RIM of a shield and drags it down — and the man
+// behind it is then standing in the open with his arm pulled across him.
+//
+// Without it, the correct play against a man who turtles is to WAIT for his
+// stamina, which is not a fight. This is the axe's answer, and these are the
+// claims that keep it one: only a heavy, only a blow the guard turned, only a
+// bearded head, and only against a board that still exists.
+{
+  console.log("");
+  /**
+   * One blow into a held guard. `arms` re-arms the attacker in the lobby —
+   * `select_arms` is kit-gated the same way `select_class` is.
+   */
+  const intoGuard = (cls, arms, heavy) => {
+    const eng = makeEngine({ autoTick: false });
+    // THE MAN BEING HOOKED HAS TO HAVE A BOARD, and the first cut of this
+    // fixture did not say so: the room dealt the defender whatever class it
+    // liked, he came up carrying a spear in both hands, `target.shield` was
+    // null and the hook correctly declined to catch a rim that did not exist.
+    const f = duelUp(eng, { a: { warriorClass: cls }, b: { warriorClass: "huscarl" } });
+    if (arms) { f.pa.arms = arms; }
+    const hold = () => f.b.send("input", {
+      moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, block: true, attackDir: "overhead",
+    });
+    hold();
+    stepSeconds(eng, 0.4);                        // past the parry window
+    swing(f.a, f.face, heavy);
+    // STOPPED ON THE BLOW, not run to the end of the swing. The window is 0.85 s
+    // and a berserker's heavy is 1.66 s long — the first cut of this stepped
+    // three seconds and then asked whether the guard was still hooked, which is
+    // like checking a bruise next week.
+    const seen = () => (f.b.byType.get("hit") || []).some((h) => /^blocked|^hook/.test(h.type || ""));
+    for (let i = 0; i < 60 && !seen(); i++) { hold(); eng.step(); }
+    const msgs = f.b.byType.get("hit") || [];
+    return { f, eng, hold, hooked: msgs.some((h) => h.type === "hook"), timer: f.pb.hookedTimer || 0 };
+  };
+
+  const axe = intoGuard("berserker", "dane_axe", true);
+  check("a bearded axe swung hard into a board hooks it down",
+    axe.hooked && axe.timer > 0,
+    `hookedTimer ${axe.timer.toFixed(2)}s, window ${HOOK.window}s; hits seen: `
+    + `${(axe.f.b.byType.get("hit") || []).map((h) => h.type).join(",") || "none"}; `
+    + `attacker arms=${axe.f.pa.arms} cls=${axe.f.pa.warriorClass} shield=${axe.f.pb.shield}`);
+  // AND THE GUARD WILL NOT COME BACK UP. This is the whole payoff: the blow
+  // itself does what a blocked heavy always did, and what it buys is the
+  // opening.
+  //
+  // AND THE CLAIM IS MADE PAST THE STAGGER. A blocked heavy already staggers
+  // him for 0.6 s and a staggered man cannot block anyway, so a hook window
+  // inside that proves nothing — the first cut of this asserted the guard was
+  // down eight ticks after the blow and would have passed with the hook deleted.
+  {
+    // Out the far side of the stagger, with him asking for his guard the whole
+    // way.
+    for (let i = 0; i < 16; i++) { axe.hold(); axe.eng.step(); }
+    let raised = false;
+    for (let i = 0; i < 8; i++) { axe.hold(); axe.eng.step(); if (axe.f.pb.state === "blocking") raised = true; }
+    check("...and he cannot raise it once the stagger is over and the beard still has it",
+      !raised && axe.f.pb.staggerTimer <= 0 && axe.f.pb.hookedTimer > 0,
+      `state=${axe.f.pb.state}, stagger ${(axe.f.pb.staggerTimer || 0).toFixed(2)}s, `
+      + `hook ${axe.f.pb.hookedTimer.toFixed(2)}s left`);
+  }
+  // AND IT COMES BACK. A guard broken for ever is a man deleted.
+  {
+    for (let i = 0; i < 60; i++) { axe.hold(); axe.eng.step(); }
+    check("...and it comes back when the window is out",
+      axe.f.pb.hookedTimer === 0 && axe.f.pb.state === "blocking",
+      `state=${axe.f.pb.state}`);
+  }
+  // A SWORD SLIDES OFF A RIM. Without this claim the hook is not the axe's, it
+  // is everyone's, and the trade `ARMS` prices — the best guard in the game
+  // given away for the Dane axe — buys nothing.
+  check("a sword's heavy does not hook", !intoGuard("huscarl", "sword_board", true).hooked);
+  // AND A CONTROLLED CUT HAS NO WEIGHT BEHIND THE BEARD.
+  check("a light axe blow does not hook", !intoGuard("berserker", "dane_axe", false).hooked);
 }
 
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);

@@ -50,7 +50,15 @@ export interface AudioVec3 { x: number; y: number; z: number }
  * phone speaker still reproduces: spectral centroid. Flesh sits lowest, then the
  * wooden shield, then the mail, then the parry's bright ring on top.
  */
-export type ImpactMaterial = "flesh" | "shield" | "mail" | "parry";
+/**
+ * `hook` is the fifth because the beard of an axe catching a rim is not the
+ * same event as a blow turned by one. A turn is a CRACK and it is over; a hook
+ * is wood and iron under STRAIN, dragged — lower, longer, and with the pitch
+ * falling through it as the board comes down. `soundtest` gates that no two
+ * hit kinds arrive as the same sound and it caught them at 0.01 JND — which is
+ * to say identical — the moment `hook` was routed to `shield`.
+ */
+export type ImpactMaterial = "flesh" | "shield" | "mail" | "parry" | "hook";
 
 /**
  * The interface's eleven words. They are one instrument played eleven ways —
@@ -90,6 +98,12 @@ export const WIRE_HIT_TYPES = [
   "parry", "shove", "knockdown",
   // The board going. Follows the turned blow's own `hit`; damage 0.
   "shield_burst",
+  // The beard of an axe catching a rim and dragging the board down. Follows the
+  // turned heavy's own `hit`; damage 0. See `HOOK` in engine.mjs. It is a
+  // SHIELD sound and not a flesh one — wood and iron under strain, not a wound
+  // — and it is the loudest thing a shield-bearer needs to hear, because it is
+  // the moment his guard stops answering.
+  "hook",
 ] as const;
 
 export type WireHitType = (typeof WIRE_HIT_TYPES)[number];
@@ -431,6 +445,7 @@ function weaponVoice(cls: WarriorClass, heavy: boolean): WeaponVoice {
  */
 export function materialFor(type: WireHitType, zone?: HitZone | null, damage = 0): ImpactMaterial {
   if (type === "parry") return "parry";
+  if (type === "hook") return "hook";
   if (type === "blocked" || type === "blocked_heavy") return "shield";
   // `shove` and `knockdown` are not impacts on a material at all — they are a
   // body being moved — and `hit()` routes them away before they reach here. If
@@ -1241,7 +1256,10 @@ class AudioEngine implements AudioHandle {
     if (!mine && this.crowded("impact", 5, 0.12)) return;
     const w = weaponBite(e.weapon);
     // How long the voice is held. Weight lengthens it; so does a heavier head.
-    const base = mat === "parry" ? 0.85 : mat === "mail" ? 0.34 : mat === "shield" ? 0.30 : 0.22;
+    // The hook is the longest voice in the table after the parry: it is the one
+    // event here that is a PULL rather than a strike, and a pull has duration.
+    const base = mat === "parry" ? 0.85 : mat === "hook" ? 0.62
+      : mat === "mail" ? 0.34 : mat === "shield" ? 0.30 : 0.22;
     const seconds = base * (heavy ? 1.7 : 1) * (mat === "parry" ? 1 : w.ring);
     const prio = mine ? PRIORITY.CRITICAL : PRIORITY.IMPORTANT;
     const out = this.claim(prio, seconds, mine);
@@ -1308,9 +1326,20 @@ class AudioEngine implements AudioHandle {
     // always required, and a menu press that can be mistaken for a blade in a
     // thigh is a UI fighting the game. A cut into a gap has nothing bright in it
     // anyway; that is the entire point of it being the darkest of the four.
-    const tHz = (mat === "flesh" ? this.lift(560) : mat === "mail" ? 3300 : mat === "parry" ? 5200 : this.lift(1180))
+    const tHz = (mat === "flesh" ? this.lift(560) : mat === "mail" ? 3300 : mat === "parry" ? 5200
+      // Well under the shield's 1180: limewood levered rather than struck.
+      : mat === "hook" ? this.lift(430) : this.lift(1180))
       * w.bright * (heavy ? 0.62 : 1.12);
     tf.frequency.value = clamp(tHz, 120, 12000);
+    // AND IT FALLS. Nothing else in this table sweeps: a strike is one moment
+    // and its timbre does not travel. A hook is the board coming DOWN, over
+    // half a second, and the pitch going with it is the whole of what makes the
+    // ear hear a drag instead of a knock.
+    if (mat === "hook") {
+      tf.frequency.setValueAtTime(tf.frequency.value, ac.currentTime);
+      tf.frequency.exponentialRampToValueAtTime(
+        clamp(tf.frequency.value * 0.42, 120, 12000), ac.currentTime + base * 0.8);
+    }
     if (tf.type === "bandpass") tf.Q.value = mat === "mail" ? 1.1 : 0.9;
     this.noiseAt(t, 0.05 + 0.05 * heft).connect(tf);
     tf.connect(tg); tg.connect(dest);

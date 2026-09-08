@@ -2234,7 +2234,14 @@ function idleLayer(t, seed, wounded, w) {
  * `settleOnFeet` from the leg angles below.
  */
 function gaitLayer(motion, speed, legLen, dt, w, armW = 1) {
-    const amp = Math.min(0.56, 0.26 + speed * 0.05);
+    // 0.70, RAISED FROM 0.56. The cap bound at 6 m/s, and the runekeeper — the
+    // fastest man in the game — sprints at 8.1: his stride was pinned at 0.99 m
+    // while his cadence went to 7.9 steps a second, which is a man pinwheeling
+    // rather than running. `gaitprobe` states it as a claim: a sprint lengthens
+    // the stride as well as quickening it. 0.70 rad is forty degrees of thigh,
+    // which is a sprinter's, and it binds again only past 8.8 m/s — faster than
+    // anything in the roster.
+    const amp = Math.min(0.70, 0.26 + speed * 0.05);
     const strideLen = Math.max(0.35, 2 * legLen * Math.sin(amp));
     const before = motion.stride;
     motion.stride += (speed / strideLen) * Math.PI * dt;
@@ -2250,9 +2257,74 @@ function gaitLayer(motion, speed, legLen, dt, w, armW = 1) {
     if (Math.floor((motion.stride - beat) / Math.PI) !== Math.floor((before - beat) / Math.PI))
         motion.land = 1;
     const ph = motion.stride;
-    const sw = Math.sin(ph);
-    const legL = amp * sw;
-    const legR = -amp * sw;
+    // THE STANCE LEG IS SOLVED SO THE BOOT STAYS PUT, and this is the difference
+    // between a walk and a statue being slid along the ground.
+    //
+    // It was `amp * sin(ph)`. Advancing the PHASE with distance covered — which
+    // the note above this function is about, and which is right — makes the
+    // stride the correct LENGTH, and says nothing about what the foot does inside
+    // it: a leg swept sinusoidally moves its foot fastest under the body and
+    // slowest at the extremes, while the body it is carrying moves at a constant
+    // speed. The two only agree at one instant. Measured by `tools/gaitprobe.mjs`
+    // on the shipped build, the planted boot travelled at 41-45% of the man's own
+    // speed through the middle of every stance, in every class, at every gait.
+    // Nearly half a skate, on the animation a player looks at more than any
+    // other. The owner: "movement ... really low budget, lazy & laggy".
+    //
+    // A foot that stays put is a straight line: the ground contact point must
+    // travel BACKWARD relative to the hip at exactly the speed the hip travels
+    // forward. The hip-to-foot offset is `legLen * sin(theta)`, so the angle that
+    // holds it is an ARC SINE of a line, not a sine of the phase.
+    //
+    //     stance:  sin(theta) = sin(amp) * (2u - 1),  u = 0..1 across the stance
+    //
+    // and the swing — where the foot is in the air and owes nothing to the ground
+    // — is a cubic that LEAVES AND ARRIVES ON THE STANCE'S OWN SLOPE, so there is
+    // no kink at the two moments the eye is most likely to be looking: the
+    // toe-off and the heel strike. Both tangents are negative while the net
+    // change is positive, which is why the curve dips before it rises. That is
+    // also what a leg does: the foot goes back as it leaves the ground, then
+    // forward, then slows before it lands.
+    const sinAmp = Math.sin(amp);
+    const tanAmp = Math.tan(amp);
+    const legAt = (w, knee) => {
+        const q = ((w % TAU) + TAU) % TAU;
+        if (q < Math.PI) {
+            const u = q / Math.PI;
+            const eff = Math.max(0.35, Math.cos(knee * 0.5));
+            return Math.asin(clamp(sinAmp * (2 * u - 1) / eff, -1, 1)) - knee * 0.5;
+        }
+        const v = (q - Math.PI) / Math.PI;
+        const v2 = v * v;
+        const v3 = v2 * v;
+        const m = -2 * tanAmp;
+        return (2 * v3 - 3 * v2 + 1) * amp + (v3 - 2 * v2 + v) * m
+            + (-2 * v3 + 3 * v2) * -amp + (v3 - v2) * m;
+    };
+    // AND THE KNEE IS IN THE ANSWER, because a leg is two bones and not one.
+    //
+    // The solve above holds the FOOT still, and it was written as though the foot
+    // hung a fixed distance below the hip. It does not: the knee folds to catch
+    // the weight at footfall — 0.28 rad of it, which is sixteen degrees — and a
+    // stance solved for a straight leg is therefore solved for a foot that is not
+    // where the foot is. Sixteen degrees of knee is eight degrees of hip-to-foot
+    // bearing against a stance amplitude of about twenty-six, so it is not a
+    // rounding error, it is a third of the answer. Measured, folding it in took
+    // the skate from 27% of the man's own speed to what the table in
+    // `tools/gaitprobe.mjs` now reports.
+    //
+    // Two equal bones with a knee angle k put the foot at `legLen * cos(k/2)`
+    // from the hip, on a line `k/2` off the thigh — so the thigh angle that puts
+    // the foot where the stance wants it is the arc sine taken against the
+    // SHORTENED leg, and then rotated back by half the fold.
+    const swingL = Math.max(0, -Math.cos(ph));
+    const swingR = Math.max(0, Math.cos(ph));
+    const clear = 0.34 + amp * 1.45;
+    const kneeL = clear * swingL * swingL + 0.28 * motion.land * (1 - swingL);
+    const kneeR = clear * swingR * swingR + 0.28 * motion.land * (1 - swingR);
+    // The left leg's stance begins where the old sine had it fully forward.
+    const legL = legAt(ph - Math.PI * 1.5, kneeL);
+    const legR = legAt(ph - Math.PI * 0.5, kneeR);
     P.llx += legL * w;
     P.lrx += legR * w;
     P.llz += -0.04 * w;
@@ -2266,11 +2338,8 @@ function gaitLayer(motion, speed, legLen, dt, w, armW = 1) {
     // Nothing here authors a height: the fold shortens the leg and `settleOnFeet`
     // reads that as the drop, so the body rides low through double support and up
     // over mid-stance the way a body does.
-    const swingL = Math.max(0, -Math.cos(ph));
-    const swingR = Math.max(0, Math.cos(ph));
-    const clear = 0.34 + amp * 1.45;
-    P.llb += (clear * swingL * swingL + 0.28 * motion.land * (1 - swingL)) * w;
-    P.lrb += (clear * swingR * swingR + 0.28 * motion.land * (1 - swingR)) * w;
+    P.llb += kneeL * w;
+    P.lrb += kneeR * w;
     P.py += -motion.land * motion.land * 0.022 * w;
     // Arms counter the legs, one beat behind them: a shoulder is not bolted to
     // the opposite hip, it is dragged by it. The elbows swing with them and stay
@@ -2285,7 +2354,10 @@ function gaitLayer(motion, speed, legLen, dt, w, armW = 1) {
     P.olb += (-0.22 - Math.max(0, amp * lag) * 0.70) * arm;
     P.arz += 0.06 * arm;
     P.olz += -0.06 * arm;
-    // Hips turn with the stride, shoulders against them.
+    // Hips turn with the stride, shoulders against them. Read off the sine still,
+    // and deliberately: the trunk's turn follows the CADENCE, not the geometry of
+    // the stance solve, and it is the one place a plain sine is the right shape.
+    const sw = Math.sin(ph);
     P.pry += -0.11 * sw * w;
     P.cry += 0.15 * Math.sin(ph - 0.5) * w;
     P.crz += 0.05 * sw * w;
@@ -2630,10 +2702,18 @@ export function triggerEmote(motion, emote) {
  * one is authored to read at nameplate distance in under two seconds, because
  * the audience is a phone across a group chat, not a cinematic.
  */
-function emoteLayer(kind, ph, shielded) {
+function emoteLayer(kind, ph, shielded, seed = 0) {
     // Eased in and out on its own envelope so the flourish enters and leaves the
     // standing pose without a snap, whatever the body was doing either side.
-    const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16));
+    //
+    // AND SCALED BY A PER-MAN CONSTANT, for the same reason `deathLayer` paces
+    // its collapse off one: three men on a podium performing the identical
+    // gesture at the identical size is one recording played three times, and the
+    // podium is the shot most likely to leave the game and be looked at. Eight
+    // per cent either way is under what anybody can name and over what an eye
+    // notices the absence of.
+    const w = smooth(clamp01(ph / 0.14)) * smooth(clamp01((1 - ph) / 0.16))
+        * (1 + Math.sin(seed * 12.9898) * 0.08);
     if (kind === "raise") {
         // The blade to the sky: a short coil, then the arm thrust straight up and
         // held, eyes following it. The aim channel is what actually points the
@@ -4289,12 +4369,20 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
             motion.emote = null;
         }
         else {
-            motion.emoteT += dt;
+            // NO TWO MEN CELEBRATE ON THE SAME CLOCK. `seed` is the per-warrior
+            // constant the idle already rides on, and one sine of it is a
+            // decorrelated number in [-1, 1] that costs nothing. Plus or minus 14%
+            // on the tempo is not something anybody can name in a single flourish,
+            // and it is the whole difference between three men hailing a victory and
+            // one recording played three times — which is what a moot's podium is,
+            // and it is the shot most likely to be sent to somebody.
+            const tempo = 1 + Math.sin(motion.seed * 7.3891) * 0.14;
+            motion.emoteT += dt * tempo;
             const ph = motion.emoteT / EMOTE_SECONDS;
             if (ph >= 1)
                 motion.emote = null;
             else
-                emoteLayer(motion.emote, ph, carried);
+                emoteLayer(motion.emote, ph, carried, motion.seed);
         }
     }
     if (staggered) {
