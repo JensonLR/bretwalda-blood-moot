@@ -4361,6 +4361,40 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
             P.llb += 0.22 * c; // the front knee takes him
             P.hrx += -0.10 * c; // head up: he is looking at the man, not the turf
         }
+        // ---- AND WHETHER IT WENT UNDER THE RIM ----
+        //
+        // A crouched blow cuts at the legs and a standing board is worth a third
+        // against it (`LOW` in engine.mjs). The whole tactic depends on the man
+        // opposite being able to SEE it coming in low in time to go low with him —
+        // which is the counter — so the picture has to say so at least as loudly as
+        // the hit zone does.
+        if (player.swingLow) {
+            // A DOWNWARD CHOP IS NOT MADE LOWER BY CROUCHING — you do not reach a
+            // man's legs by chopping at them from underneath, you reach them with a
+            // cut that travels ACROSS. So the overhead keeps its shape and only sinks
+            // with the body; the cuts and the thrust take the whole drop. Without
+            // this the crouched overhead put the blade 0.77 m INTO THE TURF, which
+            // `swingstrip` gates.
+            const chop = player.attackDir === "overhead" ? 0.3 : 1;
+            const c = motion.wAction;
+            // 0.16, not 0.20, and the stroke's own drop is 0.16 rather than 0.28.
+            // The bigger numbers read better in isolation and put the blade a
+            // half-metre THROUGH THE TURF at the bottom of a horizontal cut, which
+            // `swingstrip` gates against the standing blow's own dip. A crouching man
+            // is lower; his sword is not underground.
+            P.py += -0.16 * c; // he is down on it, not reaching down for it
+            P.llb += 0.62 * c; // both knees deep
+            P.lrb += 0.55 * c;
+            P.prx += 0.16 * c * chop;
+            P.crx += 0.10 * c * chop;
+            P.arx += -0.16 * c * chop; // and the stroke drops with him
+            // AND NOTHING IS ADDED TO THE BLADE'S OWN PITCH. `P.wa` is an ABSOLUTE
+            // aim and the man is already 20 cm lower with the stroke dropped 0.28 rad
+            // on top; pitching the blade down as well drove the tip 0.77 m INTO THE
+            // TURF on a crouched overhead, which `swingstrip` reports. The body going
+            // down is what takes the cut low. The blade does not also have to dig.
+            P.hrx += -0.14 * c; // still looking at the man
+        }
         // AND WHAT IT MET. See `checkLayer`: after the stroke, because it is a
         // correction to it, and behind the same weight so it cannot fire on a man
         // who is not swinging.

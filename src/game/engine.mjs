@@ -484,7 +484,9 @@ export function deriveHitZone(attacker, target, angleDiff, arc, isHeavy) {
 
   let h = SWING_HEIGHT[dir];
   if (horizontal && isHeavy) h -= HEAVY_SWEEP_DROP;
-  if (attacker.latestInput && attacker.latestInput.crouch) h -= CROUCH_DROP;
+  // The stroke's OWN crouch, latched when it was thrown — not whatever the man
+  // is doing now. See `player.swingLow`.
+  if (attacker.swingLow) h -= CROUCH_DROP;
   h *= (STATURE[attacker.warriorClass] ?? DEFAULT_STATURE) /
        (STATURE[target.warriorClass] ?? DEFAULT_STATURE);
 
@@ -888,6 +890,30 @@ export const GUARD = { mismatch: 0.5 };
  * man he swung at whether it landed or not. It is not a bonus. It is a
  * commitment made with the legs a second before the arms know about it.
  */
+/**
+ * THE LOW CUT — under the rim, which is where a shield is not.
+ *
+ * Crouching has always dropped the hit zone (`CROUCH_DROP`), so a crouched blow
+ * already cut at the legs. What it did not do is anything about the GUARD, and
+ * that is the half that matters: a man behind a board holds it at his chest,
+ * and the whole reason a fighter goes low is that the board cannot be
+ * everywhere. Without this, crouching bought a worse hit zone — the legs take
+ * less than the neck — and nothing in exchange, so nobody crouched.
+ *
+ * It is the answer to a turtle that every class has, where the hook belongs to
+ * axes alone. And it is answered in turn: a man who crouches with his guard up
+ * takes it on the board like anything else, so the counter to a low cut is to
+ * go low with him, which is the shield wall's own footwork.
+ */
+export const LOW = {
+  /**
+   * What a STANDING guard is worth against a cut that comes in under it — a
+   * third, against the half a merely wrong-LINE guard keeps (`GUARD.mismatch`).
+   * Going under a shield is worth more than guessing the wrong quarter.
+   */
+  guard: 0.35,
+};
+
 export const CHARGE = {
   /** How fast he must already be going, as a multiple of his own walk. */
   speed: 1.05,
@@ -2277,6 +2303,8 @@ export function makeEngine(options = {}) {
       hookedTimer: 0,
       // Whether the stroke in flight was thrown at a run. See CHARGE.
       swingCharge: false,
+      // Whether the stroke in flight went under the rim. See LOW.
+      swingLow: false,
       // The shove's own clock, on the wire so a late joiner can phase it.
       // Meaningful only while state === "shoving".
       shoveTimer: 0,
@@ -3781,6 +3809,11 @@ export function makeEngine(options = {}) {
       player.stamina -= 13 + chargeCost;
       // THE CHARGE, and it is set before `beginSwing` because the lunge reads it.
       player.swingCharge = running;
+      // AND WHETHER HE WENT UNDER THE RIM. Latched at the press rather than
+      // read live at contact, which is what `deriveHitZone` did: a man who
+      // crouched during the RECOVERY of a blow already thrown was moving where
+      // it had landed. A stroke's height is decided when it is thrown.
+      player.swingLow = !!input.crouch;
       if (player.comboTimer > 0) player.comboCount++; else player.comboCount = 1;
       beginSwing(player, input.attackDir,
         Math.round((stats.attackDamage + (armsDeltaOf(player).attackDamage || 0))
@@ -3813,6 +3846,7 @@ export function makeEngine(options = {}) {
       // lunges 1.25, already costs 30, and already opens the guard; stacking a
       // run on top would make the answer to everything "sprint and press E".
       player.swingCharge = false;
+      player.swingLow = !!input.crouch;
       player.comboCount = 0; player.comboTimer = 0;
       beginSwing(player, input.attackDir, stats.heavyDamage + (armsDeltaOf(player).heavyDamage || 0), true);
     }
@@ -3944,6 +3978,7 @@ export function makeEngine(options = {}) {
     player.swingHeavy = false;
     // The charge belongs to the stroke, not to the man. See CHARGE.
     player.swingCharge = false;
+    player.swingLow = false;
     player.pendingSwing = null;
   }
 
@@ -4141,7 +4176,13 @@ export function makeEngine(options = {}) {
         // timing say; what remains is the held guard, and it holds its full
         // worth only against the stroke it faces. See the GUARD constant.
         const matched = target.blockDir === attacker.attackDir;
-        const eff = shieldWall ? 0.95 : matched ? guarded : guarded * GUARD.mismatch;
+        // UNDER THE RIM. A board is held at the chest; a cut that comes in below
+        // it is not turned by it — unless the man behind it went low too, which
+        // is the shield wall's own footwork and the counter this rule owes.
+        // SHIELD WALL is exempt: covering every line at once is what it is for.
+        const wentLow = !!attacker.swingLow && !(target.latestInput && target.latestInput.crouch);
+        const eff = shieldWall ? 0.95
+          : (matched ? guarded : guarded * GUARD.mismatch) * (wentLow ? LOW.guard : 1);
         // What this blow costs the boards, once it has been turned. Nothing
         // under SHIELD WALL, nothing on a board already gone, and the wrong
         // line costs the rim more than the boss.

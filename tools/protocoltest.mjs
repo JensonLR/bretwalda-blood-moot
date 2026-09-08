@@ -231,6 +231,8 @@ const PUBLISHED = [
   // engine.mjs: public because the blow looks different and a player has to be
   // able to see one coming.
   "swingCharge",
+  // Whether it went under the rim, thrown from a crouch. See `LOW`.
+  "swingLow",
   "emote", "abilityCooldown", "abilityActive", "abilityTimer",
   "kills", "deaths", "damage", "score", "lastHitBy", "comboCount", "comboTimer",
   "invincible", "invincibleTimer", "deadAt",

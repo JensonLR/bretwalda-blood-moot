@@ -13,7 +13,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS, COMBO_WINDOW, HOOK } =
+const { makeEngine, EXECUTION, ARMS, defaultArmsOf, swingDurationOf, WARRIOR_STATS, COMBO_WINDOW, HOOK, LOW } =
   await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).href);
 
 let passed = 0, failed = 0;
@@ -570,6 +570,59 @@ console.log("[fight] the fight's depth, headless\n");
   // A HEAVY IS ITS OWN COMMITMENT. Stacking a run on it would make the answer
   // to everything "sprint and press E".
   check("a heavy does not also charge", runIn(true).charged === false);
+}
+
+// ---- §8 THE LOW CUT — under the rim, which is where a shield is not ------
+//
+// Crouching always dropped the hit zone, so a crouched blow already cut at the
+// legs — and did nothing about the GUARD, which is the half that matters. A man
+// behind a board holds it at his chest, and the whole reason a fighter goes low
+// is that the board cannot be everywhere. Without this rule, crouching bought a
+// WORSE hit zone (a leg takes less than a neck) and nothing in exchange, so
+// nobody crouched.
+//
+// It is the answer to a turtle that every class has, where the hook belongs to
+// axes alone — and it is answered in turn, by going low with him.
+{
+  console.log("");
+  const cut = (crouchAttacker, crouchTarget) => {
+    const eng = makeEngine({ autoTick: false });
+    const f = duelUp(eng, { b: { warriorClass: "huscarl" } });
+    f.pb.health = 1e6; f.pb.maxHealth = 1e6;
+    const hold = () => f.b.send("input", {
+      moveX: 0, moveZ: 0, rotationY: f.face + Math.PI, block: true,
+      crouch: crouchTarget, attackDir: "right",
+    });
+    hold();
+    stepSeconds(eng, 0.4);                      // past the parry window
+    f.a.send("input", {
+      moveX: 0, moveZ: 0, rotationY: f.face, attack: true, attackDir: "right",
+      crouch: crouchAttacker,
+    });
+    const seen = () => (f.b.byType.get("hit") || []).some((h) => /^blocked/.test(h.type || ""));
+    for (let i = 0; i < 60 && !seen(); i++) { hold(); eng.step(); }
+    const hits = (f.b.byType.get("hit") || []).filter((h) => /^blocked/.test(h.type || ""));
+    return { dmg: hits.reduce((t, h) => t + (h.damage || 0), 0), zone: hits[0] && hits[0].hitZone,
+      low: f.pa.swingLow === true };
+  };
+  const level = cut(false, false);
+  const under = cut(true, false);
+  const both = cut(true, true);
+  check("a blow thrown from a crouch is marked as one", under.low && !level.low);
+  // The whole payoff: a standing board is worth a third against it, so far more
+  // of the blow gets through.
+  check("a standing guard turns far less of a cut that comes in under it",
+    under.dmg > level.dmg * 1.5,
+    `${level.dmg} through a level guard against ${under.dmg} under it `
+    + `(a standing guard keeps ${LOW.guard} of its worth)`);
+  // AND THE COUNTER IS TO GO LOW WITH HIM, which is the shield wall's own
+  // footwork. Without this the rule is a free upgrade for whoever crouches
+  // first and there is nothing to read.
+  check("...and a man who crouches with it keeps his guard",
+    both.dmg <= level.dmg * 1.2,
+    `${both.dmg} through a crouched guard against ${level.dmg} through a level one`);
+  check("a low cut lands low on him", under.zone === "legL" || under.zone === "legR"
+    || under.zone === "waist", `zone=${under.zone}`);
 }
 
 console.log(`\n[fight] ${passed}/${passed + failed}${failed ? " — FAILING" : ""}`);

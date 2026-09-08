@@ -413,6 +413,14 @@ export interface GamePlayer {
    * coming at him. See `CHARGE` in engine.mjs.
    */
   swingCharge?: boolean;
+  /**
+   * Whether the stroke in flight went UNDER THE RIM — thrown from a crouch. It
+   * cuts at the legs and a standing guard is worth a third against it. Public
+   * for the same reason the charge is: the man opposite has to be able to see
+   * the blow coming in low, and decide whether to go low with it. See `LOW`
+   * and `CROUCH_DROP` in engine.mjs.
+   */
+  swingLow?: boolean;
   vulnerableTimer?: number;
   /**
    * Whose window it is. Only this player id collects the riposte; everybody

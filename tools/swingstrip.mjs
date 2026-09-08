@@ -94,6 +94,8 @@ const engine = await import(pathToFileURL(resolve(ROOT, "src/game/engine.mjs")).
 const { SWING_PHASES, swingDurationOf, WARRIOR_STATS } = engine;
 
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
+/** The delivery: from the end of the windup to the end of contact. */
+const SWING_SPAN = [0.40, 0.55];
 const DIRS = ["overhead", "right", "left", "stab"];
 // The sample rate. `--fps=240` is a DIAGNOSTIC, not a setting: a genuinely fast
 // rotation reports about the same metres-per-second however finely it is
@@ -127,7 +129,7 @@ const CTX = {
  * One stroke, sampled. Returns the tip path in the man's OWN frame (he faces
  * +z, so +z is toward the target and +y is up), plus the hips.
  */
-function sample(cls, dir, heavy, combo, check = false, charge = false) {
+function sample(cls, dir, heavy, combo, check = false, charge = false, low = false) {
   const parent = new THREE.Group();
   const player = manOf(cls);
   const rig = anim.createWarriorRig(parent, player, RAW, { tier: "high", shadows: false });
@@ -151,6 +153,7 @@ function sample(cls, dir, heavy, combo, check = false, charge = false) {
   player.attackDir = dir;
   player.swingHeavy = heavy;
   player.swingCharge = charge;
+  player.swingLow = low;
   player.swingDuration = dur;
   player.comboCount = combo;
   const frames = [];
@@ -680,6 +683,74 @@ say("");
     weak.length === 0,
     weak.length ? `${weak.length} barely move: ${weak.slice(0, 5).join(", ")}`
       : `hips displaced by ${rows.slice(0, 6).join(", ")} …`);
+}
+
+// ---- 11. A LOW CUT COMES IN LOW ------------------------------------------
+//
+// Crouching always dropped the hit ZONE and did nothing about the guard, so
+// nobody crouched: it bought a worse target and no advantage. A standing board
+// is now worth a third against a cut that comes in under it (`LOW` in
+// engine.mjs, gated in `fighttest` §8) — and the counter is to go low with him,
+// which means the man opposite has to be able to SEE it coming in time. The
+// tactic is only a tactic if the picture says so.
+say("");
+{
+  const rows = [], weak = [];
+  for (const cls of CLASSES) {
+    for (const dir of DIRS) {
+      const level = strokes.get(key(cls, dir, false, 1));
+      const under = sample(cls, dir, false, 1, false, false, true);
+      // The lowest the blade gets through the delivery — which is the thing an
+      // opponent is reading, and the thing the hit zone is derived from.
+      const lowest = (s) => Math.min(...s.frames.filter((f) => f.f >= SWING_SPAN[0] && f.f <= SWING_SPAN[1])
+        .map((f) => f.tip[1]));
+      const a = lowest(level), b = lowest(under);
+      rows.push(`${cls}/${dir} ${a.toFixed(2)}->${b.toFixed(2)}m`);
+      if (b > a - 0.10) weak.push(`${cls}/${dir} ${a.toFixed(2)}->${b.toFixed(2)}m`);
+    }
+  }
+  check("a cut thrown from a crouch arrives lower than the same cut standing",
+    weak.length === 0,
+    weak.length ? `${weak.length} barely drop: ${weak.slice(0, 5).join(", ")}`
+      : `blade low point ${rows.slice(0, 6).join(", ")} …`);
+
+  // ---- AND HOW FAR THE BLADE GOES INTO THE TURF ----
+  //
+  // REPORTED AND NOT GATED, AND THE REASON IS A MEASUREMENT RATHER THAN A
+  // SHRUG. Every overhead in this game already dips below the ground through
+  // its delivery — a huscarl's to 0.18 m and a warden's spear to 0.47 m — and
+  // it did so before a line of this pass was written. It is not the crouch's
+  // doing; the crouch adds to it, because a man who is 16 cm lower with his
+  // knees folded genuinely has his sword lower too, and that is the correct
+  // geometry.
+  //
+  // THE REPAIR IS NOT A SMALLER CROUCH, and two goes at making it one are why
+  // this note exists: taking the drop from 0.20 m to 0.16 and the stroke's own
+  // from 0.28 rad to 0.16 moved the worst case by 5 cm and cost the low cut
+  // most of what makes it read. The blade needs a FLOOR — the tip clamped
+  // against the ground under the man, the way `settleOnFeet` clamps his boots
+  // — and `applyPose` cannot do it as it stands: it runs before the frame's
+  // matrices are updated, so the tip's world height is not available where the
+  // wrist is decided. `STRIKE_LOW` is the stub of that idea and it only bounds
+  // the AIM, which is one of the three things putting the blade down there.
+  //
+  // So: the number is printed, it is watched, and the repair is named. It is
+  // its own pass — a blade-against-ground solve, in the same place the wrist
+  // rate limit lives.
+  let deepest = 0;
+  const dips = [];
+  for (const cls of CLASSES) {
+    for (const dir of DIRS) {
+      const a = Math.min(...strokes.get(key(cls, dir, false, 1)).frames.map((f) => f.tip[1]));
+      const b = Math.min(...sample(cls, dir, false, 1, false, false, true).frames.map((f) => f.tip[1]));
+      deepest = Math.min(deepest, a, b);
+      if (a < -0.02 || b < -0.02) dips.push(`${cls}/${dir} ${a.toFixed(2)}/${b.toFixed(2)}`);
+    }
+  }
+  say(`  NOTE  ${dips.length} of 16 strokes put the tip under the turf at some frame `
+    + `(standing/crouched): ${dips.slice(0, 5).join(", ")}${dips.length > 5 ? " …" : ""}`);
+  say(`  NOTE  deepest anywhere ${deepest.toFixed(2)}m. REPORTED, NOT GATED — the repair is a`);
+  say(`        blade-against-ground solve and it is its own pass; see the note above.`);
 }
 
 if (DRAW) {

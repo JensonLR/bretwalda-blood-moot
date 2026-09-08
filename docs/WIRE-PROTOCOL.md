@@ -320,6 +320,13 @@ The 55, grouped by what a client does with them:
   it is already its own commitment. Public because the blow LOOKS different
   (`anim.ts` pitches the trunk over the front foot and trails the back leg) and
   a player has to be able to see one coming.
+- **The low cut** `swingLow` — whether the stroke in flight was thrown from a
+  CROUCH. It drops the hit zone by `CROUCH_DROP` (it cuts at the legs) and a
+  STANDING guard is worth only `LOW.guard` against it, because a board is held
+  at the chest and cannot be everywhere. A man who crouches with it keeps his
+  guard's full worth, which is the counter. Latched when the blow is thrown
+  rather than read live at contact — a man who crouched during the recovery of
+  a blow already in the air used to move where it landed.
 - **Weight** `balance, maxBalance, downTimer, vulnerableTimer, vulnerableTo` —
   the five fields the weight wave added, and every one of them is public
   because a player has to be able to SEE it:
