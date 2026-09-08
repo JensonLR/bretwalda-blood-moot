@@ -2109,15 +2109,22 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         // Falls back to the chest, and only then to the old world point, so a
         // rig that has not been posed yet still bleeds somewhere sane rather
         // than at the origin.
-        const woundAt = (zone: HitZone | null | undefined): { x: number; y: number; z: number } => {
+        // THE NODE THE WOUND IS IN, and not only the point. `vfx.wound` anchors
+        // its spurt to it: pinned to a world point the jet goes on pouring out
+        // of the air a running man has already left, which is the owner's
+        // "blood still floating off body".
+        const woundNode = (zone: HitZone | null | undefined): THREE.Object3D | null => {
           const pv = slot.rig?.pivots;
-          const node = !pv ? null
+          return !pv ? null
             : zone === "head" || zone === "neck" ? pv.head
             : zone === "armR" ? pv.rightArm
             : zone === "armL" ? pv.leftArm
             : zone === "legR" ? pv.rightLeg
             : zone === "legL" ? pv.leftLeg
             : pv.chest;                       // torso, waist and the unnamed
+        };
+        const woundAt = (zone: HitZone | null | undefined): { x: number; y: number; z: number } => {
+          const node = woundNode(zone);
           if (!node) return { x: at.x, y: 1.4, z: at.z };
           const wp = woundPointRef.current;
           node.getWorldPosition(wp);
@@ -2140,8 +2147,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           const away = attacker
             ? { x: at.x - attacker.position.x, y: 0.12, z: at.z - attacker.position.z }
             : undefined;
+          const woundZone = p.state === "dead" ? p.deathZone : null;
           stage.vfx.wound({
-            position: woundAt(p.state === "dead" ? p.deathZone : null),
+            position: woundAt(woundZone),
+            // The body it is in, so the spray travels with him — and his own
+            // momentum, so it leaves WITH him instead of hanging where he was.
+            node: woundNode(woundZone) ?? undefined,
+            velocity: p.velocity,
             damage: dmg,
             direction: away,
             // The zone only exists on the record once he is down; a survivable

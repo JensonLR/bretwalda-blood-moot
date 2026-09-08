@@ -85,6 +85,7 @@
     "chaintest": "node tools/chaintest.mjs",
     "swingstrip": "node tools/swingstrip.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
+    "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",
     "authoredtest": "node tools/authoredtest.mjs",
     "authoredshot": "node tools/authoredshot.mjs",

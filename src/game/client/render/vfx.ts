@@ -120,6 +120,23 @@ export interface WoundOptions {
    * pools where a survivable one only spatters.
    */
   fatal?: boolean;
+  /**
+   * THE BODY THE WOUND IS IN — the pivot the caller took `position` off.
+   *
+   * Without it the spurt is pinned to a world point, and a man who is still
+   * moving runs out from under his own blood: the jet goes on pouring out of
+   * the empty air where he was struck. The owner: "blood still floating off
+   * body". Given one, the spray's ORIGIN follows him and its DIRECTION does
+   * not — a wound travels with the man, and the blade's line is the blade's.
+   */
+  node?: THREE.Object3D;
+  /**
+   * How fast he was moving when it opened. Blood leaving a man at a run leaves
+   * WITH him; a spray whose horizontal momentum is zero the instant it appears
+   * hangs behind a sprinting man like paint thrown at the floor, which is the
+   * other half of the same complaint.
+   */
+  velocity?: Vec3;
 }
 
 /**
@@ -452,6 +469,24 @@ type CellFn = (u: number, v: number) => number;
 
 const CELL_ALPHA: CellFn[] = [];
 
+/**
+ * PER-TEXEL SHADE, and until now every texel of this atlas was flat white.
+ *
+ * The shader has always multiplied the particle's colour by the atlas RGB
+ * (`vCol * t.rgb`); nothing has ever written anything but 255 into it, so every
+ * sprite in the game is one flat colour with a coverage mask cut out of it. For
+ * smoke and for embers that is right — they are light, and light has no
+ * surface. For BLOOD it is exactly wrong, and it is the owner's whole
+ * complaint: "looks really generic & just red paint, not the thick spraying
+ * blood we wanted". Paint is what a flat colour with soft edges IS.
+ *
+ * Liquid has a surface, and a surface is dark in the body and bright where it
+ * turns. A cell with an entry here gets that written into its RGB at build
+ * time, which costs one multiply in a shader that was already doing it and not
+ * one byte more of texture than the atlas already carries.
+ */
+const CELL_RGB: (CellFn | undefined)[] = [];
+
 // Round falloff. The workhorse: fine mist, soft glows, blood spray.
 CELL_ALPHA[CELL.soft] = (u, v) => Math.pow(1 - Math.min(1, Math.hypot(u - 0.5, v - 0.5) * 2), 2.4);
 
@@ -499,7 +534,44 @@ CELL_ALPHA[CELL.ash] = (u, v) => {
 CELL_ALPHA[CELL.drop] = (u, v) => {
   const prof = teardrop(v, 0.62, 0.85);
   const d = Math.abs(u - 0.5) / Math.max(0.42 * prof + 0.012, 1e-3);
-  return Math.pow(clamp01(1 - d * d), 1.3) * clamp01(prof * 3);
+  // 2.4, up from 1.3. A liquid has a SURFACE and a surface has an edge; the
+  // softer falloff let every droplet finish in a haze of half-alpha, which at
+  // the sizes a spray is drawn at is airbrush and not blood.
+  return Math.pow(clamp01(1 - d * d), 2.4) * clamp01(prof * 3);
+};
+
+/**
+ * AND THE DROPLET IS SHADED, which is what makes it liquid instead of paint.
+ *
+ * Blood in bulk is nearly black — the red everybody pictures is a thin film
+ * lit from behind. So the body of the droplet is DARK, the rim where the
+ * surface turns away is bright, and there is one small wet highlight up on the
+ * shoulder of it. Multiplied by the tint at draw time, that is a drop of thick
+ * liquid rather than a red dot: it has a near side, a far side and a shine.
+ *
+ * The rim is the load-bearing term. It is what an eye reads as "wet" at four
+ * metres in firelight, and it costs nothing — the shader was already
+ * multiplying by this channel.
+ */
+CELL_RGB[CELL.drop] = (u, v) => {
+  const prof = teardrop(v, 0.62, 0.85);
+  const d = Math.min(1, Math.abs(u - 0.5) / Math.max(0.42 * prof + 0.012, 1e-3));
+  // Dark through the middle, brightening into the silhouette.
+  // The rim starts at 0.30 of the half-width and not 0.42, and the body sits at
+  // 0.48 and not 0.34. A droplet in flight is a few pixels across at the range
+  // this game is played at, so the interior detail is not resolved and the
+  // AVERAGE is what an eye gets — and a sprite that is two thirds dark body
+  // averages dark. Photographed on a staged decapitation the spray read as
+  // scattered dark specks over grass. Wider rim, lifted floor: the wet look
+  // survives at the sizes where it can be seen, and what cannot be resolved
+  // averages to blood rather than to dirt.
+  const rim = Math.pow(clamp01((d - 0.30) / 0.70), 1.4);
+  // The shine, on the shoulder the light comes from. Tight, because a specular
+  // that is wide is a matte surface.
+  const hx = u - 0.40;
+  const hy = v - 0.66;
+  const hi = Math.exp(-(hx * hx + hy * hy) * 130);
+  return clamp01(0.48 + rim * 0.62 + hi * 1.15);
 };
 
 // Boot dust: broader, flatter and lower in contrast than smoke, because it is a
@@ -580,6 +652,8 @@ CELL_ALPHA[CELL.flame] = (u, v) => {
 
 function buildAtlas(
   cells: readonly CellFn[],
+  /** Per-cell shade written into RGB. See `CELL_RGB`. White where absent. */
+  rgb: readonly (CellFn | undefined)[],
   tiles: number,
   cellSize: number,
   aniso: number,
@@ -594,6 +668,7 @@ function buildAtlas(
     const cx = (cell % tiles) * cellSize;
     const cy = Math.floor(cell / tiles) * cellSize;
     const fn = cells[cell];
+    const shadeFn = rgb[cell];
     for (let y = 0; y < cellSize; y++) {
       for (let x = 0; x < cellSize; x++) {
         // Evaluated over a slightly wider domain than the cell, so every shape
@@ -601,9 +676,14 @@ function buildAtlas(
         const u = ((x + 0.5) * inv - 0.5) * overscan + 0.5;
         const v = ((y + 0.5) * inv - 0.5) * overscan + 0.5;
         const o = ((cy + y) * edge + cx + x) * 4;
-        data[o] = 255;
-        data[o + 1] = 255;
-        data[o + 2] = 255;
+        // White unless the cell asks to be SHADED. See `CELL_RGB`: the shader
+        // has always multiplied the particle's colour by this and nothing has
+        // ever put anything but white in it, which is why every sprite in the
+        // game was one flat colour with a hole cut out of it.
+        const shade = shadeFn ? clamp01(shadeFn(u, v)) * 255 : 255;
+        data[o] = shade;
+        data[o + 1] = shade;
+        data[o + 2] = shade;
         data[o + 3] = clamp01(fn(u, v)) * 255;
       }
     }
@@ -1549,14 +1629,24 @@ const PALETTE = {
   coalBed: linear(0xff7a1e, 1.6),
   /** The halo a fire hangs in. Wide, soft, and deliberately under the clip. */
   fireHalo: linear(0xff8a2e, 1.35),
-  bloodFresh: linear(0x8e1208, 0.95),
-  bloodDark: linear(0x360609, 0.7),
+  // RAISED FROM 0.95 AND 0.7 WITH THE DROPLET'S OWN SHADING, and the two go
+  // together. `CELL_RGB[CELL.drop]` now writes a surface into the sprite — dark
+  // through the body, bright at the rim, one wet highlight — and the shader has
+  // always multiplied the tint by it. That takes about half the light out of an
+  // average droplet, which is the point: blood in bulk IS nearly black and the
+  // red everybody pictures is a thin film. But a tint tuned against a FLAT
+  // sprite, put behind a surface, is a spray that has gone quietly dim. The
+  // gain goes up so the RIM lands where the old flat colour did and the body
+  // sits well under it — which is the difference between a red dot and a drop
+  // of something thick.
+  bloodFresh: linear(0x8e1208, 1.55),
+  bloodDark: linear(0x360609, 1.05),
   // The head of a stump spray. Oxygenated blood under pressure really is
   // brighter than what runs out of a cut, and the half-stop between this and
   // `bloodFresh` is the whole difference between a wound and a severance — it
   // cannot be carried by particle count alone, because on the low tier there
   // are not enough particles for a count to say anything.
-  bloodArterial: linear(0xb4200c, 1.1),
+  bloodArterial: linear(0xb4200c, 1.75),
   // `mist` was the haze colour and nothing reads it now — see `bloodSpatter`,
   // which spends those particles on liquid instead. Kept as a named colour
   // rather than deleted, because the palette is the one place a reader can see
@@ -1721,6 +1811,14 @@ interface Jet {
   anchor: THREE.Object3D | null;
   /** Which way along the anchor's own Y the wound opens. */
   axis: 1 | -1;
+  /**
+   * Whether the anchor's own axis steers the spray, or only carries it.
+   *
+   * A STUMP points where the limb went and turns with the body, so its spray
+   * turns with it. A WOUND is a hole a blade opened: it travels with the man
+   * and throws on the blade's line, not on the chest's. See `startJet`.
+   */
+  trackDir: boolean;
   /** Last known wound frame in world space. */
   x: number; y: number; z: number;
   dx: number; dy: number; dz: number;
@@ -1830,14 +1928,18 @@ export function createVfx(
   const groundAt = opts.groundAt ?? (() => 0);
   const budget = settings.particleBudget;
 
-  const atlas = buildAtlas(CELL_ALPHA, TILES, Math.max(32, settings.spriteSize), textures.maxAnisotropy, 1.26, "vfx:atlas");
+  const atlas = buildAtlas(CELL_ALPHA, CELL_RGB, TILES, Math.max(32, settings.spriteSize), textures.maxAnisotropy, 1.26, "vfx:atlas");
   // Stains are soft by construction — there is no high-frequency detail in one
   // to lose — so they are generated at half a particle's resolution and capped
   // at 64. Sixteen cells at a full 128 is a megabyte for a mark that is never
   // sharp. As capped: 256² and 26 ms on high and medium, 128² and 6 ms on low,
   // against the 250 ms and 40 MB the visual bar gives the whole texture set.
   const stainAtlas = buildAtlas(
-    STAIN_ALPHA, STAIN_TILES,
+    // Stains are drawn with MULTIPLY blending, which is `mix(white, tint, a)`
+    // and never touches the atlas RGB — so a shade written here would be read
+    // by nothing. They are flat by construction and it is the right shape for
+    // them: a mark on the ground is a filter over the ground, not a surface.
+    STAIN_ALPHA, [], STAIN_TILES,
     Math.max(24, Math.min(64, settings.spriteSize)), textures.maxAnisotropy,
     1.0, "vfx:stains",
   );
@@ -3250,7 +3352,15 @@ export function createVfx(
         // letting F_ALIGN do the elongating is what keeps a droplet a droplet
         // right up to the frame it lands and stains.
         size1: scale * (gout ? rand(0.7, 1.1) : fine ? rand(0.17, 0.28) : rand(0.38, 0.6)),
-        aspect: gout ? 2.6 : 2.1,
+        // 1.9 and 1.7, DOWN FROM 2.6 and 2.1. Aspect is length over width, so
+        // it is the one number deciding whether a droplet reads as a drop or as
+        // a needle — and at the sizes a spray is drawn at, 2.6 is a red blade of
+        // grass. Photographed close on a staged decapitation the whole fan read
+        // as thin ribbons; the owner's word for the effect was "generic". A
+        // thrown drop of something thick is not much longer than it is wide,
+        // and what elongation it does have it gets from `F_ALIGN` stretching it
+        // along its own velocity, which is motion and not shape.
+        aspect: gout ? 1.9 : 1.7,
         c0: tint, c1: PALETTE.bloodDark,
         // Barely fades: a droplet's story ends when it hits the ground and
         // stains, not by dissolving on the way down.
@@ -3387,6 +3497,13 @@ export function createVfx(
     }
     const inv = 1 / (Math.hypot(dx, dy, dz) || 1);
 
+    // HIS OWN MOMENTUM GOES WITH IT. Blood leaving a man at a run leaves WITH
+    // him; a spray whose horizontal speed is zero the instant it appears hangs
+    // behind a sprinting man like paint thrown at the floor. 0.65 rather than
+    // all of it — some is lost to the blade and to the air, and carrying the
+    // full velocity makes a fast man's spray outrun the arc it is supposed to
+    // leave on.
+    const iv = o.velocity;
     spurt(
       o.position.x, o.position.y, o.position.z,
       dx * inv, dy * inv, dz * inv,
@@ -3407,6 +3524,7 @@ export function createVfx(
       0.064 + 0.075 * k,
       // Deeper the harder it was hit: more of it, and less of it aerated.
       tmpColor.copy(hot ? PALETTE.bloodArterial : PALETTE.bloodFresh).lerp(PALETTE.bloodDark, k * 0.2),
+      iv ? iv.x * 0.65 : 0, iv ? iv.y * 0.65 : 0, iv ? iv.z * 0.65 : 0,
     );
     // GROUND SPATTER FROM ALMOST EVERY BLOW, not only from the hard ones. The
     // stains are the only part of this that outlives the second it happened in,
@@ -3441,8 +3559,14 @@ export function createVfx(
     // 0.58 s of flight is 0.72 s, and it still reads as a spurt because a
     // spurt IS short.
     if (!o.fatal && k > 0.28) {
-      startJet(null, o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
-        0.07, 0.42 + k * 0.5, 0.14, hot);
+      // ANCHORED TO THE MAN, and this is the owner's "blood still floating off
+      // body". Pinned to a world point — which is what it was — the jet goes on
+      // pouring out of the empty air a running man has already left, for the
+      // whole of its life. The wound travels with him; the LINE it throws on is
+      // the blade's and is not re-read off his chest, which is what `trackDir`
+      // false is for.
+      startJet(o.node ?? null, o.position.x, o.position.y, o.position.z,
+        dx * inv, dy * inv, dz * inv, 0.07, 0.42 + k * 0.5, 0.14, hot, false);
     }
     if (o.fatal) {
       // "even more aggressively when dead": a kill that took nothing off still
@@ -3482,14 +3606,30 @@ export function createVfx(
   // the beat now carries about 120 droplets a second where it used to carry
   // twenty, which is the difference between a stump that spurts and one that
   // empties.
-  const JET_RATE = 150;
+  /**
+   * Droplets a second at full pressure. 340, RAISED FROM 150.
+   *
+   * The owner's ruling on this effect has been the same twice now — "it should
+   * be LIQUID POURING OUT LIKE A HOSE & even more aggressively when dead &
+   * dismembered / decapitated", and then "not the thick spraying blood we
+   * wanted" — and the PULSE and the SIZE were both tuned to it while the RATE
+   * never was. Photographed on a staged decapitation at 0.43 s, the whole
+   * spray in the air was about forty droplets: 150 a second, less the crowd
+   * factor two jets pay, is two a frame. Two a frame is a leak.
+   *
+   * 340 puts a hundred and ten in the air at once off one stump, which against
+   * a 3000 budget is a twenty-fifth of it for the loudest thing in the game.
+   * The per-frame ceiling goes with it — 6 was under the new rate and would
+   * have quietly clipped it back to 360 a second on any frame that ran long.
+   */
+  const JET_RATE = 340;
 
   const jets: Jet[] = [];
   let jetSerial = 0;
   let jetsLive = 0;
   for (let i = 0; i < JET_SLOTS; i++) {
     jets.push({
-      active: false, anchor: null, axis: 1,
+      active: false, anchor: null, axis: 1, trackDir: true,
       x: 0, y: 0, z: 0, dx: 0, dy: 1, dz: 0,
       radius: 0.06, power: 1, age: 0, life: 0, acc: 0,
       lx: 0, ly: 0, lz: 0, tracked: false, pools: false, serial: 0,
@@ -3525,6 +3665,7 @@ export function createVfx(
     if (!j.active) return;
     j.active = false;
     j.anchor = null;
+    j.trackDir = true;
     jetsLive--;
     if (!leavePool || !j.pools) return;
     addPool(
@@ -3567,10 +3708,19 @@ export function createVfx(
     x: number, y: number, z: number,
     dx: number, dy: number, dz: number,
     radius: number, power: number, life: number, pools: boolean,
+    // A STUMP POINTS WHERE THE LIMB WENT; A WOUND DOES NOT.
+    //
+    // An anchored jet takes its direction from the node's own axis every frame,
+    // which is right for a severance — the cut face turns with the body and the
+    // spray turns with it. A wound in a chest has no such axis: it is a hole
+    // the blade opened, and the line it throws on is the blade's. So a wound
+    // anchors its ORIGIN and keeps its own direction.
+    trackDir = true,
   ): Jet {
     const j = claimJet();
     j.anchor = anchor;
-    j.axis = anchor ? axisSignFor(anchor, dx, dy, dz) : 1;
+    j.trackDir = trackDir;
+    j.axis = anchor && trackDir ? axisSignFor(anchor, dx, dy, dz) : 1;
     j.x = x; j.y = y; j.z = z;
     j.dx = dx; j.dy = dy; j.dz = dz;
     j.radius = radius;
@@ -3690,12 +3840,14 @@ export function createVfx(
         a.updateWorldMatrix(true, false);
         const e = a.matrixWorld.elements;
         j.x = e[12]; j.y = e[13]; j.z = e[14];
-        const s = j.axis;
-        const nx = e[4] * s;
-        const ny = e[5] * s;
-        const nz = e[6] * s;
-        const nl = 1 / (Math.hypot(nx, ny, nz) || 1);
-        j.dx = nx * nl; j.dy = ny * nl; j.dz = nz * nl;
+        if (j.trackDir) {
+          const s = j.axis;
+          const nx = e[4] * s;
+          const ny = e[5] * s;
+          const nz = e[6] * s;
+          const nl = 1 / (Math.hypot(nx, ny, nz) || 1);
+          j.dx = nx * nl; j.dy = ny * nl; j.dz = nz * nl;
+        }
       }
 
       let ivx = 0;
@@ -3743,7 +3895,7 @@ export function createVfx(
       const pulse = 0.88 + 0.12 * Math.pow(Math.max(0, Math.sin(j.age * 9.2)), 1.6);
       j.acc += JET_RATE * j.power * Math.pow(1 - t, 1.6) * pulse * settings.particleScale * headroom * crowd * dt;
       if (j.acc < 1) continue;
-      const n = Math.min(6, Math.floor(j.acc));
+      const n = Math.min(12, Math.floor(j.acc));
       j.acc -= n;
       if (store.n + n > budget) continue;
       spurt(
@@ -3766,7 +3918,12 @@ export function createVfx(
         // 0.055 + r*0.55, against 0.035 + r*0.3. SIZE is what separates a
         // liquid from a mist at any distance, and the owner asked for liquid:
         // more droplets alone read as spray, bigger ones read as a pour.
-        0.055 + j.radius * 0.55,
+        // A STREAM HAS NOT BROKEN UP YET. Right at the wound the blood is one
+        // body of liquid and only becomes droplets further out, so the sprites
+        // leaving a stump have to be big enough to OVERLAP near the source —
+        // that overlap is the whole difference between a pour and a handful of
+        // seeds thrown in the air.
+        0.10 + j.radius * 0.95,
         tmpColor.copy(PALETTE.bloodArterial).lerp(PALETTE.bloodFresh, t),
         ivx, ivy, ivz,
       );

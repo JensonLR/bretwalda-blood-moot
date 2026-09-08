@@ -192,3 +192,4 @@ tools/blender/__pycache__/
 # the copy step; `npm run authoredtest` reads art/blender directly and needs it
 # not at all.
 /public/authored/
+.bloodshot/

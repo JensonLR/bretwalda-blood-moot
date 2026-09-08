@@ -934,6 +934,54 @@ console.log(`  NOTE  PULSE is reported, not gated: depth reads `
 // same spray without `RISE_CEIL` measured 0.92 s, because the top of a 34° cone
 // around a 40° axis is 74° and that is where all the airtime lives.
 const hit = bleedShape("hit");
+// ============================================================
+// THE WOUND TRAVELS WITH THE MAN. The owner, twice: "blood still floating off
+// body". A wound's spurt was pinned to a WORLD POINT, so a man who kept moving
+// ran out from under his own blood and the jet went on pouring out of the empty
+// air where he was struck — for the whole of its life, in front of everybody.
+//
+// `WoundOptions.node` is the pivot the caller took `position` off, and an
+// anchored jet follows it. The DIRECTION is not re-read off the node (that is
+// `trackDir` false): a stump points where the limb went and turns with the
+// body, but a wound is a hole a blade opened and throws on the blade's line.
+// ============================================================
+{
+  const stage = makeStage(TIER);
+  const node = new THREE.Group();
+  stage.scene.add(node);
+  node.position.set(0, 1.45, 0);
+  node.updateMatrixWorld(true);
+  // A blow hard enough to spurt (k > 0.28 of 45 damage), on a man who then runs.
+  stage.vfx.wound({
+    position: { x: 0, y: 1.45, z: 0 }, damage: 40, direction: { x: 1, y: 0, z: 0 },
+    zone: "torso", node,
+  });
+  // A WOUND'S SPURT IS SHORT — 0.14 s, so that its last droplet still lands
+  // inside the 0.85 s the arrival rule allows (see the note below). Three
+  // twentieths of a second is the whole of its life, so this walks him through
+  // exactly that and asks where the blood is BORN, frame by frame. Asking after
+  // half a second asks about a jet that has already finished.
+  // At 60 Hz, which is what the game runs at: a 0.14 s jet stepped at 20 gives
+  // three samples and two of them land in the window this claim is about.
+  const born = [];
+  const STEP = 1 / 60, RUN = 10 / 60;       // 10 m/s, which a sprint is not far off
+  for (let f = 0; f < 9; f++) {
+    node.position.x += RUN;
+    node.updateMatrixWorld(true);
+    const before = stage.vfx.probe().drops.length;
+    stage.vfx.update(STEP, stage.ctx);
+    const now = stage.vfx.probe().drops;
+    for (let i = before; i < now.length; i++) born.push({ f, x: now[i].x });
+  }
+  const moved = born.filter((b) => b.f >= 3);
+  const worst = moved.length ? Math.max(...moved.map((b) => Math.abs(b.x - RUN * (b.f + 1)))) : 99;
+  check("a wound's spray leaves the MAN, not the patch of air he was struck in",
+    moved.length >= 3 && worst < 0.9,
+    moved.length ? `${moved.length} droplets born after he had moved; furthest from him ${worst.toFixed(2)}m `
+      + `(pinned to the strike point the last would be ${(RUN * 9).toFixed(2)}m behind)`
+      : "no droplets were born after he moved — the jet is not following him");
+}
+
 check("AND IT ARRIVES: a blow's spray is down inside 0.85s — 0.40s of which is the fall alone",
   hit.airborne <= 0.85 && hit.airborne > 0.2,
   `last droplet in the air at ${hit.airborne.toFixed(2)}s; it reached ${hit.maxReach.toFixed(2)}m and rose ${hit.apex.toFixed(2)}m`);
