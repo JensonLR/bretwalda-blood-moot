@@ -761,6 +761,11 @@ async function duelPhase(browser) {
       "the summary overlay to mount", leftMs()).then(() => true).catch(() => false);
   const roomStillParked = mounted && leftMs() > 0
     && (await page.evaluate(() => window.__probe?.latest?.state)) === "finished";
+  // Whether the press was made at all. Everything downstream of it — the park,
+  // the rollback, the ready that lands in the lobby — is a claim about its
+  // CONSEQUENCE, and on a box slow enough to lose the window there is no
+  // consequence to claim anything about. See the skip at the foot of this phase.
+  let pressed = false;
   if (!mounted || !roomStillParked) {
     skipped.push("duel: pressed before the rollback, the intent parks (the overlay could not mount inside the park window on this box)");
     skipped.push("duel: the summary overlay stands over a live canvas (same stall)");
@@ -768,7 +773,7 @@ async function duelPhase(browser) {
       + `— mounted=${mounted}, ${leftMs()}ms of the ${PARK_MS}ms park left at the gate. `
       + `NOT A PASS — counted as skipped.`);
   } else {
-    const pressed = await tapNow(page, "FIGHT AGAIN");
+    pressed = await tapNow(page, "FIGHT AGAIN");
     const stateNow = await page.evaluate(() => window.__probe?.latest?.state);
     const pressedAt = since();
     const waitingShown = await until(() => page.evaluate(() =>
@@ -885,13 +890,26 @@ async function duelPhase(browser) {
   await everyCorpseDown(page, "duel");
   await noCombatTextLeft(page, "duel");
 
-  await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 30000)   // see `until`;
-  await until(() => page.evaluate(() => {
-    const p = window.__probe;
-    return p?.latest?.players?.[p.playerId]?.ready === true;
-  }), "the parked ready to stick", 60000)   // a full round trip through that stall — and it timed out once at 30s on this box; see `until`;
-  const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
-  check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
+  // A SKIP HAS TO PROPAGATE, and this one did not. When the box is slow enough
+  // to lose the ten-second park window the press above is never made — the
+  // suite says so and counts it NOT RUN — and then this waited sixty seconds
+  // for a ready that was never parked, timed out, and took the whole run down
+  // with it. A claim about the consequence of a thing that did not happen is
+  // not a failure; it is another skip, and it has to be named as one so the
+  // coverage that went missing is visible.
+  if (!pressed) {
+    skipped.push("duel: the rollback lands him in the lobby with his ready lit (nothing was parked to land)");
+    console.log("[flow] SKIP duel: the rollback lands him in the lobby with his ready lit — "
+      + "the press it depends on was never made. NOT A PASS — counted as skipped.");
+  } else {
+    await until(() => page.evaluate(() => window.__probe?.latest?.state === "lobby"), "the rollback", 30000)   // see `until`;
+    await until(() => page.evaluate(() => {
+      const p = window.__probe;
+      return p?.latest?.players?.[p.playerId]?.ready === true;
+    }), "the parked ready to stick", 60000)   // a full round trip through that stall — and it timed out once at 30s on this box; see `until`;
+    const onLobby = await page.getByText("READY — SKAL!", { exact: false }).first().isVisible().catch(() => false);
+    check("the rollback lands him in the lobby with his ready lit", onLobby, "READY — SKAL! on screen; wire says ready=true");
+  }
   await page.screenshot({ path: `${OUT}/summary-real-lobby${DESKTOP ? "-desktop" : ""}.png` });
   await ctx.close();
 }
