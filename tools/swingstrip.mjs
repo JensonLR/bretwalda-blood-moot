@@ -698,6 +698,12 @@ say("");
   const rows = [], weak = [];
   for (const cls of CLASSES) {
     for (const dir of DIRS) {
+      // THE OVERHEAD IS EXEMPT, and for a reason rather than to pass. A chop is
+      // not made lower by crouching — you do not reach a man's legs by chopping
+      // at them from underneath — so `anim.ts` gives it only the body's own
+      // sink; and both versions of it now bottom out against the ground clamp
+      // anyway, which is as low as anything gets.
+      if (dir === "overhead") continue;
       const level = strokes.get(key(cls, dir, false, 1));
       const under = sample(cls, dir, false, 1, false, false, true);
       // The lowest the blade gets through the delivery — which is the thing an
@@ -714,43 +720,41 @@ say("");
     weak.length ? `${weak.length} barely drop: ${weak.slice(0, 5).join(", ")}`
       : `blade low point ${rows.slice(0, 6).join(", ")} …`);
 
-  // ---- AND HOW FAR THE BLADE GOES INTO THE TURF ----
+  // ---- AND NO BLADE GOES THROUGH THE TURF ----
   //
-  // REPORTED AND NOT GATED, AND THE REASON IS A MEASUREMENT RATHER THAN A
-  // SHRUG. Every overhead in this game already dips below the ground through
-  // its delivery — a huscarl's to 0.18 m and a warden's spear to 0.47 m — and
-  // it did so before a line of this pass was written. It is not the crouch's
-  // doing; the crouch adds to it, because a man who is 16 cm lower with his
-  // knees folded genuinely has his sword lower too, and that is the correct
-  // geometry.
+  // THE DEFECT, and it was older than any of this pass: seven of sixteen
+  // strokes put the weapon's tip under the ground at some frame. A huscarl's
+  // overhead reached 0.18 m below standing and 0.61 crouched; a warden's spear
+  // 0.47 and 0.88. Three things put a blade down there — the AIM, the arm's own
+  // pitch, and the height of the body — and only the first had a bound
+  // (`STRIKE_LOW`), which is why the other two could take it through the floor
+  // between them.
   //
-  // THE REPAIR IS NOT A SMALLER CROUCH, and two goes at making it one are why
-  // this note exists: taking the drop from 0.20 m to 0.16 and the stroke's own
-  // from 0.28 rad to 0.16 moved the worst case by 5 cm and cost the low cut
-  // most of what makes it read. The blade needs a FLOOR — the tip clamped
-  // against the ground under the man, the way `settleOnFeet` clamps his boots
-  // — and `applyPose` cannot do it as it stands: it runs before the frame's
-  // matrices are updated, so the tip's world height is not available where the
-  // wrist is decided. `STRIKE_LOW` is the stub of that idea and it only bounds
-  // the AIM, which is one of the three things putting the blade down there.
-  //
-  // So: the number is printed, it is watched, and the repair is named. It is
-  // its own pass — a blade-against-ground solve, in the same place the wrist
-  // rate limit lives.
-  let deepest = 0;
-  const dips = [];
-  for (const cls of CLASSES) {
-    for (const dir of DIRS) {
-      const a = Math.min(...strokes.get(key(cls, dir, false, 1)).frames.map((f) => f.tip[1]));
-      const b = Math.min(...sample(cls, dir, false, 1, false, false, true).frames.map((f) => f.tip[1]));
-      deepest = Math.min(deepest, a, b);
-      if (a < -0.02 || b < -0.02) dips.push(`${cls}/${dir} ${a.toFixed(2)}/${b.toFixed(2)}`);
+  // `groundBlade` applies the constraint where all three have been resolved:
+  // after the pose, on the posed skeleton, at the one joint that can answer it
+  // without changing what the stroke IS. The arm keeps its swing and the body
+  // keeps its crouch; the blade rolls up out of the ground and nothing else
+  // moves. Deepest anywhere went from 0.96 m under to 0.04 m — and two
+  // centimetres of that is the clamp's own target clearance.
+  {
+    let deepest = 0;
+    const through = [];
+    for (const cls of CLASSES) {
+      for (const dir of DIRS) {
+        const a = Math.min(...strokes.get(key(cls, dir, false, 1)).frames.map((f) => f.tip[1]));
+        const b = Math.min(...sample(cls, dir, false, 1, false, false, true).frames.map((f) => f.tip[1]));
+        deepest = Math.min(deepest, a, b);
+        // 8 cm: the clamp aims for 2 cm of clearance and a 60 Hz sample can
+        // land between two frames of a fast stroke, so the bar is the aim plus
+        // a frame's travel rather than the aim itself.
+        if (a < -0.08 || b < -0.08) through.push(`${cls}/${dir} ${a.toFixed(2)}/${b.toFixed(2)}`);
+      }
     }
+    check("no blade goes through the turf, standing or crouched",
+      through.length === 0,
+      through.length ? `${through.length} do: ${through.slice(0, 5).join(", ")}`
+        : `deepest anywhere ${deepest.toFixed(2)}m, against 0.96m before the clamp`);
   }
-  say(`  NOTE  ${dips.length} of 16 strokes put the tip under the turf at some frame `
-    + `(standing/crouched): ${dips.slice(0, 5).join(", ")}${dips.length > 5 ? " …" : ""}`);
-  say(`  NOTE  deepest anywhere ${deepest.toFixed(2)}m. REPORTED, NOT GATED — the repair is a`);
-  say(`        blade-against-ground solve and it is its own pass; see the note above.`);
 }
 
 if (DRAW) {

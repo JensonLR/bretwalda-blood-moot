@@ -2495,6 +2495,82 @@ function attackLayer(dir, ph, heavy, shielded, w, combo = 1) {
     P.hrx += 0.18 * cost;
 }
 /** The shield comes up and the body settles in behind it. */
+/** Scratch for the ground clamp. Module scope: one rig is posed at a time. */
+const CLAMP_TIP = new THREE.Vector3();
+/**
+ * KEEP THE BLADE OUT OF THE TURF.
+ *
+ * `swingstrip` measured seven of sixteen strokes putting the weapon's tip under
+ * the ground at some frame — a huscarl's overhead 0.18 m below standing and
+ * 0.61 crouched, a warden's spear 0.47 and 0.88. It is not any one stroke's
+ * fault: three things put a blade down there and none of them knows about the
+ * other two. The AIM has a bound (`STRIKE_LOW`) and it is the only one that
+ * does; the arm's own pitch and the height of the body do not.
+ *
+ * So the constraint is applied where all three have already been resolved —
+ * after `commit`, on the posed skeleton — and it is applied to the one joint
+ * that can answer it without changing what the stroke IS: the wrist. The arm
+ * keeps its swing and the body keeps its crouch; the blade rolls up out of the
+ * ground and nothing else moves.
+ *
+ * `updateWorldMatrix(true, false)` walks the PARENT chain only, so this costs a
+ * dozen matrix multiplies and not a subtree — and it costs nothing at all on
+ * the frames where the tip is already clear, which is most of them.
+ *
+ * ONE NEWTON STEP, with a numeric derivative. The tip's height against the
+ * wrist angle is a cosine over the useful band, so one step from a good
+ * starting point lands inside a centimetre; a second is taken only if the first
+ * did not clear it. The correction is written back into `rig.wristRef` as well
+ * as onto the bone, because the rate limit next frame must start from where the
+ * blade actually IS — leaving it out makes the clamp fight the limiter and the
+ * blade buzzes against the ground.
+ */
+function groundBlade(rig, piv, groundY) {
+    const weapon = rig.weapon;
+    if (rig.gore.dropped.has(weapon))
+        return;
+    const tipUp = rig.reach * 0.82;
+    const floorY = groundY + 0.02;
+    const tipAt = () => {
+        weapon.updateWorldMatrix(true, false);
+        return CLAMP_TIP.set(0, tipUp, 0).applyMatrix4(weapon.matrixWorld).y;
+    };
+    let y = tipAt();
+    if (y >= floorY)
+        return;
+    // FOUR STEPS, EACH WITH ITS OWN DERIVATIVE. Two were not enough and the
+    // second of them used a fixed nudge: a crouched overhead can start a metre
+    // under the turf, and one clamped step plus a guess left it at 0.96 m down.
+    // The relationship is a cosine, so a step is exact near the middle of the
+    // band and short of it at the ends — which is what the extra iterations are
+    // for, and they cost nothing on the frames that do not need them because the
+    // loop exits the moment the tip is clear.
+    let total = 0;
+    for (let step = 0; step < 4 && y < floorY; step++) {
+        const eps = 0.08;
+        const before = weapon.rotation.x;
+        weapon.rotation.x = before + eps;
+        const dy = (tipAt() - y) / eps;
+        weapon.rotation.x = before;
+        // A derivative that has gone flat means the blade is edge-on to the problem
+        // and no amount of wrist will lift it. Give up rather than divide by it.
+        if (Math.abs(dy) < 0.05)
+            break;
+        // Clamped per step, and in total: a wrist may roll the blade up out of the
+        // ground, not fold it back over the arm. 1.4 rad is the whole of the
+        // envelope `WRIST_BACK`/`WRIST_FWD` describe.
+        const lift = Math.max(-0.6, Math.min(0.6, (floorY - y) / dy));
+        const room = Math.max(0, 1.4 - Math.abs(total)) * Math.sign(lift || 1);
+        const use = Math.abs(lift) <= Math.abs(room) ? lift : room;
+        if (Math.abs(use) < 1e-4)
+            break;
+        weapon.rotation.x += use;
+        piv.wristR.rotation.x += use;
+        total += use;
+        y = tipAt();
+    }
+    rig.wristRef = weapon.rotation.x;
+}
 /**
  * THE CHECK — what a blow that LANDS does to the man who threw it.
  *
@@ -4502,6 +4578,11 @@ export function poseWarrior(rig, motion, player, dt, ctx, hooks) {
     // `settleOnFeet` — and the free leg is the one it straightens, every time.
     settleOnFeet(legLen, 1 - motion.wMove, calm * 0.05);
     commit(rig, piv, st, motion.blend, ready);
+    // AND THE BLADE COMES OUT OF THE TURF. See `groundBlade`: after the pose,
+    // because it is the only place all three things that put it down there —
+    // the aim, the arm and the height of the body — have been resolved.
+    groundBlade(rig, piv, hooks?.groundAt
+        ? hooks.groundAt(rig.group.position.x, rig.group.position.z) : 0);
     drapeCloak(rig, motion, dt, t, P.cloak);
     fadeBlob(rig, 0);
     // THE BODY DOES NOT BLINK. It used to: `rig.body.visible` was toggled at
