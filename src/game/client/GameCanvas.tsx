@@ -2219,6 +2219,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           if (p.deathCause !== "fire" && (!p.deathZone || p.deathZone === "torso")) {
             stage.vfx.wound({
               position: woundAt(p.deathZone),
+              // The body it is in. A killing jet runs for three and a half
+              // seconds — the longest in the game — and pinned to a world point
+              // it played out of empty turf while his corpse toppled away from
+              // it. It follows him down now, which also puts the pool where he
+              // ends up rather than where he was struck.
+              node: woundNode(p.deathZone) ?? undefined,
+              velocity: p.velocity,
               damage: 34,
               zone: p.deathZone ?? undefined,
               fatal: true,

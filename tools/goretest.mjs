@@ -982,6 +982,46 @@ const hit = bleedShape("hit");
       : "no droplets were born after he moved — the jet is not following him");
 }
 
+// AND THE KILLING JET FOLLOWS HIM DOWN. It runs for three and a half seconds —
+// the longest in the game — so a world-pinned one plays out of empty turf for
+// most of a fight while the corpse that owns it lies somewhere else. Same
+// mechanism as the claim above, on the emitter where it is loudest.
+{
+  const stage = makeStage(TIER);
+  const node = new THREE.Group();
+  stage.scene.add(node);
+  node.position.set(0, 1.45, 0);
+  node.updateMatrixWorld(true);
+  stage.vfx.wound({
+    position: { x: 0, y: 1.45, z: 0 }, damage: 40, direction: { x: 1, y: 0, z: 0 },
+    zone: "torso", fatal: true, node,
+  });
+  // COUNTED BY PROXIMITY, NOT BY INDEX. The probe's droplet array is compacted
+  // as particles die, so "everything past the old length" stops naming the new
+  // arrivals the moment the pool starts recycling — which over forty frames it
+  // does. The question is simply whether blood is APPEARING ON HIM half a
+  // second in, so it is asked that way: how many droplets are within arm's
+  // reach of where he now is.
+  const STEP = 1 / 60, FALL = 4 / 60;      // he topples away at 4 m/s
+  let near = 0, far = 0;
+  for (let f = 0; f < 40; f++) {
+    node.position.x += FALL;
+    node.updateMatrixWorld(true);
+    stage.vfx.update(STEP, stage.ctx);
+    if (f < 25) continue;
+    const x = node.position.x;
+    for (const d of stage.vfx.probe().drops) {
+      // Fresh only: an old droplet that has flown here proves nothing.
+      if (Math.abs(d.y - 1.45) > 0.6) continue;
+      if (Math.abs(d.x - x) < 0.8) near++; else if (d.x < x - 1.2) far++;
+    }
+  }
+  check("a killing jet follows the corpse down instead of playing out of the turf",
+    near > far,
+    `${near} droplet-frames within arm's reach of where he now is, against ${far} `
+    + `left behind at the strike point`);
+}
+
 check("AND IT ARRIVES: a blow's spray is down inside 0.85s — 0.40s of which is the fall alone",
   hit.airborne <= 0.85 && hit.airborne > 0.2,
   `last droplet in the air at ${hit.airborne.toFixed(2)}s; it reached ${hit.maxReach.toFixed(2)}m and rose ${hit.apex.toFixed(2)}m`);

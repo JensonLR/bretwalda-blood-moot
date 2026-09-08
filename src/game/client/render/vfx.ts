@@ -3538,10 +3538,22 @@ export function createVfx(
     lensBlood(o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
       k * (hot ? 1.15 : 0.85));
 
-    // A kill that took nothing off still empties out. Pinned to the world rather
-    // than to a node, because this path has no cut and therefore no stump to
-    // follow — the pool lands where he was standing, which for a man who folds
-    // straight down is within half a metre of where he ends up.
+    // A kill that took nothing off still empties out — AND IT EMPTIES OUT OF
+    // HIM, not out of the air he was standing in.
+    //
+    // This was pinned to the world, on the argument that the path has no cut
+    // and therefore no stump to follow, and that "the pool lands where he was
+    // standing, which for a man who folds straight down is within half a metre
+    // of where he ends up". A man who folds straight down, yes. A man killed at
+    // a run does not: he carries, he topples, and the killing jet is the
+    // LONGEST in the game at 3.4 s — so for three and a half seconds an
+    // arterial fountain played out of an empty patch of turf while his corpse
+    // lay a couple of metres away. That is the owner's "blood still floating
+    // off body", and it is the loudest instance of it in the game because it is
+    // the loudest jet in the game.
+    //
+    // Anchored, it also serves the sentence it replaced BETTER: the pool now
+    // lands where he ends up because it followed him there.
     // A CUT THAT OPENS A MAN SPURTS, AND NOT ONLY THE ONE THAT KILLS HIM.
     //
     // `startJet` was reached only by a death, so every other blow in the game
@@ -3573,8 +3585,8 @@ export function createVfx(
       // empties the man out. Power 1.05-1.65 against the old 0.5-0.85, and it
       // runs half again as long — a death is the one moment in the game that
       // is allowed to be the loudest thing on screen.
-      startJet(null, o.position.x, o.position.y, o.position.z, dx * inv, dy * inv, dz * inv,
-        0.085, 1.05 + k * 0.6, JET_LIFE * 2.1, true);
+      startJet(o.node ?? null, o.position.x, o.position.y, o.position.z,
+        dx * inv, dy * inv, dz * inv, 0.085, 1.05 + k * 0.6, JET_LIFE * 2.1, true, false);
     }
   }
 
