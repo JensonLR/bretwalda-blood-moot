@@ -918,6 +918,49 @@ const NAME_CANVAS: Record<QualityTier, { w: number; h: number; size: number }> =
   low: { w: 256, h: 56, size: 30 },
 };
 
+/** The most a plate will carry. Beyond it, `shorten` decides where to stop. */
+const NAME_MAX = 16;
+
+/**
+ * WHERE A NAME STOPS, AND SAYING SO.
+ *
+ * Every name in this game is "<Given> <Byname>" and the bynames are long —
+ * "the Even-Tempered", "Shield-Bearer", "Spear-Straight". Measured against
+ * `names.mjs`, essentially every name in a fight runs past sixteen characters,
+ * and the plate cut them with a bare `substring(0, 16)`. So what a player
+ * actually read, in the middle of a scrum, was
+ *
+ *     GODGYTH SPEAR-ST     BEORHTWEARD THE     WILRAED SHIELD-BE
+ *
+ * — every one of them severed mid-word with nothing to say it had been. That is
+ * the whole mechanism behind the run-on nameplates in OPEN-DEFECTS: two names
+ * abutting are read as one because NEITHER OF THEM ENDS. A word that stops
+ * mid-syllable reads as continuing into whatever is beside it, and the eye is
+ * right to read it that way.
+ *
+ * That defect has stood open with the fix costed as widening `PUSH_PAD_X`,
+ * which is a real trade and was correctly refused: more horizontal tolerance
+ * means more vertical pushing, and more pushing means more plates exceed
+ * `COMPACT_MAX_PUSH` and vanish outright. This moves nothing, so it cannot make
+ * that trade at all. It is a typographic fault and it is fixed in the type.
+ *
+ * Cut on a word boundary and mark the cut. Trailing particles go with it —
+ * "Beorhtweard the" is a fragment, "Beorhtweard…" is a name — and a single
+ * unbroken word too long to fit is cut hard, because there is nowhere better.
+ */
+function shorten(name: string): string {
+  if (name.length <= NAME_MAX) return name;
+  const cut = name.slice(0, NAME_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  let head = space > 0 ? cut.slice(0, space) : cut;
+  // "Beorhtweard the" -> "Beorhtweard". A byname's particle carries no identity
+  // on its own and reads as a sentence that was interrupted.
+  head = head.replace(/\s+(the|of|at|in|de)$/i, "");
+  // A given name alone is still an identity; two letters is not. Below that,
+  // the hard cut says more than a word boundary does.
+  return (head.length >= 4 ? head : cut) + "…";
+}
+
 /**
  * A nameplate with no slab behind it. Legibility comes from a three-stage
  * outline — a wide soft shadow that separates it from a bright sky, a hard dark
@@ -929,7 +972,7 @@ function buildNameGlyphs(key: string, name: string, isLocal: boolean, tier: Qual
   const surface = glyphCanvas(spec.w, spec.h);
   if (!surface) return unusableGlyphs(key, spec.w / spec.h);
   const { canvas: c, ctx } = surface;
-  const text = (name || "warrior").substring(0, 16);
+  const text = shorten(name || "warrior");
   const rand = seedFrom(text);
 
   const track = spec.size * 0.07;
