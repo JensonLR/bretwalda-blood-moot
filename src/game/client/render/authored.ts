@@ -453,6 +453,13 @@ export interface UpgradableRig {
    * one does — `exportrig` named them straight off this array.
    */
   drape?: THREE.Object3D[];
+  /**
+   * Written on a successful swap, so `anim.ts` can tell an authored body from a
+   * procedural one. It had no way to, which is how dismemberment came to fail
+   * on an authored man without saying anything — see `WarriorRig.authored` and
+   * `beginGore`.
+   */
+  authored?: boolean;
 }
 
 export interface AuthoredSwap {
@@ -553,6 +560,11 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
       for (let i = 0; i < authored.length; i++) { rig.drape[i] = authored[i]; drape++; }
     }
   }
+
+  // 6. AND SAY SO ON THE RIG. `anim.ts` had no way to tell an authored body
+  //    from a procedural one, which is why the gore path could fail on one
+  //    without noticing. See `WarriorRig.authored`.
+  rig.authored = true;
 
   return { ok: true, dressed, hidden, joints, rehung: held.length, drape };
 }

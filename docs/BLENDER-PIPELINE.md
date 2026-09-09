@@ -230,14 +230,26 @@ the blade-aim solve and the cloth solver from *being* the pose to *correcting*
 it, and the procedural motion they produce is numerically gated (`gaitprobe`,
 `swingstrip`) in a way the clips are not.
 
-**Dismemberment does not work on an authored man, and fails silently.**
-`collectRig` finds limbs by a `rig:` name prefix stamped by the procedural
-builder; authored meshes are named `<role>_<n>`, and `upgradeRigToAuthored`
-clears `rig.body.children`, orphaning every seam anchor. `beginGore` has a
-graceful path — `if (!cut) return`, "a body that refused the cut falls exactly as
-it always did" — so a severing kill silently becomes a non-severing one, with no
-diagnostic. Harmless today because the authored path is behind `?authored=1`;
-a blocker for turning it on.
+**Dismemberment does not work on an authored man.** `collectRig` finds limbs by
+a `rig:` name prefix stamped by the procedural builder; authored meshes are
+named `<role>_<n>`, and `upgradeRigToAuthored` clears `rig.body.children`,
+orphaning every seam anchor. `beginGore` has a graceful path — `if (!cut)
+return`, "a body that refused the cut falls exactly as it always did" — so a
+severing kill becomes a non-severing one. Harmless today because the authored
+path is behind `?authored=1`; a blocker for turning it on.
+
+It no longer fails *silently*, which was the worse half. `upgradeRigToAuthored`
+now sets `rig.authored`, and a refusal on an authored body warns once per session
+and increments `window.__bretwaldaGoreRefused` so a harness can read it off the
+window rather than watch a console. The graceful path is still correct for a
+zone the builder genuinely has no seam for; what is no longer possible is an
+authored man losing every severance in the game without anybody being told.
+
+Fixing it properly means re-deriving seam anchors onto the authored bones and
+teaching `collectRig` the `<role>_<n>` convention. The vertex-baking half is
+already GLB-compatible — `project()` bakes through `skin.applyBoneTransform`,
+duck-typed rather than `instanceof` — so it is the discovery half that is
+missing, not the cutting.
 
 ---
 

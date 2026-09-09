@@ -366,6 +366,20 @@ export interface WarriorRig {
    * one and costs nothing for it.
    */
   readonly gore: Gore;
+  /**
+   * This body's meshes came out of a GLB, not out of `characters.ts`.
+   *
+   * Set by `upgradeRigToAuthored`, read by `beginGore` and by nothing else.
+   * It exists because dismemberment does NOT work on an authored man and used
+   * to fail without saying so: `collectRig` finds limbs by the `rig:` name
+   * prefix the procedural builder stamps, authored meshes are named
+   * `<role>_<n>`, and the swap clears `rig.body.children` and orphans every
+   * seam anchor. `sever` therefore returns null, `beginGore` takes its
+   * "a body that refused the cut falls exactly as it always did" path, and a
+   * severing kill silently becomes a non-severing one — no limb, no stump, no
+   * severance blood, and no diagnostic anywhere.
+   */
+  authored?: boolean;
   dispose(): void;
 }
 
@@ -4261,7 +4275,33 @@ function beginGore(rig: WarriorRig, motion: WarriorMotion, player: GamePlayer, h
   // The shape the collapse takes is read off what came away, so a body that
   // refused the cut falls exactly as it always did.
   g.shape = shapeOf(cut?.seam ?? null);
-  if (!cut) return;
+  if (!cut) {
+    // A REFUSAL ON AN AUTHORED MAN IS NOT A GRACEFUL FALLBACK, IT IS A DEFECT
+    // WEARING ONE. The line above is the honest path for a zone the builder
+    // genuinely has no seam for; on an authored body it fires for EVERY zone,
+    // because `collectRig` looks for the procedural `rig:` mesh prefix and the
+    // swap left it nothing with that name and no seam anchor still in the
+    // graph. The result is a severing kill that quietly plays as an intact
+    // collapse — the one class of failure this renderer is least able to
+    // notice, because nothing throws and the man still falls over.
+    //
+    // Counted rather than only logged, so `authoredshot --arena` and anything
+    // else driving a real fight can read it off the window instead of watching
+    // a console. Warned once per session: eight men dying in a brawl is eight
+    // identical lines nobody reads.
+    if (rig.authored && typeof window !== "undefined") {
+      const w = window as unknown as Record<string, number | boolean>;
+      w.__bretwaldaGoreRefused = ((w.__bretwaldaGoreRefused as number) ?? 0) + 1;
+      if (!w.__bretwaldaGoreWarned) {
+        w.__bretwaldaGoreWarned = true;
+        console.warn(
+          "[gore] an authored body refused the cut — dismemberment does not work on " +
+          "an authored man (see docs/BLENDER-PIPELINE.md §7). Every severing kill " +
+          "will play as an intact collapse for as long as ?authored=1 is on.");
+      }
+    }
+    return;
+  }
   g.cut = cut;
   for (const held of cut.carried) g.dropped.add(held);
   g.field.add(cut.part);

@@ -254,6 +254,22 @@ for (const cls of CLASSES) {
     Object.keys(PIVOT_BONE_NAMES).every((k) => rig.pivots[k] && !rig.pivots[k].procedural),
     `${Object.keys(rig.pivots).length} joints repointed`);
 
+  // THE WRISTS, which this table did not name until 9 Sep 2026. `applyPose`
+  // writes `piv.wristR.rotation` and `groundBlade` adds the blade-aim solve to
+  // it; with no mapping they stayed pointed at the procedural bones the swap
+  // removes, so the weapon turned and the fist did not. Named here rather than
+  // left to the loop above, because the loop passes whatever the table says.
+  check("the wrists are mapped, so the fist turns with the blade it holds",
+    !!rig.pivots.wristR && !!rig.pivots.wristL &&
+    !rig.pivots.wristR.procedural && !rig.pivots.wristL.procedural,
+    `wristR=${rig.pivots.wristR?.name ?? "MISSING"} wristL=${rig.pivots.wristL?.name ?? "MISSING"}`);
+
+  // AND THE RIG SAYS IT IS AUTHORED. anim.ts had no way to tell, which is how
+  // dismemberment came to fail on an authored man in silence — `beginGore`
+  // reads this to warn instead of shrugging. See docs/BLENDER-PIPELINE.md §7.
+  check("a swapped rig is marked authored, so the gore path can tell",
+    rig.authored === true, `rig.authored = ${JSON.stringify(rig.authored)}`);
+
   // ---- THE CLOAK: the drape the solver integrates ----------------------
   //
   // This was declared an unfixable topology mismatch and withheld, on the
