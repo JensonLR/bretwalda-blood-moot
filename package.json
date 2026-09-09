@@ -64,6 +64,7 @@
     "crownnews": "node tools/crownnews.mjs",
     "storeclaims": "node tools/storeclaims.mjs",
     "guardprobe": "node tools/guardprobe.mjs",
+    "parrytempo": "node tools/parrytempo.mjs",
     "scoretest": "node tools/scoretest.mjs",
     "platformcheck": "node tools/platformcheck.mjs",
     "burhtest": "node tools/burhtest.mjs",
@@ -100,7 +101,8 @@
     "exportarmoury": "node tools/blender/exportarmoury.mjs",
     "armourytest": "node tools/blender/exportarmoury.mjs --check",
     "exportclips": "node tools/blender/exportclips.mjs",
-    "exportmen": "node tools/blender/exportmen.mjs"
+    "exportmen": "node tools/blender/exportmen.mjs",
+    "blenderdoctor": "node tools/blender/doctor.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

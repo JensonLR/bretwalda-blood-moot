@@ -77,6 +77,36 @@ const FOLD_GAP = 8;
 const EDGE = 12;
 
 /**
+ * ONE OFFSET, PLUS WHATEVER THE HARDWARE IS EATING.
+ *
+ * `layout.tsx` sets `viewportFit: "cover"`, so the page is laid out edge to
+ * edge and the notch, the rounded corners and the home indicator are all drawn
+ * OVER it. Four `env(safe-area-inset-*)` uses existed in the tree and every one
+ * of them was in a menu (`globals.css:219,220,1083`, `page.tsx:2402`); the
+ * fight — the one screen a phone is actually held sideways for — had none.
+ *
+ * The arithmetic that follows from that: with `orientation: "any"` and a 44–59
+ * px landscape inset, the whole 12–16 px-inset control cluster and this rail
+ * sit under the notch, and RUN at bottom 24 (h56) and HEAVY at bottom 32 (h68)
+ * sit inside the 34 px home-indicator band, where iOS takes the touch for its
+ * own gesture before the page ever sees it.
+ *
+ * Note what this deliberately is NOT: a re-layout. `env()` resolves to 0 on
+ * every screen without a cutout — every desktop, the capture box, and the
+ * phones `touchtest` and `hudshot` photograph — so the numbers four suites
+ * already measure do not move by a pixel. The inset is added only where the
+ * hardware actually takes something away.
+ *
+ * (`touchtest` measures against `window.innerWidth/innerHeight`, which under
+ * `viewport-fit=cover` INCLUDES the unsafe region. That is why the harness
+ * never caught this and cannot confirm the fix; it needs the insets themselves,
+ * which is noted in docs/MOBILE-CONTROLS.md rather than papered over here.)
+ */
+export function inset(side: "top" | "bottom" | "left" | "right", px: number): string {
+  return `calc(${px}px + env(safe-area-inset-${side}, 0px))`;
+}
+
+/**
  * Is there room to hang the column?
  *
  * The deepest rung is the skip button, so the question is whether its foot
@@ -108,7 +138,7 @@ export interface RailGeometry {
  */
 export function railStyle(rung: Rung, geo: RailGeometry, lefty: boolean, endShown: boolean): CSSProperties {
   const side = lefty ? "right" : "left";
-  if (!geo.folded) return { position: "absolute", top: TALL_TOP[rung], [side]: EDGE };
+  if (!geo.folded) return { position: "absolute", top: inset("top", TALL_TOP[rung]), [side]: inset(side, EDGE) };
   // TWO COLUMNS. The first carries the two narrow rungs a player reaches for
   // between fights (END, mute), the second the two he reaches for during one
   // (the graphics pad, the skip) — so the wider column is the outer one and the
@@ -123,7 +153,9 @@ export function railStyle(rung: Rung, geo: RailGeometry, lefty: boolean, endShow
     : rung === "skip" ? second
       : rung === "end" ? top
         : endShown ? second : top;
-  return { position: "absolute", top: y, [side]: x };
+  // `y` is already measured down from the timer column, which is itself laid
+  // out below the top inset, so only the horizontal edge needs the cutout here.
+  return { position: "absolute", top: y, [side]: inset(side, x) };
 }
 
 // ---- the measured foot of the timer column -------------------------------
