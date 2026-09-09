@@ -3,6 +3,102 @@
 Rewritten 1 Sep 2026, on a Mac with a GPU and network. Read this, then
 `docs/BACKLOG.md`, `docs/OPEN-DEFECTS.md`, `docs/ARMOURY-REVIEW-PLAN.md`.
 
+## THE PRODUCTION PASS — 9 Sep 2026
+
+Nineteen commits. Full battery at the foot of this entry.
+
+### The four findings worth carrying
+
+**1. The Blender MCP was never flaky.** Two different projects both called
+BlenderMCP were installed and both answer on 9876 — Claude Desktop's official
+Blender Lab bridge sends `{"type":"execute"}` **+ NUL** and reads to a NUL;
+Blender's third-party ahujasid add-on answers only `{"type":"execute_code"}` and
+replies bare JSON. The add-on drops the message, the bridge blocks for a NUL that
+never comes, 300 s timeout. So the toolset splits into "hangs" (anything touching
+the live scene) and "works perfectly" (doc search, every `*_for_cli`) with
+nothing in the failure to say which you reached for. `npm run blenderdoctor`
+names it now; full write-up in the new `docs/BLENDER-PIPELINE.md` §1.
+
+**2. The parry was a mash.** Twenty light blows, huscarl v huscarl: guard HELD
+**0 parries**, guard MASHED **7**. `blockTimer` was zeroed on release and
+re-armed on the next press with no cooldown anywhere, so the way to parry was
+not to read the blow. `PARRY_LOCK` 0.45 s, started when a window closes OR when
+the guard drops — the second half is the whole fix and my first attempt lacked
+it. Gated by `npm run parrytempo`.
+
+**3. The authored pipeline was disconnected at both ends.** `exportclips` copied
+to `art/gltf`, which nothing under `src/` has ever read — so the build could
+rebuild all fifteen clips, report success, and ship nothing loadable. And
+`PIVOT_BONE_NAMES` omitted the wrists, so on an authored man the weapon turned
+and the fist did not. Both fixed; `AUTHORED_WEB` is the shelf now.
+
+**4. Two gates were dead and nobody knew.** `replaytest` crashed in `articulate`
+before its first claim, on every run, because `makeRig` passed `undefined` as the
+material library — and `characters.ts:2486` already records that exact fault
+killing `wearmeasure` "since at least ef7c972". The fix was written down and
+never applied to the second harness. It is GREEN now.
+
+### New instruments
+
+| | what it settles |
+|---|---|
+| `npm run blenderdoctor` | proves Blender control end to end, 13/13 headless and live; names which protocol the listener speaks |
+| `npm run parrytempo` | is the parry a read or a mash; `--sweep` walks PARRY_LOCK |
+| `npm run bladereach` | the blade against the range that takes health off; `--curve` walks the contact window |
+| `npm run hudcost` | React commits/s and DOM writes/s during a real fight |
+
+### What I deliberately did NOT do, and why
+
+**The clip driver.** Fifteen contact-timed clips ship in every warrior GLB, are
+parsed, validated by name and discarded — there is no `AnimationMixer` in `src/`
+at all. Playing them means demoting `settleOnFeet`, `groundBlade`, the blade-aim
+solve and the cloth solver from BEING the pose to CORRECTING it, and the
+procedural motion they produce is numerically gated (`gaitprobe`, `swingstrip`)
+in a way the clips are not. The A/B captures did not show the authored path as
+clearly better. Largest remaining lever; `BLENDER-PIPELINE.md` §7 has the detail.
+
+**Shortening reach to close the phantom band.** `bladereach` measures cuts
+stopping a mean 0.38 m short of a max-range chest (worst 0.77 m), and that is
+mostly `BODY_REACH`'s own 0.35 m of deliberate lag forgiveness. Closing it
+reprices every class against every other — a balance decision, gated as a ratchet
+instead.
+
+**Merging the two health-bar palettes.** The local man's health is drawn twice,
+in green→amber→red (DOM) and brass→oxblood (3D). Dropping the local plate loses
+the grace gild, which rides the bar's own shader and is the only place a player
+learns he is still un-strikeable. Bringing the DOM bar into the in-world ramp is
+an identity call on a gameplay-critical readout — oxblood is more Bretwalda,
+`#ff4a3a` is more alarming. Both moves and their costs are in
+`DESIGN-SYSTEM.md` §10. **Owner's call.**
+
+**Memoising the HUD.** `hudcost` now shows the resting interface committing at
+19.7/s on desktop and phone — the wire's own 20 Hz, because every snapshot
+commits a fresh object and nothing is memoized. I fixed the worst path (the
+knob: 58.2 → 20.0 commits/s while dragging) and left the whole-tree re-render,
+which is a real refactor. The ruler for it exists now.
+
+### The battery, 9 Sep 2026
+
+typecheck · lint · build clean. blenderdoctor 13/13 · parrytempo 5/5 ·
+bladereach 5/5 · weightprobe 24/24 · fighttest 49/49 · guardprobe 19/0 ·
+shieldtest 18/0 · chaintest 90/0 · taketest 18/0 · cliptime 19/0 · severtest
+25/0 · protocoltest 85/0 · soundtest 46/46 · authoredtest 92/0 · gltftest 31/0 ·
+locktest 10/0 · swingstrip 12/0 · gaitprobe 3/0 · csscheck 7/7 · touchtest 33/33
+· hudcost 3/0 · deathcamtest 46/46 · replaytest GREEN · summaryflow 22/23 (1 not
+run) · uishots PASS.
+
+**`playtest` is 37/40** and that is an improvement, not a regression: three
+mouse-camera failures from pointer lock being unavailable in the headless
+browser, and the base commit `4758b08` scores **36/40** with the same three.
+Verified by checking `src/` out at base and re-running.
+
+**`touchtest` cannot confirm the safe-area work.** It measures against
+`window.innerHeight`, which under `viewport-fit=cover` INCLUDES the unsafe
+region — which is also why it never caught the fault. 33/33 means nothing
+regressed on a screen with no cutout, and nothing more.
+
+---
+
 ## THE LAUNCH BLOCKER, and it is not in this repository — 3 Sep 2026
 
 The owner is about to promote the game on X.com to bring in alpha testers.
