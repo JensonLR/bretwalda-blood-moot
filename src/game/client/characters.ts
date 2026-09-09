@@ -12240,7 +12240,10 @@ const RIG_TAG = "rig:";
 const SPINE_NODE = "spine";
 
 /** Seam a zone maps to, at each depth. `torso` severs nothing. */
-const ZONE_SEAM: Record<HitZone, { joint: SeamId; mid: SeamId; deep: "joint" | "mid" } | null> = {
+// Exported so `authoredSever.ts` routes a zone the same way this file does.
+// A second copy of this table is a second answer to "where does a blow to the
+// arm cut", and the two would drift the first time a zone moved.
+export const ZONE_SEAM: Record<HitZone, { joint: SeamId; mid: SeamId; deep: "joint" | "mid" } | null> = {
   head: { joint: "neck", mid: "neck", deep: "joint" },
   neck: { joint: "neck", mid: "neck", deep: "joint" },
   armR: { joint: "shoulderR", mid: "elbowR", deep: "mid" },

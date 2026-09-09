@@ -76,6 +76,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId, SHIELD } from "../../types";
 import { type ClipDriver, type ClipIntent } from "./clipDriver";
+import { severAuthoredZone } from "./authoredSever";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -4283,7 +4284,15 @@ function beginGore(rig: WarriorRig, motion: WarriorMotion, player: GamePlayer, h
   g.done = true;
   if (!player.deathZone) return;
 
-  const cut = g.built.sever(player.deathZone);
+  // AN AUTHORED BODY IS CUT BY BONE, NOT BY SUBTREE. `g.built.sever` walks the
+  // meshes the procedural builder parented under each limb pivot; an authored
+  // man is 46 SkinnedMeshes over one skeleton and has no arm mesh to take, so
+  // that walk finds nothing and every severing kill used to play as an intact
+  // collapse. `severAuthoredZone` selects by bone influence instead and returns
+  // the same `Severance`, so everything below this line is unchanged.
+  const cut = rig.authored
+    ? severAuthoredZone(rig.body, player.deathZone)
+    : g.built.sever(player.deathZone);
   // The shape the collapse takes is read off what came away, so a body that
   // refused the cut falls exactly as it always did.
   g.shape = shapeOf(cut?.seam ?? null);
@@ -4518,6 +4527,10 @@ function probeGround(gore: Gore, x: number, z: number): number {
 function reassemble(rig: WarriorRig): void {
   const g = rig.gore;
   if (!g.done) return;
+  // The authored cut is index buffers, not hidden meshes, so `built.reassemble`
+  // has nothing of ours to put back. Its own `release` does — same act, other
+  // mechanism — and it is called first, while `g.cut` still points at it.
+  if (rig.authored && g.cut) { try { g.cut.release(); } catch { /* already gone */ } }
   g.built.reassemble();
   g.cut = null;
   g.piece = null;
