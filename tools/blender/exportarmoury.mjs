@@ -82,4 +82,7 @@ if (process.argv.includes("--check")) {
   process.exit(0);
 }
 writeFileSync(path, text);
-console.log(`[exportarmoury] ${out.slots.length} slots, ${n} options, ${out.free.length} free -> art/gltf/armoury.json`);
+// Reads the constant rather than retyping it — the same fault that let
+// exportclips claim "art/gltf" whatever it actually did. This one is
+// DIAGNOSTIC output and says so; see the note on AUTHORED_WEB in sink.mjs.
+console.log(`[exportarmoury] ${out.slots.length} slots, ${n} options, ${out.free.length} free -> ${path.replace(ROOT + "/", "")} (diagnostic; nothing reads it)`);

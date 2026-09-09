@@ -5212,6 +5212,21 @@ export function poseWarrior(
       actT: motion.actT,
     };
     if (rig.clips.update(dt, intent)) {
+      // THE ROOT IS THE CLIP'S, NOT THE LAST PROCEDURAL FRAME'S.
+      //
+      // `rig.body`'s transform is written by `applyPose` out of P.px/py/pz and
+      // P.prx/pry/prz — the lean, the bob and the crouch the layer stack adds
+      // ON TOP of the joints. Clip mode does not call `applyPose`, so without
+      // this the body kept whatever offset the procedural pose happened to
+      // leave on the frame the driver took over, frozen, for as long as it held
+      // the body — and the clip's own Hips track would then be adding a second
+      // lean to a stale first one.
+      //
+      // An authored clip is authored relative to the rig root, so the root is
+      // identity and the clip owns everything. Cheap, and it is the difference
+      // between a defined pose and an inherited one.
+      rig.body.position.set(0, 0, 0);
+      rig.body.rotation.set(0, 0, 0);
       // The cloth still runs: it integrates springs off the drape bones rather
       // than off `P`, so it is a correction and not a second pose.
       drapeCloak(rig, motion, dt, t, P.cloak);

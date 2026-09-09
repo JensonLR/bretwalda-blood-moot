@@ -78,9 +78,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.error(`[exportportraits] ${cls}: REFUSED — ${(share * 100).toFixed(1)}% of the lit pixels are magenta, the textures did not resolve. Not shipped.`);
       bad++; continue;
     }
+    // The copy into the sink is DIAGNOSTIC and is labelled as such. What a
+    // player sees is drawn live by CharacterPreview, and `portraittest` reads
+    // its four PNGs out of ART, not out of here. See sink.mjs.
     copyFileSync(out, resolve(SHIP, `portrait-${cls}.png`));
-    console.log(`[exportportraits] ${cls}: ${RES}px, ${(statSync(out).size / 1024).toFixed(0)} KB, magenta ${(share * 100).toFixed(1)}% -> art/gltf`);
+    console.log(`[exportportraits] ${cls}: ${RES}px, ${(statSync(out).size / 1024).toFixed(0)} KB, magenta ${(share * 100).toFixed(1)}% -> ${ART.replace(ROOT + "/", "")} (+ a diagnostic copy in the sink)`);
   }
   if (bad) { console.error(`[exportportraits] ${bad} portrait(s) not shipped`); process.exit(1); }
-  console.log("[exportportraits] all four men shipped");
+  console.log("[exportportraits] all four men written to art/blender, where portraittest reads them");
 }
