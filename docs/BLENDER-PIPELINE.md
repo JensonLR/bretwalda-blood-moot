@@ -230,26 +230,32 @@ the blade-aim solve and the cloth solver from *being* the pose to *correcting*
 it, and the procedural motion they produce is numerically gated (`gaitprobe`,
 `swingstrip`) in a way the clips are not.
 
-**Dismemberment does not work on an authored man.** `collectRig` finds limbs by
-a `rig:` name prefix stamped by the procedural builder; authored meshes are
-named `<role>_<n>`, and `upgradeRigToAuthored` clears `rig.body.children`,
-orphaning every seam anchor. `beginGore` has a graceful path — `if (!cut)
-return`, "a body that refused the cut falls exactly as it always did" — so a
-severing kill becomes a non-severing one. Harmless today because the authored
-path is behind `?authored=1`; a blocker for turning it on.
+**Dismemberment works now, by a different algorithm.** It did not, and the
+reason was not naming: a shipped warrior is 46 SkinnedMeshes over one 25-bone
+skeleton, so there is no arm mesh for `collectRig`'s subtree walk to find — the
+arm is the set of VERTICES weighted to the arm's bones inside body-wide
+geometry. `authoredSever.ts` selects by bone influence instead, rebuilds the
+body's index buffer without the limb's triangles, and bakes the piece through
+`applyBoneTransform` at the instant of the cut so it can be thrown. The
+procedural path is untouched and still passes (`severtest` 25/0, `goretest`
+43/43); `ZONE_SEAM` is imported from `characters.ts` rather than restated.
 
-It no longer fails *silently*, which was the worse half. `upgradeRigToAuthored`
-now sets `rig.authored`, and a refusal on an authored body warns once per session
-and increments `window.__bretwaldaGoreRefused` so a harness can read it off the
-window rather than watch a console. The graceful path is still correct for a
-zone the builder genuinely has no seam for; what is no longer possible is an
-authored man losing every severance in the game without anybody being told.
+`npm run severauthored`: all four classes, all ten seams — 40/40 cut, 40/40
+conserved to the triangle, 40/40 restored, pieces limb-sized and baked. In a
+50 s live fight with three clip-driven bodies, 0 gore refusals.
 
-Fixing it properly means re-deriving seam anchors onto the authored bones and
-teaching `collectRig` the `<role>_<n>` convention. The vertex-baking half is
-already GLB-compatible — `project()` bakes through `skin.applyBoneTransform`,
-duck-typed rather than `instanceof` — so it is the discovery half that is
-missing, not the cutting.
+One thing it does not do, named rather than pretended: **a severed forearm does
+not carry its sword.** The procedural cut re-parents held things because it
+takes the limb PIVOT they hang off; here the geometry is baked out of shared
+meshes and the mounts are untouched, so `carried` is empty.
+
+**The clips play, but uncorrected.** `clipDriver.ts` replaces the pose and does
+not yet re-apply `settleOnFeet` (foot planting on uneven turf), `groundBlade`
+(the blade-aim solve that keeps a long weapon out of the ground) or the wrist
+solve. The cloth solver still runs, because it integrates off the drape bones
+rather than off `P`. That is why `?clips=1` is a second flag on top of
+`?authored=1` rather than part of it: the mesh swap has been judged and the
+motion has not.
 
 ---
 
