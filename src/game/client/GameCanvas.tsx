@@ -2644,7 +2644,6 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         mobileFlags={mobileFlags}
         setFlag={setFlag}
         joyOrigin={touch.origin}
-        joystickPos={touch.knob}
         onMootFoe={onMootFoe}
         onMootArm={onMootArm}
         onMootHold={onMootHold}

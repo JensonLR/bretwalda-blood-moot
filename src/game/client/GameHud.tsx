@@ -22,7 +22,7 @@ import { ARMS_LORE, TAKE, WARRIOR_STATS, RIPOSTE, EXECUTION } from "../types";
 import {
   beginSwingGesture, endSwingGesture, trackSwingGesture,
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
-  getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, subscribeLock,
+  getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, setJoyKnob, subscribeLock,
   getFeel, getServerFeel, setFeel, subscribeFeel,
   type MobileFlags,
 } from "./input";
@@ -113,7 +113,6 @@ interface GameHudProps {
   mobileFlags: React.RefObject<MobileFlags>;
   setFlag: (flag: keyof MobileFlags, value: boolean) => void;
   joyOrigin: { x: number; y: number } | null;
-  joystickPos: { x: number; y: number; active: boolean };
   /** The rite left MOVE (learned or skipped): the staged foe may walk in. */
   onMootFoe?: () => void;
   /** Sent once when the First Moot reaches the phase a blow may arrive in. */
@@ -687,7 +686,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, replaying, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, setPointerLock, onMootFoe, onMootArm, onMootHold, onMootDone,
+  playerId, roomState, glError, replaying, isMobile, mobileFlags, setFlag, joyOrigin, setPointerLock, onMootFoe, onMootArm, onMootHold, onMootDone,
 }: GameHudProps) {
   // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
   // the nearest drop inside TAKE.range of the local man, named in the shop's
@@ -1636,8 +1635,12 @@ export default function GameHud({
           <div className="absolute pointer-events-none z-10"
             style={{ left: joyOrigin.x - 46, top: joyOrigin.y - 46 }}>
             <div className="w-[92px] h-[92px] rounded-full border-2 border-white/30 bg-black/35 backdrop-blur-sm relative shadow-lg shadow-black/40">
-              <div className="absolute w-11 h-11 rounded-full bg-amber-100/80 shadow-md"
-                style={{ left: `${50 + joystickPos.x * 32}%`, top: `${50 + joystickPos.y * 32}%`, transform: "translate(-50%,-50%)" }} />
+              {/* Positioned by input.ts, not by React — see `setJoyKnob`. The
+                  starting 50/50 is the centred knob a fresh stick shows before
+                  the thumb has travelled; every move after that is a style
+                  write on this element and no render at all. */}
+              <div ref={setJoyKnob} className="absolute w-11 h-11 rounded-full bg-amber-100/80 shadow-md"
+                style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }} />
             </div>
           </div>
         )}

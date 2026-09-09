@@ -325,6 +325,32 @@ export function lockView(): { id: string; x: number; z: number; blend: number; s
  */
 let reticleEl: HTMLElement | null = null;
 let footEl: HTMLElement | null = null;
+/**
+ * THE STICK'S KNOB, WRITTEN AND NOT RENDERED.
+ *
+ * The knob moved through React state (`setKnob`) on EVERY touchmove, and the
+ * knob's state is a prop of GameHud, so a thumb sliding half an inch
+ * re-rendered GameCanvas and the whole ~135-element HUD tree at the display's
+ * refresh rate — 60 to 120 Hz — on top of the 20 Hz the wire already re-renders
+ * it at. On a phone. During a fight. Nothing in this repository measures it.
+ *
+ * It is presentation and nothing else: no rule, no gate and no harness reads
+ * the knob's position, and the FRAME LOOP reads the stick vector off
+ * `joystick`, a ref, which is untouched. So it goes the way the lock reticle
+ * already goes, four lines above — React decides the element exists, and the
+ * handler writes the transform straight onto it.
+ */
+let knobEl: HTMLElement | null = null;
+export function setJoyKnob(el: HTMLElement | null): void {
+  knobEl = el;
+  if (el) drawKnob(0, 0);   // a fresh stick is centred under the thumb
+}
+function drawKnob(x: number, y: number): void {
+  if (!knobEl) return;
+  knobEl.style.left = `${50 + x * 32}%`;
+  knobEl.style.top = `${50 + y * 32}%`;
+}
+
 export function setLockReticle(el: HTMLElement | null): void { reticleEl = el; }
 export function lockReticle(): HTMLElement | null { return reticleEl; }
 export function setLockFootMark(el: HTMLElement | null): void { footEl = el; }
@@ -975,8 +1001,6 @@ export interface TouchControls {
   joystick: React.RefObject<{ x: number; y: number; active: boolean }>;
   /** Where the thumb landed, or null — the stick is drawn there. */
   origin: { x: number; y: number } | null;
-  /** Knob offset, -1..1 on each axis. State because the knob is DOM. */
-  knob: { x: number; y: number; active: boolean };
   onTouchStart(e: React.TouchEvent): void;
   onTouchMove(e: React.TouchEvent): void;
   onTouchEnd(e: React.TouchEvent): void;
@@ -1015,13 +1039,12 @@ export function useTouchControls(onCameraDrag: (deltaX: number) => void): TouchC
    *  on every switch, so two flicks in a row are two switches. */
   const switchTravel = useRef(0);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
-  const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
 
   const releaseMove = useCallback(() => {
     moveTouch.current = null;
     joystick.current = { x: 0, y: 0, active: false };
     setOrigin(null);
-    setKnob({ x: 0, y: 0, active: false });
+    drawKnob(0, 0);
   }, []);
 
   const releaseLook = useCallback(() => {
@@ -1063,7 +1086,7 @@ export function useTouchControls(onCameraDrag: (deltaX: number) => void): TouchC
         originRef.current = { x: touch.clientX, y: touch.clientY };
         joystick.current = { x: 0, y: 0, active: true };
         setOrigin({ x: touch.clientX, y: touch.clientY });
-        setKnob({ x: 0, y: 0, active: true });
+        drawKnob(0, 0);
       } else {
         // `!== null` and not a truthiness test: touch identifier 0 is a real
         // finger on Android and the falsy check let the next touch steal it.
@@ -1088,7 +1111,7 @@ export function useTouchControls(onCameraDrag: (deltaX: number) => void): TouchC
         const nx = (dx / len) * clamped;
         const ny = (dy / len) * clamped;
         joystick.current = { x: nx, y: ny, active: true };
-        setKnob({ x: nx, y: ny, active: true });
+        drawKnob(nx, ny);
       } else if (touch.identifier === lookTouch.current) {
         const dx = touch.clientX - lookX.current;
         lookX.current = touch.clientX;
@@ -1137,5 +1160,5 @@ export function useTouchControls(onCameraDrag: (deltaX: number) => void): TouchC
     };
   }, [releaseMove, releaseLook]);
 
-  return { joystick, origin, knob, onTouchStart, onTouchMove, onTouchEnd };
+  return { joystick, origin, onTouchStart, onTouchMove, onTouchEnd };
 }
