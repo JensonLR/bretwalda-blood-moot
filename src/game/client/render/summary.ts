@@ -326,6 +326,29 @@ const FOV_MAX = 62;
 const H_MARGIN = 1.06;
 
 /**
+ * HOW MUCH GROUND A MAN OCCUPIES ROUND HIS MARK, in metres, by posture.
+ *
+ * ONE MODEL, because there were two and they were 0.30 m apart. The framing
+ * solver padded a laid mark by 0.85 while `castReport` — the diagnostic every
+ * summary claim is judged on — measured a corpse at 1.15, and the comment in
+ * `castReport` asserted they agreed: "the silhouette below is the man's MARK
+ * plus the space a body of his posture occupies — which is the thing the
+ * framing solver reasons about too, so the harness and the stage are arguing
+ * about the same box." They were arguing about two boxes.
+ *
+ * The gap is exactly the defect it produced. `summaryflow`'s "every man is in
+ * the picture" has been failing on a corpse whose box reaches ndc x = 1.041 —
+ * four per cent past the right edge — and 0.30 m at the stand-off the solver
+ * picks is about four per cent of half-width. Present on `4758b08`, so it is
+ * as old as the two numbers.
+ *
+ * A standing man is his shoulders. A body on the turf is most of its own
+ * length, whichever way it happens to be pointing, so it is padded the same in
+ * x and z rather than only along the axis it was laid on.
+ */
+const FOOTPRINT = { standing: 0.55, laid: 1.15 } as const;
+
+/**
  * THE FRAMING IS SOLVED, NOT AUTHORED.
  *
  * Given where the lens stands and which points of the tableau must be in the
@@ -436,7 +459,9 @@ function reportBodies(
     // measured. The silhouette below is the man's MARK plus the space a body
     // of his posture occupies — which is the thing the framing solver reasons
     // about too, so the harness and the stage are arguing about the same box.
-    const half = m.standing ? 0.55 : 1.15;
+    // THE SAME MODEL THE SOLVER USES, read rather than retyped. These two were
+    // separate literals and drifted; see FOOTPRINT.
+    const half = m.standing ? FOOTPRINT.standing : FOOTPRINT.laid;
     const high = m.standing ? 1.88 : 0.62;
     const at = b.rig.group.position;
     _box.min.set(at.x - half, 0.02, at.z - half);
@@ -912,12 +937,18 @@ export function createSummary(deps: SummaryDeps): SummaryHandle {
     // half-widths — a shoulder, a shield, an outflung arm.
     const pts: StagePoint[] = [];
     for (const m of risenMarks) {
-      pts.push({ x: m.x, z: m.z, y: gy + 0.02, pad: 0.62 });
-      pts.push({ x: m.x, z: m.z, y: gy + 1.88, pad: 0.62 });
+      // `+ 0.07` on a shoulder: FOOTPRINT is the body, and a man's kit — a
+      // slung board, a cloak taking the wind — hangs outside it.
+      pts.push({ x: m.x, z: m.z, y: gy + 0.02, pad: FOOTPRINT.standing + 0.07 });
+      pts.push({ x: m.x, z: m.z, y: gy + 1.88, pad: FOOTPRINT.standing + 0.07 });
     }
     for (const m of laidMarks) {
-      pts.push({ x: m.x, z: m.z, y: gy + 0.32, pad: 0.85 });
-      pts.push({ x: m.x, z: m.z - 1.15, y: gy + 0.28, pad: 0.85 });
+      // Both ends of him, and the same pad on each: a body is padded by its own
+      // length in x as well as z, because the mark says where he fell and not
+      // which way he is pointing. This was 0.85 against castReport's 1.15 —
+      // see FOOTPRINT.
+      pts.push({ x: m.x, z: m.z, y: gy + 0.32, pad: FOOTPRINT.laid });
+      pts.push({ x: m.x, z: m.z - FOOTPRINT.laid, y: gy + 0.28, pad: FOOTPRINT.laid });
     }
 
     // THE LENS STANDS BACK UNTIL THE CAST FITS. On a 390-wide phone the same
