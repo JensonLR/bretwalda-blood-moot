@@ -193,3 +193,5 @@ tools/blender/__pycache__/
 # not at all.
 /public/authored/
 .bloodshot/
+
+.bladereach/
