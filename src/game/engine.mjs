@@ -50,6 +50,42 @@ export const AWOL_GRACE = 12;
 const TEAMS = new Set(["none", "red", "blue"]);
 const PARRY_WINDOW = 0.15;
 /**
+ * HOW LONG AFTER A PARRY WINDOW CLOSES BEFORE ANOTHER CAN BE OPENED.
+ *
+ * The parry is described three times in this file as a 150 ms timing read and
+ * "the hardest thing in the game to do". It was not. `blockTimer` is zeroed on
+ * release (`processInput`) and re-armed to 0.001 on the next press, with no
+ * cooldown anywhere — so every press opened a fresh window, and the way to
+ * parry was not to read the blow but to mash the guard through it.
+ *
+ * Measured against this engine, huscarl vs huscarl, twenty light blows:
+ *
+ *   guard HELD      0 parried   19 blocked    1 clean
+ *   guard MASHED    7 parried    0 blocked    6 clean
+ *
+ * Zero against seven. Holding the guard — the thing that looks like defending —
+ * could not parry at all, while mashing turned over half of everything thrown
+ * into a full parry: attacker staggered 0.90 s, 42 poise gone, a riposte
+ * licence at x1.6 damage. Strictly dominant, and the opposite of a read.
+ *
+ * So a window now costs a cadence. It opens on a press, closes 150 ms later
+ * whether or not a blow arrived, and cannot be opened again for this long. The
+ * guard itself is untouched — raise it inside the lock and it blocks exactly as
+ * it always did (`processInput` starts `blockTimer` AT the window's end rather
+ * than refusing the guard), so nobody is ever left defenceless by this.
+ *
+ * 0.45 s, and the number is swept rather than asserted — `tools/parrytempo.mjs`
+ * walks it and prints what each value does to both strategies. It is the same
+ * 0.45 as COMBO_WINDOW by arithmetic accident, not by meaning; they are
+ * separate constants because they answer to different things.
+ *
+ * The cadence this buys is 0.15 + 0.45 = 0.60 s per attempt. Against a huscarl
+ * stroke (1.02 s) a reader still parries every blow; against the fastest thing
+ * in the game — a runekeeper light at 0.58 s — he parries every other one,
+ * which is the honest limit and is legible as one.
+ */
+const PARRY_LOCK = 0.45;
+/**
  * How long after a blow ENDS the next one still counts as part of the chain.
  *
  * IT USED TO BE MEASURED FROM THE START OF THE SWING, AND AT 0.8 s THAT MADE
@@ -2276,7 +2312,7 @@ export function makeEngine(options = {}) {
       // A dead man's weapon in his hands (TAKE): `{cls, arms}` or null.
       taken: null,
       state: "idle", attackDir: "right", blockDir: "right",
-      attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
+      attackTimer: 0, blockTimer: 0, parryLock: 0, dodgeTimer: 0, staggerTimer: 0,
       // The swing, on the wire. `attackTimer` is still the whole stroke's clock;
       // these say where in it he is, so a client animates the phases instead of
       // guessing them from a single countdown. Null/0 whenever he is not swinging.
@@ -3386,7 +3422,7 @@ export function makeEngine(options = {}) {
     p.stamina = p.maxStamina;
     reboard(p);
     p.state = "idle";
-    p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
+    p.attackTimer = 0; p.blockTimer = 0; p.parryLock = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
     p.deadAt = 0; p.lastHitBy = "";
     clearMotion(p);
   }
@@ -3679,7 +3715,7 @@ export function makeEngine(options = {}) {
       p.invincible = false; p.invincibleTimer = 0;
       // Nobody walks out of the last fight into this one — nor bleeds out of it,
       // nor comes back still swinging the blow that killed him.
-      p.attackTimer = 0; p.blockTimer = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
+      p.attackTimer = 0; p.blockTimer = 0; p.parryLock = 0; p.dodgeTimer = 0; p.staggerTimer = 0;
       p.abilityActive = false; p.abilityTimer = 0; p.abilityCooldown = 0;
       p.comboCount = 0; p.comboTimer = 0; p.lastHitBy = ""; p.deadAt = 0;
       clearMotion(p);
@@ -3712,6 +3748,25 @@ export function makeEngine(options = {}) {
   // Strikes, guards and rolls resolve the moment the message lands — a click
   // that waits for the next tick is a click the player believes he lost.
   // Steering is only recorded here; gameTick is what moves anybody.
+  /**
+   * THE GUARD COMES DOWN, AND THE WINDOW GOES WITH IT.
+   *
+   * A parry window is SPENT when the guard drops, not only when it times out.
+   * Without this the cadence in PARRY_LOCK is unreachable by the very player it
+   * exists for: mashing at 10 Hz releases every 50 ms, so `blockTimer` was
+   * zeroed at 0.051 on every cycle and never once survived to 0.15 to close a
+   * window. Traced against this engine — fourteen ticks of mashing, `blockTimer`
+   * reading 0.051, 0.000, 0.051, 0.000 ... and `parryLock` flat at zero
+   * throughout, with the fix for the timeout edge already in.
+   *
+   * So a press opens an attempt and either outcome ends it: it closes on its
+   * own, or the hand comes off the button. Both start the cadence.
+   */
+  function dropGuard(player) {
+    if (player.blockTimer > 0 && player.blockTimer < PARRY_WINDOW) player.parryLock = PARRY_LOCK;
+    player.blockTimer = 0;
+  }
+
   function processInput(room, player, input) {
     const stats = WARRIOR_STATS[player.warriorClass];
     // The yaw the client is asking for is always recorded. Whether the body
@@ -3789,12 +3844,16 @@ export function makeEngine(options = {}) {
     // across by the beard of an axe; the board is somewhere near his knee and
     // there is nothing between him and the next blow. See HOOK.
     if (input.block && player.hookedTimer > 0) {
-      if (player.state === "blocking") { player.state = "idle"; player.blockTimer = 0; }
+      if (player.state === "blocking") { player.state = "idle"; dropGuard(player); }
     } else if (input.block && player.state !== "attacking" && player.state !== "dodging" && player.state !== "shoving") {
       player.state = "blocking"; player.blockDir = input.attackDir;
-      player.blockTimer = player.blockTimer || 0.001;
+      // 0.001 opens a parry window; PARRY_WINDOW starts the guard already past
+      // it. Same guard either way — `blockTimer > 0` is what blocking tests —
+      // but only one of them can satisfy `blockTimer < PARRY_WINDOW`. This is
+      // why the lock costs a parry and never a defence.
+      player.blockTimer = player.blockTimer || (player.parryLock > 0 ? PARRY_WINDOW : 0.001);
     } else if (player.state === "blocking" && !input.block) {
-      player.state = "idle"; player.blockTimer = 0;
+      player.state = "idle"; dropGuard(player);
     }
 
     // IS HE ALREADY MOVING? Read off his own speed rather than off the sprint
@@ -5387,7 +5446,7 @@ export function makeEngine(options = {}) {
   function currentIntent(player) {
     if (!player.latestInput) return null;
     if (!player.bot && simMs - player.inputAt > INPUT_LAPSE_MS) {
-      if (player.state === "blocking") { player.state = "idle"; player.blockTimer = 0; }
+      if (player.state === "blocking") { player.state = "idle"; dropGuard(player); }
       return null;
     }
     return player.latestInput;
@@ -5687,7 +5746,15 @@ export function makeEngine(options = {}) {
 
       advanceSwing(room, player, dt);
       advanceShove(room, player, dt);
-      if (player.blockTimer > 0) player.blockTimer += dt;
+      if (player.blockTimer > 0) {
+        const wasOpen = player.blockTimer < PARRY_WINDOW;
+        player.blockTimer += dt;
+        // The edge, taken once: a window that has closed starts the cadence,
+        // whether a blow came through it or not. Reading and whiffing cost the
+        // same, which is what makes the cost a rhythm rather than a punishment.
+        if (wasOpen && player.blockTimer >= PARRY_WINDOW) player.parryLock = PARRY_LOCK;
+      }
+      if (player.parryLock > 0) player.parryLock = Math.max(0, player.parryLock - dt);
       if (player.dodgeTimer > 0) {
         player.dodgeTimer -= dt;
         // Dodge roll ends cleanly — the warrior returns to fighting stance
