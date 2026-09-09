@@ -247,6 +247,37 @@ export function severAuthored(root: THREE.Object3D, seam: SeamId, zone: HitZone 
   const com = box.getCenter(new THREE.Vector3());
   group.worldToLocal(com);
 
+  // ---- AND WHATEVER THE LIMB WAS HOLDING GOES WITH IT ---------------------
+  //
+  // A forearm leaving with the fist still closed on a sword is the shot the
+  // whole feature exists for (`characters.ts` says so, about its own cut). The
+  // procedural path gets this for free: it takes the limb PIVOT, and the weapon
+  // hangs off the pivot. Here the geometry is baked out of shared meshes and
+  // nothing is re-parented, so it has to be asked for.
+  //
+  // `upgradeRigToAuthored` re-hangs the weapon on `HandR`, the offhand on
+  // `HandL` and the shield on `LeftElbow` — all bones. So: anything parented to
+  // a bone inside the limb, that is not itself a bone, went with the limb. That
+  // covers the mounts without naming them, so a fifth thing hung on an arm
+  // tomorrow travels too.
+  const carried: THREE.Object3D[] = [];
+  /** Where each came from, so a respawn can hand it back to the same fist. */
+  const heldBy = new Map<THREE.Object3D, THREE.Object3D>();
+  for (const i of limb) {
+    const b = skeleton.bones[i];
+    if (!b) continue;
+    for (const child of [...b.children]) {
+      if ((child as THREE.Bone).isBone) continue;
+      if ((child as THREE.SkinnedMesh).isSkinnedMesh) continue;   // body, already cut
+      if (child.name.startsWith("stump:")) continue;
+      // World transform kept, so the sword does not jump on the frame the arm
+      // comes off — `attach` is `add` with the matrix preserved.
+      heldBy.set(child, b);
+      group.attach(child);
+      carried.push(child);
+    }
+  }
+
   // A node parented INTO the body at the cut, so the spray that keeps running
   // after the corpse falls is read off something that fell with it.
   const stump = new THREE.Object3D();
@@ -264,13 +295,11 @@ export function severAuthored(root: THREE.Object3D, seam: SeamId, zone: HitZone 
     stump,
     // Half the narrowest horizontal dimension: how wide the spray should be.
     radius: Math.max(0.04, Math.min(size.x, size.z) * 0.5),
-    // Nothing is re-parented by this cut. The procedural path moves a weapon
-    // onto the piece because the weapon hangs off a limb PIVOT it is taking;
-    // here the geometry is baked out of shared meshes and the mounts are
-    // untouched, so a severed forearm does not yet carry its sword. Named
-    // rather than pretended: `carried` is empty and `beginGore`'s loop over it
-    // is a no-op.
-    carried: [] as THREE.Object3D[],
+    // Whatever the limb was holding, now parented onto the piece with its world
+    // transform kept. `beginGore` adds every one of these to `g.dropped`, which
+    // is what stops `applyPose` writing a rotation onto a sword that is no
+    // longer on the man.
+    carried,
     tris: cutTris,
     // `Severance.release` is the procedural path's undo — it un-hides what the
     // cut hid. Ours is the same act by a different mechanism (index buffers
@@ -278,6 +307,12 @@ export function severAuthored(root: THREE.Object3D, seam: SeamId, zone: HitZone 
     // `reassemble` reaches it without knowing which body it is holding.
     release() { this.restore(); },
     restore() {
+      // The weapon goes back on the fist it left, world transform kept, BEFORE
+      // the piece is disposed — a sword still parented to a group being torn
+      // down is a sword that disappears with it.
+      for (const [thing, bone] of heldBy) { try { bone.attach(thing); } catch { /* gone */ } }
+      heldBy.clear();
+      carried.length = 0;
       for (const f of undo) f();
       undo.length = 0;
       for (const p of parts) { p.geometry.dispose(); p.removeFromParent(); }

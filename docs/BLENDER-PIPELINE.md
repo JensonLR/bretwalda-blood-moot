@@ -244,18 +244,27 @@ procedural path is untouched and still passes (`severtest` 25/0, `goretest`
 conserved to the triangle, 40/40 restored, pieces limb-sized and baked. In a
 50 s live fight with three clip-driven bodies, 0 gore refusals.
 
-One thing it does not do, named rather than pretended: **a severed forearm does
-not carry its sword.** The procedural cut re-parents held things because it
-takes the limb PIVOT they hang off; here the geometry is baked out of shared
-meshes and the mounts are untouched, so `carried` is empty.
+**And a severed forearm carries its sword.** Anything parented to a bone inside
+the limb that is not itself a bone went with the limb — which covers the weapon
+on `HandR`, the offhand on `HandL` and the board on `LeftElbow` without naming
+any of them, so a fifth thing hung on an arm tomorrow travels too. `attach`
+rather than `add`, so it does not jump on the frame the arm comes off, and a
+respawn hands it back to the same fist.
 
-**The clips play, but uncorrected.** `clipDriver.ts` replaces the pose and does
-not yet re-apply `settleOnFeet` (foot planting on uneven turf), `groundBlade`
-(the blade-aim solve that keeps a long weapon out of the ground) or the wrist
-solve. The cloth solver still runs, because it integrates off the drape bones
-rather than off `P`. That is why `?clips=1` is a second flag on top of
-`?authored=1` rather than part of it: the mesh swap has been judged and the
-motion has not.
+**The clips play, with two of the three corrections that matter.** The cloth
+solver runs (it integrates off the drape bones rather than off `P`), and so does
+`groundBlade` — a clip authored for one weapon's length puts a 1.9 m spear
+through the turf at the angle that clears a 0.9 m axe, and §10 of the visual bar
+throws a whole frame out for that.
+
+`settleOnFeet` is NOT applied and does not need to be: the server sends every
+man `y: 0` and warriors do not follow terrain at all (`ROUNDS-AND-SPAWNS.md`
+carries that as its own separate fault), so there is no planting to lose. The
+wrist/blade-aim solve is not applied either, and that one IS a gap — the clip
+bakes a grip of its own and the two would fight.
+
+`?clips=1` stays a second flag on top of `?authored=1`: the mesh swap has been
+judged and the motion has not.
 
 ---
 

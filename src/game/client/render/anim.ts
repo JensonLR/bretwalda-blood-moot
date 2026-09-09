@@ -5240,9 +5240,26 @@ export function poseWarrior(
       // between a defined pose and an inherited one.
       rig.body.position.set(0, 0, 0);
       rig.body.rotation.set(0, 0, 0);
-      // The cloth still runs: it integrates springs off the drape bones rather
-      // than off `P`, so it is a correction and not a second pose.
+      // ---- THE CORRECTIONS THAT STILL APPLY ----
+      //
+      // The cloth: it integrates springs off the drape bones rather than off
+      // `P`, so it is a correction and not a second pose.
       drapeCloak(rig, motion, dt, t, P.cloak);
+      // And the blade out of the turf. `groundBlade` reads `rig.weapon`,
+      // `rig.reach` and the dropped set and writes one wrist rotation — it
+      // never touches `P` — so it is safe here, and it is needed here: a clip
+      // authored for one weapon's length puts a 1.9 m spear through the ground
+      // at the same angle that clears a 0.9 m axe. §10 of the visual bar throws
+      // a whole frame out for a blade in the turf.
+      groundBlade(rig, piv, hooks?.groundAt
+        ? hooks.groundAt(rig.group.position.x, rig.group.position.z) : 0);
+      //
+      // NOT applied, and this is the honest list rather than an omission:
+      // `settleOnFeet` and the wrist/blade-aim solve. The first has nothing to
+      // do here — the server sends every man `y: 0` and warriors do not follow
+      // terrain at all (ROUNDS-AND-SPAWNS.md carries that as its own fault), so
+      // there is no planting to lose. The second is the pose's own, and the
+      // clip bakes a grip of its own that it would be fighting.
       fadeBlob(rig, player.invincible ? 0.5 : 1);
       // `rig.last` is left where the procedural pose put it. On the frame the
       // driver hands the body back, `commit`'s crossfade blends out of a pose

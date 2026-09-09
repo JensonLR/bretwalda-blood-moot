@@ -156,5 +156,44 @@ check("and every piece is limb-sized — the arithmetic is not hiding a two-tria
   cut.restore();
 }
 
+// ---- what the limb was holding ---------------------------------------------
+//
+// The shipped GLB carries no weapon — `upgradeRigToAuthored` hangs one on
+// `HandR` at runtime — so the fist is loaded here, the way the swap loads it,
+// and the claim is that it leaves with the arm and comes back on a respawn.
+// This is the shot the whole feature exists for: a forearm on the turf with the
+// fist still closed on a sword.
+console.log("\n  WHAT THE LIMB WAS HOLDING");
+{
+  const g = await parse(resolve(SHIP, "warrior-huscarl.glb"));
+  g.scene.updateMatrixWorld(true);
+  let sk = null; g.scene.traverse((o) => { if (o.isSkinnedMesh && !sk) sk = o; });
+  const hand = sk.skeleton.bones.find((b) => b.name === "HandR")
+    ?? sk.skeleton.bones.find((b) => b.name === "RightWrist");
+  const sword = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.9, 0.05));
+  sword.name = "sword";
+  hand.add(sword);
+  const homeWas = sword.parent;
+
+  const cut = severAuthored(g.scene, "elbowR", "armR");
+  const wentWithIt = cut && cut.carried.includes(sword) && sword.parent === cut.part;
+  check("a severed forearm takes the sword with it",
+    !!wentWithIt,
+    cut ? `carried ${cut.carried.length}; sword's parent is now "${sword.parent?.name}"` : "no cut");
+
+  // And it must not JUMP on the frame the arm comes off — `attach` keeps the
+  // world transform, `add` would not.
+  const w = new THREE.Vector3();
+  cut.part.updateMatrixWorld(true);
+  sword.getWorldPosition(w);
+  const moved = w.distanceTo(new THREE.Vector3().setFromMatrixPosition(sword.matrixWorld));
+  check("...without the sword jumping — the world transform is kept",
+    moved < 1e-6, `${moved.toExponential(1)} m`);
+
+  cut.restore();
+  check("and a respawn puts it back in the same fist",
+    sword.parent === homeWas, `parent is "${sword.parent?.name}", was "${homeWas?.name}"`);
+}
+
 console.log(`\n[severauthored] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
