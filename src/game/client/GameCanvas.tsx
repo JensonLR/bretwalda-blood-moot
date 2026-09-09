@@ -28,7 +28,7 @@ import { createVfx, type VfxHandle } from "./render/vfx";
 import { createPostFx, type PostFxHandle } from "./render/postfx";
 import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/camera";
 import { createHud3d, type Hud3D } from "./render/hud3d";
-import { createAudio, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
+import { createAudio, WOUNDING, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
 import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
@@ -330,6 +330,13 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
     else if (document.pointerLockElement === canvas) document.exitPointerLock?.();
   }, []);
   const [glError, setGlError] = useState<string | null>(null);
+  // IS A REPLAY ON THE GLASS? For the DOM HUD, which otherwise has no way to
+  // know. Set from the SAME edge test that already tells page.tsx
+  // (`replayToldRef`, below), so it costs two renders per replay and not one
+  // per frame — the reason this is a state and not a ref read is that the HUD
+  // has to re-render to act on it, and the reason it is edge-triggered is that
+  // this component is already re-rendering at the wire's 20 Hz without help.
+  const [replayOnGlass, setReplayOnGlass] = useState(false);
 
   const stageRef = useRef<Stage | null>(null);
   const warriorsRef = useRef<Map<string, WarriorSlot>>(new Map());
@@ -1570,6 +1577,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
       }
       if (replaying !== replayToldRef.current) {
         replayToldRef.current = replaying;
+        setReplayOnGlass(replaying);
         onReplayRef.current?.(replaying
           ? { playing: true, atEnd: killReplayRef.current.atEnd, skip: () => killReplayRef.current.skip() }
           : null);
@@ -2332,6 +2340,48 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
                   : m.type === "blocked" ? 0.8 : 0;
               if (c > 0) attacker.motion.check = Math.max(attacker.motion.check, c);
             }
+
+            // AND THE CAMERA FEELS IT TOO.
+            //
+            // Camera kick and rumble were spent entirely out of the health
+            // delta above (`p.health < slot.prevHp - 0.5`). A delta is the
+            // right owner for a damage number and for blood; it is the wrong
+            // owner for impact, because three of the seven wire kinds take no
+            // health at all. So the parry — the hardest read in the game, the
+            // one thing that takes a swing back off a man — moved the lens by
+            // exactly nothing, on either side of it. So did a shove, and so did
+            // being put on the floor.
+            //
+            // `WOUNDING` is audio.ts's own list of the four that draw blood, so
+            // this branch cannot double up with the delta path: it fires only
+            // for the kinds that path can never see.
+            //
+            // The hierarchy is deliberate and it is not flat. The mission for
+            // this pass: reserve the strongest response for the meaningful
+            // event, and let the animation sell the rest. Being PARRIED is the
+            // heaviest thing here — 0.90 s staggered, 42 poise, a riposte
+            // licence handed to the other man — and parrying is deliberately
+            // lighter than being hit for damage, because the blow that lands
+            // hardest on the parrier is the one he is about to throw.
+            if (!WOUNDING.includes(m.type)) {
+              const mine = m.targetId === playerId, his = m.attackerId === playerId;
+              let kick = 0.22, buzz: number[] | null = null;
+              if (m.type === "parry") {
+                if (his) { kick = 0.95; buzz = [40, 25, 40]; }       // read, and taken off you
+                else if (mine) { kick = 0.55; buzz = [22, 18, 22]; } // you read him
+                else kick = 0.26;
+              } else if (m.type === "shield_burst") {
+                if (mine) { kick = 0.85; buzz = [50, 30]; } else if (his) { kick = 0.45; buzz = [20]; } else kick = 0.24;
+              } else if (m.type === "knockdown") {
+                if (mine) { kick = 1.0; buzz = [55, 35, 55]; } else if (his) { kick = 0.4; buzz = [22]; } else kick = 0.3;
+              } else if (m.type === "shove") {
+                if (mine) { kick = 0.5; buzz = [26]; } else if (his) { kick = 0.3; buzz = [14]; } else kick = 0.18;
+              } else if (m.type === "hook") {
+                if (mine) { kick = 0.6; buzz = [30, 20]; } else if (his) { kick = 0.3; } else kick = 0.18;
+              }
+              stage.rig.shake(kick);
+              if (buzz) rumble(buzz);
+            }
             // THE BOARD, SEEN GOING. Splinters off every block once the boards
             // are past half — the wear has to be visible on the man and not
             // only on his own HUD strip — and at the burst, the whole board.
@@ -2587,6 +2637,7 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         playerId={playerId}
         roomState={roomState}
         glError={glError}
+        replaying={replayOnGlass}
         isMobile={isMobile}
         pointerLocked={pointerLockedRef}
         setPointerLock={setPointerLock}
