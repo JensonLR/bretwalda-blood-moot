@@ -360,6 +360,8 @@ const BAR = {
 // ===========================================================================
 let ANIM = null;
 let LEVER_MISSED = false;
+/** characters.ts's headless material library — see loadAnim(). */
+let RAW_MATERIALS = null;
 async function loadAnim() {
   if (ANIM) return ANIM;
   const BUILD = resolve(ROOT, ".replay/anim");
@@ -382,6 +384,25 @@ async function loadAnim() {
   const animFile = emitted.find((f) => f.endsWith("anim.js"));
   if (!animFile) { say(`  tsc emitted no anim.js:\n${tsc.stdout || ""}${tsc.stderr || ""}`); return null; }
   ANIM = await import(pathToFileURL(animFile).href);
+  // THE MATERIAL LIBRARY, from the SAME emit as the anim under test.
+  //
+  // `createWarriorRig` takes materials as its third argument and — unlike
+  // `buildCharacter` — has no `?? RAW` fallback: it dereferences
+  // `materials.twin` straight into a TypeError. This file passed `undefined`,
+  // so `replaytest` crashed in `articulate` before it could make a single
+  // claim, and had been dead there.
+  //
+  // characters.ts:2486 already records this exact fault, in this exact
+  // sentence, killing `tools/wearmeasure.mjs` "since at least ef7c972" — RAW
+  // was exported on 7 Sep 2026 precisely so a headless probe could hand it
+  // over. wearmeasure was fixed and this file was not.
+  //
+  // Taken off the transpiled tree rather than off `src/`, because the whole
+  // point of the emit above is that the harness measures the code it compiled.
+  const charFile = emitted.find((f) => f.endsWith("characters.js"));
+  if (!charFile) { say("  tsc emitted no characters.js — no material library to build a rig with"); return null; }
+  RAW_MATERIALS = (await import(pathToFileURL(charFile).href)).RAW;
+  if (!RAW_MATERIALS) { say("  characters.js exports no RAW — createWarriorRig cannot be called headless"); return null; }
   return ANIM;
 }
 
@@ -417,7 +438,7 @@ const CHANNELS = ["px", "py", "pz", "prx", "pry", "prz", "crx", "cry", "crz",
 function makeRig(anim, player, label) {
   const parent = new THREE.Group();
   const named = label ? { ...player, id: label } : player;
-  const rig = anim.createWarriorRig(parent, named, undefined, { tier: "high", shadows: false });
+  const rig = anim.createWarriorRig(parent, named, RAW_MATERIALS, { tier: "high", shadows: false });
   const motion = anim.createMotion(named);
   const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
     focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk",
