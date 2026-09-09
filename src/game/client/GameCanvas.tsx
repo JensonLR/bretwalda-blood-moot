@@ -31,6 +31,7 @@ import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, WOUNDING, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
 import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
+import { createClipDriver } from "./render/clipDriver";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
@@ -267,6 +268,26 @@ const DOF_LOOK = { maxBlur: 0.0045 };
 function authoredWanted(): boolean {
   if (typeof window === "undefined") return false;
   try { return new URLSearchParams(window.location.search).get("authored") === "1"; }
+  catch { return false; }
+}
+
+/**
+ * ...and is the authored MOTION wanted on top of it?
+ *
+ * A second flag, deliberately, and it requires the first. `?authored=1` swaps
+ * geometry, skinning and materials; `?clips=1` additionally lets the fifteen
+ * clips in the GLB drive the body instead of the procedural layer stack. They
+ * are separate because they are separate judgements: the mesh swap has been
+ * judged and the motion has not, and `clipDriver.ts` is explicit that it does
+ * not yet re-apply foot planting, the blade-aim solve or the wrist solve.
+ *
+ * One flag would have forced whoever looks at the authored mesh to accept
+ * uncorrected authored motion with it, which is how a good change gets refused
+ * for a reason that belongs to a different change.
+ */
+function clipsWanted(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return new URLSearchParams(window.location.search).get("clips") === "1"; }
   catch { return false; }
 }
 
@@ -1220,6 +1241,25 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
                 return;
               }
               console.info(`[authored] ${p.warriorClass}: upgraded`);
+              // ---- AND THE MOTION, IF IT WAS ASKED FOR ----
+              //
+              // The clips have been in these files since the rig was first
+              // exported and have never once been played. `createClipDriver`
+              // returns null on anything unusable rather than throwing, and
+              // `poseWarrior` hands the body back to the procedural stack on
+              // any frame the driver has no clip for — so the worst case here
+              // is exactly the behaviour of the build before it existed.
+              if (clipsWanted()) {
+                const driver = createClipDriver(rig.body, asset.clips as unknown as THREE.AnimationClip[]);
+                rig.clips = driver;
+                console.info(driver
+                  ? `[clips] ${p.warriorClass}: ${driver.have.size} clips driving the body`
+                  : `[clips] ${p.warriorClass}: no usable clips — keeping the procedural pose`);
+                if (typeof window !== "undefined") {
+                  const w = window as unknown as Record<string, unknown>;
+                  w.__bretwaldaClips = ((w.__bretwaldaClips as number) ?? 0) + (driver ? 1 : 0);
+                }
+              }
               // ---- AND HE WEARS WHAT THE ARMOURY SOLD HIM ----
               //
               // A warrior export carries ONE helm, ONE hair and ONE beard: the

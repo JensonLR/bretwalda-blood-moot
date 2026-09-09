@@ -87,6 +87,7 @@
     "swingstrip": "node tools/swingstrip.mjs",
     "bladereach": "node tools/bladereach.mjs",
     "hudcost": "node tools/hudcost.mjs",
+    "cliptest": "node tools/cliptest.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
     "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",

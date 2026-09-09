@@ -75,6 +75,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId, SHIELD } from "../../types";
+import { type ClipDriver, type ClipIntent } from "./clipDriver";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -380,6 +381,17 @@ export interface WarriorRig {
    * severance blood, and no diagnostic anywhere.
    */
   authored?: boolean;
+  /**
+   * The authored motion, if this body was given any and the flag is on.
+   *
+   * Set by the caller after `upgradeRigToAuthored` succeeds; see
+   * `clipDriver.ts`. When it is present and returns a clip for the current
+   * state, `poseWarrior` lets it own the body for that frame and does not run
+   * the layer stack — two authors on one bone rotation is the one thing that
+   * cannot be allowed. When it returns null the procedural pose takes the body
+   * back on the same frame, which is what makes a partial clip set safe.
+   */
+  clips?: ClipDriver | null;
   dispose(): void;
 }
 
@@ -5170,6 +5182,45 @@ export function poseWarrior(
     drapeCloak(rig, motion, dt, t, P.cloak);
     fadeBlob(rig, player.invincible ? 0.5 : 1);
     return;
+  }
+
+  // ---- THE AUTHORED MOTION, IF THERE IS ANY --------------------------------
+  //
+  // Fifteen clips ship inside every warrior GLB and, until this branch existed,
+  // were parsed, checked by name and discarded — there was no AnimationMixer in
+  // this client at all. See `clipDriver.ts` for why the attack clips are
+  // SCRUBBED off `swingT` rather than played: a free-running mixer is a second
+  // clock, and `cliptime` exists because a drift between the engine's stroke and
+  // the renderer's is "a swing that finishes on the client before it lands".
+  //
+  // It sits AFTER the dead and floored branches on purpose. Those two own gore,
+  // the collapse shape and the rise, all of which are wired into the procedural
+  // pose; taking the body off them for a `die` clip is a second piece of work
+  // and not this one.
+  //
+  // A null return hands the body straight back, on the same frame, with no
+  // state left behind — which is what lets a partial clip set be safe rather
+  // than half a man.
+  if (rig.clips) {
+    const intent: ClipIntent = {
+      group: group as ClipIntent["group"],
+      dir: player.attackDir as ClipIntent["dir"],
+      heavy: !!player.swingHeavy,
+      swingT: player.swingT,
+      swingDuration: player.swingDuration,
+      speed: Math.hypot(player.velocity?.x || 0, player.velocity?.z || 0),
+      actT: motion.actT,
+    };
+    if (rig.clips.update(dt, intent)) {
+      // The cloth still runs: it integrates springs off the drape bones rather
+      // than off `P`, so it is a correction and not a second pose.
+      drapeCloak(rig, motion, dt, t, P.cloak);
+      fadeBlob(rig, player.invincible ? 0.5 : 1);
+      // `rig.last` is left where the procedural pose put it. On the frame the
+      // driver hands the body back, `commit`'s crossfade blends out of a pose
+      // this body genuinely last held rather than out of a stale one.
+      return;
+    }
   }
 
   // ---- lean into the velocity vector ----
