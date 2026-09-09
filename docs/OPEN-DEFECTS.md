@@ -8,6 +8,61 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED 9 Sep 2026 — THE BLADE IS NOW MEASURED AGAINST THE RANGE THAT TAKES HEALTH OFF, and it is a REACH question and not a timing one
+
+Carried here as: *"Nothing samples a warrior mid-stroke on the client and checks
+the blade is where the sim says the blow landed. To close it... assert the blade
+crosses the target between `swingT` 0.40 and 0.55."* That was true. `swingstrip`
+measures the tip's PATH — arc, telegraph, distinctness, whether it goes through
+the turf — all in the man's own frame and never against the engine's range;
+`weightprobe` and `fighttest` drive the sim and never look at the rig. The two
+halves of the most important moment in the game had never been put in one
+sentence. `tools/bladereach.mjs` puts them there.
+
+**The first diagnosis was wrong, and the harness is what refuted it.** It looked
+like a timing fault, and a strong one: the engine fires on the first 20 Hz tick
+past `WINDUP_END`, so real contact lands at f=0.408–0.441, while `anim.ts` names
+`IMPACT = windup + contact = 0.55` and builds the pass as
+`rel = (q - LOAD_END) / (IMPACT - LOAD_END)` — i.e. the stroke is authored to
+ARRIVE at 0.55. Measured, the blade peaks at **f=0.528** and damage lands at
+**f=0.423**: 107 ms apart on a huscarl light. Both layers name the same window
+and disagree about where in it the blow lands.
+
+That gap is real and is still printed. **It is not the cause.** `--curve` walks
+the tip through the whole window and at EVERY sampled fraction at most 2 of 24
+cuts clear the bar. Moving the instant fixes nothing, because a cut never gets
+out that far at all.
+
+So the honest measure is the band at the outer edge of range where the engine
+takes health off and the blade cannot arrive — `(reach - 0.25) - peak tip`:
+
+    cuts     mean 0.38 m
+    thrusts  mean 0.22 m      a thrust is a line down its reach and gets closest
+    worst    0.77 m           warden/H/left
+
+**Not an animation bug.** `BODY_REACH` = 1.20 is documented in engine.mjs as
+0.60 (attacker's centre to extended fist) + 0.25 (target's chest) + 0.35 of
+deliberate forgiveness "so a hit the client already drew does not get denied by
+the lag between them" — and that file calls it "the one number here that is a
+judgement call rather than a measurement". The band is mostly that 0.35 being
+spent, plus a cut landing through an arc with a bent arm rather than at full
+extension. At the distance men actually fight at, every one of the 32 blows
+reaches.
+
+**Left open deliberately, as a RATCHET rather than a bar.** Closing the band
+means shortening reach, which reprices every class against every other; that is
+a balance decision and not a defect fix. What the gate refuses is the band
+getting wider without somebody saying so.
+
+One more thing worth keeping, because the same mistake is easy to repeat: the
+harness's own last check failed on its first run and the fault was in the GATE.
+It judged every class at a flat 1.3 m and failed exactly the four runekeeper side
+cuts by 0.02–0.23 m — but the runekeeper carries the shortest steel in the roster
+(0.50 against a huscarl's 1.055) and does not stand at sword distance to use a
+seax. Judged at 0.60 of each class's OWN reach, all 32 clear.
+
+---
+
 ## CLOSED 9 Sep 2026 — THE NAMEPLATES RAN ON BECAUSE NONE OF THEM ENDED, and the trade this entry feared was never necessary
 
 Carried here as "abut sideways and read as one run-on name", with the fix costed
