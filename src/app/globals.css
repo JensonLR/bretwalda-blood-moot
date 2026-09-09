@@ -153,6 +153,29 @@
     min-height: var(--tap);
   }
 
+  /* WHERE THE KEYBOARD IS.
+
+     There was one `:focus-visible` rule in the whole stylesheet — `.fm-hit`, a
+     territory on the war map — against three `outline: none` stripping the ring
+     off inputs and selects. Nine menu screens, a game played on a keyboard, and
+     no way to see what Tab had landed on anywhere in it.
+
+     `:focus-visible` and not `:focus`, so a mouse click never draws it: the
+     ring is for the person who cannot see the cursor, and on a pointer it just
+     leaves a box behind on everything you press. Gilt rather than the browser's
+     blue, because the one colour this interface does not have is blue, and the
+     offset keeps the ring off the letterform on the tight tracking these
+     buttons use.
+
+     Anything that opts out below is opting out deliberately and says so; the
+     `.fm-hit` rule further down draws a territory's own edge instead, because a
+     rectangle round Wessex's bounding box is most of England. */
+  :where(a, button, select, input, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--gilt-lit);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+
   ::-webkit-scrollbar {
     width: 5px;
   }
@@ -961,6 +984,14 @@
     border-color: rgba(217, 164, 65, 0.9);
     box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.24), 0 0 28px rgba(217, 164, 65, 0.16), inset 0 2px 6px rgba(0, 0, 0, 0.3);
   }
+  /* The base layer's focus ring cannot reach these: `outline: none` above sits
+     in a LATER cascade layer, so it wins whatever its specificity. The lit
+     border and glow on `:focus` are a good affordance for a pointer and are
+     kept; this adds the ring a keyboard needs on top, and only for a keyboard. */
+  .input-frame:focus-visible {
+    outline: 2px solid var(--gilt-lit);
+    outline-offset: 2px;
+  }
 
   .select-frame {
     min-height: var(--tap);
@@ -975,6 +1006,10 @@
   }
   .select-frame:focus {
     border-color: rgba(240, 169, 46, 0.85);
+  }
+  .select-frame:focus-visible {
+    outline: 2px solid var(--gilt-lit);
+    outline-offset: 2px;
   }
 
   /* ------------------------------------------------------------ navigation */
@@ -1620,7 +1655,22 @@
   .embers,
   .animate-glow,
   .animate-fadeIn,
-  .fm-seat-ring {
+  .fm-seat-ring,
+  /* DESIGN-SYSTEM.md: "No spinners, no bounces, nothing pulsing for attention.
+     Reduced motion freezes it to a lit still." The rule was written and then
+     `animate-pulse` was never added to this list, so a reduced-motion player
+     still got all twelve of them — the 3-2-1 countdown, LAST STAND, THE HERE
+     COMES, VICTORY IS YOURS among them. The loudest, most urgent type in the
+     game was the part the setting did not reach.
+
+     `animation: none` is the whole fix and it lands on the right frame by
+     construction: Tailwind's pulse dips only at the midpoint
+     (`@keyframes pulse { 50% { opacity: .5 } }`), so the base style is full
+     opacity and stopping it leaves the element LIT rather than half-faded.
+     That is the doc's "lit still", exactly, and it matters here because these
+     are combat signals — a reduced-motion setting must take the flashing away
+     without taking the warning with it. */
+  .animate-pulse {
     animation: none;
   }
   .fm-field,
