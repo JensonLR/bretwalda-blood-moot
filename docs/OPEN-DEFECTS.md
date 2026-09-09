@@ -8,6 +8,70 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## CLOSED 9 Sep 2026 — THE NAMEPLATES RAN ON BECAUSE NONE OF THEM ENDED, and the trade this entry feared was never necessary
+
+Carried here as "abut sideways and read as one run-on name", with the fix costed
+as widening `PUSH_PAD_X` and correctly refused: more horizontal tolerance means
+more vertical pushing, and more pushing means more plates cross
+`COMPACT_MAX_PUSH` and vanish outright. That trade is real. It was also not the
+fix.
+
+The mechanism is typographic, not spatial. Every name in this game is
+`<Given> <Byname>`, the bynames are long, and against `names.mjs` essentially
+every name in a fight runs past sixteen characters — which `buildNameGlyphs` cut
+with a bare `substring(0, 16)`. Photographed in `.authored/arena-*.png`, eight
+in a band:
+
+    GODGYTH SPEAR-ST     BEORHTWEARD THE     WILRAED SHIELD-BE
+
+Two names abutting are read as one because **neither of them ends**. A word
+severed mid-syllable reads as continuing into whatever sits beside it, and the
+eye is right to read it that way. Nothing about the geometry had to change.
+
+Cut on a word boundary and mark the cut, trailing particles going with it —
+"Beorhtweard the" is a fragment, "Beorhtweard…" is a name.
+
+**And it improves the layout instead of trading against it.** The collision box
+is `nameW * glyphs.inkW` (`hud3d.ts:1652`) and `inkW` is read off the canvas
+alpha, so a shorter string is a narrower box. Measured over fifteen real names:
+mean ink 0.932 → 0.827, box **11.3% narrower**, overlap cross-section down 21%.
+Fewer y-pushes, so **fewer** plates hidden by `COMPACT_MAX_PUSH`, not more. The
+type is drawn larger as well, because a short string escapes the shrink-to-fit.
+
+Two things this does NOT close, both still open above: damage numbers drawing
+behind warriors despite `LAYER_UNOCCLUDED` (still unmeasured by anything), and
+`COMPACT_MAX_PUSH` hiding a plate outright, which is now rarer and is still a
+decision nobody has taken.
+
+---
+
+## CLOSED 9 Sep 2026 — THE DEAD MAN'S HUD, AND THE SCRIM OVER THE DEATH BEAT
+
+GORE-DESIGN's "known open" carried the `FALLEN — Spectating the survivors…`
+overlay covering mid-screen for the death hold. The overlay was the smaller half.
+
+The room's state stays `"fighting"` while your own body is on the turf — the
+server has other men in it — so `isFighting` stayed true through the entire
+death beat, and everything hung off it kept drawing. Photographed in
+`.authored/arena-procedural.png` before the change: the vitals rail at top
+centre reading 0% health with an idle stamina bar and a board on a body that no
+longer holds one; `BATTLE FOCUS / READY` bottom left; and dead centre, over
+`FALLEN`, the desktop prompt **CLICK TO TAKE UP YOUR WEAPON** — which carries
+`bg-black/45` across `inset-0`, so the whole arena was dimmed 45% behind the
+death camera by a prompt addressed to a corpse.
+
+All four now ask `isAlive`, which is the question they were always about. The
+after picture is `.authored/arena-authored.png`: the death beat is a composed
+shot with the scrim gone.
+
+The same pass closed the mead-bench leak. `GameHud.tsx` contained zero
+occurrences of "replay"; nearly all of it is saved from painting live state over
+a recording only by the accident that a replay runs during `intermission` while
+the HUD hangs off `isFighting`. The seated view missed that accident — its own
+gate passes `intermission` — so a watcher got the live kill feed, the live match
+clock and the live ALIVE count over a fight that had already ended. It is told
+now, edge-triggered off the transition that already tells `page.tsx`.
+
 ## CLOSED 8 Sep 2026 — THE NEUTRALITY GATE ASSERTED THREE THINGS AND HAD A DEFECT FOR ONE OF THEM
 
 `wartest` §7c is the assertion that keeps this game from being pay-to-win:
