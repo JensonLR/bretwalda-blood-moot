@@ -338,12 +338,12 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
             <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">KEY BINDINGS</div>
           </div>
           <button onClick={() => { stopCapture(); onClose(); }} aria-label="Close key bindings"
-            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[#d9cdb2] transition hover:border-amber-600/70 hover:text-amber-200">
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[var(--ink)] transition hover:border-amber-600/70 hover:text-amber-200">
             <X size={16} />
           </button>
         </div>
         <div className="knot-band w-full" />
-        <p className="text-[11px] leading-relaxed text-[#a89a7c]">
+        <p className="text-[11px] leading-relaxed text-[var(--ink-dim)]">
           Click a key to change it. Bindings are by physical position, so the cap shown is what is
           printed on <em>your</em> keyboard.
         </p>
@@ -386,9 +386,9 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13px] font-bold text-amber-200">
                     {a.label}
-                    {a.desktopOnly && <span className="rounded border border-stone-600/70 px-1 py-px text-[8px] font-bold tracking-[0.12em] text-[#a89a7c]">DESKTOP</span>}
+                    {a.desktopOnly && <span className="rounded border border-stone-600/70 px-1 py-px text-[8px] font-bold tracking-[0.12em] text-[var(--ink-dim)]">DESKTOP</span>}
                   </div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-[#a89a7c]">
+                  <div className="mt-0.5 text-[11px] leading-snug text-[var(--ink-dim)]">
                     {a.hint}{a.alsoAims ? " — also aims the cut" : ""}
                   </div>
                 </div>
@@ -404,19 +404,19 @@ export function KeyBindingsPanel({ onClose }: { onClose: () => void }) {
                         {labelForCode(code)}
                       </button>
                       <button onClick={() => unbind(a.id, code)} aria-label={`Unbind ${labelForCode(code)} from ${a.label}`}
-                        className="kbd !min-w-0 !rounded-l-none !border-l-0 !px-1.5 text-[#a89a7c] transition hover:!text-red-300">
+                        className="kbd !min-w-0 !rounded-l-none !border-l-0 !px-1.5 text-[var(--ink-dim)] transition hover:!text-red-300">
                         <X size={10} />
                       </button>
                     </span>
                   ))}
                   {codes.length < MAX_BINDINGS_PER_ACTION && (
                     <button onClick={() => begin(a.id)} aria-label={`Add another key for ${a.label}`}
-                      className="kbd !min-w-0 !px-2 text-[#a89a7c] transition hover:!border-amber-400/80 hover:!text-amber-200">
+                      className="kbd !min-w-0 !px-2 text-[var(--ink-dim)] transition hover:!border-amber-400/80 hover:!text-amber-200">
                       <Plus size={11} />
                     </button>
                   )}
                   <button onClick={() => resetAction(a.id)} aria-label={`Reset ${a.label} to default`}
-                    className="rounded-md p-1.5 text-[#7d7057] transition hover:text-amber-300">
+                    className="rounded-md p-1.5 text-[var(--ink-faint)] transition hover:text-amber-300">
                     <RotateCcw size={12} />
                   </button>
                 </div>
@@ -548,7 +548,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             <div className="font-display text-xl tracking-wider text-amber-100 sm:text-2xl">GRAPHICS</div>
           </div>
           <button onClick={onClose} aria-label="Close graphics settings"
-            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[#d9cdb2] transition hover:border-amber-600/70 hover:text-amber-200">
+            className="shrink-0 rounded-lg border border-stone-600/70 p-2 text-[var(--ink)] transition hover:border-amber-600/70 hover:text-amber-200">
             <X size={16} />
           </button>
         </div>
@@ -557,11 +557,11 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
         {/* What is happening RIGHT NOW, and why. A player looking at a soft
             picture he never asked for is owed the reason in a sentence. */}
         <div className="rounded-lg border border-stone-700/70 bg-black/40 px-3 py-2">
-          <div className="text-[10px] font-bold tracking-[0.18em] text-[#a89a7c]">NOW RENDERING</div>
+          <div className="text-[10px] font-bold tracking-[0.18em] text-[var(--ink-dim)]">NOW RENDERING</div>
           <div className="font-display text-lg tracking-wider text-amber-100">
             {status ? TIER_WORD[status.active] : "…"}
           </div>
-          <div className="mt-0.5 text-[11px] leading-relaxed text-[#a89a7c]">
+          <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--ink-dim)]">
             {!status ? "Reading this device…"
               : status.pinned ? `Pinned by ?quality=${status.pinned} on the address bar — that beats this control, and clearing it needs the address bar too.`
               : status.choice !== "auto" ? `Your choice, kept for this browser. On its own reckoning this is a ${TIER_WORD[status.detected]} device — Automatic would pick that.`
@@ -587,7 +587,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             moment a player wants any of it is the moment the fight feels
             wrong, and a second menu would be a second place to not find it. */}
         <div className="rounded-lg border border-stone-700/70 bg-black/40 px-3 py-2.5">
-          <div className="text-[10px] font-bold tracking-[0.18em] text-[#a89a7c]">THE FEEL</div>
+          <div className="text-[10px] font-bold tracking-[0.18em] text-[var(--ink-dim)]">THE FEEL</div>
           <label className="mt-1.5 flex items-center gap-3">
             <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">LOOK SPEED</span>
             <input type="range" min={50} max={200} step={5}
@@ -595,18 +595,18 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
               onChange={(e) => setFeel({ sensitivity: Number(e.target.value) / 100 })}
               aria-label="Look sensitivity"
               className="min-w-0 flex-1 accent-amber-500" />
-            <span className="w-11 shrink-0 text-right font-mono text-[11px] text-[#d9cdb2]">{Math.round(feelNow.sensitivity * 100)}%</span>
+            <span className="w-11 shrink-0 text-right font-mono text-[11px] text-[var(--ink)]">{Math.round(feelNow.sensitivity * 100)}%</span>
           </label>
           <label className="mt-2 flex items-center gap-3">
             <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">CAMERA SHAKE</span>
             <button role="switch" aria-checked={feelNow.shake}
               onClick={() => setFeel({ shake: !feelNow.shake })}
               className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition ${
-                feelNow.shake ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[#a89a7c]"
+                feelNow.shake ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[var(--ink-dim)]"
               }`}>
               {feelNow.shake ? "ON" : "OFF"}
             </button>
-            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[#7d7057]">
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--ink-faint)]">
               Off loses nothing the HUD does not also say.
             </span>
           </label>
@@ -619,11 +619,11 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             <button role="switch" aria-checked={feelNow.teamContrast}
               onClick={() => setFeel({ teamContrast: !feelNow.teamContrast })}
               className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition ${
-                feelNow.teamContrast ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[#a89a7c]"
+                feelNow.teamContrast ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[var(--ink-dim)]"
               }`}>
               {feelNow.teamContrast ? "HIGH CONTRAST" : "CLASSIC"}
             </button>
-            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[#7d7057]">
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--ink-faint)]">
               Gold vs deep woad, split by brightness too. Takes hold at the next fight.
             </span>
           </label>
@@ -647,7 +647,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
                   <span className="block text-[13px] font-bold tracking-wider text-amber-200">
                     {labels?.[c] ?? c.toUpperCase()}
                   </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-[#a89a7c]">{QUALITY_BLURB[c]}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-[var(--ink-dim)]">{QUALITY_BLURB[c]}</span>
                 </span>
               </button>
             );
@@ -666,7 +666,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
                 picking Automatic only throws the stored verdict away, and the
                 measuring starts again on the next load. One sentence covering
                 both would have to be false for one of them. */}
-            <div className="text-[11px] leading-relaxed text-[#d9cdb2]">
+            <div className="text-[11px] leading-relaxed text-[var(--ink)]">
               <span className="font-bold text-amber-200">Kept. </span>
               {status?.choice === "auto"
                 ? "This device gets measured again from the next load; what is on the screen right now is still the tier it was forged at."
@@ -1127,7 +1127,7 @@ export default function GameHud({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-950/95 p-6">
           <div className="max-w-xs text-center">
             <div className="font-display text-amber-400 text-xl mb-2 tracking-wider">GRAPHICS INTERRUPTED</div>
-            <p className="text-[#d9cdb2] text-sm leading-relaxed">{glError}</p>
+            <p className="text-[var(--ink)] text-sm leading-relaxed">{glError}</p>
             <button onClick={() => window.location.reload()} className="mt-4 px-5 py-2.5 bg-amber-800 hover:bg-amber-700 rounded-lg font-bold text-sm tracking-wider">
               RELOAD BATTLE
             </button>
@@ -1332,7 +1332,7 @@ export default function GameHud({
                 </h2>
                 <div className="mx-auto mt-3 h-px w-24 bg-amber-700/60" />
                 {mootUp.card.lines.map((l, i) => (
-                  <p key={i} className="mt-2.5 text-[13px] leading-relaxed text-[#d9cdb2]">{l}</p>
+                  <p key={i} className="mt-2.5 text-[13px] leading-relaxed text-[var(--ink)]">{l}</p>
                 ))}
                 <button onClick={openMoot} data-snd="confirm"
                   className="btn-primary mt-6 w-full !min-h-[3.25rem]">
@@ -1345,7 +1345,7 @@ export default function GameHud({
                   )}
                 </button>
                 <button onClick={skipMoot} data-snd="back"
-                  className="mt-2 w-full py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d7057] transition hover:text-[#a89a7c]">
+                  className="mt-2 w-full py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink-faint)] transition hover:text-[var(--ink-dim)]">
                   I know the fight — take me to the war
                 </button>
               </div>
@@ -1399,7 +1399,7 @@ export default function GameHud({
           {mootUp.line && (
             <button onClick={skipMoot} data-snd="back"
               style={railStyle("skip", rail, lefty, soloEnd)}
-              className="z-30 min-h-[44px] w-[8.5rem] px-2 py-1.5 bg-stone-900/80 hover:bg-stone-800 border border-stone-600/80 rounded-lg text-[9px] font-bold tracking-[0.12em] text-[#b6a888] transition backdrop-blur leading-tight">
+              className="z-30 min-h-[44px] w-[8.5rem] px-2 py-1.5 bg-stone-900/80 hover:bg-stone-800 border border-stone-600/80 rounded-lg text-[9px] font-bold tracking-[0.12em] text-[var(--ink-soft)] transition backdrop-blur leading-tight">
               I KNOW THE FIGHT<br />— SKIP —
             </button>
           )}
@@ -1482,7 +1482,7 @@ export default function GameHud({
             {roomState.killFeed.slice(-5).map((k, i) => (
               <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
                 <span className="text-amber-300 font-bold">{k.killerName}</span>
-                <span className="text-[#a89a7c]">{k.cause === "execution" ? " executed " : " slew "}</span>
+                <span className="text-[var(--ink-dim)]">{k.cause === "execution" ? " executed " : " slew "}</span>
                 <span className="text-red-300 font-bold">{k.victimName}</span>
               </div>
             ))}
@@ -1564,7 +1564,7 @@ export default function GameHud({
             <div className="absolute inset-0 bg-gradient-to-t from-red-950/50 via-transparent to-transparent flex items-end justify-center pb-24 pointer-events-none z-10">
               <div className="text-center">
                 <div className="font-display text-4xl font-bold text-red-400 mb-1 tracking-[0.2em]" style={{ textShadow: "0 0 25px black" }}>FALLEN</div>
-                <div className="text-sm text-[#d9cdb2]">Spectating the survivors...</div>
+                <div className="text-sm text-[var(--ink)]">Spectating the survivors...</div>
               </div>
             </div>
           )}
@@ -1585,7 +1585,7 @@ export default function GameHud({
           {roomState.killFeed.slice(-5).map((k, i) => (
             <div key={i} className="text-[10px] sm:text-xs bg-black/55 backdrop-blur-sm px-2.5 py-1 rounded-md text-white border-l-2 border-red-700/80 animate-fadeIn">
               <span className="text-amber-300 font-bold">{k.killerName}</span>
-              <span className="text-[#a89a7c]">{k.cause === "execution" ? " executed " : " slew "}</span>
+              <span className="text-[var(--ink-dim)]">{k.cause === "execution" ? " executed " : " slew "}</span>
               <span className="text-red-300 font-bold">{k.victimName}</span>
             </div>
           ))}
@@ -1608,7 +1608,7 @@ export default function GameHud({
         <div data-bench="seated" className="absolute inset-0 bg-gradient-to-t from-stone-950/55 via-transparent to-transparent flex items-end justify-center pb-16 pointer-events-none z-10">
           <div className="text-center">
             <div className="font-display text-3xl sm:text-4xl font-bold text-amber-200 mb-1 tracking-[0.2em]" style={{ textShadow: "0 0 25px black" }}>THE MEAD-BENCH</div>
-            <div className="text-sm text-[#d9cdb2]">{benchLine}</div>
+            <div className="text-sm text-[var(--ink)]">{benchLine}</div>
           </div>
         </div>
       </>
@@ -1867,9 +1867,9 @@ export default function GameHud({
       <div
         role="note"
         aria-label="Key bindings: press Escape to free the cursor, then click KEYS"
-        className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-700/70 bg-stone-950/70 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-[#7d7057] backdrop-blur">
+        className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-lg border border-stone-700/70 bg-stone-950/70 px-3 py-2 text-[11px] font-bold tracking-[0.15em] text-[var(--ink-faint)] backdrop-blur">
         <KeyRound size={13} />
-        <span className="rounded border border-stone-600 px-1 py-px text-[9px] leading-none text-[#d9cdb2]">ESC</span>
+        <span className="rounded border border-stone-600 px-1 py-px text-[9px] leading-none text-[var(--ink)]">ESC</span>
         <span>FOR KEYS</span>
       </div>
     ) : (

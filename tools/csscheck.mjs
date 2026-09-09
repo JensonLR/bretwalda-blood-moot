@@ -245,5 +245,50 @@ while (i < css.length) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CHECK 6 — the palette stays in the palette.
+//
+// This one is a RATCHET and not a bar. `docs/DESIGN-SYSTEM.md` describes a
+// token system that the interface did not use: counted across the two largest
+// UI files, 178 raw hex literals against 3 var() reads. Check 5 above cannot
+// see any of that — it catches a var() with no declaration, which is the
+// opposite fault, and a hardcoded colour is invisible to it by construction.
+//
+// Most of those 178 were not indiscipline. 133 were six values that had never
+// been DECLARED — the type ramp that carries nearly every word in the
+// interface had no name, so a literal was the only thing anybody could write.
+// They are `--ink-bright` through `--ink-ghost` now and the files read them.
+//
+// What is left is genuinely un-tokenised: one-off accents that earn a literal.
+// So the rule is not "zero", which would be a lie that invites suppression —
+// it is "no more than there are today". A new literal is either a colour that
+// belongs to the ramp, in which case use the ramp, or a new one worth naming,
+// in which case name it and raise this number in the same commit.
+{
+  // Today's counts, taken after the ramp landed: 178 -> 28 across the two.
+  const CEILING = { "src/app/page.tsx": 15, "src/game/client/GameHud.tsx": 13 };
+  for (const [rel, ceiling] of Object.entries(CEILING)) {
+    const file = resolve(ROOT, rel);
+    if (!existsSync(file)) continue;
+    const src = readFileSync(file, "utf8");
+    const hex = [...src.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0]);
+    // A literal that IS a declared token is always wrong: that is the one this
+    // ratchet can name a fix for, so it is reported separately and never
+    // allowed, whatever the ceiling.
+    const named = new Map();
+    for (const m of css.matchAll(/(--[a-z][\w-]*):\s*(#[0-9a-fA-F]{6})\b/g)) named.set(m[2].toLowerCase(), m[1]);
+    const spelled = hex.filter((h) => named.has(h.toLowerCase()));
+    if (spelled.length) {
+      fail(`${rel}: ${spelled.length} literal(s) spell out a colour that already has a token`);
+      [...new Set(spelled)].slice(0, 8).forEach((h) => console.log(`        ${h} is var(${named.get(h.toLowerCase())})`));
+    } else if (hex.length > ceiling) {
+      fail(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling} — tokenise it, or name the new colour and raise the ceiling here`);
+      [...new Set(hex)].slice(0, 8).forEach((h) => console.log(`        ${h}`));
+    } else {
+      pass(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling}, none of them a colour that has a name`);
+    }
+  }
+}
+
 console.log(failures ? `[csscheck] ${failures} FAILED` : "[csscheck] the stylesheet parses and survives the build");
 process.exit(failures ? 1 : 0);

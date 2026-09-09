@@ -1731,7 +1731,7 @@ export default function Page() {
                   background: "linear-gradient(90deg,#7c2d12,#f0c14b)",
                 }} />
             </div>
-            <div className="text-[10px] font-bold tracking-[0.25em] text-[#7d7057]">
+            <div className="text-[10px] font-bold tracking-[0.25em] text-[var(--ink-faint)]">
               {Math.min(forge.stage + 1, forge.stages)} OF {forge.stages}
             </div>
           </div>
@@ -1760,7 +1760,7 @@ export default function Page() {
               WAITING FOR {muster.waitingFor.join(", ").toUpperCase()}
             </div>
             <div className="knot-band mx-auto mt-3 w-full max-w-[18rem]" />
-            <div className="mt-2 text-[10px] font-bold tracking-[0.25em] text-[#7d7057]">
+            <div className="mt-2 text-[10px] font-bold tracking-[0.25em] text-[var(--ink-faint)]">
               THE FIGHT BEGINS WITHOUT THEM IF IT MUST
             </div>
           </div>
@@ -2011,7 +2011,7 @@ export default function Page() {
                   scroll — the 8.4 sweep caught this line's tail underneath it.
                   A narrower centred measure clears both corners and reads as
                   typesetting rather than as a dodge. */}
-              <p className="mx-auto max-w-[17.5rem] text-[11px] leading-relaxed text-[#a89a7c] sm:max-w-none">
+              <p className="mx-auto max-w-[17.5rem] text-[11px] leading-relaxed text-[var(--ink-dim)] sm:max-w-none">
                 Send this link and they join straight into your war band —
                 no code to type, nothing to install.
               </p>
@@ -2031,7 +2031,7 @@ export default function Page() {
               <div className="card flex items-center gap-3 px-4 py-3">
                 <span className="cabochon" />
                 <span className="font-display text-sm tracking-wider text-amber-100">ONE STAND</span>
-                <span className="text-[11px] text-[#a89a7c]">
+                <span className="text-[11px] text-[var(--ink-dim)]">
                   Waves of the here, each larger and harder. The fallen rise between waves;
                   the stand ends when the whole party is down at once.
                 </span>
@@ -2043,7 +2043,7 @@ export default function Page() {
               <div className="card flex items-center gap-3 px-4 py-3">
                 <span className="cabochon" />
                 <span className="font-display text-sm tracking-wider text-amber-100">THE BRACKET</span>
-                <span className="text-[11px] text-[#a89a7c]">
+                <span className="text-[11px] text-[var(--ink-dim)]">
                   Duels of one fall each; win and advance. Four men or more, and the
                   hall watches every fight it is not in — the final most of all.
                 </span>
@@ -2054,7 +2054,7 @@ export default function Page() {
                   value={(roomState.bestOf as BestOf) || DEFAULT_BEST_OF}
                   onChange={(n) => sendMsg("set_rounds", { bestOf: n })}
                 />
-                <p className="text-[11px] leading-relaxed text-[#a89a7c]">
+                <p className="text-[11px] leading-relaxed text-[var(--ink-dim)]">
                   {roundsBlurb(roomState.bestOf || 1, roomState.mode)}
                 </p>
               </div>
@@ -2064,7 +2064,7 @@ export default function Page() {
                 <span className="font-display text-sm tracking-wider text-amber-100">
                   {(roomState.bestOf || 1) > 1 ? `BEST OF ${roomState.bestOf}` : "SINGLE ROUND"}
                 </span>
-                <span className="text-[11px] text-[#a89a7c]">{roundsBlurb(roomState.bestOf || 1, roomState.mode)}</span>
+                <span className="text-[11px] text-[var(--ink-dim)]">{roundsBlurb(roomState.bestOf || 1, roomState.mode)}</span>
               </div>
             )}
           </section>
@@ -2074,7 +2074,7 @@ export default function Page() {
             {/* Stacked on a phone: side by side, the title shrinks under the
                 controls and its player count disappears behind the select. */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
-              <h2 className="section-title min-w-0 sm:flex-1"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-[#7d7057]">{playersList.length}/{maxP}</span></h2>
+              <h2 className="section-title min-w-0 sm:flex-1"><User size={12} className="shrink-0" /> WARRIORS <span className="tracking-normal text-[var(--ink-faint)]">{playersList.length}/{maxP}</span></h2>
               {/* No AI row in the burh: the waves own every bot, and a lobby
                   offering ADD AI for the mode that spawns its own enemies
                   would be selling a lever wired to nothing. */}
@@ -2110,7 +2110,7 @@ export default function Page() {
                 const isBot = p.id.startsWith("bot_");
                 return (
                   <div key={p.id} className={`card flex items-center gap-3.5 px-3.5 py-3 sm:px-4 ${p.ready ? "!border-emerald-700/50 !bg-emerald-950/25" : ""}`}>
-                    <div className={`medallion ${isBot ? "!text-[#a89a7c]" : ""}`}>
+                    <div className={`medallion ${isBot ? "!text-[var(--ink-dim)]" : ""}`}>
                       {isBot ? <BotMessageSquare size={16} /> : <WIcon size={16} />}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -2125,13 +2125,13 @@ export default function Page() {
                         {p.id === playerId && <span className="badge-sky">YOU</span>}
                         {isBot && <span className="badge-stone">AI</span>}
                       </div>
-                      <div className="mt-0.5 text-[11px] capitalize text-[#a89a7c]">
+                      <div className="mt-0.5 text-[11px] capitalize text-[var(--ink-dim)]">
                         {p.warriorClass}{(p as GamePlayer & { appearance?: Appearance }).appearance && !isBot ? " · customised" : ""}
                       </div>
                     </div>
                     {roomState.mode === "war_band" && (
                       <div className={`shrink-0 rounded px-2.5 py-1 text-[10px] font-bold tracking-wider ${
-                        p.team === "red" ? "bg-red-900/70 text-red-100" : p.team === "blue" ? "bg-sky-900/70 text-sky-100" : "bg-stone-800 text-[#a89a7c]"
+                        p.team === "red" ? "bg-red-900/70 text-red-100" : p.team === "blue" ? "bg-sky-900/70 text-sky-100" : "bg-stone-800 text-[var(--ink-dim)]"
                       }`}>{p.team === "none" ? "NO TEAM" : p.team.toUpperCase()}</div>
                     )}
                     <div className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${p.ready ? "border-emerald-300 bg-emerald-400" : "border-stone-600 bg-stone-700"}`} />
@@ -2143,8 +2143,8 @@ export default function Page() {
                   waiting state points back at it rather than showing nothing. */}
               {playersList.length < 2 && (
                 <div className="card !border-dashed !border-stone-100/15 !bg-transparent px-4 py-5 text-center">
-                  <div className="text-[13px] font-bold text-[#d9cdb2]">Waiting for a second warrior</div>
-                  <div className="mt-1 text-[11px] leading-relaxed text-[#7d7057]">
+                  <div className="text-[13px] font-bold text-[var(--ink)]">Waiting for a second warrior</div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-[var(--ink-faint)]">
                     Send the invite link above, or add an AI to fight right now.
                   </div>
                 </div>
@@ -2198,7 +2198,7 @@ export default function Page() {
                       onClick={() => sendMsg("select_class", { warriorClass: myClass, arms: r.id })}
                       className={`card card-interactive p-3 text-left ${held === r.id ? "card-selected" : ""}`}>
                       <div className="font-display text-[13px] tracking-wider text-amber-100">{r.name}</div>
-                      <div className="mt-1 text-[11px] leading-snug text-[#d9cdb2]/90">{r.blurb}</div>
+                      <div className="mt-1 text-[11px] leading-snug text-[var(--ink)]/90">{r.blurb}</div>
                     </button>
                   ))}
                 </div>
@@ -2266,7 +2266,7 @@ export default function Page() {
                 <ArrowLeft size={18} />
               </button>
             </div>
-            {!isHost && <p className="text-center text-xs text-[#7d7057]">Waiting for host to start the battle...</p>}
+            {!isHost && <p className="text-center text-xs text-[var(--ink-faint)]">Waiting for host to start the battle...</p>}
           </div>
         </ContentWrap>
       </MenuShell>
@@ -2311,7 +2311,7 @@ export default function Page() {
                   <Coins size={17} className="text-yellow-500" />
                   <span className="text-xl font-bold text-yellow-400">{profile.gold}</span>
                 </div>
-                <span className="text-[8.5px] font-bold tracking-[0.16em] text-[#7d7057]">
+                <span className="text-[8.5px] font-bold tracking-[0.16em] text-[var(--ink-faint)]">
                   {link === "server" ? "ON THE WAR ROLLS" : link === "local" ? "ON THIS DEVICE" : "COUNTING…"}
                 </span>
               </div>
@@ -2331,7 +2331,7 @@ export default function Page() {
                       top-4 where nothing overlaps. */}
                   <div className="flex items-baseline justify-between gap-3 pr-11 lg:pr-0">
                     <div className="section-title !mb-0"><Eye size={12} className="shrink-0" /> {slot.label.toUpperCase()}</div>
-                    <span className="shrink-0 text-[9px] font-bold tracking-[0.14em] text-[#7d7057]">
+                    <span className="shrink-0 text-[9px] font-bold tracking-[0.14em] text-[var(--ink-faint)]">
                       {WARRIOR_INFO.find((w) => w.id === previewClass)?.name}
                     </span>
                   </div>
@@ -2353,8 +2353,8 @@ export default function Page() {
                       <button key={w.id} onClick={() => setPreviewClass(w.id)}
                         aria-pressed={previewClass === w.id}
                         className={`card card-interactive flex min-h-[2.75rem] flex-col items-center justify-center gap-0.5 py-1 ${previewClass === w.id ? "card-selected" : ""}`}>
-                        <w.Icon size={13} className={previewClass === w.id ? "text-amber-300" : "text-[#a89a7c]"} />
-                        <span className="text-[7.5px] font-bold leading-none tracking-wide text-[#d9cdb2]">{w.name}</span>
+                        <w.Icon size={13} className={previewClass === w.id ? "text-amber-300" : "text-[var(--ink-dim)]"} />
+                        <span className="text-[7.5px] font-bold leading-none tracking-wide text-[var(--ink)]">{w.name}</span>
                       </button>
                     ))}
                   </div>
@@ -2400,7 +2400,7 @@ export default function Page() {
                 ))}
               </div>
 
-              <p className="text-center text-xs leading-relaxed text-[#7d7057]">
+              <p className="text-center text-xs leading-relaxed text-[var(--ink-faint)]">
                 Tapping an item dresses the man above. Nothing is charged until you
                 press EQUIP &amp; BUY — and the price is settled on the war rolls, not here.
               </p>
@@ -2580,17 +2580,17 @@ export default function Page() {
               <button data-tour="armoury" onClick={() => openArmoury("landing")} className="mini-nav">
                 <Shirt size={19} className="text-amber-400" />
                 <span>Armoury</span>
-                <span className="text-[9px] font-normal text-[#a89a7c]">customise</span>
+                <span className="text-[9px] font-normal text-[var(--ink-dim)]">customise</span>
               </button>
               <button data-tour="saga" onClick={() => setScreen("profile")} className="mini-nav">
                 <Scroll size={19} className="text-amber-400" />
                 <span>Saga</span>
-                <span className="text-[9px] font-normal text-[#a89a7c]">profile</span>
+                <span className="text-[9px] font-normal text-[var(--ink-dim)]">profile</span>
               </button>
               <button onClick={() => setKeysOpen(true)} className="mini-nav">
                 <KeyRound size={19} className="text-amber-400" />
                 <span>Keys</span>
-                <span className="text-[9px] font-normal text-[#a89a7c]">rebind</span>
+                <span className="text-[9px] font-normal text-[var(--ink-dim)]">rebind</span>
               </button>
             </div>
 
@@ -2616,7 +2616,7 @@ export default function Page() {
                   <Scroll size={16} className="mt-0.5 shrink-0 text-amber-400" />
                   <div className="min-w-0">
                     <div className="font-display text-[13px] tracking-wider text-amber-200">YOUR HOARD CAME WITH YOU</div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-[#d9cdb2]/90">
+                    <div className="mt-1 text-[11px] leading-relaxed text-[var(--ink)]/90">
                       {carried.gold} gold{carried.unlocks > 0 ? ` and ${carried.unlocks} pieces of kit` : ""} carried
                       onto the war rolls. It is kept for you now — see the Saga for the four words that bring it back.
                     </div>
@@ -2626,7 +2626,7 @@ export default function Page() {
             )}
           </div>
 
-          <p className="text-center text-[11px] leading-relaxed text-[#d9cdb2]/60" style={{ textShadow: "0 1px 3px black" }}>
+          <p className="text-center text-[11px] leading-relaxed text-[var(--ink)]/60" style={{ textShadow: "0 1px 3px black" }}>
             Plays on phones, tablets &amp; desktops.<br />
             {moveKeys} + mouse on desktop · touch controls on mobile.
           </p>
@@ -2634,7 +2634,7 @@ export default function Page() {
               Exists because a defect was once argued blind against a device on
               a stale deploy; see next.config.ts. Dim on purpose: a serial
               number, not a feature. */}
-          <p className="text-center text-[9px] tracking-[0.18em] text-[#7d7057]/70" style={{ textShadow: "0 1px 3px black" }}>
+          <p className="text-center text-[9px] tracking-[0.18em] text-[var(--ink-faint)]/70" style={{ textShadow: "0 1px 3px black" }}>
             BUILD {process.env.NEXT_PUBLIC_BUILD_SHA ?? "unstamped"}
           </p>
         </div>
@@ -2683,13 +2683,13 @@ export default function Page() {
                   <div className={`medallion !h-12 !w-12 ${mode.tint}`}><mode.Icon size={22} /></div>
                   <div className="min-w-0 flex-1">
                     <div className="font-display tracking-wider text-amber-100">{mode.name}</div>
-                    <div className="mt-1 text-[13px] leading-snug text-[#d9cdb2]/90">{mode.desc}</div>
+                    <div className="mt-1 text-[13px] leading-snug text-[var(--ink)]/90">{mode.desc}</div>
                     {!friendlyMoot && (
                       <div className="mt-1 text-[11px] leading-snug text-amber-400/70">{mode.stake}</div>
                     )}
-                    <div className="mt-1 text-[11px] tracking-wide text-[#7d7057]">{mode.players}</div>
+                    <div className="mt-1 text-[11px] tracking-wide text-[var(--ink-faint)]">{mode.players}</div>
                   </div>
-                  <ChevronRight size={18} className={`shrink-0 ${selectedMode === mode.id ? "text-amber-400" : "text-[#7d7057]"}`} />
+                  <ChevronRight size={18} className={`shrink-0 ${selectedMode === mode.id ? "text-amber-400" : "text-[var(--ink-faint)]"}`} />
                 </div>
               </button>
             ))}
@@ -2712,7 +2712,7 @@ export default function Page() {
               <button onClick={() => setFriendlyMoot(false)}
                 className={`card card-interactive p-4 text-left ${!friendlyMoot ? "card-selected" : ""}`}>
                 <div className="font-display text-sm tracking-wider text-amber-100">FOR THE WAR</div>
-                <div className="mt-1 text-[12px] leading-snug text-[#d9cdb2]/90">
+                <div className="mt-1 text-[12px] leading-snug text-[var(--ink)]/90">
                   The fight is dealt a contested ground. Sworn men bank their deeds to their
                   people&rsquo;s claim on it — win it, and the map remembers.
                 </div>
@@ -2720,7 +2720,7 @@ export default function Page() {
               <button onClick={() => { setFriendlyMoot(true); setWarTerritory(null); }}
                 className={`card card-interactive p-4 text-left ${friendlyMoot ? "card-selected" : ""}`}>
                 <div className="font-display text-sm tracking-wider text-amber-100">A FRIENDLY MOOT</div>
-                <div className="mt-1 text-[12px] leading-snug text-[#d9cdb2]/90">
+                <div className="mt-1 text-[12px] leading-snug text-[var(--ink)]/90">
                   No ground at stake, nothing banked, no liveries — every man in the kit he
                   bought. For settling things among friends.
                 </div>
@@ -2734,7 +2734,7 @@ export default function Page() {
                 nothing at stake, so friends pick where they meet. */}
             {friendlyMoot && (
               <div className="flex flex-col gap-2">
-                <div className="label-overline !text-[10px] text-[#a89a7c]">WHERE YOU MEET</div>
+                <div className="label-overline !text-[10px] text-[var(--ink-dim)]">WHERE YOU MEET</div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {([
                     { id: "saxon_village", name: "The Village", hint: "firelit timber & thatch" },
@@ -2746,7 +2746,7 @@ export default function Page() {
                     <button key={g.id} onClick={() => setFriendlyGround(g.id)}
                       className={`card card-interactive p-3 text-left ${friendlyGround === g.id ? "card-selected" : ""}`}>
                       <div className="font-display text-[12px] tracking-wider text-amber-100">{g.name}</div>
-                      <div className="mt-0.5 text-[10px] leading-snug text-[#7d7057]">{g.hint}</div>
+                      <div className="mt-0.5 text-[10px] leading-snug text-[var(--ink-faint)]">{g.hint}</div>
                     </button>
                   ))}
                 </div>
@@ -2766,7 +2766,7 @@ export default function Page() {
             {selectedMode === "the_burh" || selectedMode === "tournament_moot" ? (
               <div className="card flex items-center gap-3 px-4 py-3">
                 <span className="cabochon" />
-                <span className="text-[11px] leading-relaxed text-[#a89a7c]">
+                <span className="text-[11px] leading-relaxed text-[var(--ink-dim)]">
                   {selectedMode === "the_burh"
                     ? "One stand: waves of the here until the whole party is down at once."
                     : "The bracket is the format: duels of one fall each, win and advance, one champion."}
@@ -2775,7 +2775,7 @@ export default function Page() {
             ) : (
               <div className="card flex flex-col gap-3 p-4">
                 <RoundPicker value={bestOf} onChange={setBestOf} />
-                <p className="text-[11px] leading-relaxed text-[#a89a7c]">{roundsBlurb(bestOf, selectedMode)}</p>
+                <p className="text-[11px] leading-relaxed text-[var(--ink-dim)]">{roundsBlurb(bestOf, selectedMode)}</p>
               </div>
             )}
           </section>
@@ -2803,7 +2803,7 @@ export default function Page() {
               <div className="font-display mb-2 flex items-center justify-center gap-2 text-sm tracking-widest text-amber-300">
                 <Swords size={15} /> YOU ARE SUMMONED <Swords size={15} />
               </div>
-              <p className="text-sm leading-relaxed text-[#d9cdb2]">
+              <p className="text-sm leading-relaxed text-[var(--ink)]">
                 A friend invites you to <span className="font-mono font-bold text-amber-300">{inviteCode}</span>.<br />
                 Enter your name, grab your blade, and tap JOIN.
               </p>
@@ -2837,7 +2837,7 @@ export default function Page() {
             <button data-snd="confirm" onClick={handleJoin} disabled={busy} className="btn-primary w-full !min-h-[3.75rem] !text-lg">
               {busy ? "ANSWERING..." : "JOIN"}
             </button>
-            <p className="text-center text-xs leading-relaxed text-[#a89a7c]">
+            <p className="text-center text-xs leading-relaxed text-[var(--ink-dim)]">
               Sent a link instead? Open it — the code fills itself in.
             </p>
           </div>
@@ -2861,7 +2861,7 @@ export default function Page() {
                   <Crosshair size={18} className="shrink-0 text-emerald-400" />
                   <h2 className="font-display tracking-wider text-emerald-200 sm:text-lg">TESTGROUNDS — FIGHT THE AI</h2>
                 </div>
-                <p className="text-[13px] leading-relaxed text-[#d9cdb2]/90">
+                <p className="text-[13px] leading-relaxed text-[var(--ink)]/90">
                   Sharpen your skills alone against AI warriors. Enemies respawn — fight until you return stronger.
                 </p>
               </div>
@@ -2871,7 +2871,7 @@ export default function Page() {
                   className="btn-primary w-full whitespace-nowrap !min-h-[3.5rem] !px-3 !text-[13px] sm:!text-[0.95rem]">
                   <Users size={17} className="shrink-0" /> MUSTER THE TESTGROUNDS
                 </button>
-                <p className="mt-2.5 text-center text-[11px] leading-relaxed text-[#a89a7c]">
+                <p className="mt-2.5 text-center text-[11px] leading-relaxed text-[var(--ink-dim)]">
                   Choose how many AI you face and how good they are, pick your warrior,
                   dress him in the armoury — then draw steel when you are ready.
                 </p>
@@ -2884,10 +2884,10 @@ export default function Page() {
                   <button key={d.id} onClick={() => quickSpar(d)} disabled={busy}
                     className={`card card-interactive flex w-full items-center gap-3 border-l-4 p-4 text-left ${d.tint}`}>
                     <div className="min-w-0 flex-1">
-                      <div className="font-display tracking-wider text-[#f3ecdc]">{d.name}</div>
-                      <div className="mt-1 text-[11px] leading-snug text-[#a89a7c]">{d.bots} AI · {d.desc}</div>
+                      <div className="font-display tracking-wider text-[var(--ink-bright)]">{d.name}</div>
+                      <div className="mt-1 text-[11px] leading-snug text-[var(--ink-dim)]">{d.bots} AI · {d.desc}</div>
                     </div>
-                    <Swords size={16} className="shrink-0 text-[#a89a7c]" />
+                    <Swords size={16} className="shrink-0 text-[var(--ink-dim)]" />
                   </button>
                 ))}
               </div>
@@ -2947,9 +2947,9 @@ export default function Page() {
                   return (
                     <div key={w.id} className="border-b border-stone-100/10 py-3 last:border-0 last:pb-0 first:pt-0">
                       <div className="flex items-center gap-2 text-sm font-bold text-amber-200"><w.Icon size={14} className="shrink-0" /> {w.name}</div>
-                      <div className="mt-1 text-xs leading-snug text-[#a89a7c]">{w.desc}</div>
+                      <div className="mt-1 text-xs leading-snug text-[var(--ink-dim)]">{w.desc}</div>
                       <div className="mt-1.5 text-[10px] font-bold tracking-[0.15em] text-purple-300">ABILITY — {s.ability}</div>
-                      <div className="mt-0.5 text-[11px] leading-snug text-[#b6a888]">{ABILITY_LORE[w.id]}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-[var(--ink-soft)]">{ABILITY_LORE[w.id]}</div>
                     </div>
                   );
                 })}
@@ -2987,8 +2987,8 @@ export default function Page() {
             <div className="card flex flex-col gap-5 p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-[12rem] flex-1">
-                  <div className="text-sm font-bold text-[#f3ecdc]">HOW MANY</div>
-                  <div className="mt-1 text-[11px] leading-snug text-[#a89a7c]">
+                  <div className="text-sm font-bold text-[var(--ink-bright)]">HOW MANY</div>
+                  <div className="mt-1 text-[11px] leading-snug text-[var(--ink-dim)]">
                     {soloBots === 0
                       ? "An empty ring — walk, swing and roll with nobody swinging back."
                       : "They respawn where they fell — the trial ends when you leave it."}
@@ -3011,15 +3011,15 @@ export default function Page() {
 
               <div className="flex flex-col gap-3">
                 <div>
-                  <div className="text-sm font-bold text-[#f3ecdc]">HOW GOOD</div>
-                  <div className="mt-1 text-[11px] text-[#a89a7c]">Every AI in the ring fights at this skill.</div>
+                  <div className="text-sm font-bold text-[var(--ink-bright)]">HOW GOOD</div>
+                  <div className="mt-1 text-[11px] text-[var(--ink-dim)]">Every AI in the ring fights at this skill.</div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {AI_DIFFICULTIES.map((d) => (
                     <button key={d.id} onClick={() => setSoloDifficulty(d.id)}
                       className={`card card-interactive border-l-4 p-3.5 text-left ${d.tint} ${soloDifficulty === d.id ? "card-selected" : ""}`}>
-                      <div className="font-display text-sm tracking-wider text-[#f3ecdc]">{d.name}</div>
-                      <div className="mt-1 text-[10px] leading-snug text-[#a89a7c]">{d.desc}</div>
+                      <div className="font-display text-sm tracking-wider text-[var(--ink-bright)]">{d.name}</div>
+                      <div className="mt-1 text-[10px] leading-snug text-[var(--ink-dim)]">{d.desc}</div>
                     </button>
                   ))}
                 </div>
@@ -3038,7 +3038,7 @@ export default function Page() {
                 <ArrowLeft size={18} />
               </button>
             </div>
-            <p className="text-center text-xs text-[#a89a7c]">
+            <p className="text-center text-xs text-[var(--ink-dim)]">
               {soloBots} {soloBots === 1 ? "AI warrior" : "AI warriors"} at {soloDifficulty} skill,
               against your <span className="font-bold capitalize text-amber-300">{soloClass}</span>.
             </p>
@@ -3071,8 +3071,8 @@ export default function Page() {
                   from the stock medal — the picker below is where it is won. */}
               <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-[rgba(217,164,65,0.7)] bg-[radial-gradient(circle_at_50%_24%,rgba(96,78,54,0.85),rgba(16,12,9,0.94)_72%)] shadow-[inset_0_1px_2px_rgba(246,221,160,0.22),0_0_45px_rgba(217,164,65,0.18)]">
                 {myMark !== "none"
-                  ? <MarkGlyph id={myMark} size={44} className="text-[#f6dda0]" />
-                  : <Medal size={40} className="text-[#f6dda0]" />}
+                  ? <MarkGlyph id={myMark} size={44} className="text-[var(--gilt-lit)]" />
+                  : <Medal size={40} className="text-[var(--gilt-lit)]" />}
               </div>
               <div className="screen-head screen-head-center">
                 <h1>{playerName || "Unnamed Warrior"}</h1>
@@ -3080,7 +3080,7 @@ export default function Page() {
               <div className="knot-band w-full max-w-[11rem]" />
               <div>
                 <div className="label-overline">{getLevelTitle(profile.level)}</div>
-                <div className="mt-1.5 text-xs text-[#7d7057]">Level {profile.level}</div>
+                <div className="mt-1.5 text-xs text-[var(--ink-faint)]">Level {profile.level}</div>
               </div>
 
               {/* XP SITS WITH THE LEVEL IT FEEDS. It used to be the first thing
@@ -3095,7 +3095,7 @@ export default function Page() {
                   <div className="h-full rounded-full bg-[linear-gradient(180deg,rgba(255,236,190,0.45),rgba(255,236,190,0)_46%),linear-gradient(180deg,#c9761d,#8a4408)] shadow-[inset_0_1px_0_rgba(255,240,200,0.45)] transition-[width]"
                     style={{ width: `${Math.min(100, (profile.xp / xpForLevel(profile.level + 1)) * 100)}%` }} />
                 </div>
-                <div className="flex justify-between text-[11px] text-[#7d7057]">
+                <div className="flex justify-between text-[11px] text-[var(--ink-faint)]">
                   <span className="tabular-nums">{profile.xp} XP</span>
                   <span className="tabular-nums">{xpForLevel(profile.level + 1)} to rise</span>
                 </div>
@@ -3124,7 +3124,7 @@ export default function Page() {
               <ProfStat Icon={Skull} val={profile.kills} label="Kills" tone="blood" />
               <ProfStat Icon={Heart} val={profile.deaths} label="Deaths" tone="blood" />
             </div>
-            <div className="text-center text-xs leading-relaxed text-[#7d7057]">
+            <div className="text-center text-xs leading-relaxed text-[var(--ink-faint)]">
               K/D <span className="tabular-nums">{profile.deaths > 0 ? (profile.kills / profile.deaths).toFixed(2) : profile.kills}</span> · Win rate <span className="tabular-nums">{profile.matches > 0 ? Math.round((profile.wins / profile.matches) * 100) : 0}%</span> · <span className="tabular-nums">{profile.unlocked.length - freeCosmeticIds().length}</span> unlocks earned
             </div>
           </div>
@@ -3171,12 +3171,12 @@ export default function Page() {
                           : earned ? "hover:!border-amber-700/60" : "opacity-55 hover:opacity-80"
                     }`}>
                     {m.d
-                      ? <MarkGlyph id={m.id} size={24} className={chosen ? "text-amber-200" : earned ? "text-[#d9cdb2]" : "text-[#7d7057]"} />
-                      : <span className={`inline-block h-6 w-6 rounded-full border border-dashed ${chosen ? "border-amber-300" : "border-[#7d7057]"}`} />}
+                      ? <MarkGlyph id={m.id} size={24} className={chosen ? "text-amber-200" : earned ? "text-[var(--ink)]" : "text-[var(--ink-faint)]"} />
+                      : <span className={`inline-block h-6 w-6 rounded-full border border-dashed ${chosen ? "border-amber-300" : "border-[var(--ink-faint)]"}`} />}
                     <span className={`text-[8px] font-bold uppercase leading-tight tracking-[0.08em] ${
-                      earned ? "text-[#a89a7c]" : "text-[#7d7057]"
+                      earned ? "text-[var(--ink-dim)]" : "text-[var(--ink-faint)]"
                     }`}>{earned ? m.name : markHint(m)}</span>
-                    {!earned && <Lock size={9} className="absolute right-1 top-1 text-[#7d7057]" />}
+                    {!earned && <Lock size={9} className="absolute right-1 top-1 text-[var(--ink-faint)]" />}
                     {chosen && <Check size={10} className="absolute right-1 top-1 text-amber-300" />}
                     {/* The durable half of the herald. The banner is 3.2 seconds
                         and a player who was mid-fight when the rule fell never
@@ -3201,18 +3201,18 @@ export default function Page() {
                   {markOf(markPeek).name}
                 </div>
                 <div className={`mt-1 text-[11px] font-bold uppercase tracking-[0.08em] ${
-                  markEarned(markOf(markPeek), markFacts) ? "text-[#a89a7c]" : "text-[#7d7057]"
+                  markEarned(markOf(markPeek), markFacts) ? "text-[var(--ink-dim)]" : "text-[var(--ink-faint)]"
                 }`}>
                   {markEarned(markOf(markPeek), markFacts)
                     ? markWon(markOf(markPeek))
                     : `Locked — ${markHint(markOf(markPeek)).replace(/\.$/, "")}.`}
                 </div>
-                <div className="mt-1.5 text-[11px] leading-relaxed text-[#7d7057]">
+                <div className="mt-1.5 text-[11px] leading-relaxed text-[var(--ink-faint)]">
                   {markOf(markPeek).source}
                 </div>
               </div>
             ) : (
-              <div className="text-center text-[11px] leading-relaxed text-[#7d7057]">
+              <div className="text-center text-[11px] leading-relaxed text-[var(--ink-faint)]">
                 Worn beside your name in every lobby and ledger. Press a mark to
                 see what it is and what it costs — every device is a real find of
                 the age, or honestly called an invention.
@@ -3229,7 +3229,7 @@ export default function Page() {
 
           <Section title="SOUND" icon={<Volume2 size={15} />}>
             <div className="flex items-center justify-between gap-4">
-              <div className="text-xs leading-relaxed text-[#a89a7c]">
+              <div className="text-xs leading-relaxed text-[var(--ink-dim)]">
                 {muted
                   ? "The hall is silent. Nothing in this game is told by sound alone."
                   : "Struck metal and low wood, forged as you play."}
@@ -3349,14 +3349,14 @@ function WarriorPanel({ warriorClass, appearance, name, note, onCustomise, stack
       <div className={`flex min-w-0 flex-1 flex-col items-center gap-2 text-center ${col}`}>
         <div className="label-overline">YOUR WARRIOR</div>
         <div className="font-display truncate text-2xl text-amber-100">{name}</div>
-        <div className="text-sm capitalize text-[#d9cdb2]">{warriorClass}</div>
+        <div className="text-sm capitalize text-[var(--ink)]">{warriorClass}</div>
         <div className="text-[10px] font-bold tracking-[0.15em] text-purple-300">
           ABILITY — {WARRIOR_STATS[warriorClass].ability}
         </div>
-        <div className="max-w-[30ch] text-[11px] leading-snug text-[#b6a888]">
+        <div className="max-w-[30ch] text-[11px] leading-snug text-[var(--ink-soft)]">
           {ABILITY_LORE[warriorClass]}
         </div>
-        <p className="mt-1 text-xs leading-relaxed text-[#a89a7c]">{note}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--ink-dim)]">{note}</p>
         <button onClick={onCustomise} className="btn-primary mt-2 !min-h-[2.75rem] !px-5 !text-sm">
           <Shirt size={15} /> CUSTOMISE
         </button>
@@ -3418,7 +3418,7 @@ function TheKeep({ link, code, onRestore, onSay }: {
       </h2>
 
       {link === "reaching" && (
-        <div className="card animate-pulse px-4 py-5 text-center text-[13px] text-[#a89a7c]">
+        <div className="card animate-pulse px-4 py-5 text-center text-[13px] text-[var(--ink-dim)]">
           Reaching the war rolls…
         </div>
       )}
@@ -3426,10 +3426,10 @@ function TheKeep({ link, code, onRestore, onSay }: {
       {link === "local" && (
         <div className="card flex flex-col gap-2.5 p-4 sm:p-5">
           <div className="flex items-center gap-2.5">
-            <CloudOff size={16} className="shrink-0 text-[#a89a7c]" />
+            <CloudOff size={16} className="shrink-0 text-[var(--ink-dim)]" />
             <span className="badge-stone">KEPT ON THIS DEVICE</span>
           </div>
-          <p className="text-[13px] leading-relaxed text-[#d9cdb2]/90">
+          <p className="text-[13px] leading-relaxed text-[var(--ink)]/90">
             No war rolls are being kept today. Your gold, your kit and your record live in
             this browser alone — clear it, or change phone, and they are gone. There is
             nothing to write down, and nothing you can do about it from here.
@@ -3454,7 +3454,7 @@ function TheKeep({ link, code, onRestore, onSay }: {
           <button onClick={copy} className="btn-primary w-full !min-h-[3.25rem]">
             {copied ? <Check size={17} /> : <Copy size={17} />}{copied ? "WORDS COPIED!" : "COPY THE WORDS"}
           </button>
-          <p className="text-[11px] leading-relaxed text-[#a89a7c]">
+          <p className="text-[11px] leading-relaxed text-[var(--ink-dim)]">
             Say them, screenshot them, or send them to yourself. Anyone who types these four
             words becomes you — gold, kit and all — so keep them the way you would keep a key.
           </p>
@@ -3478,7 +3478,7 @@ function TheKeep({ link, code, onRestore, onSay }: {
               className="input-frame text-center"
             />
             {refusal && <p className="text-center text-[12px] font-bold text-red-300">{refusal}</p>}
-            <p className="text-[11px] leading-relaxed text-[#a89a7c]">
+            <p className="text-[11px] leading-relaxed text-[var(--ink-dim)]">
               Capitals, hyphens and typos are forgiven. This device becomes that warrior, and
               the one you left behind is signed out.
             </p>
@@ -3540,7 +3540,7 @@ function ClassGrid({ selected, onSelect, compact }: {
             className={`card card-interactive flex flex-col p-3.5 text-left sm:p-4 ${isSel ? "card-selected" : ""}`}>
             <div className={`medallion mb-3 ${isSel ? "!border-amber-500 !text-amber-300" : ""}`}><WIcon size={17} /></div>
             <div className="font-display text-sm tracking-wider text-amber-100">{w.name}</div>
-            <div className="mt-1 text-[10px] leading-snug text-[#a89a7c]">{w.desc}</div>
+            <div className="mt-1 text-[10px] leading-snug text-[var(--ink-dim)]">{w.desc}</div>
             {/*
               FOUR BARS, NO CEILINGS TYPED IN. Every maximum is `Math.max` over
               the roster being drawn (`cardBars`), so the leader on each axis
@@ -3558,7 +3558,7 @@ function ClassGrid({ selected, onSelect, compact }: {
               ))}
             </div>
             <div className="mt-3 text-[9px] font-bold tracking-[0.15em] text-purple-300">{stats.ability}</div>
-            <div className="mt-1 text-[10px] leading-snug text-[#a89a7c]">{ABILITY_LORE[w.id]}</div>
+            <div className="mt-1 text-[10px] leading-snug text-[var(--ink-dim)]">{ABILITY_LORE[w.id]}</div>
           </button>
         );
       })}
@@ -3617,17 +3617,17 @@ function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; pl
   const round = roomState.roundIndex || 1;
   // The break card is already headed with the round; repeating it inside the
   // tally reads as two different numbers rather than one.
-  const counter = noRound ? null : <span className="text-[#7d7057]">ROUND {round}/{roomState.bestOf}</span>;
+  const counter = noRound ? null : <span className="text-[var(--ink-faint)]">ROUND {round}/{roomState.bestOf}</span>;
 
   if (roomState.roundScoreBy === "team") {
     const mine = roomState.players[playerId]?.team;
     return (
       <div className="round-hud">
-        <span className={mine === "red" ? "text-amber-200" : "text-[#a89a7c]"}>RED</span>
+        <span className={mine === "red" ? "text-amber-200" : "text-[var(--ink-dim)]"}>RED</span>
         <Pips won={wins.red || 0} of={of} />
-        {counter ?? <span className="text-[#5b5140]">·</span>}
+        {counter ?? <span className="text-[var(--ink-ghost)]">·</span>}
         <Pips won={wins.blue || 0} of={of} blue />
-        <span className={mine === "blue" ? "text-amber-200" : "text-[#a89a7c]"}>BLUE</span>
+        <span className={mine === "blue" ? "text-amber-200" : "text-[var(--ink-dim)]"}>BLUE</span>
       </div>
     );
   }
@@ -3642,8 +3642,8 @@ function RoundTally({ roomState, playerId, noRound }: { roomState: RoomState; pl
       <Pips won={wins[playerId] || 0} of={of} />
       {leadName && (
         <>
-          <span className="text-[#5b5140]">·</span>
-          <span className="max-w-[6rem] truncate text-[#a89a7c]">{leadName}</span>
+          <span className="text-[var(--ink-ghost)]">·</span>
+          <span className="max-w-[6rem] truncate text-[var(--ink-dim)]">{leadName}</span>
           <Pips won={lead[1]} of={of} />
         </>
       )}
@@ -3807,7 +3807,7 @@ function BracketCard({ stages, names }: { stages: BracketMatch[][]; names: Recor
     <div data-bracket className="flex w-full items-stretch gap-2 text-left sm:gap-3">
       {stages.map((st, s) => (
         <div key={s} className="flex min-w-0 flex-1 flex-col">
-          <div className="label-overline mb-1.5 text-center !text-[9px] text-[#a89a7c]">{label(s)}</div>
+          <div className="label-overline mb-1.5 text-center !text-[9px] text-[var(--ink-dim)]">{label(s)}</div>
           <div className="flex flex-1 flex-col justify-around gap-2">
             {st.map((m, i) => {
               const isNext = m === next;
@@ -3822,10 +3822,10 @@ function BracketCard({ stages, names }: { stages: BracketMatch[][]; names: Recor
                 const empty = s === 0 ? "bye" : "to come";
                 return (
                   <div className={`flex min-w-0 items-center gap-1.5 px-2 py-1 text-[12px] leading-tight sm:text-[13px] ${
-                    winner ? "font-bold text-amber-300" : beaten ? "text-[#7d7057]" : n === null ? "italic text-[#7d7057]" : "text-[#d9cdb2]"
+                    winner ? "font-bold text-amber-300" : beaten ? "text-[var(--ink-faint)]" : n === null ? "italic text-[var(--ink-faint)]" : "text-[var(--ink)]"
                   }`}>
                     {winner && <Crown size={11} className="shrink-0 text-amber-400" />}
-                    <span className={`truncate ${beaten ? "line-through decoration-[#7d7057]/60" : ""}`}>{n ?? empty}</span>
+                    <span className={`truncate ${beaten ? "line-through decoration-[var(--ink-faint)]/60" : ""}`}>{n ?? empty}</span>
                   </div>
                 );
               };
@@ -3940,7 +3940,7 @@ function RoundBreak({ roomState, playerId, onEmote }: { roomState: RoomState; pl
         {tourney && roomState.bracket
           ? <BracketCard stages={roomState.bracket} names={roomState.bracketNames ?? {}} />
           : <RoundTally roomState={roomState} playerId={playerId} noRound />}
-        <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-[#a89a7c]">
+        <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-[var(--ink-dim)]">
           <Hourglass size={12} className="text-amber-400" />
           {tourney ? `THE NEXT DUEL IN ${left}` : `NEXT ROUND IN ${left}`}
         </div>
@@ -4008,8 +4008,8 @@ function GroundLine({ territory, friendly, arena, humans }: {
   if (friendly) {
     return (
       <div className="mt-2 flex flex-col items-center gap-0.5" data-ground="friendly">
-        <div className="label-overline !text-[9px] text-[#a89a7c]">A FRIENDLY MOOT{arena && ARENA_NAME[arena] ? ` AT ${ARENA_NAME[arena].toUpperCase()}` : ""}</div>
-        <div className="text-[10px] text-[#7d7057]">nothing at stake but pride — kits worn as bought</div>
+        <div className="label-overline !text-[9px] text-[var(--ink-dim)]">A FRIENDLY MOOT{arena && ARENA_NAME[arena] ? ` AT ${ARENA_NAME[arena].toUpperCase()}` : ""}</div>
+        <div className="text-[10px] text-[var(--ink-faint)]">nothing at stake but pride — kits worn as bought</div>
       </div>
     );
   }
@@ -4024,9 +4024,9 @@ function GroundLine({ territory, friendly, arena, humans }: {
     <div className="mt-2 flex flex-col items-center gap-0.5" data-ground={territory.name}>
       <div className="label-overline !text-[9px] text-amber-400/70">FOUGHT OVER</div>
       <div className="font-display text-sm tracking-[0.18em] text-amber-200">{territory.name.toUpperCase()}</div>
-      {held && <div className="text-[10px] text-[#a89a7c]">{held} hold it</div>}
+      {held && <div className="text-[10px] text-[var(--ink-dim)]">{held} hold it</div>}
       {practice && (
-        <div className="text-[10px] text-[#7d7057]">
+        <div className="text-[10px] text-[var(--ink-faint)]">
           the war watches men, not bots — invite a second warrior to make it count
         </div>
       )}
@@ -4253,7 +4253,7 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
               and the purse to its right, so it is the column that most needs
               saying out loud. Outside the scroller so it does not slide away
               under an eight-man moot. */}
-          <div className="flex items-center gap-2.5 border-b border-amber-900/40 px-2.5 pb-1 text-[8px] font-bold uppercase leading-none tracking-[0.16em] text-[#7d7057]">
+          <div className="flex items-center gap-2.5 border-b border-amber-900/40 px-2.5 pb-1 text-[8px] font-bold uppercase leading-none tracking-[0.16em] text-[var(--ink-faint)]">
             <div className="w-6 shrink-0">#</div>
             <div className="min-w-0 flex-1">WARRIOR</div>
             <div className="w-7 shrink-0 text-center">RNDS</div>
@@ -4276,21 +4276,21 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
                     when two men are level on rounds AND on kills: both are #1,
                     both are paid the same, and the table says so rather than
                     picking one of them out of the room's join order. */}
-                <div className="font-display w-6 shrink-0 text-lg leading-none text-[#7d7057]">#{r.place}</div>
+                <div className="font-display w-6 shrink-0 text-lg leading-none text-[var(--ink-faint)]">#{r.place}</div>
                 <div className="min-w-0 flex-1">
-                  <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-[#f3ecdc]"}`}>
+                  <div className={`flex items-center gap-1.5 text-[13px] font-bold leading-tight ${r.isWinner ? "text-amber-200" : "text-[var(--ink-bright)]"}`}>
                     <span className="truncate">{r.name}</span>
                     <MarkGlyph id={marks?.[r.id]} size={12} className="text-amber-300/90" />
                     <StandardGlyph people={standards?.[r.id]?.people} id={standards?.[r.id]?.standard} size={12} className="text-[#f0e4c8]/90" />
                     {r.isWinner && <Crown size={12} className="shrink-0 text-amber-400" />}
                   </div>
-                  <div className="text-[10px] leading-tight text-[#a89a7c]">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
+                  <div className="text-[10px] leading-tight text-[var(--ink-dim)]">{r.kills}K / {r.deaths}D · {Math.round(r.damage)} dmg</div>
                 </div>
                 {/* Gilt when he won any, and dead stone when he won none — the
                     column has to read at a glance as the reason the row is where
                     it is, which is the whole of what the owner asked for. */}
                 <div className={`font-display w-7 shrink-0 text-center text-base leading-none ${
-                  r.roundsWon > 0 ? "text-amber-300" : "text-[#5b5140]"
+                  r.roundsWon > 0 ? "text-amber-300" : "text-[var(--ink-ghost)]"
                 }`}>{r.roundsWon}</div>
                 <div className="w-16 shrink-0 text-right text-[11px] font-bold leading-tight">
                   <div className="text-amber-300">+{r.xpEarned} XP</div>
@@ -4307,7 +4307,7 @@ function MatchSummary({ data, playerId, payState, waiting, war, marks, standards
               </div>
             )}
             {payState === "asking" && (
-              <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-[#a89a7c]">WEIGHING THE PAY…</div>
+              <div className="animate-pulse px-2.5 py-1 text-[10px] tracking-[0.18em] text-[var(--ink-dim)]">WEIGHING THE PAY…</div>
             )}
           </div>
         </div>
@@ -4400,20 +4400,20 @@ function MatchTally({ data, playerId }: { data: MatchEndData; playerId: string }
   if (data.roundScoreBy === "team") {
     return (
       <div className="round-hud">
-        <span className={data.winnerTeam === "red" ? "text-amber-200" : "text-[#a89a7c]"}>RED</span>
+        <span className={data.winnerTeam === "red" ? "text-amber-200" : "text-[var(--ink-dim)]"}>RED</span>
         <Pips won={wins.red || 0} of={of} />
-        <span className="text-[#7d7057]">BEST OF {data.bestOf}</span>
+        <span className="text-[var(--ink-faint)]">BEST OF {data.bestOf}</span>
         <Pips won={wins.blue || 0} of={of} blue />
-        <span className={data.winnerTeam === "blue" ? "text-amber-200" : "text-[#a89a7c]"}>BLUE</span>
+        <span className={data.winnerTeam === "blue" ? "text-amber-200" : "text-[var(--ink-dim)]"}>BLUE</span>
       </div>
     );
   }
   return (
     <div className="round-hud">
-      <span className="text-[#7d7057]">BEST OF {data.bestOf}</span>
+      <span className="text-[var(--ink-faint)]">BEST OF {data.bestOf}</span>
       <span className="text-amber-200">YOUR ROUNDS</span>
       <Pips won={wins[playerId] || 0} of={of} />
-      <span className="text-[#7d7057]">· {data.roundsPlayed} FOUGHT</span>
+      <span className="text-[var(--ink-faint)]">· {data.roundsPlayed} FOUGHT</span>
     </div>
   );
 }
@@ -4422,7 +4422,7 @@ function LandingStat({ value, label, cls = "text-amber-100" }: { value: React.Re
   return (
     <div className="min-w-0 px-1 text-center">
       <div className={`font-display text-sm ${cls}`}>{value}</div>
-      <div className="truncate text-[9px] uppercase tracking-[0.16em] text-[#7d7057]">{label}</div>
+      <div className="truncate text-[9px] uppercase tracking-[0.16em] text-[var(--ink-faint)]">{label}</div>
     </div>
   );
 }
@@ -4452,7 +4452,7 @@ function LinkPill({ mode }: { mode: "ws" | "http" | null }) {
 function StatBar({ label, frac, text, cls }: { label: string; frac: number; text: string; cls: string }) {
   return (
     <div className="flex items-center gap-1.5" title={`${label} — ${text}`}>
-      <span className="text-[8px] text-[#7d7057] w-6 font-bold">{label}</span>
+      <span className="text-[8px] text-[var(--ink-faint)] w-6 font-bold">{label}</span>
       <div className="flex-1 h-1.5 bg-stone-700/80 rounded-full overflow-hidden"
         role="img" aria-label={`${label}, ${text}`}>
         <div className={`h-full ${cls} rounded-full`} style={{ width: `${frac * 100}%` }} />
@@ -4586,7 +4586,7 @@ function TourGuide({ onDone }: { onDone: () => void }) {
             THE HALL · {stop.at + 1} OF {stop.total}
           </div>
           <div className="font-display mt-1.5 text-lg tracking-[0.14em] text-amber-100">{stop.title}</div>
-          <p className="mt-2 text-[12px] leading-relaxed text-[#d9cdb2]">{stop.line}</p>
+          <p className="mt-2 text-[12px] leading-relaxed text-[var(--ink)]">{stop.line}</p>
           <div className="mt-3.5 flex gap-2">
             <button onClick={() => advance(true)} data-snd="back"
               className="btn-ghost flex-1 !min-h-[2.75rem] !text-[11px]">I&apos;LL LOOK MYSELF</button>
@@ -4618,7 +4618,7 @@ function SoundToggle({ muted, onToggle, className = "", style }: {
       title={muted ? "Sound off — tap for sound" : "Sound on — tap to silence"}
       className={`flex h-11 w-11 items-center justify-center rounded-lg border backdrop-blur transition ${
         muted
-          ? "border-stone-600 bg-stone-900/90 text-[#7d7057] hover:text-[#d9cdb2]"
+          ? "border-stone-600 bg-stone-900/90 text-[var(--ink-faint)] hover:text-[var(--ink)]"
           : "border-amber-700/70 bg-stone-900/90 text-amber-400 hover:border-amber-500 hover:text-amber-300"
       } ${className}`}
     >
@@ -4648,7 +4648,7 @@ function CtrlRow({ k, d }: { k: string; d: string }) {
   return (
     <div className="ctrl-row">
       <span className="kbd">{k}</span>
-      <span className="text-[13px] text-[#d9cdb2]/90 leading-snug">{d}</span>
+      <span className="text-[13px] text-[var(--ink)]/90 leading-snug">{d}</span>
     </div>
   );
 }
@@ -4662,7 +4662,7 @@ function Tip({ text }: { text: string }) {
  *
  * `tone` is THREE VALUES AND NOT SIX FREE COLOURS, and the difference is the
  * whole point. This grid used to be `text-yellow-400`, `text-purple-400`,
- * `text-emerald-400`, `text-white`, `text-red-400` and `text-[#a89a7c]` — six
+ * `text-emerald-400`, `text-white`, `text-red-400` and `text-[var(--ink-dim)]` — six
  * hues, one per tile, none of them from the game's palette: yellow-400 is not
  * gilt and red-400 is not garnet. `globals.css` sets the rule ("three metals and
  * one stone, and no fourth accent hue anywhere in the menus") and this one
@@ -4679,13 +4679,13 @@ function Tip({ text }: { text: string }) {
 function ProfStat({ Icon, val, label, tone }: {
   Icon: typeof Swords; val: number; label: string; tone: "won" | "blood" | "tally";
 }) {
-  const ink = tone === "won" ? "text-[#f6dda0]" : tone === "blood" ? "text-[#c8323c]" : "text-[#ddd3bd]";
+  const ink = tone === "won" ? "text-[var(--gilt-lit)]" : tone === "blood" ? "text-[var(--garnet-lit)]" : "text-[#ddd3bd]";
   return (
     <div className="card flex flex-col items-center gap-1 px-2 py-4 text-center">
       <div className={`flex items-center justify-center gap-1.5 text-xl font-bold tabular-nums ${ink}`}>
         <Icon size={15} className="opacity-80" />{val}
       </div>
-      <div className="text-[10px] tracking-wide text-[#a89a7c]">{label}</div>
+      <div className="text-[10px] tracking-wide text-[var(--ink-dim)]">{label}</div>
     </div>
   );
 }
@@ -4747,7 +4747,7 @@ function useCosmeticThumb(spec: Parameters<typeof requestThumb>[0]): string | nu
  * calls "a season's goal rather than a purchase". It gets a setting to match.
  */
 function costTier(cost: number): { ring: string; label: string; labelCls: string } {
-  if (cost === 0) return { ring: "border-stone-100/12", label: "FREE", labelCls: "text-[#a89a7c]" };
+  if (cost === 0) return { ring: "border-stone-100/12", label: "FREE", labelCls: "text-[var(--ink-dim)]" };
   if (cost < 100) return { ring: "border-stone-100/15", label: "", labelCls: "" };
   if (cost < 400) return { ring: "border-amber-800/50", label: "", labelCls: "" };
   if (cost < 1000) return { ring: "border-amber-600/60", label: "WAR-GEAR", labelCls: "text-amber-500/90" };
@@ -4840,12 +4840,12 @@ function CosmeticCard({
             EQUIPPED
           </span>
         ) : owned ? (
-          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-[#d9cdb2]">
+          <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.12em] text-[var(--ink)]">
             OWNED
           </span>
         ) : null}
         {!owned && !affordable && (
-          <span className="absolute right-1 top-1 rounded bg-black/75 p-1 text-[#a89a7c]">
+          <span className="absolute right-1 top-1 rounded bg-black/75 p-1 text-[var(--ink-dim)]">
             <Lock size={10} />
           </span>
         )}
@@ -4854,12 +4854,12 @@ function CosmeticCard({
       {/* THE FACTS. Name, price, and what it is — a card that says only
           "Owned — tap to preview" tells a player nothing he can spend on. */}
       <div className="flex min-h-[4.25rem] flex-1 flex-col gap-1 p-2">
-        <div className="line-clamp-2 text-[11.5px] font-bold leading-tight text-[#f3ecdc]">{opt.label}</div>
+        <div className="line-clamp-2 text-[11.5px] font-bold leading-tight text-[var(--ink-bright)]">{opt.label}</div>
         <div className="mt-auto flex items-center justify-between gap-1">
           {owned ? (
             <span className="text-[9.5px] font-bold tracking-[0.1em] text-emerald-400/90">IN YOUR KIT</span>
           ) : (
-            <span className={`flex items-center gap-1 text-[11px] font-bold ${affordable ? "text-yellow-400" : "text-[#7d7057]"}`}>
+            <span className={`flex items-center gap-1 text-[11px] font-bold ${affordable ? "text-yellow-400" : "text-[var(--ink-faint)]"}`}>
               <Coins size={11} /> {opt.cost}
             </span>
           )}
@@ -4880,7 +4880,7 @@ function StagedBill({ cost, gold, buying, onBuy, onClear }: {
   return (
     <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[10px] tracking-widest text-[#a89a7c]">COST TO UNLOCK</div>
+        <div className="text-[10px] tracking-widest text-[var(--ink-dim)]">COST TO UNLOCK</div>
         <div className={`flex items-center gap-1.5 text-lg font-bold ${gold >= cost ? "text-yellow-400" : "text-red-400"}`}>
           <Coins size={14} /> {cost}
         </div>

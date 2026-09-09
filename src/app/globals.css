@@ -43,6 +43,39 @@
     --garnet: #7c1420;
     --garnet-lit: #c8323c;
 
+    /* THE TYPE RAMP — six steps of limewashed bone, and the reason the design
+       system reads as ignored.
+
+       Counted across the two largest interface files, page.tsx and
+       GameHud.tsx: 178 raw hex literals against 3 var() uses. That looks like
+       a discipline problem and it is not one. Of those 178, 133 are these six
+       values — and not one of them had ever been DECLARED. The token block
+       covered faction fields, the two metals and fifteen thumb pads; the
+       workaday ink that carries almost every word in the interface had no
+       name, so there was nothing to reach for and a literal was the only
+       thing anybody could write. (The remainder is mostly #f6dda0, which is
+       --gilt-lit spelled out by hand, and that one IS the discipline problem.)
+
+       Named by ROLE and not by material, because a ramp's whole job is to
+       carry hierarchy — a screen has to answer "what matters here" before it
+       answers "what colour is this". The material story is the one this file
+       already tells about nameplates: limewash over bone, and the ink's top
+       end kept short of white so the fall down a letter has somewhere to go.
+
+       Ordered, so a step up or down is one edit and always legible:
+         bright  headings and the emphasised word inside a line
+         (base)  body copy
+         soft    supporting copy that still has to be read easily
+         dim     the interface's most common voice — labels, units, captions
+         faint   present but receded: hints, disabled, secondary metadata
+         ghost   structural traces; the quietest thing that is still ink */
+    --ink-bright: #f3ecdc;
+    --ink: #d9cdb2;
+    --ink-soft: #b6a888;
+    --ink-dim: #a89a7c;
+    --ink-faint: #7d7057;
+    --ink-ghost: #5b5140;
+
     /* Two more field colours, and the rule above — "no fourth accent hue
        anywhere in the menus" — still holds, because these are not menu
        accents. They exist for exactly one surface, the faction map, where
