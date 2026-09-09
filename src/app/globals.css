@@ -76,6 +76,32 @@
     --ink-faint: #7d7057;
     --ink-ghost: #5b5140;
 
+    /* BLOOD, IN ONE LANGUAGE — 9 Sep 2026.
+       The local warrior's health was drawn TWICE, and the two disagreed about
+       what wounded looks like. GameHud.tsx ran green -> amber -> red at 0.50
+       and 0.25; hud3d.ts runs sage -> brass -> oxblood at 0.55 and 0.28, with
+       every one of its three tuned and argued in that file (brass because the
+       old amber "is not brass, it is the yellow the review called out";
+       oxblood because "dried blood has brown in it"). One of those palettes is
+       this game's and the other is any game's, and a player looking from his
+       own bar to a foe's plate was reading two answers to one question.
+
+       These are hud3d's, to the byte, at hud3d's thresholds. The DOM bar keeps
+       its gradient — a flat fill reads as a sticker at this size — so each step
+       carries a lit end as well.
+
+       AND THE ALARM IS NOT LOST WITH THE RED. It was never in the bar:
+       `postfx.setPressure` closes the frame in over the last 35% of health as a
+       ramp, which hud3d's own note calls "a read you get pre-attentively
+       without decoding a colour code". Dropping to oxblood removes a redundant
+       second colour language, not the warning. */
+    --hp-healthy: #a8bf8e;
+    --hp-healthy-lit: #c6d9ab;
+    --hp-wounded: #dcae72;
+    --hp-wounded-lit: #f0cb9a;
+    --hp-critical: #b04430;
+    --hp-critical-lit: #d4634a;
+
     /* Two more field colours, and the rule above — "no fourth accent hue
        anywhere in the menus" — still holds, because these are not menu
        accents. They exist for exactly one surface, the faction map, where

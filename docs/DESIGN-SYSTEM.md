@@ -353,19 +353,29 @@ literal. So the rule is *no more than today* (15 in `page.tsx`, 13 in
 fault the gate can name the fix for. A new colour either belongs to the ramp, or
 is worth naming and raising the ceiling for in the same commit.
 
-### Still open: two health bars in two colour languages
+### Closed: the two health bars now speak one language
 
-The local warrior's health is drawn twice — `GameHud.tsx` in
-green → amber → red, `hud3d.ts` in brass → oxblood (`FILL_WOUNDED` `#dcae72`,
-`FILL_CRITICAL` `#b04430`, both tuned against fire-lit amber with the reasoning
-written down). `hud3d.ts` knows, and dims the local plate to `alpha *= 0.86`.
-Two answers to *how hurt am I*, in two palettes, one of which is this game's and
-one of which is any game's.
+The local warrior's health was drawn twice and the two disagreed about what
+*wounded* looks like — `GameHud.tsx` in green → amber → red at 0.50/0.25,
+`hud3d.ts` in sage → brass → oxblood at 0.55/0.28. One of those palettes is this
+game's and the other is any game's, and a player looking from his own bar to a
+foe's plate was reading two answers to one question. `hud3d.ts` knew, and its
+only mitigation was to dim the local plate to `alpha *= 0.86`.
 
-**Not resolved here, deliberately.** The obvious move — drop the local plate —
-loses information: the grace gild ("this man cannot be struck yet") rides the
-bar's own frame in the shader, and that plate is the only place the local player
-learns he is still un-strikeable. The other move — bring the DOM bar into the
-in-world ramp — is an identity call on a gameplay-critical readout, where
-oxblood is more Bretwalda than `#ff4a3a` and `#ff4a3a` is more *alarming*. That
-trade belongs to the owner, not to whoever is next in this file.
+The DOM bar now takes `hud3d`'s three colours to the byte, at `hud3d`'s
+thresholds, as `--hp-healthy` / `--hp-wounded` / `--hp-critical` and their lit
+ends. Those three were each argued in that file — brass because the old amber
+"is not brass, it is the yellow the review called out"; oxblood because "dried
+blood has brown in it" — and there was never a reason for a second set. The bar
+keeps its gradient, because a flat fill reads as a sticker at that size.
+
+**Two moves were considered and one was wrong.** Dropping the local 3D plate
+would have removed the duplication too, and it loses information: the grace gild
+— *this man cannot be struck yet* — rides the bar's own frame in the shader
+(`col += uGuard * GUARD_GILT * rim * bevel * 0.28`) and that plate is the only
+place a player learns he is still un-strikeable.
+
+**And losing the red loses no warning.** The alarm was never in the bar:
+`postfx.setPressure` closes the frame in over the last 35% of health as a ramp,
+which is the read `hud3d.ts` describes as one "you get pre-attentively without
+decoding a colour code". What went is a redundant second colour language.

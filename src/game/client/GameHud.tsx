@@ -1425,8 +1425,15 @@ export default function GameHud({
               <div className="h-full transition-[width] duration-200"
                 style={{
                   width: `${hpPct * 100}%`,
-                  background: hpPct > 0.5 ? "linear-gradient(90deg,#2fa245,#5ee06b)" :
-                    hpPct > 0.25 ? "linear-gradient(90deg,#c99a22,#f0d048)" : "linear-gradient(90deg,#a12117,#ff4a3a)",
+                  // hud3d.ts's own ramp, at hud3d.ts's own thresholds (0.55 /
+                  // 0.28). This bar and the in-world plate are two readouts of
+                  // one number and used to answer in two palettes — green ->
+                  // amber -> red here, sage -> brass -> oxblood there. See the
+                  // --hp-* block in globals.css for why these three, and for
+                  // why losing the red loses no warning.
+                  background: hpPct > 0.55 ? "linear-gradient(90deg,var(--hp-healthy),var(--hp-healthy-lit))" :
+                    hpPct > 0.28 ? "linear-gradient(90deg,var(--hp-wounded),var(--hp-wounded-lit))"
+                      : "linear-gradient(90deg,var(--hp-critical),var(--hp-critical-lit))",
                 }} />
             </div>
             <div className="w-full h-1.5 bg-black/70 rounded-md border border-sky-950/70 overflow-hidden">

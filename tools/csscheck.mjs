@@ -266,7 +266,7 @@ while (i < css.length) {
 // in which case name it and raise this number in the same commit.
 {
   // Today's counts, taken after the ramp landed: 178 -> 28 across the two.
-  const CEILING = { "src/app/page.tsx": 15, "src/game/client/GameHud.tsx": 13 };
+  const CEILING = { "src/app/page.tsx": 15, "src/game/client/GameHud.tsx": 7 };
   for (const [rel, ceiling] of Object.entries(CEILING)) {
     const file = resolve(ROOT, rel);
     if (!existsSync(file)) continue;
