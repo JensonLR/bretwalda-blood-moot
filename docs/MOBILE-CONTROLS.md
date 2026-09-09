@@ -530,3 +530,70 @@ change made to look busy.
   directory — `npm run hudshot -- --tag before` against an older checkout is how
   the pair gets remade. It also prints, per viewport, whether it believed it was
   in a running fight, and says so in capitals when it was not.
+
+---
+
+# Safe areas — 9 September 2026
+
+The fight was the one screen in the game with none.
+
+`layout.tsx` sets `viewportFit: "cover"`, so the page is laid out edge to edge
+and the notch, the rounded corners and the home indicator are all drawn **over**
+it. Four `env(safe-area-inset-*)` uses existed in the whole tree —
+`globals.css:219`, `:220`, `:1083`, `page.tsx:2402` — and every one of them was
+in a menu. `GameHud.tsx` had none. `fightRail.ts` had none.
+
+What follows from the arithmetic, with `orientation: "any"` in the manifest:
+
+* **RUN** sits at bottom 24 (h56) and **HEAVY** at bottom 32 (h68). The iOS
+  home-indicator band is 34 px. Both are inside it, where the system claims the
+  touch for its own gesture before the page ever sees it.
+* In landscape, insets run 44–59 px. The entire control cluster is inset 12–16
+  px and the rail 12 px, so **the whole movement side sits under the notch.**
+
+## The fix, and what it deliberately is not
+
+`inset(side, px)` in `fightRail.ts` — which already owns where things sit on the
+glass — returns `calc(<px>px + env(safe-area-inset-<side>, 0px))`. It is used by
+`near()`/`far()` for the whole thumb cluster, by the ability readout, and by
+`railStyle()` for all four rungs.
+
+**It is not a re-layout.** `env()` resolves to 0 on every screen without a
+cutout — every desktop, the capture box, and the phones `touchtest` and
+`hudshot` photograph — so the numbers four suites already measure do not move by
+a pixel. The inset is added only where the hardware actually takes something
+away.
+
+## The harness cannot confirm it, and that is why it never caught it
+
+`touchtest` measures against `window.innerWidth` / `innerHeight`. Under
+`viewport-fit=cover` those **include the unsafe region**, so the harness sees a
+control at bottom 24 as clear of the foot by 24 px, which is exactly what it
+reports and exactly wrong. It cannot see a region the OS is covering.
+
+Confirming this properly needs the insets themselves — a device or an emulation
+that reports non-zero `env(safe-area-inset-*)`, and an assertion that no combat
+control's box intersects them. That harness does not exist. It is written down
+here rather than papered over, and `touchtest` 33/33 after the change means only
+that nothing regressed on a screen with no cutout.
+
+---
+
+# The knob stopped re-rendering the HUD — 9 September 2026
+
+The movement stick's knob moved through React state (`setKnob`) on **every**
+`touchmove`. That state is a prop of `GameHud`, and neither `GameCanvas` nor
+`GameHud` is memoized, so a thumb travelling across the glass reconciled a
+~135-element tree and re-ran 40 hooks at the display's refresh rate — 60 to
+120 Hz, on a phone, mid-fight, on top of the 20 Hz the wire already re-renders
+all of it at.
+
+It is presentation and nothing else: no rule, no gate and no harness reads the
+knob's position, and the **frame loop** reads the stick vector off `joystick`, a
+ref, which is untouched. So it now goes the way the lock reticle already goes,
+four lines above it in `input.ts` — React decides the element exists
+(`ref={setJoyKnob}`) and the handler writes `style.left`/`top` straight onto it.
+`origin` stays state; it changes twice a gesture, not sixty times a second.
+
+Nothing in this repository measures React's cost, which is why this sat there.
+That instrument is still missing.

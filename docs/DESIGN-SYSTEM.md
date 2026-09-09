@@ -295,3 +295,77 @@ Three of those four are Wave 4 and 5 work in `BACKLOG.md` already. The season
 crowning is the one to design first, because `WHAT-THIS-GAME-IS.md` makes the
 Bretwalda title the top of the whole game and there is currently nothing at the
 top of it.
+
+---
+
+## 10. The type ramp — 9 September 2026
+
+The interface looked like it was ignoring this document. Counted across the two
+largest UI files, `page.tsx` and `GameHud.tsx`: **178 raw hex literals against 3
+`var()` reads.**
+
+It was not indiscipline, and the count is the wrong way to read it. **133 of the
+178 were six values, every one of them a text colour, and not one had ever been
+declared.** The token block covered the faction fields, the two metals and
+fifteen thumb pads. The workaday ink that carries nearly every word in the
+interface had no name — so there was nothing to reach for, and a literal was the
+only thing anybody could write. (The remainder was mostly `#f6dda0`, which is
+`--gilt-lit` spelled out by hand. *That* was the discipline problem, and it was
+three sites.)
+
+So the fix was a missing layer:
+
+```css
+--ink-bright: #f3ecdc;   /* headings; the emphasised word inside a line */
+--ink:        #d9cdb2;   /* body copy */
+--ink-soft:   #b6a888;   /* supporting copy that still reads easily */
+--ink-dim:    #a89a7c;   /* the most common voice — labels, units, captions */
+--ink-faint:  #7d7057;   /* present but receded — hints, disabled, metadata */
+--ink-ghost:  #5b5140;   /* structural traces; the quietest thing still ink */
+```
+
+**Named by role, not by material.** The material story — limewash over bone,
+with the ink's top end kept short of white so the fall down a letter has
+somewhere to go — is real and is told in `globals.css` and in `hud3d.ts`. But a
+ramp's job is to carry hierarchy: a screen has to answer *what matters here*
+before it answers *what colour is this*, and `--limewash` cannot be stepped up
+or down while `--ink-dim` can.
+
+145 sites converted, values unchanged, so nothing moved on screen.
+
+### Two things worth keeping
+
+**Verify tokens in the compiled sheet, not the source.** Eleven of the
+converted sites carried opacity modifiers (`text-[var(--ink)]/90`) and there was
+no precedent anywhere in this codebase for `var()` under a Tailwind opacity
+modifier. It compiles: a plain-colour fallback rule, then
+`color-mix(in oklab, var(--ink) 90%, transparent)`. `hover:`, `!important`,
+`border-` and `decoration-` variants all resolve. None of that is visible from
+the JSX.
+
+**`csscheck` gained a sixth check, and it is a ratchet rather than a bar.**
+Check 5 catches a `var()` with no declaration — the opposite fault — and is
+blind to a hardcoded colour by construction. "Zero literals" would be a lie that
+invites suppression: the 28 that remain are genuine one-off accents that earn a
+literal. So the rule is *no more than today* (15 in `page.tsx`, 13 in
+`GameHud.tsx`, down from 136 and 42), plus one thing forbidden at any ceiling —
+**a literal spelling out a colour that already has a token**, which is the one
+fault the gate can name the fix for. A new colour either belongs to the ramp, or
+is worth naming and raising the ceiling for in the same commit.
+
+### Still open: two health bars in two colour languages
+
+The local warrior's health is drawn twice — `GameHud.tsx` in
+green → amber → red, `hud3d.ts` in brass → oxblood (`FILL_WOUNDED` `#dcae72`,
+`FILL_CRITICAL` `#b04430`, both tuned against fire-lit amber with the reasoning
+written down). `hud3d.ts` knows, and dims the local plate to `alpha *= 0.86`.
+Two answers to *how hurt am I*, in two palettes, one of which is this game's and
+one of which is any game's.
+
+**Not resolved here, deliberately.** The obvious move — drop the local plate —
+loses information: the grace gild ("this man cannot be struck yet") rides the
+bar's own frame in the shader, and that plate is the only place the local player
+learns he is still un-strikeable. The other move — bring the DOM bar into the
+in-world ramp — is an identity call on a gameplay-critical readout, where
+oxblood is more Bretwalda than `#ff4a3a` and `#ff4a3a` is more *alarming*. That
+trade belongs to the owner, not to whoever is next in this file.
