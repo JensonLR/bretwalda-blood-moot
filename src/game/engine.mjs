@@ -2469,6 +2469,16 @@ export function makeEngine(options = {}) {
   const PRIVATE_FIELDS = ["moveVel", "impulse", "latestInput", "inputAt", "lastHitAt",
     "aiSkill", "nextThink", "nextAttackAt", "strafePhase", "blockUntil", "isBlocking", "yaw", "baseName",
     "aimYaw", "pendingSwing", "shovePending", "shoveCooldown", "emoteUntil",
+    // THE PARRY CADENCE. `blockTimer` IS published, and this deliberately is
+    // not. A client that could read the cadence would draw it, and a meter for
+    // "your guard will block rather than parry" is a meter this game does not
+    // need: the outcome already says it, in the loudest terms the fight has.
+    // A guard inside the cadence BLOCKS — a different hit type on the wire, a
+    // different sound, a different check on the striker's own arm — where a
+    // parry staggers him for 0.90 s. The player learns the rhythm the way he
+    // learns every other timing here, by what happened, and the alternative is
+    // twenty times a second of wire for a number he would only be told.
+    "parryLock",
     // A bot's temperament and its bookkeeping. Server scratch, all of it: a
     // client that could read `favoured` off the wire would be reading the man's
     // habit off a screen instead of learning it from his shoulder, which is the
