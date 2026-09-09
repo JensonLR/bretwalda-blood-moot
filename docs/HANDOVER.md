@@ -47,6 +47,38 @@ never applied to the second harness. It is GREEN now.
 | `npm run bladereach` | the blade against the range that takes health off; `--curve` walks the contact window |
 | `npm run hudcost` | React commits/s and DOM writes/s during a real fight |
 
+### The second pass — everything above's leftovers
+
+**The clips play.** `clipDriver.ts` + `?clips=1` on top of `?authored=1`.
+Attacks are SCRUBBED off `swingT` rather than played, so the server keeps the
+clock: the same `swingT` puts the arm within 0.02° at 30 fps and at 240.
+A state clips.py authors nothing for hands the body back on the same frame.
+Uncorrected — no `settleOnFeet`, no `groundBlade`, no wrist solve. `cliptest` 9/9.
+
+**An authored man can lose a limb.** Not a naming fix: a warrior is 46
+SkinnedMeshes over one skeleton and there is no arm mesh, so `authoredSever.ts`
+selects by BONE INFLUENCE, rebuilds the index buffer without the limb, and bakes
+the piece through `applyBoneTransform`. 40/40 seams across four classes, 40/40
+conserved to the triangle, 40/40 restored. 0 gore refusals in a live fight.
+The procedural path is untouched (severtest 25/0, goretest 43/43). A severed
+forearm does not yet carry its sword.
+
+**The two health bars speak one language** — the DOM bar takes hud3d's ramp to
+the byte. Reasoning and the rejected alternative in DESIGN-SYSTEM.md §10.
+
+**Both caveats closed.** playtest marks unreachable claims NOT RUN instead of
+BROKEN (37/37 + 3 NOT RUN on the shell, 40/40 with `BRETWALDA_GPU=1`), and
+`inset()` reads `env()` through `var(--safe-*)` so `npm run safearea` can finally
+assert it — 4/4 on the fix, 0/4 at 4758b08 where SLASH sat 43 px under the notch.
+
+**A corpse hung off the right edge of every victory tableau.** One file, two
+models of a body: the framing solver padded a laid mark by 0.85 while
+`castReport` measured 1.15, with a comment asserting they agreed. `FOOTPRINT` is
+the one model now. Pre-existing on 4758b08; summaryflow 23/23.
+
+**The sink question is settled** — `exportarmoury` and `exportportraits` write
+diagnostics, nothing reads them, and both say so.
+
 ### What I deliberately did NOT do, and why
 
 **The clip driver.** Fifteen contact-timed clips ship in every warrior GLB, are
