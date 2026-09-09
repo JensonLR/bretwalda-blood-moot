@@ -884,3 +884,33 @@ grade the wrong screen. A VOID is not a pass.
 `tools/lib/browser.mjs` states for colour. These were taken on an M5 through the
 default launch options; read a delta against another run on the same machine, not
 against the table above.
+
+## And why the 20 Hz baseline was left alone
+
+The obvious next move after the knob was to memoise the HUD. The measurements
+say don't, and they are worth writing down so nobody spends the refactor twice.
+
+**Memoisation cannot lower the commit count.** `page.tsx` owns `roomState` and
+commits a fresh object on every `game_state`. A commit happens because *it*
+changed state; `React.memo` on `GameCanvas` or `GameHud` changes how much work
+each commit does, not how many there are. So the 19.7/s above is a floor set by
+where the state lives, and the only thing that moves it is the state moving —
+each readout subscribing to its own slice (`useSyncExternalStore`, which this
+codebase already uses in four places) instead of the whole snapshot arriving as
+a prop. That is a real design, not a wrapper.
+
+**And the work per commit is already small.** At rest the HUD does **1.0 DOM
+write per second** against those 19.7 commits — React is reconciling and finding
+almost nothing to write. ~115 JSX elements at 20 Hz is on the order of 2,300
+element diffs a second, which does not show up against a frame that is drawing
+an arena. `docs/PERFORMANCE.md`'s own load figures agree: the first 240 fighting
+frames have a worst frame of 17.8 ms and nothing over 100 ms.
+
+**The knob was different, and that is the lesson.** It was not 20 Hz, it was
+display refresh — 60 to 120 — on the device with the least headroom, while the
+player was moving. A 6× rate on a phone is a defect; the baseline is a cost.
+
+So: no memoisation, no refactor, and a ruler in the drawer. If `hudcost` ever
+reads far above 20/s at rest, something new is committing and this is how to see
+it. The per-slice subscription is the fix when it is needed, and it is not
+needed on these numbers.
