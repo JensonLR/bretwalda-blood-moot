@@ -1791,12 +1791,25 @@ export default function Page() {
             waiting on.
 
             `replay.skip()` is `replay.mjs`'s own, so the beat ends in one
-            place. The route out is the same one `onLeave` takes below, because
-            "take them to the lobby" is a screen and not a camera. */}
+            place — and that is ALL this does.
+
+            It used to also `leaveRoom(); setMatchResults(null);
+            setScreen("landing")`, reading the owner's "just take them to the
+            lobby" as the destination of the SKIP button rather than of the
+            match. That threw the player out of the match at the one moment he
+            had most reason to stay: the summary below is gated on
+            `!replay?.playing`, so ending the replay is already the route to
+            it, and clearing `matchResults` on the way past meant a man who
+            pressed SKIP never saw his placement, his rounds, his kills, his
+            damage, his +XP or his +gold — the whole ledger at
+            `MatchSummary`, and the war line with it. A button labelled SKIP
+            skips the thing it is drawn over. The two ways out of the match are
+            FIGHT AGAIN and LEAVE, and they live on the summary where a player
+            can read what he won before he chooses. */}
         {replay?.playing && replay.atEnd && (
           <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center p-6 pb-10">
             <button
-              onClick={() => { replay.skip(); leaveRoom(); setMatchResults(null); setScreen("landing"); }}
+              onClick={() => replay.skip()}
               className="pointer-events-auto rounded-full border border-amber-400/40 bg-black/60 px-6 py-2 text-xs font-bold tracking-[0.25em] text-amber-200 backdrop-blur transition hover:border-amber-300 hover:text-amber-100">
               SKIP
             </button>

@@ -28,7 +28,7 @@ import {
 } from "./input";
 import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
 import { createFirstMoot, FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
-import { useFightRail, railStyle, publishReadoutBottom } from "./fightRail";
+import { useFightRail, railStyle, publishReadoutBottom, inset } from "./fightRail";
 import {
   ACTIONS, MAX_BINDINGS_PER_ACTION, RESERVED_CODES,
   getBindings, getServerBindings, subscribeBindings, bindingsFor,
@@ -84,6 +84,19 @@ interface GameHudProps {
   playerId: string;
   roomState: HudRoomState | null;
   glError: string | null;
+  /**
+   * A slow-motion replay of the last kill is on the glass.
+   *
+   * The DOM HUD had no concept of a replay at all, and was saved from painting
+   * live state over one only by an accident: nearly all of it hangs off
+   * `isFighting`, and a replay runs during `intermission` or `finished`. The
+   * MEAD-BENCH view is the piece that did not get that accident — its own gate
+   * is `state !== "lobby" && state !== "finished"`, which `intermission`
+   * passes — so a seated watcher got the live kill feed, the live match clock
+   * and the live ALIVE count painted over a recording of a fight that had
+   * already ended. Edge-triggered in GameCanvas; see `replayOnGlass` there.
+   */
+  replaying?: boolean;
   isMobile: React.RefObject<boolean>;
   /**
    * GameCanvas's own copy of the lock, kept for the frame loop's use. The HUD
@@ -674,7 +687,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export default function GameHud({
-  playerId, roomState, glError, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, setPointerLock, onMootFoe, onMootArm, onMootHold, onMootDone,
+  playerId, roomState, glError, replaying, isMobile, mobileFlags, setFlag, joyOrigin, joystickPos, setPointerLock, onMootFoe, onMootArm, onMootHold, onMootDone,
 }: GameHudProps) {
   // A WEAPON AT HIS FEET (TAKE). Read off the same snapshot as everything else:
   // the nearest drop inside TAKE.range of the local man, named in the shop's
@@ -1091,10 +1104,22 @@ export default function GameHud({
   // The action cluster sits under the aiming thumb; the stick and the odds and
   // ends sit under the other one. Positions are inline rather than in classes
   // because the whole point is that the side is decided at runtime.
+  //
+  // Both offsets go through `inset()` (fightRail.ts), which adds the hardware's
+  // own safe-area to the number and resolves to exactly the number on any
+  // screen without a cutout. RUN sat at bottom 24 and HEAVY at bottom 32 —
+  // both inside the 34 px iOS home-indicator band, where the system takes the
+  // touch before the page sees it — and in landscape the whole cluster sat
+  // under the notch. Neither was visible to `touchtest`, which measures against
+  // `window.innerHeight` and so cannot see a region the OS is covering.
   const near = (edge: number, bottom: number): React.CSSProperties =>
-    lefty ? { left: edge, bottom, touchAction: "none" } : { right: edge, bottom, touchAction: "none" };
+    lefty
+      ? { left: inset("left", edge), bottom: inset("bottom", bottom), touchAction: "none" }
+      : { right: inset("right", edge), bottom: inset("bottom", bottom), touchAction: "none" };
   const far = (edge: number, bottom: number): React.CSSProperties =>
-    lefty ? { right: edge, bottom, touchAction: "none" } : { left: edge, bottom, touchAction: "none" };
+    lefty
+      ? { right: inset("right", edge), bottom: inset("bottom", bottom), touchAction: "none" }
+      : { left: inset("left", edge), bottom: inset("bottom", bottom), touchAction: "none" };
 
   return (
     <>
@@ -1380,7 +1405,15 @@ export default function GameHud({
             </button>
           )}
 
-          {/* Status HUD */}
+          {/* THE VITALS RAIL — name, health, stamina, board, chain.
+              Gated on `isAlive`, because all five are statements about a man
+              who is still fighting. The room's own state stays "fighting"
+              through your death (the server has other men in it), so this rail
+              used to sit over the death camera reading 0% health, an idle
+              stamina bar and a board on a body that no longer holds one, under
+              the FALLEN banner saying the opposite. The deathcam is a
+              composed shot; this is the furniture that was standing in it. */}
+          {isAlive && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-[52vw] max-w-72">
             <div className="text-amber-100/95 text-[11px] font-bold tracking-[0.2em] font-display" style={{ textShadow: "0 1px 5px black" }}>{localPlayer.name}</div>
             <div className="w-full h-3.5 bg-black/70 rounded-md border border-amber-900/70 overflow-hidden shadow-lg">
@@ -1434,6 +1467,7 @@ export default function GameHud({
               </div>
             )}
           </div>
+          )}
 
           {/* Kill feed. THE WHOLE TOP ROW MIRRORS, not just the thumb cluster.
               END and the mute toggle live under the timer on the MOVEMENT side
@@ -1496,10 +1530,15 @@ export default function GameHud({
               action cluster is where this used to sit — and on a phone it is
               lifted clear of the RUN/HAND pair below it, which used to be drawn
               straight over the top of the cooldown readout. */}
+          {/* `isAlive` for the same reason as the vitals rail: a cooldown that
+              counts down to READY on a man who cannot fire it is furniture
+              standing in the death shot. The POWER pad it reads for is itself
+              only drawn while alive. */}
+          {isAlive && (
           <div className="absolute bottom-28 sm:bottom-6 pointer-events-none z-10"
             style={isMobile.current
-              ? { bottom: 152, ...(lefty ? { right: 12 } : { left: 12 }) }
-              : { left: 12 }}>
+              ? { bottom: inset("bottom", 152), ...(lefty ? { right: inset("right", 12) } : { left: inset("left", 12) }) }
+              : { left: inset("left", 12) }}>
             {/* The readout for the POWER pad, so it wears the pad's own metal.
                 It used to be purple, which is a colour this game does not have
                 anywhere — not in the palette, not on a helmet, not in the
@@ -1511,6 +1550,7 @@ export default function GameHud({
               </div>
             </div>
           </div>
+          )}
 
           {roomState.lastStandTriggered && (
             <div className="absolute top-[22%] left-1/2 -translate-x-1/2 pointer-events-none z-10 animate-pulse">
@@ -1540,7 +1580,7 @@ export default function GameHud({
         block: that block is what every layout suite measures, and the seated
         view is allowed to diverge from it (no handedness mirror — there are
         no controls to mirror against). */}
-    {seated && roomState && roomState.state !== "lobby" && roomState.state !== "finished" && (
+    {seated && roomState && roomState.state !== "lobby" && roomState.state !== "finished" && !replaying && (
       <>
         <div className="absolute top-3 right-3 flex flex-col gap-1 pointer-events-none z-10">
           {roomState.killFeed.slice(-5).map((k, i) => (
@@ -1800,7 +1840,11 @@ export default function GameHud({
       </button>
     )}
 
-    {!isMobile.current && isFighting && !locked && !keysOpen && (
+    {/* `isAlive`, not just `isFighting`. The room stays "fighting" while your
+        own body is on the turf and the death camera has the lens, so this
+        used to dim the whole death beat behind a black scrim and tell a corpse
+        to take up his weapon. A dead man has nothing to click for. */}
+    {!isMobile.current && isFighting && isAlive && !locked && !keysOpen && (
       <div className="absolute inset-0 flex items-center justify-center bg-black/45 z-10 pointer-events-none">
         <div className="text-white text-lg bg-black/70 px-7 py-3.5 rounded-lg border border-amber-900/60 tracking-wide font-display">
           CLICK TO TAKE UP YOUR WEAPON
