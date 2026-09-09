@@ -12,22 +12,26 @@
 // client reads it. A build step with no copy step is a build step that lies —
 // it has cost this project a day of magenta portraits and a day of stale clips.
 //
-// The sink was Unity's StreamingAssets and is `art/gltf` since 7 Sep 2026
+// The sink was Unity's StreamingAssets, then `art/gltf` (which no client ever
+// read), and is `public/authored` since 9 Sep 2026
 // (docs/ONE-CLIENT.md §4.4). It is owned by `sink.mjs` and read by P2's asset
 // loader; the copy step's REASON is unchanged, only its destination.
 //
 // It also checks the clip count: ClipDriver stands the whole rig down and falls
 // back to the procedural pose below four of the nine it names, silently.
 import { spawnSync } from "child_process";
-import { existsSync, copyFileSync, statSync } from "fs";
+import { existsSync, copyFileSync, statSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { GLTF_SINK } from "./sink.mjs";
+import { AUTHORED_WEB } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
 const ART = resolve(ROOT, "art/blender");
-const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
+// The directory the browser fetches from. It was GLTF_SINK, which no client
+// has ever read — see the note on AUTHORED_WEB in sink.mjs.
+const SHIP = AUTHORED_WEB;
+mkdirSync(SHIP, { recursive: true });   // a fresh clone has no public/authored
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const WANT_CLIPS = 15;
 
@@ -70,7 +74,7 @@ for (const cls of only ? [only] : CLASSES) {
 
   const glb = resolve(ART, `warrior-${cls}.glb`);
   copyFileSync(glb, resolve(SHIP, `warrior-${cls}.glb`));
-  console.log(`[exportmen] ${cls}: ${n} clips, weapon arm at x=${arm.position[0].toFixed(3)} (his right), ${(statSync(glb).size / 1024).toFixed(0)} KB -> art/gltf`);
+  console.log(`[exportmen] ${cls}: ${n} clips, weapon arm at x=${arm.position[0].toFixed(3)} (his right), ${(statSync(glb).size / 1024).toFixed(0)} KB -> ${SHIP.replace(ROOT + "/", "")}`);
 }
 if (bad) { console.error(`[exportmen] ${bad} class(es) not shipped`); process.exit(1); }
 console.log("[exportmen] four right-handed men, every clip each, in the client");

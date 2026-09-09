@@ -339,6 +339,29 @@ export const PIVOT_BONE_NAMES = {
   leftLeg: "LeftThigh",
   elbowR: "RightElbow",
   elbowL: "LeftElbow",
+  /**
+   * THE WRISTS, WHICH THE POSE HAS ALWAYS WRITTEN AND THIS TABLE DID NOT NAME.
+   *
+   * Ten slots were mapped and these two were missed, which is the kind of
+   * omission that produces a defect no structural gate can see: every bone
+   * present, every material bound, every count right, and the man's fist
+   * holding still while his blade turns inside it.
+   *
+   * `applyPose` writes `piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz)`
+   * and `groundBlade` writes `piv.wristR.rotation.x += use` — the blade-aim
+   * solve that keeps a sword out of the turf. Without a mapping here,
+   * `rig.pivots.wristR` still pointed at the PROCEDURAL bone, which the swap
+   * removes from the graph six lines later. So both writes landed on an orphan:
+   * the weapon rotated (it hangs off `HandR` and is turned directly), the hand
+   * did not, and the haft ran across the circle the fingers close on — the
+   * exact failure anim.ts describes at its own grip note.
+   *
+   * `RightWrist`/`LeftWrist` are in all four shipped GLBs; exportrig.mjs has
+   * written them since the rig was first exported, and `HandR`/`HandL` are
+   * parented to them, which is why the weapon was right and the fist was not.
+   */
+  wristR: "RightWrist",
+  wristL: "LeftWrist",
   kneeR: "RightKnee",
   kneeL: "LeftKnee",
 } as const;
