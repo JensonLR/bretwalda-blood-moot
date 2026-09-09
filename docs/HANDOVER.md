@@ -79,7 +79,8 @@ which is a real refactor. The ruler for it exists now.
 
 ### The battery, 9 Sep 2026
 
-typecheck · lint · build clean. blenderdoctor 13/13 · parrytempo 5/5 ·
+typecheck · lint · build clean. blenderdoctor 13/13 · cliptest 9/9 ·
+safearea 4/4 · playtest 40/40 (BRETWALDA_GPU=1) · parrytempo 5/5 ·
 bladereach 5/5 · weightprobe 24/24 · fighttest 49/49 · guardprobe 19/0 ·
 shieldtest 18/0 · chaintest 90/0 · taketest 18/0 · cliptime 19/0 · severtest
 25/0 · protocoltest 85/0 · soundtest 46/46 · authoredtest 92/0 · gltftest 31/0 ·
@@ -87,15 +88,31 @@ locktest 10/0 · swingstrip 12/0 · gaitprobe 3/0 · csscheck 7/7 · touchtest 3
 · hudcost 3/0 · deathcamtest 46/46 · replaytest GREEN · summaryflow 22/23 (1 not
 run) · uishots PASS.
 
-**`playtest` is 37/40** and that is an improvement, not a regression: three
-mouse-camera failures from pointer lock being unavailable in the headless
-browser, and the base commit `4758b08` scores **36/40** with the same three.
-Verified by checking `src/` out at base and re-running.
+**Both of the caveats this entry used to carry are closed.**
 
-**`touchtest` cannot confirm the safe-area work.** It measures against
-`window.innerHeight`, which under `viewport-fit=cover` INCLUDES the unsafe
-region — which is also why it never caught the fault. 33/33 means nothing
-regressed on a screen with no cutout, and nothing more.
+`playtest` read 37/40 with three mouse-camera claims marked BROKEN. They were
+not broken: the headless SHELL ships without a pointer-lock implementation —
+`requestPointerLock` throws `WrongDocumentError` — so the canvas never receives a
+`movementX` and the camera never turns. The note beside the browser launch had
+said so for a long time; what it never did was ACT on it, so the verdict line
+told a reader the product was broken when what was broken was the browser the
+suite happened to launch in. Measured both ways, same commit, minutes apart:
+
+    default (headless shell)   37/40, three BROKEN
+    BRETWALDA_GPU=1 (full)     40/40
+
+An unreachable claim is NOT RUN now: named, counted separately, and it does not
+fail the gate. Default reads **37/37, 3 NOT RUN**; `BRETWALDA_GPU=1` reads
+**40/40**. Use the GPU arm when the mouse claims matter.
+
+`touchtest` still cannot see the safe areas and structurally never could —
+`window.innerHeight` under `viewport-fit=cover` includes the region the OS
+covers. So `inset()` reads `env()` through `var(--safe-*)` (declared as the
+`env()` in globals.css; byte-identical on a device, settable by a harness) and
+**`npm run safearea`** makes the assertion: real fight, both orientations, the
+insets an iPhone actually reports. **4/4** on the fix; **0/4** at `4758b08`,
+where SLASH, Block and Run sat 43 px under the notch in landscape and HEAVY and
+RUN sat inside the home indicator in portrait.
 
 ---
 

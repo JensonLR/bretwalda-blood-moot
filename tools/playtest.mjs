@@ -116,10 +116,37 @@ const PROBE = () => {
   w.WebSocket = TappedWS;
 };
 
+/** Did this browser give us pointer lock? Decided once, at check 7. */
+let POINTER_LOCK = false;
 const results = [];
 const check = (name, pass, detail) => {
   results.push({ name, pass, detail });
   console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+};
+
+/**
+ * A CLAIM THIS RUN COULD NOT REACH, WHICH IS NOT A CLAIM THIS RUN DISPROVED.
+ *
+ * Three checks here drive the mouse under pointer lock, and the headless SHELL
+ * ships without a pointer-lock implementation — the note by the browser launch
+ * says so and has for a long time. What it did NOT do was act on it: the three
+ * came back FAIL, the verdict line read "BROKEN: mouse turns the camera, ...",
+ * and a reader was told the product was broken when what was broken was the
+ * browser the suite happened to be launched in. Measured both ways on the same
+ * commit, same machine, minutes apart:
+ *
+ *     default (headless shell)   37/40, three BROKEN
+ *     BRETWALDA_GPU=1 (full)     40/40
+ *
+ * That is a harness lying about a product, which is the failure mode this
+ * repository has a whole discipline about. So an unreachable claim is now NOT
+ * RUN: it is named, it is counted separately, and it does not fail the gate —
+ * exactly the shape `summaryflow` already uses for its own skipped rows.
+ */
+const skipped = [];
+const skip = (name, why) => {
+  skipped.push({ name, why });
+  console.log(`  SKIP  ${name} — ${why}`);
 };
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
@@ -962,8 +989,20 @@ async function main() {
   }, b6.rot, { timeout: 10000 }).catch(() => {});
   const a6 = await me();
   const locked = await page.evaluate(() => document.pointerLockElement !== null);
-  check("mouse turns the camera", Math.abs(a6.rot - b6.rot) > 0.05,
-    `rotation ${b6.rot.toFixed(2)} -> ${a6.rot.toFixed(2)} (pointerLock=${locked})`);
+  // THE ONE QUESTION THAT DECIDES WHETHER THE NEXT THREE CLAIMS MEAN ANYTHING.
+  // `requestPointerLock` on the headless shell throws WrongDocumentError — "the
+  // root document of this element is not valid for pointer lock" — so the
+  // canvas never receives a movementX and the camera never turns. That is the
+  // browser, not the game. Asked here, once, and carried to the two checks
+  // below that ride the same mechanism.
+  POINTER_LOCK = locked;
+  if (!locked) {
+    skip("mouse turns the camera",
+      "no pointer lock in this browser (the headless shell has none) — re-run with BRETWALDA_GPU=1 for the full browser");
+  } else {
+    check("mouse turns the camera", Math.abs(a6.rot - b6.rot) > 0.05,
+      `rotation ${b6.rot.toFixed(2)} -> ${a6.rot.toFixed(2)} (pointerLock=${locked})`);
+  }
 
   // ---- 8. the swing arrives on the wire in three phases ----
   // Three strokes pooled, not one. A snapshot is one per server WAKE rather than
@@ -1203,6 +1242,16 @@ async function main() {
   }
   const turned = mid.length > 1 ? Math.abs(wrapPi(mid[mid.length - 1].rot - mid[0].rot)) : 0;
 
+  // Both of the next two ride the same mouse-under-pointer-lock mechanism as
+  // check 7. Without pointer lock the sweep sends no movementX at all, so
+  // `freePeak` is 0, `asked` is 0, and both claims fail describing a game that
+  // never received the input. Not run, then — see `skip`.
+  if (!POINTER_LOCK) {
+    skip("free turning is faster than the committed cap",
+      "the sweep needs pointer lock to deliver movementX — re-run with BRETWALDA_GPU=1");
+    skip("turning is reduced to the stated cap while committed",
+      "same mechanism; with no mouse delta the client asks for no turn and the cap is untested");
+  } else {
   check("free turning is faster than the committed cap", freePeak > SWING_TURN_RATE,
     `${freePeak.toFixed(2)} rad/s under the same sweep (${freeInfo.sent}/${SWEEP_STEPS} steps, ${freeInfo.why}), ` +
     `against a cap of ${SWING_TURN_RATE}` +
@@ -1224,6 +1273,7 @@ async function main() {
     `(${commInfo.sent}/${SWEEP_STEPS} steps, ${commInfo.why}) and the ` +
     `body delivered ${turned.toFixed(2)} rad, peaking at ${commPeak.toFixed(2)} rad/s against ${SWING_TURN_RATE} ` +
     `allowed — the same sweep taken free ran at ${freePeak.toFixed(1)} rad/s`);
+  }
 
   // ---- 10. a remap actually takes ----
   // The whole hotkeys feature stated as a test. Storing a binding proves
@@ -1271,7 +1321,13 @@ async function main() {
   await browser.close();
 
   const failed = results.filter((r) => !r.pass);
-  console.log(`\n[playtest] ${results.length - failed.length}/${results.length} controls working`);
+  console.log(`\n[playtest] ${results.length - failed.length}/${results.length} controls working`
+    + (skipped.length ? `, ${skipped.length} NOT RUN` : ""));
+  if (skipped.length) {
+    // Named, every time. A silent skip is how a suite comes to certify a
+    // control nobody has exercised in a month.
+    for (const s2 of skipped) console.log(`[playtest]   not run: ${s2.name} — ${s2.why}`);
+  }
   if (failed.length) {
     console.log("[playtest] BROKEN: " + failed.map((f) => f.name).join(", "));
     process.exitCode = 1;

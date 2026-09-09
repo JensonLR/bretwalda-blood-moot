@@ -88,6 +88,7 @@
     "bladereach": "node tools/bladereach.mjs",
     "hudcost": "node tools/hudcost.mjs",
     "cliptest": "node tools/cliptest.mjs",
+    "safearea": "node tools/safearea.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
     "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",

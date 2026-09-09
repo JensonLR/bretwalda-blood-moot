@@ -103,7 +103,14 @@ const EDGE = 12;
  * which is noted in docs/MOBILE-CONTROLS.md rather than papered over here.)
  */
 export function inset(side: "top" | "bottom" | "left" | "right", px: number): string {
-  return `calc(${px}px + env(safe-area-inset-${side}, 0px))`;
+  // `var(--safe-*)` and not `env()` directly. The variable is DECLARED as the
+  // env() in globals.css, so a real device is byte-identical — but env() can be
+  // written by nothing except the browser, and that made this whole fix
+  // untestable: `touchtest` measures against a viewport that includes the
+  // region the OS is covering, so it could see neither the fault nor the cure.
+  // One property a harness can set turns an assertion nobody could make into
+  // `tools/safearea.mjs`.
+  return `calc(${px}px + var(--safe-${side}, 0px))`;
 }
 
 /**

@@ -28,6 +28,23 @@
     --rhythm: clamp(1.5rem, 4.5vw, 2.25rem);
     --tap: 44px;
 
+    /* THE HARDWARE'S OWN BITE, BEHIND A NAME — 9 Sep 2026.
+       `env(safe-area-inset-*)` is set by the browser and cannot be written by
+       anything else, which made the combat HUD's safe-area work UNTESTABLE:
+       `touchtest` measures against `window.innerWidth/innerHeight`, and under
+       `viewport-fit=cover` those INCLUDE the region the notch and the home
+       indicator are covering. The harness could not see the fault and could not
+       see the fix, so a control could walk back under the notch and every gate
+       would stay green.
+       Reading `env()` through a variable changes nothing on a real device — the
+       fallback IS the env() — and gives a harness one property to set. That is
+       the whole reason for the indirection, and `tools/safearea.mjs` is what
+       uses it. */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+
     /* ---- SUTTON HOO ----------------------------------------------------
        docs/SUTTON-HOO.md gives the game its palette: gilded bronze fittings
        and garnet inlay on tinned-silver panels, over near black. The amber

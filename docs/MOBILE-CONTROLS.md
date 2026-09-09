@@ -564,18 +564,43 @@ cutout — every desktop, the capture box, and the phones `touchtest` and
 a pixel. The inset is added only where the hardware actually takes something
 away.
 
-## The harness cannot confirm it, and that is why it never caught it
+## It is measured now — `npm run safearea`
 
 `touchtest` measures against `window.innerWidth` / `innerHeight`. Under
-`viewport-fit=cover` those **include the unsafe region**, so the harness sees a
-control at bottom 24 as clear of the foot by 24 px, which is exactly what it
-reports and exactly wrong. It cannot see a region the OS is covering.
+`viewport-fit=cover` those **include the unsafe region**, so it sees a control at
+bottom 24 as clear of the foot by 24 px, which is exactly what it reports and
+exactly wrong. That is why it never caught the fault, and on its own it still
+cannot see the fix — 33/33 after the change means nothing regressed on a screen
+with no cutout, and nothing more.
 
-Confirming this properly needs the insets themselves — a device or an emulation
-that reports non-zero `env(safe-area-inset-*)`, and an assertion that no combat
-control's box intersects them. That harness does not exist. It is written down
-here rather than papered over, and `touchtest` 33/33 after the change means only
-that nothing regressed on a screen with no cutout.
+It could not be given the ability either, because `env()` is written by the
+browser and by nothing else. So `inset()` reads it through `var(--safe-*)`,
+declared as the `env()` in `globals.css`: byte-identical on a real device, and
+one property a harness can set. That indirection exists for exactly this.
+
+`tools/safearea.mjs` sets the insets an iPhone actually reports — 59 px either
+side and 21 px of indicator in landscape, 59 px of notch and 34 px of indicator
+in portrait — drives a real fight in both orientations, and makes two claims:
+
+1. **No combat control overlaps the covered region.**
+2. **With the insets at zero, nothing moved** — which is what keeps the first
+   claim honest. A fix that re-laid out every phone would pass claim 1 and be a
+   worse change than the fault.
+
+Measured on the fix: **4/4**, 11 controls clear in both orientations, all 11
+moving inboard by exactly the inset (59,21 and 0,34).
+
+And it has teeth. Run against `4758b08`, before the fix: **0/4** —
+
+```
+landscape  Slash [744,266 84x84] over right by 43
+           Block [764,198 64x64] over right by 43
+           Run   [16,310 56x56]  over left  by 43
+portrait   Heavy attack [210,744 68x68] over bottom by 2
+           Run          [16,764 56x56]  over bottom by 10
+```
+
+The thumb cluster sat 43 px under the notch.
 
 ---
 
