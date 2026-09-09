@@ -813,3 +813,74 @@ The lesson for whoever tries again: the 187 ms is inside `def.build` and every
 ground module has its own, so a real split has to happen there and be judged in
 a picture, not in a timing. The forge is 315 ms on an M5; the freeze the owner
 reports will be that figure times whatever his machine is slower by.
+
+---
+
+# What the interface costs — 9 September 2026
+
+Until now every number in this file was about WebGL. Nothing measured React, and
+the DOM HUD is updated during the most performance-sensitive seconds the product
+has. `tools/hudcost.mjs` is the missing ruler; `npm run hudcost`.
+
+It counts two things and keeps them apart on purpose:
+
+* **COMMITS** — React commits per second, from a `__REACT_DEVTOOLS_GLOBAL_HOOK__`
+  shim installed before the bundle loads, tallying `onCommitFiberRoot`. This is
+  reconciliation: the work memoisation would remove.
+* **WRITES** — DOM mutations in the HUD subtree, via `MutationObserver`. This is
+  the work that actually reaches the browser.
+
+They are separate because an imperative style write — the knob, the lock reticle
+— is a WRITE and not a COMMIT, and a single number would hide work moving from
+one column to the other.
+
+## The standing number
+
+In a running fight, hands off the controls, production build, `?quality=low`:
+
+| | commits/s | DOM writes/s |
+|---|---|---|
+| desktop 1280×720 | **19.7** | 1.0 |
+| phone 844×390 | **19.7** | 1.0 |
+
+**19.7/s is the wire's own 20 Hz**, and that is not a coincidence — it is the
+whole finding. `page.tsx:1044` commits a fresh `roomState` object on every
+`game_state`, `stampSnapshot` mutates and returns the same object so identity
+changes by construction, and neither `GameCanvas` nor `GameHud` is memoized
+(`React.memo` appears nowhere in either file). So the entire interface tree
+reconciles twenty times a second for the whole of every fight: ~135 JSX elements
+and 40 hooks in `GameHud`, on top of 48 in `GameCanvas` and 128 in `Page`.
+
+Nothing is wrong with 20 Hz as a *rate*; what is expensive is that all of it is
+rebuilt at that rate when almost none of it changed. That is the next piece of
+work, and this is the ruler for it.
+
+## The knob, before and after
+
+The case that proves the instrument. A thumb dragging the movement stick through
+a real fight, on a phone:
+
+| | commits/s | vs resting |
+|---|---|---|
+| `4758b08`, knob through React state | **58.2** | +38.5 |
+| after, knob written imperatively | **20.0** | **+0.3** |
+
+38.2 commits a second removed while a player is moving. The cost moved into the
+other column exactly as intended — 73.6 DOM writes/s during the drag against 1.0
+resting — which is one element's `style.left`/`top` instead of a tree.
+
+`hudcost` fails on the base commit and passes on the fix, so it is a gate and not
+a report.
+
+## Two things it will not do
+
+**It voids rather than guesses.** Its first run waited a flat 11 s, landed on the
+countdown (`counting=true`, no ALIVE readout, no clock) and measured *that* as
+the cost of combat — `docs/PROCESS.md`'s third discipline on the harness's own
+first run. It polls for the fight's two readouts now and exits 2 rather than
+grade the wrong screen. A VOID is not a pass.
+
+**Counts are only comparable within one rasteriser and one box**, the same rule
+`tools/lib/browser.mjs` states for colour. These were taken on an M5 through the
+default launch options; read a delta against another run on the same machine, not
+against the table above.
