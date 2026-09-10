@@ -504,7 +504,13 @@ inside that band. Their own decomposition puts the residual in the wire.
 **The unexplored lever is the render cost**: 962 draw calls and 1.59M triangles
 is a great deal of main thread, and a starved main thread is a plausible
 mechanism for a client receiving at p99 80 ms from a server sending at p99 52.
-NOT PROVEN — it wants a real device, and this box has no GPU.
+
+**[10 Sep 2026 — ATTRIBUTED. `npm run drawcensus`.]** The box has a GPU now and
+the number is no longer unexamined: at tier high a **warrior costs 85 draws**, so
+eight men are ~678 of it, against **230 for the whole arena**. The men are the
+lever. It ablates rather than counts, because a visible mesh is not a draw call;
+the rows are MARGINAL costs and deliberately do not sum to the baseline, the same
+way this file's time ablation never did. See PERFORMANCE.md.
 
 **`react-doctor`: 122 issues, and its four ERRORS are false positives.** All
 four are "effect never cleaned up"; `GameCanvas:616` runs `disposers.reverse()`

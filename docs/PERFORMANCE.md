@@ -967,3 +967,55 @@ than half a metre.
 The harness also discards a press that never reached the game rather than timing
 it — an earlier cut reported a confident 220 ms while every input message it
 captured carried `moveZ: 0`.
+
+---
+
+## The draw calls, attributed — 10 September 2026
+
+`HANDOVER.md` carried this for weeks:
+
+> **The render cost.** 962 draw calls is the biggest unexamined number in the
+> build … NOT PROVEN — it wants a real device, and this box has no GPU.
+
+The box has a GPU now (`BRETWALDA_GPU=1`, ANGLE Metal / Apple M5), and `fpstest`
+only ever reported the **total**. You cannot spend a total. **`npm run
+drawcensus`** attributes it.
+
+**It ablates rather than counts.** A visible mesh is not a draw call — it is
+drawn once per shadow cascade it casts into and not at all if the frustum culls
+it — so a scene-graph census is an estimate dressed as a measurement. Hide a
+subtree, let the renderer settle, read `renderer.info` again; the delta is that
+subtree's true cost, cascades and passes included.
+
+Tier high, 1280×720, a running fight with **three** warriors:
+
+| lever | draws | of frame | tris |
+|---|---|---|---|
+| the warriors (3) | **254** | 48% | 479k |
+| the world | 230 | 44% | 477k |
+| vfx | 10 | 2% | 4k |
+| the sky | 4 | 1% | 9k |
+| baseline | **525** | | 965k |
+
+**A warrior costs 85 draws. Eight would be 678** — which is most of the 962 the
+handover was worried about. The men are the lever; the whole arena is 230.
+
+### Two things the counter needs, or it lies
+
+`info.autoReset = false`. three.js zeroes `info` at the top of every `render()`
+and this game renders several passes per frame, so reading it afterwards returns
+the **last pass**, not the frame. Measured before that was understood: `calls: 1`.
+Accumulate over a known number of frames and divide. The frame count comes off
+rAF, because `render()` runs more than once per animation frame.
+
+### The rows do not add up, and that is correct
+
+They sum to 717 against a 525 baseline — 37% overlap. Ablation measures
+**marginal** cost: hiding a subtree removes its own draws *and* its share of the
+cascades and state changes around it, while the post chain's full-screen passes
+stay whatever you hide. The first version of the harness gated on additivity and
+failed by 32%, correctly, because the claim was wrong.
+
+This is not new. The **time** ablation earlier in this file has the same shape
+and always did — post chain 10.40 ms + shadows 9.40 + props 8.50 against an
+18.70 ms baseline. **Read a row as a lever, not as a slice.**
