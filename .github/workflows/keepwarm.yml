@@ -19,8 +19,19 @@
 # nothing).
 #
 # That file says the fix is "from a machine that stays on, or from any
-# scheduler". This is the scheduler. It is deliberately dumb: one GET, no
-# checkout, no dependencies, no state.
+# scheduler". This is the scheduler. No checkout, no dependencies, no state.
+#
+# TWO REQUESTS, BECAUSE THERE ARE TWO THINGS ASLEEP. `GET /` wakes the web
+# instance and nothing else: `page.tsx` is `"use client"`, so a landing request
+# never touches Postgres. Neon suspends its compute independently — checked, and
+# the endpoint's `started_at` moved the moment a database-backed request arrived
+# — so a heartbeat that only fetched `/` would leave the FIRST visitor to open
+# the war map paying a Neon wake on top of everything else.
+#
+# `POST /api/war` with an empty body is the second. It is the lightest form of
+# the read the map already does on every visit: rate-limited at 240/60s, no
+# `roll` and no `self` unless asked, and idempotent. A real page load is heavier
+# than this heartbeat.
 #
 # IT IS STILL NOT THE FIX. The real one is a hosting plan whose instance does
 # not sleep — Render's paid tier, or Fly with `min_machines_running = 1`, which
@@ -64,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Wake the instance and report what it cost
+      - name: Wake the instance and the database, and report what each cost
         # Through `env`, never interpolated into the shell. This workflow takes
         # no event input so there is nothing here an outsider can reach, but a
         # `${{ }}` inside `run:` is the shape of an injection whatever fills it,
@@ -73,21 +84,30 @@ jobs:
           KEEPWARM_URL: ${{ vars.KEEPWARM_URL }}
         run: |
           set -euo pipefail
-          URL="${KEEPWARM_URL:-https://bretwalda-blood-moot.onrender.com/}"
+          BASE="${KEEPWARM_URL:-https://bretwalda-blood-moot.onrender.com}"
+          BASE="${BASE%/}"
           # --max-time 180: a cold wake is tens of seconds, and a timeout here
           # would report a failure for the exact case this exists to cover.
-          OUT="$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 180 -L "$URL")"
-          CODE="${OUT%% *}"
-          SECS="${OUT##* }"
-          echo "GET $URL -> HTTP $CODE in ${SECS}s"
-          # The number is the interesting half. Over ~5 s means the instance had
-          # gone down anyway and this beat is what woke it; under a second means
-          # it never slept, which is the whole object.
+          WEB="$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 180 -L "$BASE/")"
+          WEB_CODE="${WEB%% *}"; WEB_SECS="${WEB##* }"
+          echo "GET  $BASE/         -> HTTP $WEB_CODE in ${WEB_SECS}s"
+          # And the database, through the read the map does anyway.
+          DB="$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 180 \
+            -X POST -H 'content-type: application/json' -d '{}' "$BASE/api/war")"
+          DB_CODE="${DB%% *}"; DB_SECS="${DB##* }"
+          echo "POST $BASE/api/war  -> HTTP $DB_CODE in ${DB_SECS}s"
+          # The numbers are the interesting half. Either one over ~5 s means that
+          # half had gone down anyway and this beat is what woke it; both under a
+          # second means neither slept, which is the whole object.
           {
             echo "### Keepwarm"
-            echo "\`$URL\` returned **HTTP $CODE** in **${SECS}s**."
+            echo "| | status | time |"
+            echo "|---|---|---|"
+            echo "| \`GET /\` (web instance) | $WEB_CODE | ${WEB_SECS}s |"
+            echo "| \`POST /api/war\` (Neon compute) | $DB_CODE | ${DB_SECS}s |"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$CODE" != "200" ]; then
-            echo "Not a cold start — the site did not answer 200." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$WEB_CODE" != "200" ] || [ "$DB_CODE" != "200" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Not a cold start — one of these did not answer 200." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
