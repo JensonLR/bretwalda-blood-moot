@@ -1019,3 +1019,87 @@ failed by 32%, correctly, because the claim was wrong.
 This is not new. The **time** ablation earlier in this file has the same shape
 and always did — post chain 10.40 ms + shadows 9.40 + props 8.50 against an
 18.70 ms baseline. **Read a row as a lever, not as a slice.**
+
+---
+
+## The database — 10 September 2026
+
+Measured against the real Neon project (`flat-bird-85856627`, Postgres 18,
+London), on a throwaway branch seeded to **60,090 players and 240,016 ledger
+rows** — production holds 90 and 16, so nothing here was visible from the live
+data.
+
+### The fix that was written down and never ran
+
+`war_ledger_season_people_idx` has been in `src/db/schema.ts` for weeks, under a
+twenty-line comment carrying its own measurement — *"the plan moves from Parallel
+Seq Scan to Bitmap Index Scan and the query goes 71 ms → 34.9 ms"* — on an
+endpoint that comment itself calls **"the one the map reads on every single
+visit"**. It had never existed in a database. Production carried five indexes on
+`war_ledger` and that was not one of them.
+
+Nothing broke and nothing failed. **It was written into the wrong file.** Two
+files look equally authoritative from the inside:
+
+| file | what it does |
+|---|---|
+| `src/db/schema.ts` | Drizzle table definitions. Here they generate **types**. An `index()` call creates nothing unless `drizzle-kit` runs, and in production it does not. |
+| `src/db/index.ts` | `ensureSchema` — `CREATE … IF NOT EXISTS` at startup. **This is the DDL.** |
+
+So a declaration in the first without a statement in the second is a fix that
+reads as done, reviews as done and never runs. **`npm run schemadrift`** is the
+gate: purely static, no database, and it fails on a declared-but-uncreated index.
+Verified to have teeth by removing the fix again — it names the index and the
+remedy.
+
+### The roster at scale: 587 ms → 250 ms
+
+The roster sums every sworn man's banked points and counts his distinct matches,
+then keeps the top 400. At 60k players that aggregate was 472 ms of a 587 ms
+query, 353 ms of it a sort.
+
+`war_ledger_season_standings_idx` — `(season_id, profile_id, match_key) INCLUDE
+(points)`:
+
+| | before | after |
+|---|---|---|
+| execution | 587 ms | **250 ms** |
+| buffers touched | 481,350 | **2,390** |
+| heap fetches | all 240,016 rows | **0** |
+| aggregate node | Incremental Sort → GroupAggregate | GroupAggregate, no sort |
+
+Two separate reasons, and both are needed. `match_key` is in the **key** rather
+than merely included, so rows arrive ordered by `(profile_id, match_key)` and
+`count(distinct match_key)` needs no sort at all. `points` rides in **INCLUDE**,
+which makes the scan index-only.
+
+### What was measured and rejected
+
+`war_ledger_season_profile_idx` is redundant once the standings index exists —
+same leading columns. Dropping it was tested on the branch and **bought nothing**:
+249.6 ms against 258 ms, inside the noise. It stays. An index this codebase has
+created since the beginning is not worth removing from under a running
+deployment for a number that did not move.
+
+### What was checked and found healthy
+
+- **App and database are in the same city.** `fly.toml` is `lhr`, the project is
+  `aws-eu-west-2`. No cross-region round trip.
+- **The connection layer is right.** Pooled host for the app and the direct host
+  for migrations, one global pool capped at 5, a 10 s connect timeout and a 30 s
+  circuit breaker.
+- **`players`' 2,582 sequential scans are correct.** At 90 rows Postgres will
+  always prefer a seq scan to an index, and every access is by an indexed column.
+- **`match_history` has only a primary key, and needs only that** — it is written
+  once per match and never queried.
+- **No foreign keys, and none declared.** `schema.ts` declares zero
+  `references()`, so the schema and the database agree; this is a choice, not
+  drift.
+- `hearths_name_idx` (`UNIQUE (lower(name))`) and `war_ledger_season_hearth_idx`
+  (partial) exist in `ensureSchema` and not in `schema.ts`, because Drizzle
+  0.45.2 expresses neither cleanly. `schemadrift` **reports** these and does not
+  fail on them — a gate that failed on a deliberate choice is a gate somebody
+  switches off.
+
+Both indexes are live in production and `ensureSchema` creates them on any fresh
+database. `profiletest` 32/32, `wartest` 125/125.

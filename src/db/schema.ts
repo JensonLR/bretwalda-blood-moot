@@ -257,6 +257,30 @@ export const warLedger = pgTable("war_ledger", {
    * selectivity this index will ever see.
    */
   index("war_ledger_season_people_idx").on(t.seasonId, t.people, t.points),
+  /**
+   * THE SEASON'S STANDINGS, WITHOUT TOUCHING THE HEAP.
+   *
+   * The roster sums every sworn man's banked points and counts his distinct
+   * matches, then keeps the top 400. Measured on a Neon branch seeded to 60,090
+   * players and 240,016 ledger rows: 587 ms, of which 472 ms was that aggregate
+   * and 353 ms of it a sort.
+   *
+   * 250 ms with this, and the plan says why in two lines. `matchKey` is part of
+   * the KEY rather than merely carried, so rows arrive ordered by
+   * (profile_id, match_key) and `count(distinct match_key)` needs no sort — the
+   * Incremental Sort is gone entirely. `points` rides in INCLUDE, which makes
+   * the scan index-only: Heap Fetches 240,016 -> 0, buffers 481,350 -> 2,390.
+   *
+   * It makes `war_ledger_season_profile_idx` above redundant on the same
+   * leading columns, and that index STAYS. Dropping it was measured and bought
+   * nothing — 249.6 ms against 258 ms, inside the noise — which is not a reason
+   * to take an index out from under a running deployment.
+   *
+   * `INCLUDE` has no Drizzle builder at 0.45.2, so the real DDL is in
+   * `ensureSchema` like every other index here; this declaration exists so the
+   * two agree and `tools/schemadrift.mjs` stays quiet.
+   */
+  index("war_ledger_season_standings_idx").on(t.seasonId, t.profileId, t.matchKey),
 ]);
 
 /**

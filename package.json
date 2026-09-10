@@ -93,6 +93,7 @@
     "forgedtest": "node tools/forgedtest.mjs",
     "presstopixel": "node tools/presstopixel.mjs",
     "drawcensus": "node tools/drawcensus.mjs",
+    "schemadrift": "node tools/schemadrift.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
     "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",
@@ -113,6 +114,8 @@
     "blenderdoctor": "node tools/blender/doctor.mjs"
   },
   "dependencies": {
+    "@neon/config": "^1.3.2",
+    "@neon/env": "^1.2.3",
     "@types/three": "^0.185.1",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
