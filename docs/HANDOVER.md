@@ -47,6 +47,55 @@ never applied to the second harness. It is GREEN now.
 | `npm run bladereach` | the blade against the range that takes health off; `--curve` walks the contact window |
 | `npm run hudcost` | React commits/s and DOM writes/s during a real fight |
 
+### The third pass — the outstanding list, emptied
+
+Every item the two lists below carried as "not done" is now either done or
+settled with a measurement. Nothing was left as a judgement call.
+
+**The authored men have a door.** They sat behind a hand-typed `?authored=1`
+duplicated in two files — no env var, no setting, no tier hook — so 43 MB of
+exported warriors and fifteen clips a man were reachable only by somebody who had
+read the source. Stored preference now (`bretwalda.forged`, beside handedness),
+two switches in the graphics panel, **default off** because 43 MB is a bandwidth
+decision. Two and not one: the bodies have been judged in captures, the motion
+has not, and MOTION renders disabled until MEN is on. The URL door still wins, so
+every capture harness is unchanged. `forgedtest` 6/6.
+
+**Memoising the HUD: settled, not deferred.** `hudcost` now measures cost and not
+just count. On the GPU arm, **zero long animation frames** across 24 s of
+fighting — a long animation frame being one over 50 ms. 19.7 commits/s and 74 DOM
+writes/s with a thumb dragging, and not one frame delayed. The refactor would buy
+something already free. The claim is in the harness so it will say when that
+changes. The software arm cannot answer and says NOT ATTRIBUTED rather than
+printing a misleading zero.
+
+**The clip-mode wrist solve was not a gap.** Written up as one, then measured:
+over a whole huscarl stroke the hand travels 4.33 m and the weapon's carry gap
+holds at 0.1814 m — 0.000 mm of drift. The clip does not animate the weapon
+because it is not in the skeleton, so the mount carries it. `cliptest` 10/10.
+
+**A severed forearm carries its sword**, and clip mode keeps the blade out of the
+turf. `severauthored` 9/9.
+
+**A corpse hung off the right edge of every victory tableau** — one file, two
+models of a body, 0.30 m apart, with a comment claiming they agreed. Pre-existing
+on `4758b08`. `summaryflow` 24/24.
+
+**Both harness caveats closed:** `playtest` marks unreachable claims NOT RUN
+instead of BROKEN, and `safearea` can finally assert the safe-area work because
+`inset()` reads `env()` through a settable variable.
+
+**`ASSET-PROVENANCE.md` is new** and found one open question: the two Google
+Fonts are the only creative works in the shipped product this project did not
+make, and their licence is not verifiable from inside the repository. Almost
+certainly OFL and fine; confirm at the source before a store submission.
+
+**What is deliberately still open**, with reasons rather than intentions:
+the phantom reach band (mostly `BODY_REACH`'s 0.35 m of lag forgiveness — closing
+it trades online responsiveness for tidiness), and the wire-vs-delta feedback
+split (moving the camera kick onto the wire would silence burning, which
+broadcasts nothing at all).
+
 ### The second pass — everything above's leftovers
 
 **The clips play.** `clipDriver.ts` + `?clips=1` on top of `?authored=1`.
