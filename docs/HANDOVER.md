@@ -1260,25 +1260,36 @@ Measured, not assumed. `docs/PERFORMANCE.md` carries the numbers.
 - **The helmet flank gap (5.15) is CLOSED BY RULING**, not by a fix: closing it
   costs 89% of the Braided War-locks' silhouette and the owner chose the hair.
 
-## The gate battery (run what the diff touches)
+## The gate battery, 1 Sep (run what the diff touches)
+
+**THE LIVE COUNTS ARE IN "The battery, 9 Sep 2026" ABOVE.** This section is the
+older roster; it is kept because it lists harnesses the 9 Sep run did not touch,
+and because its (was N) annotations are the record of which counts moved. Where
+the two disagree, the later one wins.
 
 **THE COUNTS BELOW WERE RE-MEASURED ON 1 SEP, NOT COPIED.** Six of them were
 stale in the previous handover — every one had gone UP, so a green run would
 have read as a regression to anyone checking against the old number. Corrected
 counts are marked (was N).
 
+**RE-MEASURED AGAIN 10 SEP**, and six more had gone stale exactly as before —
+every one UP again. Corrected inline and marked (1 Sep: N). The lesson has now
+repeated twice: a count written into prose goes stale silently, and the only
+counts that stay honest are the ones a harness prints. Read a number here as a
+floor, not a target, and re-measure before calling anything a regression.
+
 tsc --noEmit · npm run lint (0/0) · npm run build ·
-scoretest **19/19** (was 16/16) · platformcheck **6/6** · **shieldtest 18/18** (new) · **taketest 18/18** (new) ·
+scoretest **19/19** (was 16/16) · platformcheck **7/7** (1 Sep: 6/6) · **shieldtest 18/18** (new) · **taketest 18/18** (new) ·
 **standardtest 11/11** (new, 2 Sep) ·
-warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest 82/82 · protocoltest 85/85 ·
+warsay **64/64 with `WAR_TEST_DB` on a local Postgres** (52 with no database; was 54) · wartest **125/125** (1 Sep: 82/82) · protocoltest 85/85 ·
 moottest **41/41** (was 25) · marktest **38/38** (was 25) ·
 burhtest **24/24** (was 19) · tourneytest **39/39** (was 38) ·
-goretest **35/35** (was 36) · locktest **10/10** (was 6/6 — four claims pin the flick's sign) · weightprobe 24/24 ·
+goretest **43/43** (1 Sep: 35/35, was 36) · locktest **10/10** (was 6/6 — four claims pin the flick's sign) · weightprobe 24/24 ·
 **portraittest 9/9** (new, 4 Sep — the class picker's four men are men and not a missing texture; run it after any change under `art/blender/`) ·
 **palettesync 17/17** (new, 4 Sep — the web and Unity clients wear ONE palette. Run it after touching `globals.css` or `Palette.cs`; it fails on a one-digit drift and names both sides) ·
-fighttest 23/23 · benchtest 23/23 · rejointest 12/12 · armsprobe 16/16 ·
+fighttest **49/49** (1 Sep: 23/23) · benchtest 23/23 · rejointest 12/12 · armsprobe 16/16 ·
 bottest 11/11 (240 bouts a rung, seed 20260813) · cardgate 17/17 ·
-**installseen 12/12** · summaryflow 18/18 ·
+**installseen 12/12** · summaryflow **22/22, 2 NOT RUN** (1 Sep: 18/18) ·
 solidtest **16/16 with 1 deferral** (was "12/12") ·
 soundtest 46/46 · playtest **38/38 — BUT SEE THE BROWSER-BINARY LAW BELOW** ·
 touchtest **33/33** (x4 shapes; was 32/32 — the TAKE pad is in its cluster) ·
@@ -1286,10 +1297,20 @@ touchtest **33/33** (x4 shapes; was 32/32 — the TAKE pad is in its cluster) ·
 workstation: forced canvas clicks, waits for the respawn, declines the tuition
 card) · clipseen PASS · wearmeasure ·
 helmclash (COMPARES ITS OWN BASELINE — exits 1 when a section gets worse) ·
-cosmetictest (see above; software for a verdict) · profiletest 22/0
-(degraded; no DB here by the credentials rule) — **82/82 with `PROFILE_TEST_DB`
+cosmetictest (see above; software for a verdict) · profiletest **32/32**
+(1 Sep: 22/0 — degraded; no DB here by the credentials rule) — **82/82 with `PROFILE_TEST_DB`
 on the local cluster** (four mute checks added 2 Sep) · classmatrix (~3 min, balance only) ·
 **rekeyprobe 3/3** (new, 2 Sep; no material re-keys its program between frames) ·
+**schemadrift 2/2** (new, 10 Sep; static, no database — fails when an index is
+declared in `schema.ts` and never created in `ensureSchema`. That file generates
+TYPES here, so an index written only into it runs nowhere; one had been sitting
+there with its own measurement attached) ·
+**severauthored 9/9** · **forgedtest 6/6** (both new, 9 Sep; the authored men
+ship default-off, so forgedtest is what proves the switch still reaches them) ·
+**presstopixel** and **drawcensus** (new, 9–10 Sep; both `BRETWALDA_GPU=1`, both
+report rather than gate — press-to-pixel keys off the `walking` state edge, not
+the input event, because charging the game its own input thresholds read 121 ms
+too slow) ·
 **hitchprobe** (new, 2 Sep; `BRETWALDA_GPU=1`, worst frame after the verdict
 22–36 ms at high and medium; a reading over 100 ms with links in it is the
 handover hitch back) · spectatetest 12/14 (the ledgered count; its node half
