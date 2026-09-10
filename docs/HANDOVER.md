@@ -294,6 +294,28 @@ names the file) where the harness is pinned to production output. `touchtest`
 warned about a stale bundle and then measured it anyway; a warning is not a
 gate.
 
+**TWO HARNESSES WENT RED WITHOUT THE CODE CHANGING, and only one is closed.**
+
+`wartest` read 124/125 in the evening and 125/125 in the afternoon on identical
+code — reproduced at e5aee38, so never a regression. The claim compared the war
+report's banked total against RAW `pointsFor`, and the report comes from
+`bankedPoints`, which applies `WAR_WEIGHT.mootBonus` (1.5) INSIDE THE MOOT
+WINDOW. 35 banked against 24 owed is 24 x 1.5 floored a man at a time. The
+harness was asserting `mootBonus === 1` without saying so, and the WALL CLOCK
+decided whether the suite was green. Fixed: the claim now weighs both sides with
+the engine's own `bankedPoints`, checks each man individually, and names the
+regime on its verdict line. **Anything in this repository that compares against
+a scoring number should now be read with "which window was it in?" in mind.**
+
+`protocoltest` showed **84/85 once, inside a sequential batch, and has not
+reproduced in fourteen runs since** — eight isolated, four back-to-back, and one
+under six-way CPU load. THE FAILING CLAIM WAS NOT CAPTURED: the batch recorded
+only the tally. It is left open and named here rather than closed, because "it
+passes now" is not a diagnosis. If it recurs, capture the `FAIL` line before
+anything else — the first hypothesis (the wall-clock number beside the
+INPUT_LAPSE_MS claim at protocoltest.mjs:666) was checked and is WRONG: that
+claim's condition is sim time and the wall clock appears only in its message.
+
 ### The battery, 9 Sep 2026
 
 typecheck · lint · build clean. blenderdoctor 13/13 · cliptest 9/9 ·
