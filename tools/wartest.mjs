@@ -1109,10 +1109,33 @@ head("8. The attribution write");
       seen[0].territoryId === m.end.war.territoryId &&
       seen[0].entries.length === m.end.war.entries.length);
 
+    // WEIGHED THE WAY THE ENGINE WEIGHS IT, and this claim used not to be.
+    //
+    // It compared the banked total against RAW `pointsFor`, which is only the
+    // same number while the weight happens to be 1 — and the moot weight is 1.5
+    // inside the moot window. So the claim passed all day and failed during
+    // every moot: 35 banked against 24 owed, which is exactly 24 x 1.5 floored
+    // a man at a time. Nothing in the engine was wrong. The harness was
+    // asserting `WAR_WEIGHT.mootBonus === 1` without knowing it, and the clock
+    // decided whether the suite was green — `docs/PROCESS.md`'s "a harness that
+    // keeps its own copy of a constant audits the constant it was written
+    // against", with the wall clock as the copy.
+    //
+    // What it means to check is that EVERY MAN CAME THROUGH and each entry is
+    // worth what the purse says he is, so it now asks that per man, against the
+    // same `bankedPoints` the engine used. The window is read once and named in
+    // the message, so a failure says which regime it was in.
+    const inMoot = inMootWindow(Date.now());
+    const humansOnly = m.end.results.filter((r) => !r.id.startsWith("bot_"));
     const banked = sum(m.end.war.entries.map((e) => e.points));
-    const owed = sum(m.end.results.filter((r) => !r.id.startsWith("bot_")).map((r) => pointsFor(r)));
+    const owed = sum(humansOnly.map((r) => bankedPoints(r, "moot", inMoot)));
+    const everyManPaid = humansOnly.every((r) => {
+      const entry = m.end.war.entries.find((e) => e.playerId === r.id);
+      return entry && entry.points === bankedPoints(r, "moot", inMoot);
+    });
     check("every man on the results table is on the war report, for what the purse says he is worth",
-      m.end.war.entries.length === 3 && banked === owed, `${banked} banked vs ${owed} owed`);
+      m.end.war.entries.length === 3 && banked === owed && everyManPaid,
+      `${banked} banked vs ${owed} owed${inMoot ? " (inside the moot window, x1.5)" : ""}`);
 
     off();
     const again = fight(eng, { humans: 2 });
