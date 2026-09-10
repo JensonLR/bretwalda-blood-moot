@@ -31,6 +31,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".authored");
@@ -56,6 +57,8 @@ const say = (s) => console.log(s);
 const good = (s) => say(`  PASS  ${s}`);
 const bad = (s) => { failed = true; say(`  FAIL  ${s}`); };
 
+// A MISSING build and a build from before your edit are the same problem.
+requireFreshBuild(ROOT, "authoredshot");
 if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
   say("\n  NO PRODUCTION BUILD. Run `npm run build` first.");
   process.exit(1);

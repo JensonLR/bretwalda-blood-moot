@@ -35,23 +35,40 @@ import { pathToFileURL } from "url";
  * would be a harness quietly measuring a build it did not make.
  */
 export async function loadClient(root, work = ".clientmodule") {
+  const { byName } = await emitClient(root, ["src/game/client/render/anim.ts"], work);
+  const CH = await byName("characters.js");
+  const ANIM = await byName("anim.js");
+  if (!CH) throw new Error("tsc emitted no characters.js");
+  return { CH, ANIM, work: resolve(root, work) };
+}
+
+/**
+ * The general form: compile any client entry points and hand back their
+ * modules by emitted filename.
+ *
+ * Split out when `railgate` needed `fightRail.ts` and the alternative was a
+ * third copy of emit-and-patch — the same failure this file was created to
+ * stop, one level along. `loadClient` is now this with anim.ts filled in, so
+ * the two harnesses that already used it compile exactly what they did before.
+ *
+ * Returns `{ byName, files, work }`. `byName` is async and memoised; a name
+ * that was never emitted returns null rather than throwing, because "did this
+ * even compile" is a claim a harness should get to make for itself.
+ */
+export async function emitClient(root, entries, work = ".clientmodule") {
   const dir = resolve(root, work);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  const tsc = spawnSync("npx", ["tsc", "src/game/client/render/anim.ts",
+  const tsc = spawnSync("npx", ["tsc", ...entries,
     "--outDir", work, "--target", "es2022", "--module", "esnext",
-    "--moduleResolution", "bundler", "--skipLibCheck"], { cwd: root, encoding: "utf8" });
+    "--moduleResolution", "bundler", "--skipLibCheck", "--jsx", "react-jsx"],
+  { cwd: root, encoding: "utf8" });
   const emitted = [];
-  let charJs = null, animJs = null;
   const walk = (d) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const f = resolve(d, e.name);
       if (e.isDirectory()) walk(f);
-      else if (e.name.endsWith(".js")) {
-        emitted.push(f);
-        if (e.name === "characters.js") charJs = f;
-        if (e.name === "anim.js") animJs = f;
-      }
+      else if (e.name.endsWith(".js")) emitted.push(f);
     }
   };
   if (existsSync(dir)) walk(dir);
@@ -63,8 +80,14 @@ export async function loadClient(root, work = ".clientmodule") {
     const fixed = src.replace(/(from\s+")(\.[^"]*?)(")/g, (m, a, b, c) => (b.endsWith(".js") ? m : a + b + ".js" + c));
     if (fixed !== src) writeFileSync(f, fixed);
   }
-  if (!charJs) throw new Error(`tsc emitted nothing:\n${tsc.stdout || ""}${tsc.stderr || ""}`);
-  const CH = await import(pathToFileURL(charJs).href);
-  const ANIM = animJs && existsSync(animJs) ? await import(pathToFileURL(animJs).href) : null;
-  return { CH, ANIM, work: dir };
+  if (!emitted.length) throw new Error(`tsc emitted nothing:\n${tsc.stdout || ""}${tsc.stderr || ""}`);
+  const cache = new Map();
+  const byName = async (name) => {
+    if (cache.has(name)) return cache.get(name);
+    const hit = emitted.find((f) => f.endsWith(`/${name}`));
+    const mod = hit && existsSync(hit) ? await import(pathToFileURL(hit).href) : null;
+    cache.set(name, mod);
+    return mod;
+  };
+  return { byName, files: emitted, work: dir };
 }

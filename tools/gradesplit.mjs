@@ -94,6 +94,7 @@ import { launchBrowser as launchChromium, rasteriserNote, confirmRasteriser, wat
 import { surfaceMasks, patchLab } from "./lib/surfacemask.mjs";
 import { loadClient } from "./lib/clientmodule.mjs";
 import { installVirtualClock, FRAME_MS } from "./lib/vclock.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2).filter((a) => !a.startsWith("--"));
@@ -168,8 +169,10 @@ const SURFACES = [...Object.keys(kitWithExtras("none"))];
 // ---- the server ------------------------------------------------------------
 const PORT = 3400 + (process.pid % 600);
 const origin = `http://localhost:${PORT}`;
-const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+const choice = chooseServer(ROOT, "gradesplit");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+const proc = spawn("node", [choice.script], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   stdio: ["ignore", "ignore", "ignore"],
 });

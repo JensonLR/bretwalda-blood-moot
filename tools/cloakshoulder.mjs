@@ -21,8 +21,11 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Which bundle this run measures. A stale .next falls back to dev — see freshbuild. */
+const SERVER = chooseServer(ROOT, "cloakshoulder");
 const OUT = resolve(ROOT, "art/cloakshoulder");
 mkdirSync(OUT, { recursive: true });
 const argv = process.argv.slice(2);
@@ -31,9 +34,9 @@ const TAG = flag("tag", "now");
 const PORT = 3820 + (process.pid % 60);
 const BASE = `http://localhost:${PORT}`;
 
-const srv = spawn("node", ["custom-server.mjs"], {
+const srv = spawn("node", [SERVER.script], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT), NODE_ENV: existsSync(resolve(ROOT, ".next/BUILD_ID")) ? "production" : "development" },
+  env: { ...process.env, PORT: String(PORT), NODE_ENV: SERVER.prod ? "production" : "development" },
   stdio: "pipe",
 });
 watchBoot(srv, "cloakshoulder");

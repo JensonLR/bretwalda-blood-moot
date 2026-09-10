@@ -277,6 +277,38 @@ export function readSurfaceName(name: string | undefined | null): AuthoredMateri
  * identical on a mesh that was already a flat colour, and only one of them is
  * the feature working.
  */
+/**
+ * ONE MATERIAL MUST NOT DRESS BOTH A SKINNED AND AN UNSKINNED MESH.
+ *
+ * three.js keys a shader PROGRAM on the material plus the defines the geometry
+ * forces, and `USE_SKINNING` is one of those. Hand the same
+ * `MeshStandardMaterial` to a SkinnedMesh and to a plain Mesh and the renderer
+ * has to swap programs between the two draws, every frame, for the lifetime of
+ * the fight. `rekeyprobe` calls that a re-key and fails on it.
+ *
+ * It went unseen because the authored bodies were default-off: the library's
+ * materials only ever met plain meshes. Turning the authored man on by default
+ * put a SkinnedMesh in front of the same cached `mail`, `iron` and `wool` that
+ * the shields, weapons and arena furniture already wore — four materials,
+ * every frame, on every man.
+ *
+ * A clone per ORIGINAL, not per mesh. `Material.clone()` copies texture
+ * REFERENCES, so the maps stay shared on the GPU and the only new thing is the
+ * program key. Keyed weakly, so a library that is disposed takes its variants
+ * with it.
+ */
+const SKINNED_VARIANT = new WeakMap<THREE.Material, THREE.Material>();
+function forSkinnedMesh(base: THREE.Material): THREE.Material {
+  const hit = SKINNED_VARIANT.get(base);
+  if (hit) return hit;
+  const clone = base.clone();
+  // Named so a capture, a devtools session and rekeyprobe's own report all say
+  // which material this is and why there are two of it.
+  clone.name = `${base.name || base.type}#skinned`;
+  SKINNED_VARIANT.set(base, clone);
+  return clone;
+}
+
 export function dressFromSurfaceNames(
   root: THREE.Object3D,
   resolve: (ask: AuthoredMaterialAsk) => THREE.Material | null,
@@ -284,7 +316,7 @@ export function dressFromSurfaceNames(
   const unknown = new Set<string>();
   let dressed = 0;
   root.traverse((o) => {
-    const mesh = o as THREE.Object3D & { isMesh?: boolean; material?: THREE.Material };
+    const mesh = o as THREE.Object3D & { isMesh?: boolean; isSkinnedMesh?: boolean; material?: THREE.Material };
     if (!mesh.isMesh || !mesh.material) return;
     const ask = readSurfaceName(mesh.material.name);
     if (!ask) { if (mesh.material.name) unknown.add(mesh.material.name); return; }
@@ -293,7 +325,7 @@ export function dressFromSurfaceNames(
     // it: the man keeps the flat colour the glTF gave him and the fight starts.
     try { next = resolve(ask); } catch { next = null; }
     if (!next) { unknown.add(mesh.material.name); return; }
-    mesh.material = next;
+    mesh.material = mesh.isSkinnedMesh ? forSkinnedMesh(next) : next;
     dressed++;
   });
   return { dressed, unknown: [...unknown] };

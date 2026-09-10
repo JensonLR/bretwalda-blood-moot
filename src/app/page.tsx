@@ -19,7 +19,7 @@ import { FIRST_MOOT_KEY } from "@/game/firstmoot.mjs";
 // shared module so this screen, the glyph component and `tools/marktest.mjs`
 // all read the same law; see the header of `marks.mjs`.
 import { MARKS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks, type MarkFacts } from "@/game/marks.mjs";
-import { useFightRail, railStyle } from "@/game/client/fightRail";
+import { useFightRail, railStyle, endIsWide } from "@/game/client/fightRail";
 import { watchForInstall, offerFor, askToInstall, dismissOffer,
   subscribeInstall, installSnapshot, installServerSnapshot } from "@/game/client/install";
 import { createTour, tourIsDue, TOUR_KEY } from "@/game/tour.mjs";
@@ -1888,9 +1888,16 @@ export default function Page() {
             free-look half eating drags: touchtest at --w 841 --h 757 read 223
             sampled points dead on the aim side, all of them this button, which
             is the owner's playtester's "hit boxes were slightly rough" on that
-            exact hardware. `pointer-fine:` centres it only where a mouse
-            exists; every coarse screen keeps it in the corner whatever its
-            width. */}
+            exact hardware.
+
+            AND IT IS DECIDED IN `railStyle`, NOT HERE. It was a
+            `pointer-fine:left-1/2 -translate-x-1/2` class pair, and when the
+            rail landed it started returning an inline `left` — which beats any
+            class. The `left:50%` was overridden and the TRANSFORM was not, so
+            the button rendered at 12 px and was then pulled half its own width
+            further left: END SESSION hung off the left edge of every desktop
+            screen, reading "…D SESSION". A rung's position has one owner and
+            it is the file that owns the rail. */}
         {/* Sound, over the fight: the one place a player wants it off in a
             hurry is the one place he cannot reach a menu.
 
@@ -1927,9 +1934,14 @@ export default function Page() {
             }}
             data-snd="back"
             style={railStyle("end", rail, lefty, soloEnd)}
-            className="pointer-fine:left-1/2 pointer-fine:right-auto pointer-fine:-translate-x-1/2 z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur"
+            className="z-30 px-3 py-2 sm:px-5 sm:py-2.5 bg-stone-900/90 hover:bg-red-950 border border-stone-600 hover:border-red-700 rounded-lg text-xs sm:text-sm font-bold tracking-wider text-[#e7dfc9] transition flex items-center gap-2 backdrop-blur"
           >
-            <DoorOpen size={15} /> <span className="inline pointer-fine:hidden">END</span><span className="hidden pointer-fine:inline">END SESSION</span>
+            {/* The LABEL follows the same rule as the position, from the same
+                predicate. It used to be a `pointer-fine:` class pair, which
+                asked only about the pointer — so a folded desktop window kept
+                the 159 px "END SESSION" in a column laid out for a 96 px
+                button and drove it through the graphics pad. */}
+            <DoorOpen size={15} /> {endIsWide(rail) ? "END SESSION" : "END"}
           </button>
         )}
       </div>

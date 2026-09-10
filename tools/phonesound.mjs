@@ -31,6 +31,7 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = parseInt(process.env.PORT || String(3960 + (process.pid % 30)), 10);
@@ -169,9 +170,11 @@ async function listen(page, ms) {
 }
 
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const choice = chooseServer(ROOT, "phonesound");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`[phonesound] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

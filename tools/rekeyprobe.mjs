@@ -21,6 +21,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot, rasteriserNote } from "./lib/browser.mjs";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const arg = (k, d) => { const m = process.argv.find((a) => a.startsWith(`--${k}=`)); return m ? m.slice(k.length + 3) : d; };
@@ -28,6 +29,8 @@ const QUALITY = arg("quality", "low");
 const PRESET = arg("preset", "brawl");
 const PORT = parseInt(process.env.PORT || String(3877 + (process.pid % 20)), 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A MISSING build and a build from before your edit are the same problem.
+requireFreshBuild(ROOT, "rekey");
 if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) { console.error("[rekey] NO PRODUCTION BUILD — run `npm run build` first."); process.exit(2); }
 const server = spawn("node", ["custom-server.mjs"], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" }, stdio: "ignore" });
 watchBoot(server, "rekey");

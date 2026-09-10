@@ -32,6 +32,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/ui/hud");
@@ -179,9 +180,11 @@ async function shootOne(browser, view) {
 }
 
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const choice = chooseServer(ROOT, "hudshot");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`[hudshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

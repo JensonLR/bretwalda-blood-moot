@@ -29,6 +29,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = parseInt(process.env.PORT || String(3730 + (process.pid % 40)), 10);
@@ -108,10 +109,10 @@ const PROBE = () => {
 };
 
 async function main() {
-  const buildId = resolve(ROOT, ".next/BUILD_ID");
-  const useProd = existsSync(buildId);
-  console.log(`[lockshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  const choice = chooseServer(ROOT, "lockshot");
+  const useProd = choice.prod;
+  console.log(`[lockshot] measuring against: ${choice.note}`);
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

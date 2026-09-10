@@ -40,6 +40,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -122,9 +123,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const choice = chooseServer(ROOT, "goreshot");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`[goreshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

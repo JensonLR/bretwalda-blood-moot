@@ -38,6 +38,7 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = parseInt(process.env.PORT || "3912", 10);
@@ -209,8 +210,10 @@ const me = (page, afterSeq = -1) => page.evaluate(async (seq) => {
 let browser = null;
 async function main() {
   if (!DB) throw new Error("PROFILE_TEST_DB is required — this test is about the database path");
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  const choice = chooseServer(ROOT, "bindsynctest");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development", DATABASE_URL: DB },
     stdio: ["ignore", "pipe", "pipe"],

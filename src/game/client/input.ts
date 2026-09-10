@@ -822,20 +822,65 @@ export function setHandedness(next: boolean): void {
 // without `authored` and the getter says so rather than leaving the caller to
 // remember.
 //
-// DEFAULT OFF, and that is not timidity. `public/authored` is 43 MB with no
-// streaming policy and the heaviest single file is a head of long hair at
-// 3.5 MB (`gltftest` reports it every run). Making that the default is a
-// bandwidth decision on top of a visual one. This makes it a CHOICE, which it
-// was not before.
+// DEFAULT ON since 10 Sep 2026, on the owner's instruction — and the number
+// that had been holding it back was the wrong number.
+//
+// "43 MB" is the size of `public/authored` ON DISK, all 68 files: four warrior
+// bodies, and a head of hair and a beard for every style of every class. NOTHING
+// EVER LOADS THAT. `loadAuthoredWarrior` fetches one file per class actually
+// present in the fight and caches the parse; `dressAuthoredHead` fetches only
+// the hair and beard the men are actually wearing.
+//
+// `tools/authoredweight.mjs` measures it per shape, gzipped as the wire carries
+// it (the server does compress .glb — checked, not assumed):
+//
+//     duel, one class, plain kit              1.10 MB
+//     duel, two classes                       2.17 MB
+//     a real training fight, measured         3.83 MB
+//     WORST CASE, four classes, long hair     7.77 MB
+//
+// So the decision to keep this off was taken against a number between 5 and 39
+// times too big. The library is not the payload.
+//
+// AND IT NEVER BLOCKS. Both call sites build the procedural man first and swap
+// the authored one in when it arrives ("Procedural first, upgrade in
+// background" — GameCanvas). A slow connection gets the game this project has
+// spent months on, then gets a better body mid-fight; it does not get a
+// progress bar, and it does not get a stall.
+//
+// MOTION rides with it. The clips have been inside these files since the rig
+// was first exported and `clipDriver` scrubs rather than plays them, so the
+// server keeps the clock; `poseWarrior` hands any frame the driver has no clip
+// for straight back to the procedural stack, which makes the worst case the
+// build that existed before it. Both switches remain in the graphics panel for
+// anyone who wants the procedural man back.
 //
 // The URL parameter still works and still wins for one load, because every
 // capture harness in the tree drives it that way and a setting that broke
-// `authoredshot` would be a setting that cost more than it gave.
+// `authoredshot` would be a setting that cost more than it gave. It can now
+// also turn the authored man OFF (`?authored=0`), which it could not before —
+// a default-on setting needs a door that opens both ways or a capture cannot
+// photograph the procedural man at all.
 
 const FORGE_KEY = "bretwalda.forged";
 /** `mesh` — the authored bodies. `motion` — the authored clips on top of them. */
 export interface Forged { mesh: boolean; motion: boolean }
-let forged: Forged = { mesh: false, motion: false };
+/**
+ * The default follows the BUILD, not a wish.
+ *
+ * `NEXT_PUBLIC_AUTHORED` is stamped by next.config.ts from whether
+ * `public/authored/` actually holds the four warrior bodies. On a build that
+ * ships them this is `{true,true}` and the owner's instruction is in force; on
+ * one that does not — which is production today, since both the assets and
+ * their source are gitignored and the Dockerfile never runs `npm run authored`
+ * — it is `{false,false}` and the client does not spend eleven requests a
+ * fight asking for files that 404.
+ *
+ * Both switches still work either way. This is only about what a player who
+ * has chosen nothing should be made to download.
+ */
+const AUTHORED_SHIPPED = process.env.NEXT_PUBLIC_AUTHORED === "1";
+let forged: Forged = { mesh: AUTHORED_SHIPPED, motion: AUTHORED_SHIPPED };
 let forgeLoaded = false;
 const forgeListeners = new Set<() => void>();
 
@@ -857,8 +902,14 @@ function forgeFromUrl(): Partial<Forged> {
   try {
     const q = new URLSearchParams(window.location.search);
     const out: Partial<Forged> = {};
-    if (q.get("authored") === "1") out.mesh = true;
-    if (q.get("clips") === "1") { out.mesh = true; out.motion = true; }
+    // Both directions. `=1` was the only reading while the default was off;
+    // with it on, `?authored=0` is the only way a capture can photograph the
+    // procedural man, and `severauthored`/`drawcensus` both need to.
+    const a = q.get("authored"), c = q.get("clips");
+    if (a === "1") out.mesh = true;
+    if (a === "0") { out.mesh = false; out.motion = false; }
+    if (c === "1") { out.mesh = true; out.motion = true; }
+    if (c === "0") out.motion = false;
     return out;
   } catch { return {}; }
 }
@@ -880,7 +931,13 @@ export function subscribeForged(onChange: () => void): () => void {
     if (url.mesh !== undefined || url.motion !== undefined) {
       forged = { mesh: url.mesh ?? forged.mesh, motion: url.motion ?? forged.motion };
     }
-    if (forged.mesh || forged.motion) for (const l of forgeListeners) l();
+    // Notify on any DIFFERENCE from the default, not just on "something is on".
+    // That test was written when the default was off, so "on" and "changed"
+    // were the same thing; with the default on, a player who had turned the
+    // authored man OFF would have been the silent case.
+    if (forged.mesh !== FORGE_DEFAULT.mesh || forged.motion !== FORGE_DEFAULT.motion) {
+      for (const l of forgeListeners) l();
+    }
   }
   return () => { forgeListeners.delete(onChange); };
 }
@@ -903,9 +960,15 @@ export function getForged(): Forged {
   return forged;
 }
 
-/** Server snapshot: nothing is stored on the server, and nobody is holding it. */
-const FORGE_OFF: Forged = { mesh: false, motion: false };
-export function getServerForged(): Forged { return FORGE_OFF; }
+/**
+ * Server snapshot. It must equal the CLIENT default, not `{false,false}`:
+ * nothing is stored on the server, so the HTML it renders is the HTML for a
+ * player who has never chosen — and that player now gets the authored man.
+ * Returning off here would have every first load hydrate with the switches
+ * reading OFF and then flip them a frame later.
+ */
+const FORGE_DEFAULT: Forged = { mesh: AUTHORED_SHIPPED, motion: AUTHORED_SHIPPED };
+export function getServerForged(): Forged { return FORGE_DEFAULT; }
 
 export function setForged(next: Partial<Forged>): void {
   const merged = { mesh: next.mesh ?? forged.mesh, motion: next.motion ?? forged.motion };

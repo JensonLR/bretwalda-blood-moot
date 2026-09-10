@@ -26,6 +26,7 @@ import { existsSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { WebSocket } from "ws";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BASE_PORT = parseInt(process.env.PORT || String(3870 + (process.pid % 25)), 10);
@@ -64,8 +65,10 @@ async function waitForServer(timeoutMs = 180000) {
 /** Boots the game on a fresh port so a killed server can never answer for the next one. */
 async function boot(env) {
   if (server) { server.kill("SIGKILL"); await sleep(1200); port++; base = `http://127.0.0.1:${port}`; }
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  const choice = chooseServer(ROOT, "profiletest");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(port), NODE_ENV: useProd ? "production" : "development", ...env },
     stdio: ["ignore", "pipe", "pipe"],

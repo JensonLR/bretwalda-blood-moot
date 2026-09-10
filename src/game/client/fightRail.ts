@@ -132,6 +132,23 @@ export interface RailGeometry {
   readoutBottom: number;
   /** True when the column has been folded into two. */
   folded: boolean;
+  /**
+   * A mouse is driving. END centres on a fine pointer and hangs on the rail
+   * on a coarse one — see `railStyle`.
+   *
+   * Asked here rather than in a Tailwind `pointer-fine:` class because the
+   * class LOST. `railStyle` returns an inline style, an inline declaration
+   * beats every class regardless of specificity, and the button carried
+   * `pointer-fine:left-1/2 pointer-fine:-translate-x-1/2`: the `left:50%` was
+   * overridden by the inline `left`, the TRANSFORM was not, so END rendered at
+   * 12 px and was then shifted left by half its own 96 px width. Its left edge
+   * sat at −36 px and the player saw "…D SESSION" jammed against the glass.
+   *
+   * The fix is not a more specific selector. It is that ONE owner decides where
+   * a rung goes, which is this file — the same reason `folded` is here and not
+   * a media query.
+   */
+  fine: boolean;
 }
 
 /**
@@ -143,8 +160,46 @@ export interface RailGeometry {
  * least afford one. `page.tsx` hands over the same `mode === "solo"` expression
  * that decides whether to render the button at all — an argument, not a mirror.
  */
+/**
+ * Is END the wide, centred, spelled-out button?
+ *
+ * ONE PREDICATE, TWO READERS, and it exists because they had drifted. The
+ * POSITION was decided here and the LABEL was decided by a
+ * `pointer-fine:hidden` / `pointer-fine:inline` pair in the markup — so on a
+ * short desktop window the rail folded (placing its second column at
+ * `EDGE + RUNG.end.w + FOLD_GAP` = 116 px) while the label stayed the long one
+ * and rendered 159 px wide. END ran from 12 to 171 and straight through the
+ * graphics pad and the skip button.
+ *
+ * `RUNG.end.w` is 96 and it is right: it is the SHORT button. What was wrong
+ * was a second rule deciding which button it is. Anything that changes END's
+ * size asks this, and `railgate` fails if the two disagree.
+ */
+export function endIsWide(geo: RailGeometry): boolean {
+  return geo.fine && !geo.folded;
+}
+
 export function railStyle(rung: Rung, geo: RailGeometry, lefty: boolean, endShown: boolean): CSSProperties {
   const side = lefty ? "right" : "left";
+  // END, ON A MOUSE, IS CENTRED — and it is centred HERE.
+  //
+  // Why it earns the exception is unchanged and is in page.tsx: centred, it
+  // straddles the line the touch scheme splits the screen on, so on a thumb it
+  // eats free-look drags (touchtest read 223 dead points on a Z Fold). By
+  // POINTER and not by width, because a Z Fold's inner screen is 841 px wide
+  // AND coarse.
+  //
+  // Not while folded: the fold is a deliberate two-column layout for a screen
+  // with no height, and a rung yanked to the middle of it is not in either
+  // column.
+  if (rung === "end" && endIsWide(geo)) {
+    return {
+      position: "absolute",
+      top: inset("top", TALL_TOP.end),
+      left: "50%",
+      transform: "translateX(-50%)",
+    };
+  }
   if (!geo.folded) return { position: "absolute", top: inset("top", TALL_TOP[rung]), [side]: inset(side, EDGE) };
   // TWO COLUMNS. The first carries the two narrow rungs a player reaches for
   // between fights (END, mute), the second the two he reaches for during one
@@ -185,28 +240,44 @@ export function publishReadoutBottom(px: number): void {
   for (const l of listeners) l();
 }
 
+/** Live, because a hybrid laptop gains and loses a mouse without a reload. */
+const FINE = "(pointer: fine)";
+function finePointer(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia(FINE).matches;
+}
+
 function subscribe(cb: () => void): () => void {
   listeners.add(cb);
-  if (typeof window !== "undefined") window.addEventListener("resize", cb);
+  if (typeof window === "undefined") return () => { listeners.delete(cb); };
+  window.addEventListener("resize", cb);
+  // Safari below 14 has no addEventListener on MediaQueryList; the rail is
+  // simply not live to a pointer change there, which is the old behaviour and
+  // not a crash.
+  const mq = window.matchMedia?.(FINE);
+  mq?.addEventListener?.("change", cb);
   return () => {
     listeners.delete(cb);
-    if (typeof window !== "undefined") window.removeEventListener("resize", cb);
+    window.removeEventListener("resize", cb);
+    mq?.removeEventListener?.("change", cb);
   };
 }
 
 /** One snapshot object per distinct geometry, because `useSyncExternalStore`
  *  compares by identity and a fresh object every call is an infinite render. */
-let snap: RailGeometry = { h: 0, readoutBottom, folded: false };
+let snap: RailGeometry = { h: 0, readoutBottom, folded: false, fine: false };
 function getSnapshot(): RailGeometry {
   const h = typeof window === "undefined" ? 844 : window.innerHeight;
   const folded = railFolds(h);
-  if (snap.h === h && snap.readoutBottom === readoutBottom && snap.folded === folded) return snap;
-  snap = { h, readoutBottom, folded };
+  const fine = finePointer();
+  if (snap.h === h && snap.readoutBottom === readoutBottom && snap.folded === folded
+    && snap.fine === fine) return snap;
+  snap = { h, readoutBottom, folded, fine };
   return snap;
 }
 /** The server renders the tall column: it is the shipped layout, and a phone
  *  corrects it on its first client frame before anything is pressed. */
-const SERVER: RailGeometry = { h: 844, readoutBottom: 59, folded: false };
+const SERVER: RailGeometry = { h: 844, readoutBottom: 59, folded: false, fine: false };
 
 export function useFightRail(): RailGeometry {
   return useSyncExternalStore(subscribe, getSnapshot, () => SERVER);

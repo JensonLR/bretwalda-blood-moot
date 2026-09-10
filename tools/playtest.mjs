@@ -32,6 +32,7 @@ import {
   WARRIOR_STATS, SWING_PHASES, SWING_TURN_RATE, SWING_TURN_PHASE, HITSTOP, SHOVE,
   swingDurationOf, getEngine,
 } from "../src/game/engine.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The fixed die, handed to the server process with `--import`. See seeddie.mjs. */
@@ -679,11 +680,13 @@ async function main() {
     // live tick interval would hold the process open after a failure.
     clearInterval(getEngine()._tickInterval);
   }
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const choice = chooseServer(ROOT, "playtest");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   // Same fixed die the in-process engine above got, so the browser's opponents
   // are as reproducible as the scripted ones. See tools/seeddie.mjs.
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

@@ -35,6 +35,7 @@ import { spawn } from "child_process";
 import { mkdirSync, existsSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -204,6 +205,8 @@ mkdirSync(OUT, { recursive: true });
 
 let server;
 async function startServer() {
+  // A MISSING build and a build from before your edit are the same problem.
+  requireFreshBuild(ROOT, "silhouette");
   if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) throw new Error("no production build — run `npm run build` first");
   server = spawn("node", ["custom-server.mjs"], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },

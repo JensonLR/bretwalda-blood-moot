@@ -111,7 +111,9 @@
     "armourytest": "node tools/blender/exportarmoury.mjs --check",
     "exportclips": "node tools/blender/exportclips.mjs",
     "exportmen": "node tools/blender/exportmen.mjs",
-    "blenderdoctor": "node tools/blender/doctor.mjs"
+    "blenderdoctor": "node tools/blender/doctor.mjs",
+    "railgate": "node tools/railgate.mjs",
+    "authoredweight": "node tools/authoredweight.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

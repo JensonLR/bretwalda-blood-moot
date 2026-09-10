@@ -19,6 +19,7 @@ import { spawn } from "child_process";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/ui");
@@ -81,6 +82,8 @@ async function startServer() {
     console.error(`[card] something is already serving ${BASE()} — pass --port`);
     process.exit(2);
   } catch { /* free, good */ }
+  // A MISSING build and a build from before your edit are the same problem.
+  requireFreshBuild(ROOT, "card");
   const built = existsSync(resolve(ROOT, ".next/BUILD_ID"));
   if (!built) {
     console.error("[card] no production build found — run `npm run build` first");

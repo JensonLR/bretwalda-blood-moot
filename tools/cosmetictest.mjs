@@ -149,6 +149,7 @@ import { spawn, spawnSync } from "child_process";
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const WORK = resolve(ROOT, ".cosmetictest");
@@ -1040,8 +1041,10 @@ process.on("SIGINT", () => { stopServer(); process.exit(130); });
 async function renderPass() {
   const PORT = 3100 + (process.pid % 700);
   const ORIGIN = `http://localhost:${PORT}`;
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  const choice = chooseServer(ROOT, "cosmetictest");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+  server = spawn("node", [choice.script], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });

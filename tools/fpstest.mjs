@@ -83,6 +83,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/perf");
@@ -1135,10 +1136,12 @@ async function liveNet(out) {
 // ------------------------------------------------------------------
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID")) && process.env.FPSTEST_DEV !== "1";
+  const choice = chooseServer(ROOT, "fpstest", { forceDev: !(process.env.FPSTEST_DEV !== "1") });
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   say(`[fpstest] server: ${useProd ? "production build" : "dev build"} on :${PORT}`);
   say(`[fpstest] viewport ${VIEW.width}x${VIEW.height} @dpr1 — small ON PURPOSE, see the header`);
-  server = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

@@ -185,15 +185,29 @@ tools/blender/__pycache__/
 /art/gltf/
 
 # The authored warriors, copied into the served tree by `npm run authored`.
-# GENERATED from art/blender, 6.5 MB, and deliberately NOT carried in git: this
-# repository's identity is a game with no binary assets (docs/WHAT-THIS-GAME-IS
-# §2), and ONE-CLIENT.md's P2 changes that to "procedural first, upgrade in
-# background" — not to "check six megabytes into the history". The deploy runs
-# the copy step; `npm run authoredtest` reads art/blender directly and needs it
-# not at all.
+# GENERATED from art/blender, 43 MB on disk, and deliberately NOT carried in
+# git: this repository's identity is a game with no binary assets
+# (docs/WHAT-THIS-GAME-IS §2), and ONE-CLIENT.md's P2 changes that to
+# "procedural first, upgrade in background" — not to "check forty megabytes
+# into the history". `npm run authoredtest` reads art/blender directly and
+# needs this copy not at all.
+#
+# "The deploy runs the copy step" USED TO BE WRITTEN HERE AND WAS NOT TRUE.
+# Checked 10 Sep 2026: `build` is `next build` and nothing else, the Dockerfile
+# runs that and never `npm run authored`, and `art/blender/` is ignored too
+# (line 173) — so there is nothing on the build host to copy FROM. The proof is
+# a request: GET /authored/warrior-warden.glb on the live site is a 404.
+#
+# So the authored man cannot reach production from this repository as it
+# stands, and the client no longer pretends otherwise: next.config.ts stamps
+# NEXT_PUBLIC_AUTHORED from whether the four bodies are actually present, and
+# the default follows it. Getting them shipped is a hosting decision — commit
+# them, or serve them from object storage — and it is the owner's.
 /public/authored/
 .bloodshot/
 
 .bladereach/
 .cliptest/
 .severauthored/
+# railgate compiles fightRail.ts here to call railStyle for real.
+.railgate/

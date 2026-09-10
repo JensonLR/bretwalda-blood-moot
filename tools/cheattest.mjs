@@ -25,6 +25,7 @@ import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot } from "./lib/browser.mjs";
 import { WebSocket } from "ws";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DB = process.env.CHEAT_DB || process.env.PROFILE_TEST_DB || "";
@@ -460,6 +461,8 @@ async function noDatabaseTest(browser) {
     ...launchOptions(),
   });
   try {
+    // A MISSING build and a build from before your edit are the same problem.
+    requireFreshBuild(ROOT, "cheattest");
     if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
       console.log("[cheattest] no production build — run `npm run build` first");
       process.exit(1);

@@ -55,6 +55,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot, useGpu } from "./lib/browser.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SEED_DIE = resolve(ROOT, "tools/seeddie.mjs");
@@ -107,14 +108,16 @@ const waitForServer = (url, timeoutMs = 60000) => new Promise((done, no) => {
 
 let server;
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID")) && !USE_DEV;
+  const choice = chooseServer(ROOT, "drawcensus", { forceDev: USE_DEV });
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`DRAWCENSUS — where the draw calls go   (tier ${TIER}, ${useGpu ? "GPU" : "SOFTWARE"})\n`);
   if (!useGpu) {
     console.log("  NOTE: the software rasteriser issues the same calls the GPU does, so the");
     console.log("  COUNT is comparable and the cost of each is not. Nothing here claims a");
     console.log("  millisecond — see fpstest for time.\n");
   }
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   });

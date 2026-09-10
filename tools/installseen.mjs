@@ -43,6 +43,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { launchBrowser as launchChromium, rasteriserNote } from "./lib/browser.mjs";
 import { raiseMoot, driveIntoTheFire } from "./summarymoot.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = parseInt(process.env.PORT || String(3990 + (process.pid % 9)), 10);
@@ -96,8 +97,10 @@ const PROBE = () => {
 };
 
 // ---- the server -----------------------------------------------------------
-const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+const choice = chooseServer(ROOT, "installseen");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+const proc = spawn("node", [choice.script], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   stdio: ["ignore", "ignore", "ignore"],
 });

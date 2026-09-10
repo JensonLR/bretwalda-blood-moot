@@ -62,6 +62,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".jank");
@@ -385,6 +386,8 @@ async function reachFight(page, url) {
 }
 
 async function main() {
+  // A MISSING build and a build from before your edit are the same problem.
+  requireFreshBuild(ROOT, "framecost");
   if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
     say("\n  NO PRODUCTION BUILD. Run `npm run build` first — every anchor here is");
     say("  pinned to the built bundle. Refusing to measure a build nobody will run.");

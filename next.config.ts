@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { execSync } from "node:child_process";
-import { dirname } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -28,9 +29,55 @@ function buildSha(): string {
   }
 }
 
+/**
+ * ARE THE AUTHORED WARRIORS IN THIS BUILD?
+ *
+ * The authored man is DEFAULT ON, on the owner's instruction. He is also, in
+ * production today, ABSENT: `public/authored/` and its source `art/blender/`
+ * are both in `.gitignore` — "this repository's identity is a game with no
+ * binary assets" — and the Dockerfile runs `next build` and never `npm run
+ * authored`. Checked, not assumed: `GET /authored/warrior-warden.glb` on the
+ * live site is a 404.
+ *
+ * A default that asks for eleven files that are not there is eleven failed
+ * requests a fight and a console full of warnings, for a man the player was
+ * never going to see. The renderer already falls back gracefully, so nothing
+ * BREAKS — it is just waste, and waste nobody would have noticed.
+ *
+ * So the default follows the build. Where the assets are present the owner's
+ * instruction takes effect exactly as given; where they are absent the client
+ * does not go looking. Ship the assets and the default turns itself on, with
+ * no second edit and nothing to remember.
+ *
+ * The graphics-panel switches and the URL door are unaffected: a player on a
+ * build with no assets can still turn FORGED MEN on, and will get the same
+ * graceful fallback the code has always had. This changes the DEFAULT, which
+ * is the thing that should not be spending requests on a guess.
+ */
+function authoredPresent(): boolean {
+  try {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), "public/authored");
+    if (!existsSync(dir)) return false;
+    // A directory with a stray file in it is not a shipped set. The four bodies
+    // are what `loadAuthoredWarrior` asks for by class and the minimum this can
+    // mean; helms, hair and beards are per-appearance and may legitimately vary.
+    const have = new Set(readdirSync(dir));
+    // The CLASS IDS from src/game/types.ts, which are not the names on screen:
+    // the runekeeper is shown as WRECCA and the warden as WEARD. Written out
+    // rather than imported because this file is loaded by the Next config
+    // before any TypeScript path alias exists — and `authoredtest` asserts the
+    // same four, so a fifth class breaks a gate rather than this silently.
+    return ["huscarl", "warden", "runekeeper", "berserker"]
+      .every((c) => have.has(`warrior-${c}.glb`));
+  } catch {
+    return false;
+  }
+}
+
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_SHA: buildSha(),
+    NEXT_PUBLIC_AUTHORED: authoredPresent() ? "1" : "0",
   },
   /**
    * THE WORKSPACE ROOT, PINNED, AND IT WAS NOT WHERE ANYONE THOUGHT.
@@ -57,6 +104,35 @@ const nextConfig: NextConfig = {
    * not this repository's to delete and the next checkout would meet the same
    * hazard anyway.
    */
+  /**
+   * THE AUTHORED WARRIORS ARE WORTH CACHING, AND WERE NOT BEING.
+   *
+   * Next serves everything under `public/` as `Cache-Control: public,
+   * max-age=0`, so a returning player revalidated all eleven authored files on
+   * every single load — eleven conditional requests before a fight can upgrade
+   * a man. Cheap per file and pointless eleven times, and it got worse the
+   * moment the authored man became the default.
+   *
+   * NOT `immutable`, deliberately. These filenames carry no content hash:
+   * `warrior-huscarl.glb` is re-exported from Blender under the same name, so
+   * a year-long immutable cache would pin a stale body on every returning
+   * player until they cleared their storage. A day is long enough that a
+   * session costs one revalidation instead of eleven, and short enough that a
+   * re-export reaches people the next time they play.
+   *
+   * `stale-while-revalidate` is what keeps the fight smooth across the change:
+   * the old body is used immediately and the new one is fetched behind it, so
+   * the day the assets change nobody waits for them.
+   */
+  async headers() {
+    return [{
+      source: "/authored/:path*",
+      headers: [{
+        key: "Cache-Control",
+        value: "public, max-age=86400, stale-while-revalidate=604800",
+      }],
+    }];
+  },
   turbopack: {
     root: dirname(fileURLToPath(import.meta.url)),
   },

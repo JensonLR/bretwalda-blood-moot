@@ -74,7 +74,16 @@ export function newestSource(root) {
  * verdict — and it is never empty, because "which build did you measure" is
  * always part of what a harness is claiming.
  */
-export function chooseServer(root, label = "harness") {
+export function chooseServer(root, label = "harness", opts = {}) {
+  // A harness with its own dev switch (USE_DEV, FPSTEST_DEV) passes it here
+  // rather than branching around this call — a caller that skips the check to
+  // honour its own flag is a caller with no staleness check at all.
+  if (opts.forceDev) {
+    return {
+      script: "dev-server.mjs", prod: false, mode: "dev",
+      note: "dev mode (forced by this run)",
+    };
+  }
   const buildId = resolve(root, ".next/BUILD_ID");
   if (!existsSync(buildId)) {
     return {
@@ -106,4 +115,40 @@ export function chooseServer(root, label = "harness") {
     script: "dev-server.mjs", prod: false, mode: "dev",
     note: `dev mode — a STALE .next bundle was refused (${behindMin} min behind ${newest.file.replace(root + "/", "")})`,
   };
+}
+
+/**
+ * For a harness that MUST have the production bundle — one whose anchors are
+ * pinned to built output, or which photographs it.
+ *
+ * `chooseServer` falls back to dev, which is right for a harness that can
+ * measure either. It is wrong for these: dev ships different JavaScript, so
+ * falling back would silently change what the numbers mean. Eight harnesses
+ * refused a MISSING build and then measured whatever stale one happened to be
+ * there — "no production build" and "a production build from before your edit"
+ * are the same problem and only one of them was being caught.
+ *
+ * Exits 2 with the offending file named. Set `ALLOW_STALE_BUILD=1` to proceed
+ * anyway, which is for someone deliberately re-measuring an old bundle and
+ * should never be set in a gate run.
+ */
+export function requireFreshBuild(root, label = "harness") {
+  const buildId = resolve(root, ".next/BUILD_ID");
+  if (!existsSync(buildId)) {
+    console.error(`[${label}] NO PRODUCTION BUILD — run \`npm run build\` first.`);
+    process.exit(2);
+  }
+  const built = statSync(buildId).mtimeMs;
+  const newest = newestSource(root);
+  if (newest.at <= built) return { built, note: `production bundle, newer than every source file` };
+  const behindMin = Math.round((newest.at - built) / 60000);
+  const rel = newest.file.replace(root + "/", "");
+  if (process.env.ALLOW_STALE_BUILD === "1") {
+    console.log(`[${label}] WARNING: measuring a bundle ${behindMin} min older than ${rel} (ALLOW_STALE_BUILD=1).`);
+    return { built, note: `STALE bundle, ${behindMin} min behind ${rel}, allowed by ALLOW_STALE_BUILD` };
+  }
+  console.error(`\n[${label}] STALE BUILD: .next/BUILD_ID is ${behindMin} minute(s) older than ${rel}.`);
+  console.error(`[${label}] This harness is pinned to production output, so falling back to dev would`);
+  console.error(`[${label}] change what the numbers mean. Run \`npm run build\` and try again.\n`);
+  process.exit(2);
 }

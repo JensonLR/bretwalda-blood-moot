@@ -110,6 +110,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".jank", "hudspace");
@@ -537,6 +538,8 @@ async function reachFight(page, url) {
 }
 
 async function main() {
+  // A MISSING build and a build from before your edit are the same problem.
+  requireFreshBuild(ROOT, "hudspace");
   if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
     say("\n  NO PRODUCTION BUILD. Run `npm run build` first — the dev server ships");
     say("  different JavaScript and both anchors in this file are pinned to the");

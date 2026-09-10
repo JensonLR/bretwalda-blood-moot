@@ -25,6 +25,7 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The fixed die, handed to the server process with `--import`. See seeddie.mjs. */
@@ -1436,17 +1437,19 @@ async function lockAct(browser, url, check) {
 }
 
 async function main() {
-  const buildId = resolve(ROOT, ".next/BUILD_ID");
-  const useProd = existsSync(buildId);
-  if (useProd && buildIsStale(buildId)) {
-    console.log("[touchtest] WARNING: src/ is newer than .next — this run grades the last build, not your edit. `npm run build` first.");
-  }
-  console.log(`[touchtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
+  // A WARNING IS NOT A GATE. This used to print "this run grades the last
+  // build, not your edit" and then grade the last build anyway — so every
+  // touch claim in the suite could be about a bundle that predated the layout
+  // it was measuring, and the reader had to notice one line of scrollback.
+  // `chooseServer` falls back to dev instead, which measures the worktree.
+  const choice = chooseServer(ROOT, "touchtest");
+  const useProd = choice.prod;
+  console.log(`[touchtest] measuring against: ${choice.note}`);
   // `--import` puts tools/seeddie.mjs in front of the entry point, so the bot
   // brain rolls the same stream on every run. See that file: the engine's step
   // was already fixed and its inputs are driven from here, so the die was the
   // last thing in the simulation that nobody had written down.
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

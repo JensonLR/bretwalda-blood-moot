@@ -14,8 +14,11 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Which bundle this run measures. A stale .next falls back to dev — see freshbuild. */
+const SERVER = chooseServer(ROOT, "armshot");
 const OUT = resolve(ROOT, ".armshot");
 mkdirSync(OUT, { recursive: true });
 const PORT = 3600 + (process.pid % 37);
@@ -24,9 +27,9 @@ let failed = 0;
 const good = (m) => say(`  PASS  ${m}`);
 const bad = (m) => { failed++; say(`  FAIL  ${m}`); };
 
-const srv = spawn("node", ["custom-server.mjs"], {
+const srv = spawn("node", [SERVER.script], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT), NODE_ENV: existsSync(resolve(ROOT, ".next/BUILD_ID")) ? "production" : "development" },
+  env: { ...process.env, PORT: String(PORT), NODE_ENV: SERVER.prod ? "production" : "development" },
   stdio: "pipe",
 });
 watchBoot(srv, "armshot");

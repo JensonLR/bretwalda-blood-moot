@@ -58,9 +58,10 @@ export default function CharacterPreview({
    */
   defaultLens = "figure",
   /**
-   * A fixed turntable bearing, overriding the lens's own default. The oath's
-   * livery mirror wants the man FACING the choice he is making; the cloak
-   * bearing that serves the shop's cloak tab shows him from behind.
+   * A fixed turntable bearing, overriding whatever the lens and slot resolve
+   * to. The oath's livery mirror uses it for a chosen three-quarter, not as a
+   * correction: since `SLOT_BEARING` landed, every window that is not selling
+   * something worn on the back already opens facing the player.
    */
   turn,
   /** THE ARMS (7.7b): what the mannequin holds. Absent = class default. */
@@ -156,7 +157,9 @@ export default function CharacterPreview({
   }, [warriorClass, faceSeed, arms, helm, hairStyle, hairColor, beardStyle, beardColor,
       cloak, armorColor, warPaint, weapon, people]);
 
-  useEffect(() => { stageRef.current?.setLens(lens); }, [lens]);
+  // The slot rides with the lens because it decides the BEARING, not the crop:
+  // the cloak tab is the one window that wants his back. See `SLOT_BEARING`.
+  useEffect(() => { stageRef.current?.setLens(lens, focusSlot); }, [lens, focusSlot]);
   useEffect(() => { if (turn !== undefined) stageRef.current?.setTurn(turn); }, [turn, lit]);
 
   // ---- the turntable ----

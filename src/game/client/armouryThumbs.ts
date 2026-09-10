@@ -59,6 +59,29 @@ export const SLOT_LENS: Readonly<Record<string, PreviewLens>> = {
   weapon: "item",
 };
 
+/**
+ * THE BEARING BELONGS TO THE SLOT, NOT THE LENS.
+ *
+ * `figure` used to mean two things at once and pay for both: "the whole man"
+ * AND "the cloak, which is on his back". It carried the cloak's 135° bearing,
+ * so every window that just wanted a warrior — the muster's YOUR WARRIOR card,
+ * the lobby panel, the class picker — opened on the back of his head and made
+ * the player drag him round before he could see who he had made.
+ *
+ * The tell that this was wrong and known: `factions/page.tsx` passes
+ * `turn={-0.55}` by hand, because the oath mirror "wants the man FACING the
+ * choice he is making". One call site patched itself and the other three wore
+ * the fault. That is the shape of a bad default, not a local need.
+ *
+ * So the lens keeps the CROP and this keeps the TURN, for the slots whose
+ * product is not on the front of a man. Anything absent faces the viewer.
+ */
+export const BACK_BEARING = 2.36;
+export const SLOT_BEARING: Readonly<Record<string, number>> = {
+  // The garment IS the back. A shop that sold it front-on would be hiding it.
+  cloak: BACK_BEARING,
+};
+
 export interface ThumbSpec {
   warriorClass: WarriorClass;
   appearance: Appearance;

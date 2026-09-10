@@ -162,6 +162,7 @@ import { deflateSync } from "zlib";
 import { makeBand, calibrate, roseShare, arcTo, hueOfLab, labOf, chromaOf, ARC, ROSE_L, MUST_FLAG, MUST_CLEAR } from "./lib/roseband.mjs";
 import { rasterise, surfaceMasks, patchLab, MIN_PIXELS } from "./lib/surfacemask.mjs";
 import { loadClient } from "./lib/clientmodule.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const T0 = Date.now();
@@ -954,8 +955,10 @@ function installVirtualClock(stepMs) {
 async function bootServer() {
   const PORT = 3400 + (process.pid % 600);
   const origin = `http://localhost:${PORT}`;
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  const proc = spawn("node", [useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  const choice = chooseServer(ROOT, "factionread");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
+  const proc = spawn("node", [choice.script], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
   });

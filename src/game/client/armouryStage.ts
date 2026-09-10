@@ -47,8 +47,8 @@ import {
   type QualitySettings, type FrameContext,
 } from "./render/quality";
 import {
-  SLOT_LENS, takeThumbJob, returnThumbJob, publishThumb, setThumbForgeLive,
-  dropThumbCache, thumbsWaiting, type PreviewLens,
+  SLOT_LENS, SLOT_BEARING, takeThumbJob, returnThumbJob, publishThumb,
+  setThumbForgeLive, dropThumbCache, thumbsWaiting, type PreviewLens,
 } from "./armouryThumbs";
 
 // ---------------------------------------------------------------------------
@@ -59,18 +59,33 @@ import {
  * Default bearing per lens, in radians about the mannequin's own axis.
  *
  * −35° for anything worn on the head: dead-on is a passport photograph and a
- * brow ridge, a cheek plate and a nasal all vanish in it. The cloak turns
- * nearly to its back, because the garment is on the back and a shop that sold
- * it front-on would be hiding it.
+ * brow ridge, a cheek plate and a nasal all vanish in it. That is a SMALL turn
+ * off dead-on and the man is still plainly facing you.
+ *
+ * `figure` is 0 — square to the viewer. It used to be 2.36 (135°, the back of
+ * his head) because this table was also doing the cloak's job; the turn that
+ * belongs to a garment now lives in `SLOT_BEARING` beside the slot that sells
+ * it. A window that has not been told to look at something else looks at the
+ * man's face.
  */
 const LENS_BEARING: Record<PreviewLens, number> = {
   face: -0.61,
   bust: -0.61,
-  figure: 2.36,
+  figure: 0,
   fight: -0.42,
   // The item card rotates the OBJECT, not a man — see `drawThumb`'s branch.
   item: 0,
 };
+
+/**
+ * The bearing this window should open on: the slot's, if the slot has one,
+ * else the lens's. One resolver, because the live mannequin and the thumbnail
+ * forge both ask and a second copy is how the card and the panel drift apart.
+ */
+function bearingFor(lens: PreviewLens, slot?: string): number {
+  const bySlot = slot ? SLOT_BEARING[slot] : undefined;
+  return bySlot ?? LENS_BEARING[lens];
+}
 
 interface LensFrame {
   /** Vertical metres the frame covers at the subject. */
@@ -497,7 +512,12 @@ export interface StageHandle {
   /** The canvas is live and the first frame is on screen. */
   readonly ready: boolean;
   setLoadout(next: StageLoadout): void;
-  setLens(lens: Exclude<PreviewLens, "item">): void;
+  /**
+   * The crop, and the armoury slot driving it. The slot is what decides the
+   * BEARING (see `SLOT_BEARING`) — a cloak tab turns him round, everything
+   * else leaves him facing the player.
+   */
+  setLens(lens: Exclude<PreviewLens, "item">, slot?: string): void;
   /** Adds to the turntable, in radians. The player's drag lands here. */
   turnBy(delta: number): void;
   /** Absolute turntable bearing, for a reset control. */
@@ -553,8 +573,10 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   // The panel's stances exclude "item" — that lens photographs an object,
   // not the mannequin, and exists only inside `drawThumb`.
   let lens: Exclude<PreviewLens, "item"> = "face";
+  /** The armoury slot the panel is showing, when one is driving it. */
+  let slot: string | undefined;
   let loadout = initial;
-  let turn = LENS_BEARING.face;
+  let turn = bearingFor("face");
   let ready = false;
   /** Panel size in CSS pixels, as of the last frame. Declared up here because
    *  `buildRig` reframes off it and runs before the frame loop is set up. */
@@ -919,14 +941,22 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       loadout = next;
       if (!same) buildRig();
     },
-    setLens(next) {
-      if (next === lens) return;
-      const wasDefault = Math.abs(turn - LENS_BEARING[lens]) < 1e-4;
+    setLens(next, nextSlot) {
+      if (next === lens && nextSlot === slot) return;
+      // "Has the player turned him himself?" — asked against the bearing this
+      // window actually opened on, which is the SLOT's when it has one. Asking
+      // it against the lens alone would read a cloak tab's own 135° as a drag
+      // and then refuse to leave it when the player moved to the helm.
+      const wasDefault = Math.abs(turn - bearingFor(lens, slot)) < 1e-4;
+      const reframe = next !== lens;
       lens = next;
+      slot = nextSlot;
       lastTouch = performance.now();
-      if (wasDefault) turn = LENS_BEARING[next];
-      applyLens();
-      frameCamera(sized.w || 1, sized.h || 1);
+      if (wasDefault) turn = bearingFor(next, nextSlot);
+      if (reframe) {
+        applyLens();
+        frameCamera(sized.w || 1, sized.h || 1);
+      }
     },
     turnBy(delta) { turn += delta; lastTouch = performance.now(); },
     setTurn(radians) { turn = radians; lastTouch = performance.now(); },
@@ -1082,7 +1112,7 @@ function pumpThumbs(forge: Forge): void {
     const pc = pre.getCenter(new THREE.Vector3());
     subject.position.set(-pc.x, 1.30 - pc.y, -pc.z);
   } else {
-    subject.rotation.y = LENS_BEARING[lens === "fight" ? "face" : lens];
+    subject.rotation.y = bearingFor(lens === "fight" ? "face" : lens, job.spec.slot);
   }
   subject.traverse((o) => {
     const m = o as THREE.Mesh;

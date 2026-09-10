@@ -16,18 +16,32 @@
 // this tree could see them; no player could.
 //
 // They are a stored preference now (`bretwalda.forged`, beside handedness in
-// input.ts) with two switches in the graphics panel. This is the gate on the
-// four things that has to stay true about them.
+// input.ts) with two switches in the graphics panel.
 //
-//   1. DEFAULT OFF. Nobody downloads 43 MB because they opened the game. This
-//      is the claim that keeps the feature honest about its cost.
-//   2. THE SETTING REACHES THE ARENA. Mesh on, no URL flag, and the men are
-//      swapped — which is the whole point and the thing that was missing.
-//   3. MOTION IMPLIES MESH. The clips live inside the authored GLB, so motion
+// DEFAULT ON since 10 Sep 2026, on the owner's instruction, and this file's
+// first claim INVERTED with it. It used to read "nobody downloads 43 MB because
+// they opened the game" — and that claim was wrong twice over. It was wrong
+// about the payload, because 43 MB is `public/authored` on disk and nothing
+// ever loads the library: a fight fetches one body per class present plus the
+// hair actually worn. And it went on passing after the default changed, because
+// the run was measuring a `.next` bundle built four hours before the edit. Both
+// halves are fixed here — the claim now asserts the real default, and
+// `chooseServer` refuses a stale bundle rather than reporting on one.
+//
+// The five things that have to stay true:
+//
+//   1. DEFAULT ON. A player who has chosen nothing gets the authored men and
+//      the authored motion. This is the claim that would catch the default
+//      silently reverting.
+//   2. OFF IS REACHABLE AND STICKS. A player who turned them off gets the
+//      procedural man — the switch has to work in the direction that is now the
+//      minority one, which is exactly the direction nothing was testing.
+//   3. THE SETTING REACHES THE ARENA, in both directions, with no URL flag.
+//   4. MOTION IMPLIES MESH. The clips live inside the authored GLB, so motion
 //      without mesh must be nothing rather than a switch reading ON over a body
 //      that is not there.
-//   4. THE URL DOOR STILL WINS. Every capture harness drives `?authored=1`, and
-//      a preference that broke `authoredshot` would cost more than it gave.
+//   5. THE URL DOOR STILL WINS, and now it opens both ways: `?authored=0` is
+//      the only way a capture can photograph the procedural man.
 //
 // Counted off the client's own two log lines — `[authored] <cls>: upgraded` and
 // `[clips] <cls>: N clips driving the body` — which are the arena saying what it
@@ -38,6 +52,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot } from "./lib/browser.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SEED_DIE = resolve(ROOT, "tools/seeddie.mjs");
@@ -62,9 +77,11 @@ const waitForServer = (url, timeoutMs = 60000) => new Promise((done, no) => {
 
 let server;
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID")) && !USE_DEV;
+  const choice = chooseServer(ROOT, "forgedtest", { forceDev: USE_DEV });
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log("FORGEDTEST — the authored men, as a player can actually reach them\n");
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   });
@@ -121,28 +138,34 @@ async function main() {
     return out;
   }
 
-  const off = await run(null, null);
+  const fresh = await run(null, null);
+  const off = await run({ mesh: false, motion: false }, null);
   const mesh = await run({ mesh: true, motion: false }, null);
   const both = await run({ mesh: true, motion: true }, null);
   const bad = await run({ mesh: false, motion: true }, null);
-  const url = await run(null, "&authored=1");
+  const url = await run(null, "&authored=0");
 
   const row = (l, r) => console.log(`    ${l.padEnd(32)} in fight ${String(r.inFight).padEnd(5)}  upgraded ${String(r.upgraded).padStart(2)}  clip-driven ${String(r.driven).padStart(2)}`);
-  row("nothing set, no flag", off);
+  row("nothing set, no flag", fresh);
+  row("setting: off (he chose)", off);
   row("setting: mesh", mesh);
   row("setting: mesh + motion", both);
   row("setting: motion, no mesh", bad);
-  row("no setting, ?authored=1", url);
+  row("no setting, ?authored=0", url);
   console.log("");
 
   // Every arm has to have reached a fight, or none of the counts mean anything.
-  const reached = [off, mesh, both, bad, url].every((r) => r.inFight);
+  const reached = [fresh, off, mesh, both, bad, url].every((r) => r.inFight);
   if (!reached) {
     console.log("  VOID — an arm never reached a running fight, so nothing here is a measurement.");
     await browser.close(); server.kill(); process.exit(2);
   }
 
-  check("nobody downloads 43 MB for opening the game — the default is the procedural man",
+  check("a player who has chosen nothing gets the authored men — the default is ON",
+    fresh.upgraded > 0, `${fresh.upgraded} upgraded with nothing stored and no flag`);
+  check("...and the authored motion with them",
+    fresh.driven > 0, `${fresh.driven} clip-driven with nothing stored`);
+  check("a player who turned them OFF gets the procedural man back",
     off.upgraded === 0 && off.driven === 0, `${off.upgraded} upgraded, ${off.driven} driven`);
   check("a player who turns FORGED MEN on gets them, with no URL flag at all",
     mesh.upgraded > 0, `${mesh.upgraded} men upgraded from the stored preference alone`);
@@ -152,8 +175,9 @@ async function main() {
     both.upgraded > 0 && both.driven > 0, `${both.upgraded} upgraded, ${both.driven} clip-driven`);
   check("motion without mesh is nothing, not a switch reading ON over a body that is not there",
     bad.upgraded === 0 && bad.driven === 0, `${bad.upgraded} upgraded, ${bad.driven} driven`);
-  check("the URL door still wins, because every capture harness in this tree drives it",
-    url.upgraded > 0, `${url.upgraded} upgraded from ?authored=1 with nothing stored`);
+  check("the URL door still wins, and now it opens both ways",
+    url.upgraded === 0 && url.driven === 0,
+    `?authored=0 over a default-on client: ${url.upgraded} upgraded, ${url.driven} driven`);
 
   await browser.close();
   console.log(`\n[forgedtest] ${pass} passed, ${fail} failed`);

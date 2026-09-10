@@ -33,6 +33,7 @@ import { spawn } from "child_process";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { requireFreshBuild } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, ".bloodshot");
@@ -40,6 +41,8 @@ const PORT = parseInt(process.env.PORT || String(3820 + (process.pid % 40)), 10)
 const PRESET = (process.argv.find((a) => a.startsWith("--preset=")) || "").slice(9) || "gorehead";
 const SETTLES = (process.argv.find((a) => a.startsWith("--at=")) || "").slice(5) || "3,6,10,26";
 
+// A MISSING build and a build from before your edit are the same problem.
+requireFreshBuild(ROOT, "bloodshot");
 if (!existsSync(resolve(ROOT, ".next/BUILD_ID"))) {
   console.log("[bloodshot] no production build — run `npm run build` first.");
   process.exit(1);

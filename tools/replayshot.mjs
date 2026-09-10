@@ -68,6 +68,7 @@ import { WebSocket } from "ws";
 // The beat's own length, so the observability floor is stated against the thing
 // under test rather than against a number copied into this file.
 import { REPLAY } from "../src/game/replay.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -600,7 +601,9 @@ async function playCase(browser, kind, pass) {
 }
 
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+  const choice = chooseServer(ROOT, "replayshot");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   say("");
   say(`  REPLAYSHOT — the match-end replay, photographed, for the man who died.`);
   say(`  starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
@@ -608,7 +611,7 @@ async function main() {
   // wiping the directory on the way in means the run that DID catch it loses
   // its picture to the run that did not. `--fresh` is for when that is wanted.
   if (argv.includes("--fresh")) rmSync(SHOTS, { recursive: true, force: true });
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

@@ -25,6 +25,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot, rasteriserNote, confirmRasteriser } from "./lib/browser.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const arg = (k, d) => { const m = process.argv.find((a) => a.startsWith(`--${k}=`)); return m ? m.slice(k.length + 3) : d; };
@@ -35,7 +36,9 @@ const PORT = parseInt(process.env.PORT || String(3860 + (process.pid % 40)), 10)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---- the server ----------------------------------------------------------
-const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID"));
+const choice = chooseServer(ROOT, "hitchprobe");
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
 if (!useProd) { console.error("[hitch] NO PRODUCTION BUILD — run `npm run build` first; a dev server's numbers are not the game's."); process.exit(2); }
 const server = spawn("node", ["custom-server.mjs"], {
   cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" }, stdio: ["ignore", "ignore", "ignore"],

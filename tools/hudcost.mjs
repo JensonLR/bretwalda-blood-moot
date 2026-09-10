@@ -41,6 +41,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { launchOptions, watchBoot, useGpu } from "./lib/browser.mjs";
+import { chooseServer } from "./lib/freshbuild.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SEED_DIE = resolve(ROOT, "tools/seeddie.mjs");
@@ -204,10 +205,12 @@ async function sample(page, secs, during) {
 
 let server;
 async function main() {
-  const useProd = existsSync(resolve(ROOT, ".next/BUILD_ID")) && !USE_DEV;
+  const choice = chooseServer(ROOT, "hudcost", { forceDev: USE_DEV });
+// Which bundle this run actually measured, and it rides the verdict.
+const useProd = choice.prod;
   console.log(`HUDCOST — what the interface costs during a fight\n`);
   console.log(`  starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
-  server = spawn("node", ["--import", SEED_DIE, useProd ? "custom-server.mjs" : "dev-server.mjs"], {
+  server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
   });
