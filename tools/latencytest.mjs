@@ -6,6 +6,14 @@
 //   node tools/latencytest.mjs tick       # server tick regularity
 //   node tools/latencytest.mjs judder     # client interpolation trace
 //
+// END-TO-END INPUT LATENCY IS MEASURED NOW — `npm run presstopixel`. This file
+// kept the gap open in prose for a long time and the sentence below is left
+// standing because it is the history; what it describes is no longer true.
+// `presstopixel` drives a real browser, presses a key, and times the press to
+// the first snapshot carrying the consequence and then to the first drawn frame
+// showing it. Measured on a healthy GPU run: 54 ms to authority, 59 ms to
+// pixel, 97 ms median press to visible motion.
+//
 // `input` and `live` USED TO BE LISTED HERE AND NEITHER EXISTS. The dispatcher
 // at the foot of this file handles `tick`, `judder` and `all`, and anything
 // else fell through it and exited 0 IN SILENCE — so `node tools/latencytest.mjs

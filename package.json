@@ -91,6 +91,7 @@
     "safearea": "node tools/safearea.mjs",
     "severauthored": "node tools/severauthored.mjs",
     "forgedtest": "node tools/forgedtest.mjs",
+    "presstopixel": "node tools/presstopixel.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
     "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",

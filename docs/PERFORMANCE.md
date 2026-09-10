@@ -914,3 +914,56 @@ So: no memoisation, no refactor, and a ruler in the drawer. If `hudcost` ever
 reads far above 20/s at rest, something new is committing and this is how to see
 it. The per-slice subscription is the fix when it is needed, and it is not
 needed on these numbers.
+
+---
+
+## Input latency — 10 September 2026
+
+**The other half of LAGGY, measured at last.** Two harnesses had carried the gap
+in prose for a long time and neither could fill it:
+
+> `latencytest.mjs` — "end-to-end input latency is measured by nothing in this
+> repository and that is a gap, not a phase."
+> `janktest.mjs` — "§1b PRESS TO AUTHORITY — the half of LAGGY that has never
+> been measured."
+
+`janktest --phases=input` did close half of it: press to authority, headless, the
+sim's own answer. **`npm run presstopixel`** closes the rest — a real browser, a
+real key press, timed to the first snapshot carrying the consequence and then to
+the first frame that draws it.
+
+Ten presses, GPU arm, empty ring:
+
+| | median | p90 |
+|---|---|---|
+| press → authority | **54 ms** | 62 ms |
+| authority → pixel | **59 ms** | 64 ms |
+| **press → visible motion** | **97 ms** | 126 ms |
+
+**Run to run**, three separate runs of ten presses gave medians of 97, 91 and
+93 ms — so the headline is stable to a few milliseconds and the p90 (107–151 ms)
+is the figure that moves, which is what a p90 is for. Quote the median.
+
+Roughly 33 ms of that is free by construction — a mean 8 ms waiting for the
+62.5 Hz sampler and a mean 25 ms waiting for the 20 Hz tick — so the sim's half
+is within about 20 ms of the best a 20 Hz server can offer.
+
+### Two things the instrument had to be taught, both worth keeping
+
+**Trigger on the state edge, not on displacement.** The first cut waited for the
+man to travel 0.30 m before calling it "authority answered", which at a walk is
+60 ms of walking charged to the game as latency. `state === "walking"` appears on
+the first tick the server accepts the input. Fixing that alone moved the headline
+from 218 ms to 97 ms — **121 ms of the original reading was the instrument's own
+thresholds.** Treat any latency number produced by a displacement trigger with
+that in mind.
+
+**Let the camera come to rest before measuring stillness.** A 400 ms pause after
+the walk-back caught the lens still decelerating and called 9.3 m of deceleration
+"idle drift", which set the trigger threshold to 37 m and lost the press
+entirely. It settles for 1.2 s now and refuses any run whose baseline moved more
+than half a metre.
+
+The harness also discards a press that never reached the game rather than timing
+it — an earlier cut reported a confident 220 ms while every input message it
+captured carried `moveZ: 0`.

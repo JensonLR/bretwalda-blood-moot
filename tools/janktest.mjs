@@ -249,6 +249,9 @@ async function phaseServer() {
  * THE GAP THIS CLOSES IS ONE THIS FILE NAMED ITSELF. Its own verdict block has
  * carried, for as long as the block has existed:
  *
+ *     [10 Sep 2026: the other half is measured now — `npm run presstopixel`
+ *     takes a real browser from a key press to the drawn frame. The sentence
+ *     below is the history and no longer the state.]
  *     Input latency (the other half of LAGGY) IS MEASURED BY NOTHING IN THIS
  *     REPOSITORY. ... The gap is real and it is stated here rather than
  *     pointed at.
