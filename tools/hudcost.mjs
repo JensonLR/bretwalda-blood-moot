@@ -50,6 +50,32 @@ const flag = (n, d) => { const h = argv.find((a) => a.startsWith(`--${n}=`)); re
 const SECS = Number(flag("secs", 8));
 const USE_DEV = argv.includes("--dev");
 
+/**
+ * The browser's own scripting accounting, per second of wall clock — and an
+ * honest refusal when it cannot be had.
+ *
+ * `long-animation-frame` reports a per-frame `scripts[]` breakdown, which is the
+ * only way to say what React's commits actually COST rather than how many there
+ * are. On the software rasteriser these suites default to, `scripts[]` comes
+ * back EMPTY while `duration` runs to one and three seconds: those frames are
+ * raster stalls, not script, and summing an empty array to 0.0 ms/s beside a
+ * 2923 ms frame is a number that would be read as "React is free" when it is
+ * really "this box did not measure React".
+ *
+ * So a zero sum with long frames present is reported as NOT ATTRIBUTED. Re-run
+ * with BRETWALDA_GPU=1 for a machine where the frames are short enough for the
+ * attribution to mean something.
+ */
+const loafLine = (r) => {
+  if (!r.loafOk) return "scripting       (long-animation-frame unavailable in this browser — NOT MEASURED)";
+  if (r.loaf.frames > 0 && r.loaf.script === 0) {
+    return `scripting       NOT ATTRIBUTED — ${r.loaf.frames} long frames (longest ${r.loaf.longest.toFixed(0)} ms) `
+      + "carried no scripts[] entries; on a software rasteriser these are raster stalls, not React";
+  }
+  return `scripting       ${(r.loaf.script / r.secs).toFixed(1)} ms/s over ${r.loaf.frames} long frames, `
+    + `longest frame ${r.loaf.longest.toFixed(1)} ms`;
+};
+
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
@@ -67,11 +93,35 @@ const HOOK = () => {
   const w = window;
   w.__bwCommits = 0;
   w.__bwWrites = 0;
+  // WHAT THE COMMITS COST, not just how many there are.
+  //
+  // A count is not a budget. `long-animation-frame` is the browser's own
+  // accounting of scripting time per frame — the number a profiler would show —
+  // and a commit that reconciles 135 elements either shows up in it or does
+  // not. Without this the honest answer to "should the HUD be memoized" is a
+  // guess, and this repository's rule is to measure the thing before optimising
+  // it. Chromium-only; absent elsewhere, and reported as absent rather than
+  // silently zero.
+  w.__bwLoaf = { frames: 0, script: 0, longest: 0 };
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        w.__bwLoaf.frames++;
+        // `blockingDuration` is the part past 50 ms; `duration` is the whole
+        // frame. Scripting is what the HUD contributes to, so sum the scripts.
+        let s2 = 0;
+        for (const sc of e.scripts ?? []) s2 += sc.duration;
+        w.__bwLoaf.script += s2;
+        if (e.duration > w.__bwLoaf.longest) w.__bwLoaf.longest = e.duration;
+      }
+    }).observe({ type: "long-animation-frame", buffered: false });
+    w.__bwLoafOk = true;
+  } catch { w.__bwLoafOk = false; }
   w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     renderers: new Map(),
     supportsFiber: true,
     inject() { return 1; },
-    onCommitFiberRoot() { w.__bwCommits++; },
+    onCommitFiberRoot() { w.__bwCommits++; w.__bwLastCommit = performance.now(); },
     onCommitFiberUnmount() {},
     onPostCommitFiberRoot() {},
     checkDCE() {},
@@ -136,6 +186,7 @@ async function sample(page, secs, during) {
     w.__bwObs = new MutationObserver((rs) => { w.__bwWrites += rs.length; });
     w.__bwObs.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
     w.__bwCommitsAt = w.__bwCommits;
+    if (w.__bwLoaf) { w.__bwLoaf.frames = 0; w.__bwLoaf.script = 0; w.__bwLoaf.longest = 0; }
   });
   const t0 = Date.now();
   if (during) await during();
@@ -144,7 +195,8 @@ async function sample(page, secs, during) {
   const r = await page.evaluate(() => {
     const w = window;
     w.__bwObs?.disconnect();
-    return { commits: w.__bwCommits - w.__bwCommitsAt, writes: w.__bwWrites };
+    return { commits: w.__bwCommits - w.__bwCommitsAt, writes: w.__bwWrites,
+      loafOk: !!w.__bwLoafOk, loaf: { ...(w.__bwLoaf ?? { frames: 0, script: 0, longest: 0 }) } };
   });
   const el = (Date.now() - t0) / 1000;
   return { ...r, secs: el, cps: r.commits / el, wps: r.writes / el };
@@ -188,6 +240,7 @@ async function main() {
   console.log(`\n  DESKTOP, hands off the controls   (${idle.secs.toFixed(1)}s)`);
   console.log(`    react commits   ${String(idle.commits).padStart(5)}   ${idle.cps.toFixed(1)}/s`);
   console.log(`    DOM writes      ${String(idle.writes).padStart(5)}   ${idle.wps.toFixed(1)}/s`);
+  console.log(`    ${loafLine(idle)}`);
   await desk.close();
 
   // ---- 2. PHONE, a thumb dragging the movement stick ----------------------
@@ -240,9 +293,11 @@ async function main() {
   console.log(`\n  PHONE, hands off                  (${still.secs.toFixed(1)}s)`);
   console.log(`    react commits   ${String(still.commits).padStart(5)}   ${still.cps.toFixed(1)}/s`);
   console.log(`    DOM writes      ${String(still.writes).padStart(5)}   ${still.wps.toFixed(1)}/s`);
+  console.log(`    ${loafLine(still)}`);
   console.log(`\n  PHONE, thumb dragging the stick   (${drag.secs.toFixed(1)}s)`);
   console.log(`    react commits   ${String(drag.commits).padStart(5)}   ${drag.cps.toFixed(1)}/s`);
   console.log(`    DOM writes      ${String(drag.writes).padStart(5)}   ${drag.wps.toFixed(1)}/s`);
+  console.log(`    ${loafLine(drag)}`);
   await phone.close();
   await browser.close();
 
@@ -265,6 +320,40 @@ async function main() {
     added <= 8,
     `${drag.cps.toFixed(1)}/s dragging against ${still.cps.toFixed(1)}/s still — ${added >= 0 ? "+" : ""}${added.toFixed(1)}/s`);
   console.log(`  the drag's cost is DOM writes and not commits: ${drag.wps.toFixed(1)} writes/s against ${still.wps.toFixed(1)} still`);
+
+  // ---- AND THE QUESTION THIS INSTRUMENT WAS BUILT TO SETTLE ----------------
+  //
+  // "Should the HUD be memoized?" It commits at the wire's own 20 Hz because
+  // page.tsx owns `roomState` and hands a fresh object down every tick, and
+  // React.memo cannot help with that — a memo bails out on referential
+  // equality, and the identity changes by construction. Lowering it means an
+  // external store with per-slice subscriptions: a real refactor of a
+  // 1,900-line component.
+  //
+  // Worth it only if those commits cost something. On the GPU arm they cost
+  // NOTHING MEASURABLE: zero long animation frames across all three phases,
+  // where a long animation frame is one over 50 ms. 19.7 commits/s and 74 DOM
+  // writes/s while a thumb drags, and not one frame delayed past the threshold.
+  //
+  // So the refactor is not done, and this is the claim that would tell somebody
+  // when it becomes worth doing. It only asserts on a run that could actually
+  // see the answer — the software arm's frames are raster stalls of one to
+  // three seconds with no scripts[] attribution at all, and gating on those
+  // would be gating on the rasteriser.
+  const seen = [idle, still, drag];
+  const measurable = seen.every((r) => r.loafOk) && seen.every((r) => !(r.loaf.frames > 0 && r.loaf.script === 0));
+  if (!measurable) {
+    console.log("\n  SKIP  the interface never delays a frame — NOT RUN, this rasteriser's long "
+      + "frames carry no scripts[] attribution. Re-run with BRETWALDA_GPU=1.");
+  } else {
+    const worst = Math.max(...seen.map((r) => r.loaf.longest));
+    const frames = seen.reduce((n, r) => n + r.loaf.frames, 0);
+    check("the interface never delays a frame past 50 ms, so its 20 Hz costs nothing worth refactoring for",
+      frames === 0,
+      frames === 0
+        ? `0 long animation frames over ${seen.reduce((n, r) => n + r.secs, 0).toFixed(0)} s of fighting`
+        : `${frames} long frame(s), longest ${worst.toFixed(0)} ms — the memoisation case is now open`);
+  }
 
   console.log(`\n[hudcost] ${pass} passed, ${fail} failed`);
   server.kill();

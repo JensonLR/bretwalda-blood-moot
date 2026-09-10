@@ -79,9 +79,14 @@ the one model now. Pre-existing on 4758b08; summaryflow 23/23.
 **The sink question is settled** — `exportarmoury` and `exportportraits` write
 diagnostics, nothing reads them, and both say so.
 
-### What I deliberately did NOT do, and why
+### What was deliberately left, and why — FIRST PASS, superseded above
 
-**The clip driver.** Fifteen contact-timed clips ship in every warrior GLB, are
+Two of these four were done in the second pass and are struck through in effect
+by the section above: the clip driver landed, and the health bars were merged.
+Kept because the reasoning for NOT doing them the first time is still the
+reasoning somebody will need if either has to be reconsidered.
+
+**~~The clip driver.~~ DONE — see above.** Fifteen contact-timed clips ship in every warrior GLB, are
 parsed, validated by name and discarded — there is no `AnimationMixer` in `src/`
 at all. Playing them means demoting `settleOnFeet`, `groundBlade`, the blade-aim
 solve and the cloth solver from BEING the pose to CORRECTING it, and the
@@ -95,7 +100,7 @@ mostly `BODY_REACH`'s own 0.35 m of deliberate lag forgiveness. Closing it
 reprices every class against every other — a balance decision, gated as a ratchet
 instead.
 
-**Merging the two health-bar palettes.** The local man's health is drawn twice,
+**~~Merging the two health-bar palettes.~~ DONE — see above.** The local man's health was drawn twice,
 in green→amber→red (DOM) and brass→oxblood (3D). Dropping the local plate loses
 the grace gild, which rides the bar's own shader and is the only place a player
 learns he is still un-strikeable. Bringing the DOM bar into the in-world ramp is
@@ -103,11 +108,23 @@ an identity call on a gameplay-critical readout — oxblood is more Bretwalda,
 `#ff4a3a` is more alarming. Both moves and their costs are in
 `DESIGN-SYSTEM.md` §10. **Owner's call.**
 
-**Memoising the HUD.** `hudcost` now shows the resting interface committing at
-19.7/s on desktop and phone — the wire's own 20 Hz, because every snapshot
-commits a fresh object and nothing is memoized. I fixed the worst path (the
-knob: 58.2 → 20.0 commits/s while dragging) and left the whole-tree re-render,
-which is a real refactor. The ruler for it exists now.
+**~~Memoising the HUD.~~ SETTLED — it is not worth doing, and that is measured.**
+`hudcost` shows the resting interface committing at 19.7/s on desktop and phone:
+the wire's own 20 Hz, because page.tsx owns `roomState` and hands a fresh object
+down every tick. `React.memo` cannot help with that — it bails out on
+referential equality and the identity changes by construction — so lowering it
+means an external store with per-slice subscriptions, a real refactor of a
+1,900-line component.
+
+Worth it only if those commits cost something. **On the GPU arm they cost
+nothing measurable: ZERO long animation frames across all three phases, where a
+long animation frame is one over 50 ms.** 19.7 commits/s and 74 DOM writes/s
+with a thumb dragging, and not one frame delayed past the threshold. `hudcost`
+now carries that as a claim, so it will say when it stops being true.
+
+The software arm cannot answer this and says so rather than printing a
+misleading zero: its long frames run one to three seconds with an EMPTY
+`scripts[]`, which is the rasteriser and not React.
 
 ### The battery, 9 Sep 2026
 
