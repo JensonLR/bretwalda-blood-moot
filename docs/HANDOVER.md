@@ -85,10 +85,14 @@ on `4758b08`. `summaryflow` 24/24.
 instead of BROKEN, and `safearea` can finally assert the safe-area work because
 `inset()` reads `env()` through a settable variable.
 
-**`ASSET-PROVENANCE.md` is new** and found one open question: the two Google
-Fonts are the only creative works in the shipped product this project did not
-make, and their licence is not verifiable from inside the repository. Almost
-certainly OFL and fine; confirm at the source before a store submission.
+**`ASSET-PROVENANCE.md` is new**, and the one question it found is closed. There
+is no third-party model, texture, sound or animation in this product — the "zero
+binary assets" rule holds. The two Google Fonts are the only creative works here
+this project did not make, and they were verified at the source against Google's
+own METADATA.pb and OFL.txt: **both SIL OFL 1.1, both with no Reserved Font Name
+declared**, commercial use and embedding permitted. Licence text vendored at
+`public/licenses/` so it is SERVED beside the fonts, which is what OFL asks and
+what `next/font` does not do on its own. Nothing is outstanding.
 
 **What is deliberately still open**, with reasons rather than intentions:
 the phantom reach band (mostly `BODY_REACH`'s 0.35 m of lag forgiveness — closing

@@ -67,24 +67,35 @@ every player.
 | **Cinzel** | display — headings, the game's name, HUD banners | `--font-display`, named in `globals.css` in five places |
 | **Alegreya** | body — everything else | `--font-body` |
 
-**Licensing: not verified from inside this repository, and this document will not
-pretend otherwise.** Nothing local carries a licence file — `next/font` vendors
-the binaries and not their terms, and `find .next -iname '*licen*'` returns
-nothing. Both families are distributed through Google Fonts, whose catalogue is
-open-source licensed, and both are commonly documented as SIL Open Font License
-1.1 — a licence that permits commercial use and embedding. **Confirm at the
-source before release** (`fonts.google.com/specimen/Cinzel`,
-`fonts.google.com/specimen/Alegreya`, and the `OFL.txt` in each family's
-repository) and drop the text into `docs/` beside this file.
+**Licensing: VERIFIED at the source, 10 Sep 2026**, against Google's own
+`METADATA.pb` and `OFL.txt` in `github.com/google/fonts` — not from a specimen
+page and not from memory.
 
-OFL has one obligation that matters and it is easy to miss: the **Reserved Font
-Name** clause. It costs nothing as long as the faces are used as shipped. If
-anybody ever subsets, re-hints or modifies them and keeps the name, that is the
-clause that bites.
+| | Cinzel | Alegreya |
+|---|---|---|
+| Licence | **SIL Open Font License 1.1** | **SIL Open Font License 1.1** |
+| Copyright | Copyright 2020 The Cinzel Project Authors | Copyright 2011 The Alegreya Project Authors |
+| Designer | Natanael Gama | Juan Pablo del Peral, HT Fonts |
+| Upstream | `NDISCOVER/Cinzel` | `huertatipografica/Alegreya` |
+| Reserved Font Name | **none declared** | **none declared** |
 
-This is the single open licensing question in the project. It is small, it is
-almost certainly fine, and it is the only one — which is worth knowing before a
-store submission rather than during one.
+OFL 1.1 permits commercial use, embedding, and modification. Its one real
+restriction does not touch this project: the font may not be sold on its own,
+only bundled — which is what shipping a game does.
+
+**And the Reserved Font Name clause does not apply.** It is the obligation
+easiest to trip over — modify a face, keep its name, and you are in breach — but
+neither copyright line carries "with Reserved Font Name", so there is nothing
+reserved to collide with even if the faces were ever subset or re-hinted.
+
+The licence text is vendored at `public/licenses/Cinzel-OFL.txt` and
+`Alegreya-OFL.txt`. OFL asks that the licence travel with the font, and
+`next/font` copies the binaries into `.next/static/media` without them, so this
+is the copy that satisfies it. They sit in `public/` rather than `docs/`
+deliberately: that way they are SERVED alongside the fonts they cover rather
+than living only in the repository.
+
+**There is no open licensing question in this project.**
 
 ---
 
