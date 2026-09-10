@@ -94,11 +94,32 @@ procedural motion they produce is numerically gated (`gaitprobe`, `swingstrip`)
 in a way the clips are not. The A/B captures did not show the authored path as
 clearly better. Largest remaining lever; `BLENDER-PIPELINE.md` §7 has the detail.
 
-**Shortening reach to close the phantom band.** `bladereach` measures cuts
-stopping a mean 0.38 m short of a max-range chest (worst 0.77 m), and that is
-mostly `BODY_REACH`'s own 0.35 m of deliberate lag forgiveness. Closing it
-reprices every class against every other — a balance decision, gated as a ratchet
-instead.
+**~~Shortening reach to close the phantom band.~~ SETTLED — the ratchet is the
+right answer, and closing it would be a worse game.** `bladereach` measures cuts
+stopping a mean 0.38 m short of a max-range chest (worst 0.77 m). That is mostly
+`BODY_REACH`'s own 0.35 m, and that 0.35 m is DELIBERATE LAG FORGIVENESS: it is
+what makes a blow that looked close enough land in spite of the round trip.
+Shortening it trades online responsiveness for visual tidiness on a game whose
+own performance notes put the production round trip at 58 ms. The ratchet keeps
+it from widening, which is the property worth having.
+
+Two findings from the same measurement, recorded because they read like defects
+and are not:
+
+*The blade peaks at f=0.528 and damage lands at f=0.423.* Both sit inside the
+0.40–0.55 contact window, so nothing misses — the picture's furthest extension
+simply trails the sim's damage by about a tenth of a stroke. Moving either
+end is a balance or a telegraph change; `swingstrip` gates the telegraph.
+
+*Sound and picture can be a frame apart on a damaging hit, sound first.* True,
+and it must stay true. The wire's `hit` arrives a packet before the snapshot, so
+moving the camera kick onto it would save up to 50 ms — and would **silence the
+fire**. `burnDamage` takes health straight off a burning man and broadcasts
+nothing; `applyDamage`, which does broadcast, is only ever called from
+`processAttack`. A health delta is the only channel a burn has. The split is
+therefore necessary: the delta owns damage feedback because it sees every source
+of damage, the wire owns the zero-damage kinds a delta can never see. Pinned in
+a comment at the site so nobody optimises the fire away.
 
 **~~Merging the two health-bar palettes.~~ DONE — see above.** The local man's health was drawn twice,
 in green→amber→red (DOM) and brass→oxblood (3D). Dropping the local plate loses

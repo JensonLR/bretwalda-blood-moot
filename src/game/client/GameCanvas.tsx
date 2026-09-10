@@ -2238,6 +2238,20 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // client guessing 45 or 70 ms at a sim holding 60 or 110. Camera
           // kick, hurt grade and rumble stay local — they are flourish, and the
           // freeze is not.
+          // AND THIS STAYS ON THE DELTA, WHICH IS WORTH SAYING OUT LOUD.
+          //
+          // The wire's `hit` message arrives a packet before this snapshot, so
+          // moving the kick and the rumble onto it would put the picture in step
+          // with the sound and save up to 50 ms. It would also SILENCE THE FIRE.
+          // `burnDamage` in engine.mjs takes health straight off a burning man
+          // and broadcasts nothing at all — `applyDamage`, which does broadcast,
+          // is only ever called out of `processAttack`. A health delta is the
+          // only channel a burn has.
+          //
+          // So the split is not an oversight: the DELTA owns damage feedback
+          // because it is the only thing that sees every source of damage, and
+          // the WIRE owns the zero-damage kinds (parry, shove, knockdown) that a
+          // delta can never see. Both are needed and neither covers the other.
           if (id === playerId) {
             stage.rig.shake(1.1 + dmg * 0.03);
             stage.postfx.hurt(Math.min(1, 0.45 + dmg * 0.02));
