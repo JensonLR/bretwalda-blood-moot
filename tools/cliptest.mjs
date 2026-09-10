@@ -193,5 +193,59 @@ console.log("\n  HANDING THE BODY BACK");
   d.dispose();
 }
 
+// ---- DOES THE WEAPON STAY IN THE FIST THROUGH A SWING? ---------------------
+//
+// The one thing clip mode was NOT sure about. `applyPose` writes
+// `rig.weapon.rotation`, `rig.offhand.rotation` and the shield's position every
+// frame, and clip mode skips it — so held things keep the local transform they
+// had when the driver took the body.
+//
+// For the BODY that was a defect and is fixed: the clip's own Hips track moves
+// the root too, so a stale offset double-counted, and `rig.body` is reset to
+// identity. For a WEAPON it is the opposite, and `authored.ts` says why in its
+// own words — "anim.ts places a board relative to the elbow it is strapped to
+// and a blade relative to the fist that holds it, and those offsets are the
+// carry, not slack to be zeroed", recorded after clearing them was tried and
+// was wrong. The clip does not animate the weapon; it is not in the skeleton.
+// The mount is, so the blade rides the fist.
+//
+// That is an argument. This is the measurement: hang something on HandR, play a
+// whole attack, and watch the gap between it and the bone. A weapon that came
+// loose would drift; one riding the fist holds its offset to the millimetre
+// while the hand itself travels.
+{
+  const g = await parse(resolve(SHIP, "warrior-huscarl.glb"));
+  g.scene.updateMatrixWorld(true);
+  let sk = null; g.scene.traverse((o) => { if (o.isSkinnedMesh && !sk) sk = o; });
+  const hand = sk.skeleton.bones.find((b) => b.name === "HandR")
+    ?? sk.skeleton.bones.find((b) => b.name === "RightWrist");
+  const sword = new THREE.Object3D();
+  sword.position.set(0.01, 0.18, 0.02);          // a carry offset, as anim.ts leaves one
+  hand.add(sword);
+
+  const d = createClipDriver(g.scene, g.animations);
+  const DUR = 1.02;
+  const hw = new THREE.Vector3(), sw2 = new THREE.Vector3();
+  let minGap = Infinity, maxGap = -Infinity, handTravel = 0;
+  const prevHand = new THREE.Vector3();
+  let first = true;
+  for (let t = 0; t <= DUR; t += DUR / 40) {
+    d.update(1 / 40, { group: "attacking", dir: "right", swingT: t, swingDuration: DUR });
+    g.scene.updateMatrixWorld(true);
+    hand.getWorldPosition(hw);
+    sword.getWorldPosition(sw2);
+    const gap = hw.distanceTo(sw2);
+    minGap = Math.min(minGap, gap); maxGap = Math.max(maxGap, gap);
+    if (!first) handTravel += prevHand.distanceTo(hw);
+    prevHand.copy(hw); first = false;
+  }
+  const drift = maxGap - minGap;
+  console.log(`\n  THE WEAPON THROUGH A WHOLE STROKE`);
+  console.log(`    hand travelled ${handTravel.toFixed(3)} m; the carry gap held ${minGap.toFixed(4)}-${maxGap.toFixed(4)} m`);
+  check("the weapon rides the fist through a whole swing — the carry is not lost in clip mode",
+    drift < 1e-4 && handTravel > 0.15,
+    `gap drifted ${(drift * 1000).toFixed(3)} mm while the hand moved ${handTravel.toFixed(2)} m`);
+}
+
 console.log(`\n[cliptest] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -259,9 +259,24 @@ throws a whole frame out for that.
 
 `settleOnFeet` is NOT applied and does not need to be: the server sends every
 man `y: 0` and warriors do not follow terrain at all (`ROUNDS-AND-SPAWNS.md`
-carries that as its own separate fault), so there is no planting to lose. The
-wrist/blade-aim solve is not applied either, and that one IS a gap — the clip
-bakes a grip of its own and the two would fight.
+carries that as its own separate fault), so there is no planting to lose.
+
+**The wrist/blade-aim solve is not applied either, and that turned out not to be
+a gap.** It was written up as one — "the clip bakes a grip of its own and the
+two would fight" — and then measured. `applyPose` writes
+`rig.weapon.rotation`/`position` every frame and clip mode skips it, so a held
+thing keeps the local transform it had when the driver took the body. For the
+BODY that was a real defect, because the clip's own `Hips` track moves the root
+as well and a stale offset double-counts; `rig.body` is reset to identity for
+exactly that reason. A weapon is the opposite case: **the clip does not animate
+it — it is not in the skeleton** — so the mount is what carries it, and
+`authored.ts` records the same thing from the other direction, having tried
+clearing those offsets once and found it wrong ("those offsets are the carry,
+not slack to be zeroed").
+
+`cliptest` measures it rather than arguing it: over a whole huscarl stroke the
+hand travels **4.33 m** and the carry gap holds at 0.1814 m with **0.000 mm of
+drift**. The blade rides the fist.
 
 `?clips=1` stays a second flag on top of `?authored=1`: the mesh swap has been
 judged and the motion has not.
