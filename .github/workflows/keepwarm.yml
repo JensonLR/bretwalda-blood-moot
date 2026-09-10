@@ -1,0 +1,93 @@
+# KEEPWARM — hold the deployed game awake, from a scheduler that never closes.
+#
+# WHY THIS EXISTS. `tools/keepwarm.mjs` has carried the measurement and the
+# remedy since 3 Sep 2026 and has never had anywhere to run:
+#
+#     cold  GET /   200 in 43.5 s
+#     warm  GET /   200 in  0.29 s
+#
+# Re-measured against the live site on 10 Sep 2026, and it has not moved:
+# 42.4 s cold, 0.40 s warm. A visitor who follows a group-chat link during that
+# window sees a blank tab for the better part of a minute and is gone long
+# before the game loads.
+#
+# NOTHING IN THE APPLICATION CAN SHORTEN IT, and that was checked rather than
+# assumed. `/api/health` touches no database at all and still took the full
+# 42.4 s, so every second of it is the host waking a container — not Next, not
+# `ensureSchema` (which runs lazily on first use, never at boot), and not
+# `instrumentation.ts` (which registers two callbacks and deliberately touches
+# nothing).
+#
+# That file says the fix is "from a machine that stays on, or from any
+# scheduler". This is the scheduler. It is deliberately dumb: one GET, no
+# checkout, no dependencies, no state.
+#
+# IT IS STILL NOT THE FIX. The real one is a hosting plan whose instance does
+# not sleep — Render's paid tier, or Fly with `min_machines_running = 1`, which
+# `fly.toml` is already written for. That is a spending decision and it is the
+# owner's. This only means that until it is made, the instance is never idle
+# long enough to be put down.
+#
+# THREE THINGS TO KNOW BEFORE TRUSTING IT.
+#
+#   * GitHub's cron is BEST EFFORT. Under load a scheduled run can be delayed by
+#     several minutes or skipped, so ten minutes is chosen against a ~15 minute
+#     idle timeout to leave room for one missed beat, not because ten is special.
+#   * GitHub DISABLES scheduled workflows on a repository with no activity for
+#     60 days, and mails the owner when it does. A quiet repository is one that
+#     silently stops being kept warm.
+#   * Render's free tier allows 750 hours a month, which is one service running
+#     continuously and no more. Keeping this one awake spends that allowance on
+#     purpose; a second free service would exhaust it.
+#
+# To point it somewhere else, set the repository variable `KEEPWARM_URL`.
+name: Keep the game warm
+
+on:
+  schedule:
+    # Every ten minutes, against a host that sleeps after about fifteen.
+    - cron: "*/10 * * * *"
+  # So it can be fired by hand after a deploy rather than waiting for the beat.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A delayed run must never pile up behind the next one — the point is a
+  # heartbeat, and two at once is not a warmer instance.
+  group: keepwarm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wake the instance and report what it cost
+        # Through `env`, never interpolated into the shell. This workflow takes
+        # no event input so there is nothing here an outsider can reach, but a
+        # `${{ }}` inside `run:` is the shape of an injection whatever fills it,
+        # and the next person to add a trigger should not have to notice.
+        env:
+          KEEPWARM_URL: ${{ vars.KEEPWARM_URL }}
+        run: |
+          set -euo pipefail
+          URL="${KEEPWARM_URL:-https://bretwalda-blood-moot.onrender.com/}"
+          # --max-time 180: a cold wake is tens of seconds, and a timeout here
+          # would report a failure for the exact case this exists to cover.
+          OUT="$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 180 -L "$URL")"
+          CODE="${OUT%% *}"
+          SECS="${OUT##* }"
+          echo "GET $URL -> HTTP $CODE in ${SECS}s"
+          # The number is the interesting half. Over ~5 s means the instance had
+          # gone down anyway and this beat is what woke it; under a second means
+          # it never slept, which is the whole object.
+          {
+            echo "### Keepwarm"
+            echo "\`$URL\` returned **HTTP $CODE** in **${SECS}s**."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then
+            echo "Not a cold start — the site did not answer 200." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

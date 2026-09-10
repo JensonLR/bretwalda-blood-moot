@@ -1022,6 +1022,52 @@ and always did — post chain 10.40 ms + shadows 9.40 + props 8.50 against an
 
 ---
 
+## The live site, verified — 10 September 2026
+
+Checked against **https://bretwalda-blood-moot.onrender.com** after the session's
+45 commits reached `main`. Render deploys from the repo, so they were already
+live; confirmed by fetching the served stylesheet and finding all three of this
+session's markers in it — `--ink-dim`, `--safe-bottom`, `a.badge-garnet`.
+
+| | |
+|---|---|
+| `GET /api/health` cold | **42.4 s** |
+| `GET /` warm | **0.40 s** |
+| `POST /api/war` (the map's per-visit endpoint) | **0.5 s** |
+| console errors across `/` and `/factions` | **0** |
+| 4xx / 5xx responses | **0** |
+
+A real training fight was driven end to end on the live site — 2 alive, the
+clock running, canvas and renderer up — and the nameplates in the capture read
+`TRAINEE`, `EADWINE…`, `HILDGAR…`, so the word-boundary truncation is in
+production. The only console error is the headless browser's own
+`WrongDocumentError: … not valid for pointer lock`, which is the same
+browser limitation `playtest` now marks NOT RUN.
+
+### The cold start is the host, and that was checked rather than assumed
+
+**42.4 s**, against the 43.5 s recorded on 3 Sep. It has not moved and nothing in
+this repository can move it: `/api/health` touches no database at all and still
+took the full 42.4 s, so every second is the host waking a container. Not Next;
+not `ensureSchema`, which runs lazily on first use and never at boot; not
+`instrumentation.ts`, which registers two callbacks and says in its own comment
+that "startup work is startup latency".
+
+`tools/keepwarm.mjs` has carried the remedy since 3 Sep and had nowhere to run —
+its header asks for "a machine that stays on, or any scheduler".
+`.github/workflows/keepwarm.yml` is that scheduler: one GET every ten minutes
+against a host that sleeps after about fifteen, no checkout and no dependencies.
+
+It is a stopgap and the file says so. The fix is a plan whose instance does not
+sleep — Render's paid tier, or Fly with `min_machines_running = 1`, which
+`fly.toml` is already written for — and that is a spending decision, so it stays
+the owner's. Three things temper the stopgap and are written into the workflow:
+GitHub's cron is best-effort, GitHub disables scheduled workflows after 60 days
+of repository quiet, and Render's 750 free hours a month is exactly one service
+running continuously.
+
+---
+
 ## The HUD's long-frame claim, regraded — 10 September 2026
 
 `hudcost` asked "is React's 20 Hz costing the player frames?" and answered it
