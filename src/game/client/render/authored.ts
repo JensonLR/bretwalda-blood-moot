@@ -299,6 +299,15 @@ export function readSurfaceName(name: string | undefined | null): AuthoredMateri
  */
 const SKINNED_VARIANT = new WeakMap<THREE.Material, THREE.Material>();
 function forSkinnedMesh(base: THREE.Material): THREE.Material {
+  // NOT EVERY `resolve()` RETURN IS A REAL three.js Material. The contract is
+  // a caller-supplied function and `authoredtest` supplies a stub — a bare
+  // object with a name and a colour, which is all that harness's question
+  // needs. The first cut of this called `.clone()` unconditionally and threw
+  // `base.clone is not a function` straight through a suite that had nothing
+  // to do with materials. A material that cannot be cloned is simply used as
+  // it is: that is the behaviour that shipped before this existed, so the
+  // worst case is the old one rather than a crash.
+  if (typeof (base as { clone?: unknown }).clone !== "function") return base;
   const hit = SKINNED_VARIANT.get(base);
   if (hit) return hit;
   const clone = base.clone();

@@ -195,15 +195,26 @@ tools/blender/__pycache__/
 # "The deploy runs the copy step" USED TO BE WRITTEN HERE AND WAS NOT TRUE.
 # Checked 10 Sep 2026: `build` is `next build` and nothing else, the Dockerfile
 # runs that and never `npm run authored`, and `art/blender/` is ignored too
-# (line 173) — so there is nothing on the build host to copy FROM. The proof is
-# a request: GET /authored/warrior-warden.glb on the live site is a 404.
+# (line 173) — so there was nothing on the build host to copy FROM. The proof
+# was a request: GET /authored/warrior-warden.glb on the live site, a 404.
 #
-# So the authored man cannot reach production from this repository as it
-# stands, and the client no longer pretends otherwise: next.config.ts stamps
-# NEXT_PUBLIC_AUTHORED from whether the four bodies are actually present, and
-# the default follows it. Getting them shipped is a hosting decision — commit
-# them, or serve them from object storage — and it is the owner's.
-/public/authored/
+# SO `/public/authored/` IS NO LONGER IGNORED — the owner's call, 10 Sep 2026,
+# on the condition that the assets validate clean. They do: gltftest 31/31,
+# authoredtest 92/92, cliptest 10/10, severauthored 9/9, portraittest 10/10,
+# armourytest, authoredweight 2/2, rekeyprobe 3/3.
+#
+# WHAT THIS COSTS, PLAINLY. 43 MB of binaries enter the history and every clone
+# from here on pays for them. It is a real departure from
+# docs/WHAT-THIS-GAME-IS §2 ("a game with no binary assets") and that document
+# should be read as amended by this line rather than quietly contradicted by it.
+# What it buys is the thing the section was always in service of: a player who
+# opens the game sees the men this project spent months authoring, instead of a
+# setting nobody could find.
+#
+# `art/blender/` stays ignored (line 173) and is still the SOURCE. This is the
+# EXPORT — regenerate it with `npm run authored` and commit the diff. Nothing
+# in the deploy generates it; the Dockerfile's `COPY . .` is what ships it, and
+# next.config.ts's `authoredPresent()` is what notices.
 .bloodshot/
 
 .bladereach/
