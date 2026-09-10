@@ -8,7 +8,7 @@ import { climateOf } from "@/game/grounds.mjs";
 import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone, type WeaponDrop } from "../types";
 import GameHud from "./GameHud";
-import { getFeel, sampleInput, useTouchControls, type MobileFlags } from "./input";
+import { getFeel, getForged, sampleInput, useTouchControls, type MobileFlags } from "./input";
 import { setTeamContrast, buildWeaponForClass } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary, matchBoundary } from "@/game/roundreset.mjs";
@@ -261,34 +261,28 @@ const takenKeyOf = (p: GamePlayer): string => (p.taken ? `${p.taken.cls}/${p.tak
 const DOF_LOOK = { maxBlur: 0.0045 };
 
 /**
- * Is the authored mesh wanted? A query flag while the visual verdict is the
- * owner's (`ONE-CLIENT.md`, P2 inventory). When it lands this becomes a tier
- * decision and this is the one place it changes.
+ * Is the authored mesh wanted, and is the authored MOTION wanted on top of it?
+ *
+ * Both were a hand-typed URL parameter and nothing else — no env var, no
+ * setting, no tier hook — with this function duplicated verbatim in
+ * `armouryStage.ts`. So 43 MB of exported warriors and fifteen clips a man were
+ * reachable only by somebody who had read the source. They are a stored
+ * PREFERENCE now, in `input.ts` beside handedness, and the graphics panel is
+ * where a player sets them. See the note on `FORGE_KEY` there for why they are
+ * two settings and why both default off.
+ *
+ * The URL door still works and still wins for one load: every capture harness
+ * in this tree drives it that way, and a setting that broke `authoredshot`
+ * would cost more than it gave. `getForged` folds the two together.
  */
 function authoredWanted(): boolean {
   if (typeof window === "undefined") return false;
-  try { return new URLSearchParams(window.location.search).get("authored") === "1"; }
-  catch { return false; }
+  return getForged().mesh;
 }
 
-/**
- * ...and is the authored MOTION wanted on top of it?
- *
- * A second flag, deliberately, and it requires the first. `?authored=1` swaps
- * geometry, skinning and materials; `?clips=1` additionally lets the fifteen
- * clips in the GLB drive the body instead of the procedural layer stack. They
- * are separate because they are separate judgements: the mesh swap has been
- * judged and the motion has not, and `clipDriver.ts` is explicit that it does
- * not yet re-apply foot planting, the blade-aim solve or the wrist solve.
- *
- * One flag would have forced whoever looks at the authored mesh to accept
- * uncorrected authored motion with it, which is how a good change gets refused
- * for a reason that belongs to a different change.
- */
 function clipsWanted(): boolean {
   if (typeof window === "undefined") return false;
-  try { return new URLSearchParams(window.location.search).get("clips") === "1"; }
-  catch { return false; }
+  return getForged().motion;
 }
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */

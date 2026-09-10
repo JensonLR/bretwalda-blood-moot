@@ -802,6 +802,126 @@ export function setHandedness(next: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
+// THE FORGED MAN — authored geometry, and the motion Blender authored for it
+// ---------------------------------------------------------------------------
+//
+// Both of these shipped behind a hand-typed URL parameter and nothing else:
+//
+//   new URLSearchParams(location.search).get("authored") === "1"
+//
+// duplicated verbatim in GameCanvas.tsx and armouryStage.ts. No env var, no
+// setting, no tier hook. So 43 MB of exported warriors, helms, hair and beards
+// — and, since the clip driver landed, fifteen hand-authored clips per man —
+// were reachable only by somebody who had read the source. A player could not
+// get at any of it.
+//
+// They are two settings and not one, deliberately. The MESH swap has been
+// judged in captures and is the safer half; the MOTION is newer, plays without
+// the wrist and foot corrections the procedural stack carries, and wants to be
+// turned on separately by somebody looking at it. `clips` is meaningless
+// without `authored` and the getter says so rather than leaving the caller to
+// remember.
+//
+// DEFAULT OFF, and that is not timidity. `public/authored` is 43 MB with no
+// streaming policy and the heaviest single file is a head of long hair at
+// 3.5 MB (`gltftest` reports it every run). Making that the default is a
+// bandwidth decision on top of a visual one. This makes it a CHOICE, which it
+// was not before.
+//
+// The URL parameter still works and still wins for one load, because every
+// capture harness in the tree drives it that way and a setting that broke
+// `authoredshot` would be a setting that cost more than it gave.
+
+const FORGE_KEY = "bretwalda.forged";
+/** `mesh` — the authored bodies. `motion` — the authored clips on top of them. */
+export interface Forged { mesh: boolean; motion: boolean }
+let forged: Forged = { mesh: false, motion: false };
+let forgeLoaded = false;
+const forgeListeners = new Set<() => void>();
+
+/**
+ * Motion implies mesh, enforced on the way IN as well as on the way out.
+ *
+ * `setForged` already refuses the combination, but localStorage is editable and
+ * a stale or hand-written `{mesh:false, motion:true}` would light the FORGED
+ * MOTION switch in the graphics panel while nothing whatever happened — a
+ * control showing ON for a thing that is off. It fails closed rather than
+ * pretending: the clips live inside the authored GLB, so without the bodies
+ * there is nothing to play.
+ */
+const settle = (v: Forged): Forged => (v.motion && !v.mesh ? { mesh: false, motion: false } : v);
+
+/** The URL door, kept for the harnesses. Read once per load, and it wins. */
+function forgeFromUrl(): Partial<Forged> {
+  if (typeof window === "undefined") return {};
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const out: Partial<Forged> = {};
+    if (q.get("authored") === "1") out.mesh = true;
+    if (q.get("clips") === "1") { out.mesh = true; out.motion = true; }
+    return out;
+  } catch { return {}; }
+}
+
+export function subscribeForged(onChange: () => void): () => void {
+  forgeListeners.add(onChange);
+  if (!forgeLoaded) {
+    forgeLoaded = true;
+    // Client-side, after hydration, for the same reason handedness reads late:
+    // a locked-down browser should cost the default and not the screen.
+    try {
+      const raw = window.localStorage.getItem(FORGE_KEY);
+      if (raw) {
+        const v = JSON.parse(raw) as Partial<Forged>;
+        forged = settle({ mesh: v.mesh === true, motion: v.motion === true });
+      }
+    } catch { /* private mode: the procedural man it is */ }
+    const url = forgeFromUrl();
+    if (url.mesh !== undefined || url.motion !== undefined) {
+      forged = { mesh: url.mesh ?? forged.mesh, motion: url.motion ?? forged.motion };
+    }
+    if (forged.mesh || forged.motion) for (const l of forgeListeners) l();
+  }
+  return () => { forgeListeners.delete(onChange); };
+}
+
+/**
+ * Snapshot. Cached rather than rebuilt, because `useSyncExternalStore` compares
+ * by identity and a fresh object every call is an infinite render loop — which
+ * is the whole reason `getHandedness` above returns a primitive.
+ */
+export function getForged(): Forged {
+  if (!forgeLoaded) {
+    forgeLoaded = true;
+    try {
+      const raw = window.localStorage.getItem(FORGE_KEY);
+      if (raw) { const v = JSON.parse(raw) as Partial<Forged>; forged = settle({ mesh: v.mesh === true, motion: v.motion === true }); }
+    } catch { /* default */ }
+    const url = forgeFromUrl();
+    if (url.mesh !== undefined || url.motion !== undefined) forged = { mesh: url.mesh ?? forged.mesh, motion: url.motion ?? forged.motion };
+  }
+  return forged;
+}
+
+/** Server snapshot: nothing is stored on the server, and nobody is holding it. */
+const FORGE_OFF: Forged = { mesh: false, motion: false };
+export function getServerForged(): Forged { return FORGE_OFF; }
+
+export function setForged(next: Partial<Forged>): void {
+  const merged = { mesh: next.mesh ?? forged.mesh, motion: next.motion ?? forged.motion };
+  // Motion without a mesh is nothing: the clips live inside the authored GLB,
+  // so asking for one implies the other. Enforced here rather than at the two
+  // call sites that would each have to remember.
+  if (merged.motion) merged.mesh = true;
+  if (merged.mesh === forged.mesh && merged.motion === forged.motion) return;
+  forged = merged;
+  forgeLoaded = true;
+  try { window.localStorage.setItem(FORGE_KEY, JSON.stringify(forged)); }
+  catch { /* the toggle still works for this match */ }
+  for (const l of forgeListeners) l();
+}
+
+// ---------------------------------------------------------------------------
 // Facing assist
 // ---------------------------------------------------------------------------
 

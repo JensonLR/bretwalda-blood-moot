@@ -29,7 +29,7 @@
 import * as THREE from "three";
 import type { Appearance } from "./characters";
 import { buildCharacter, buildWeaponForClass, defaultAppearance, setTeamContrast } from "./characters";
-import { getFeel } from "./input";
+import { getFeel, getForged } from "./input";
 import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
@@ -518,8 +518,9 @@ export interface StageHandle {
  */
 function authoredWanted(): boolean {
   if (typeof window === "undefined") return false;
-  try { return new URLSearchParams(window.location.search).get("authored") === "1"; }
-  catch { return false; }
+  // The stored preference, not a URL read. This was a verbatim copy of
+  // GameCanvas's own — two places to change and one of them always forgotten.
+  return getForged().mesh;
 }
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */

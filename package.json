@@ -90,6 +90,7 @@
     "cliptest": "node tools/cliptest.mjs",
     "safearea": "node tools/safearea.mjs",
     "severauthored": "node tools/severauthored.mjs",
+    "forgedtest": "node tools/forgedtest.mjs",
     "gaitprobe": "node tools/gaitprobe.mjs",
     "bloodshot": "node tools/bloodshot.mjs",
     "gltftest": "node tools/gltftest.mjs",

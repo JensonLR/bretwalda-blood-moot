@@ -24,6 +24,7 @@ import {
   getHandedness, getServerHandedness, setHandedness, subscribeHandedness,
   getLockSnapshot, getServerLockSnapshot, setLockFootMark, setLockReticle, setJoyKnob, subscribeLock,
   getFeel, getServerFeel, setFeel, subscribeFeel,
+  getForged, getServerForged, setForged, subscribeForged,
   type MobileFlags,
 } from "./input";
 import { createTuitionHint, browserStore, FOE_HINT, FOE_HINT_KEY } from "@/game/tuition.mjs";
@@ -498,6 +499,7 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
   const list = useRef<HTMLDivElement | null>(null);
   // The feel store (8.9), the handedness idiom: identity is the version.
   const feelNow = useSyncExternalStore(subscribeFeel, getFeel, getServerFeel);
+  const forgedNow = useSyncExternalStore(subscribeForged, getForged, getServerForged);
 
   // KEEP THE CHOSEN ROW ON SCREEN, and this is a capture finding rather than a
   // precaution. "Automatic" is last in QUALITY_CHOICES and it is also the row
@@ -625,6 +627,49 @@ export function GraphicsPanel({ onClose }: { onClose: () => void }) {
             </button>
             <span className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--ink-faint)]">
               Gold vs deep woad, split by brightness too. Takes hold at the next fight.
+            </span>
+          </label>
+
+          {/* THE FORGED MAN. Both of these were a hand-typed URL parameter and
+              nothing else, so 43 MB of exported warriors and fifteen clips a man
+              were reachable only by somebody who had read the source.
+
+              Two switches and not one, because they are two judgements. The
+              bodies have been looked at in captures; the motion is newer and
+              plays without the foot and wrist corrections the procedural stack
+              carries. One switch would have forced whoever wants to see the
+              first to accept the second.
+
+              Both say "next fight" honestly: the swap happens when a man is
+              built, and a rebuild mid-match is a forfeit (see the note by
+              REBUILD NOW below). */}
+          <label className="mt-2 flex items-center gap-3">
+            <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">FORGED MEN</span>
+            <button role="switch" aria-checked={forgedNow.mesh}
+              onClick={() => setForged({ mesh: !forgedNow.mesh })}
+              className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition ${
+                forgedNow.mesh ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[var(--ink-dim)]"
+              }`}>
+              {forgedNow.mesh ? "ON" : "OFF"}
+            </button>
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--ink-faint)]">
+              Bodies sculpted in Blender instead of built in code. 43 MB the first
+              time; takes hold at the next fight.
+            </span>
+          </label>
+          <label className={`mt-2 flex items-center gap-3 ${forgedNow.mesh ? "" : "opacity-45"}`}>
+            <span className="w-24 shrink-0 text-[11px] font-bold tracking-wider text-amber-200">FORGED MOTION</span>
+            <button role="switch" aria-checked={forgedNow.motion} disabled={!forgedNow.mesh}
+              onClick={() => setForged({ motion: !forgedNow.motion })}
+              className={`rounded-md border px-3 py-1 text-[11px] font-bold tracking-widest transition disabled:cursor-not-allowed ${
+                forgedNow.motion ? "border-amber-500/80 bg-amber-950/40 text-amber-200" : "border-stone-600/70 bg-stone-900/60 text-[var(--ink-dim)]"
+              }`}>
+              {forgedNow.motion ? "ON" : "OFF"}
+            </button>
+            <span className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--ink-faint)]">
+              {forgedNow.mesh
+                ? "Hand-authored clips drive the body. Newer than the bodies, and rougher."
+                : "Needs FORGED MEN — the clips live inside those bodies."}
             </span>
           </label>
         </div>
