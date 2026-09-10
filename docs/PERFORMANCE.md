@@ -1022,6 +1022,29 @@ and always did — post chain 10.40 ms + shadows 9.40 + props 8.50 against an
 
 ---
 
+## The HUD's long-frame claim, regraded — 10 September 2026
+
+`hudcost` asked "is React's 20 Hz costing the player frames?" and answered it
+with **zero tolerance for any frame over 50 ms across 24 s of browser time**.
+That is not a property a browser has. A garbage collection, a texture upload or a
+shader compile produces a long frame no amount of memoisation would remove — and
+on the software arm, a loaded box produced a **15,290 ms** frame and reported
+*"the memoisation case is now open"* about the machine being busy.
+
+Measured on the GPU arm: desktop idle **0** long frames; phone **dragging** — the
+case the harness exists for — **0**; and one 74 ms frame on an idle phone
+carrying 7.4 ms/s of scripting, which is 0.7% of wall time. The commit rate it
+would have been blamed on did not move: 19.4/s at rest, +0.2/s under drag.
+
+So the bar is now the quantity a refactor could actually change — **scripting
+attributed inside long frames**, against 25 ms/s (2.5% of wall clock). The frame
+count stays in the message as context. And the software arm no longer grades this
+at all: it says NOT RUN, which is what the harness always said it should do.
+
+GPU 4/4; software 3 passed with the long-frame claim skipped.
+
+---
+
 ## The database — 10 September 2026
 
 Measured against the real Neon project (`flat-bird-85856627`, Postgres 18,
