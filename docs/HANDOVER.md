@@ -47,6 +47,40 @@ never applied to the second harness. It is GREEN now.
 | `npm run bladereach` | the blade against the range that takes health off; `--curve` walks the contact window |
 | `npm run hudcost` | React commits/s and DOM writes/s during a real fight |
 
+### Deployed and checked on the live site — 10 Sep 2026
+
+**https://bretwalda-blood-moot.onrender.com** runs this session's work. Render
+deploys from the repo, so the 45 commits were already live; confirmed by fetching
+the served stylesheet and finding `--ink-dim`, `--safe-bottom` and
+`a.badge-garnet` in it. A real training fight was driven end to end on the
+deployed site — 2 alive, clock running, renderer up — with the nameplate
+truncation visible in the capture. **0 console errors and 0 4xx/5xx** across `/`
+and `/factions`; `POST /api/war` at 0.5 s.
+
+**The cold start is the host and nothing else, and that was checked rather than
+assumed.** 42.4 s against the 43.5 s recorded on 3 Sep. `/api/health` touches no
+database at all and still took the full 42.4 s, so every second is Render waking
+a container — not Next, not `ensureSchema` (lazy on first use, never at boot),
+not `instrumentation.ts`.
+
+`tools/keepwarm.mjs` had carried the remedy since 3 Sep with nowhere to run.
+`.github/workflows/keepwarm.yml` is the scheduler it asked for — verified running
+from GitHub's own infrastructure, `HTTP 200 in 0.476 s`.
+
+It pings **two** things, because two things sleep. `GET /` wakes the web
+instance and nothing else (`page.tsx` is `"use client"`, so a landing request
+never touches Postgres), and Neon suspends its compute independently — its
+`started_at` moved the moment a database-backed request arrived. The second ping
+is `POST /api/war` with an empty body, the lightest form of the read the map does
+on every visit.
+
+**It is a stopgap and remains one.** The fix is an instance that does not sleep —
+Render paid, or Fly with `min_machines_running = 1`, which `fly.toml` is already
+written for. That is a spending decision and stays the owner's. Note also that
+GitHub's cron is best-effort, GitHub disables scheduled workflows after 60 days
+of repository quiet, and Render's 750 free hours a month is exactly one service
+running continuously.
+
 ### The third pass — the outstanding list, emptied
 
 Every item the two lists below carried as "not done" is now either done or
