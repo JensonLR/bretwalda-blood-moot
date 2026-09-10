@@ -197,14 +197,18 @@ const CSS = `
 .roster-by { display: inline-flex; border: 1px solid rgba(217,164,65,0.35); border-radius: 0.35rem; overflow: hidden; }
 .roster-by button {
   background: rgba(0,0,0,0.35); color: rgba(238,226,204,0.7); border: 0;
-  padding: 0.4rem 0.7rem; font-size: 0.66rem; letter-spacing: 0.14em; cursor: pointer; min-height: 40px;
+  padding: 0.4rem 0.7rem; font-size: 0.66rem; letter-spacing: 0.14em; cursor: pointer;
+  /* 40px was four short of the floor, and an unlayered <style> block beats
+     @layer base — see the note in Roll.tsx. Read the token. */
+  min-height: var(--tap);
 }
 .roster-by button.is-on { background: rgba(217,164,65,0.16); color: var(--gilt-lit); }
 .roster-search {
   flex: 1 1 10rem; min-width: 9rem;
   background: rgba(10,8,6,0.6); color: #f2e5cb;
   border: 1px solid rgba(217,164,65,0.3); border-radius: 0.3rem;
-  padding: 0.4rem 0.55rem; font-size: 0.8rem; min-height: 40px;
+  padding: 0.4rem 0.55rem; font-size: 0.8rem;
+  min-height: var(--tap);
 }
 .roster-search::placeholder { color: rgba(238,226,204,0.35); }
 .roster-note { margin: 0; font-size: 0.68rem; color: rgba(238,226,204,0.5); }

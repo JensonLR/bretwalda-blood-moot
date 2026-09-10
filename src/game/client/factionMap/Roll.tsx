@@ -181,7 +181,15 @@ const CSS = `
   border: 1px solid rgba(217,164,65,0.28); border-radius: 999px;
   background: rgba(0,0,0,0.35); color: rgba(238,226,204,0.62);
   font-size: 0.58rem; font-weight: 700; letter-spacing: 0.12em;
-  padding: 0.28rem 0.55rem; min-height: 1.7rem; cursor: pointer;
+  padding: 0.28rem 0.55rem; cursor: pointer;
+  /* var(--tap), not 1.7rem. This block is an unlayered style tag, so it beat
+     globals.css's button/select min-height rule in @layer base whatever the
+     specificity -- layered CSS always loses to unlayered -- and every chip here
+     measured 27 px against a 44 px floor. uishots only caught it once the war
+     map had data to draw these at all: the sweep went from 22 controls to 38,
+     and sixteen of the new ones were under the floor. Same trap as the
+     input-frame outline beating the focus ring. */
+  min-height: var(--tap);
 }
 .roll-chip-on { background: rgba(217,164,65,0.18); color: var(--gilt-lit); border-color: rgba(217,164,65,0.6); }
 .roll-sep { width: 1px; align-self: stretch; margin: 0.15rem 0.15rem; background: rgba(217,164,65,0.18); }

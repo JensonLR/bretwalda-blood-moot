@@ -1239,6 +1239,21 @@
     padding: 2px 6px;
   }
 
+  /* A BADGE THAT IS A LINK IS A CONTROL, and only then.
+
+     `.badge-garnet` is decoration nearly everywhere it appears — a span reading
+     WAR-GEAR or A JARL'S PRICE — and giving all of those a 44px box would put
+     white space through every card that carries one. But the war map hangs
+     FIGHT HERE off it as an ANCHOR, and that is a thing a thumb has to hit: it
+     measured 82x21 on both widths. The anchor selector is the whole rule, so
+     decoration is untouched and the one interactive use clears the floor.
+
+     `button, select` in @layer base never covered this, because it is neither. */
+  a.badge-garnet {
+    min-height: var(--tap);
+    justify-content: center;
+  }
+
   .badge-stone {
     display: inline-flex;
     align-items: center;
