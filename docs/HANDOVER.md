@@ -234,6 +234,66 @@ The software arm cannot answer this and says so rather than printing a
 misleading zero: its long frames run one to three seconds with an EMPTY
 `scripts[]`, which is the rasteriser and not React.
 
+### 10 Sep 2026 — the authored man comes on, and three photographed defects
+
+**THE OWNER PHOTOGRAPHED TWO OF THESE AND THEY HAD BEEN TRUE ON EVERY DESKTOP
+SINCE THE RAIL LANDED.** Both were cascade faults and both were invisible to a
+suite of forty browser harnesses, for reasons worth keeping.
+
+**END SESSION hung off the left edge**, reading "…D SESSION". `railStyle`
+returns an INLINE `left`; the button asked for its desktop position in a
+Tailwind class (`pointer-fine:left-1/2 -translate-x-1/2`). An inline
+declaration beats every class, so `left:50%` lost — and the TRANSFORM, which
+the inline style said nothing about, won. Placed at 12 px, then pulled left by
+half its own 96 px width: left edge −36. The fix moves the decision INTO
+`railStyle` (`RailGeometry.fine`, off matchMedia) rather than out-specifying
+the class, because the cure for "two owners disagree" is one owner.
+
+Measuring that fix found a SECOND fault in the same button: the LABEL was
+chosen by `pointer-fine:` and the POSITION by the rail, so a desktop window
+under 488 px tall folded the rail — second column at 116 px — while keeping the
+159 px wide label. `endIsWide()` now decides both. **`npm run railgate`** is the
+ruler: 132 claims over nine real screen shapes, proven by reintroducing the
+defect.
+
+**Every preview window showed the back of the warrior's head.** `figure` was
+one lens doing two jobs, "the whole man" and "the cloak, which is on his back",
+and it carried the cloak's 135°. The tell that this was already known:
+`factions/page.tsx` passes `turn={-0.55}` by hand. One call site patched itself
+and the other three wore the fault. The lens now keeps the CROP and
+`SLOT_BEARING` (armouryThumbs.ts) keeps the TURN.
+
+**THE AUTHORED MEN ARE DEFAULT ON — WHERE THEY EXIST.** The "43 MB" that kept
+them off was the library on disk; nothing loads the library. **`npm run
+authoredweight`** measures the real payload per shape, gzipped: **1.10 MB** for
+a duel, **3.83 MB** for a real training fight, **7.77 MB** worst case. The
+decision had been taken against a number 5–39x too big.
+
+But `public/authored/` AND its source `art/blender/` are both gitignored, and
+the Dockerfile runs `next build` and never `npm run authored` — the .gitignore
+claimed "the deploy runs the copy step" and that was untrue. `GET
+/authored/warrior-warden.glb` on the live site is a **404**. So next.config.ts
+stamps `NEXT_PUBLIC_AUTHORED` from whether the four bodies are present and the
+default follows it: on where they ship, off where they do not, and it turns
+itself on the day they are shipped. **Getting them to production is an open
+owner decision** — commit them (43 MB, against a documented repo principle) or
+serve them from object storage.
+
+Turning them on exposed a latent defect: `dressFromSurfaceNames` gave the
+library's cached materials to SkinnedMeshes that plain meshes already wore, and
+three.js keys a program on `USE_SKINNING` — `rekeyprobe` went 3/3 to 2/3. One
+clone per original, weakly keyed, textures still shared.
+
+**AND 39 HARNESSES WERE MEASURING WHATEVER BUNDLE HAPPENED TO BE THERE.**
+`forgedtest` passed 6/6 while asserting the OPPOSITE of the shipped default,
+because `useProd = existsSync(BUILD_ID)` served a bundle **277 minutes** older
+than the edit. That is the named incident in `tools/lib/freshbuild.mjs`, which
+six harnesses used and thirty-nine did not. All now go through `chooseServer`
+(falls back to dev, says so on the verdict) or `requireFreshBuild` (refuses,
+names the file) where the harness is pinned to production output. `touchtest`
+warned about a stale bundle and then measured it anyway; a warning is not a
+gate.
+
 ### The battery, 9 Sep 2026
 
 typecheck · lint · build clean. blenderdoctor 13/13 · cliptest 9/9 ·
