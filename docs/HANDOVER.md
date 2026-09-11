@@ -316,6 +316,34 @@ anything else — the first hypothesis (the wall-clock number beside the
 INPUT_LAPSE_MS claim at protocoltest.mjs:666) was checked and is WRONG: that
 claim's condition is sim time and the wall clock appears only in its message.
 
+### 11 Sep 2026 (later) — the GPU arm, and a paid cosmetic that rendered as nothing
+
+**SIX WAR PAINTS BECAME INVISIBLE THE MOMENT THE AUTHORED MEN WENT ON, and only
+the GPU arm could see it.** `BRETWALDA_GPU=1 npm run cosmetictest` reads 19/19
+with the authored man OFF and 17/19 with him ON: every paint, at both portrait
+and fight range, dE 0.00 against bare skin. The paint is not a texture —
+`faceComplexion` bakes it into the PROCEDURAL head's vertex colours, and the
+authored upgrade re-parents the whole body. Items between 40 and 130 gold were
+rendering as nothing.
+
+**The owner's ruling: a painted man keeps the procedural body.** Gated in the
+arena (`wearsWarPaint` in GameCanvas) and in the shop's mannequin
+(`armouryStage`). A fight can mix the two looks and that is the accepted cost.
+IT IS A STOPGAP: the real fix is the authored head carrying the complexion
+field, and **the condition for removing the gate is `cosmetictest` reading 19/19
+with the authored man ON.** Back to 18/19 now, the documented GPU maximum.
+
+**`drawcensus` was asserting today's answer as a requirement.** "the men are the
+lever, not the arena" was a finding; frozen into a check, it failed when the
+thing got BETTER — authored bodies cost 182 draws for three men against 261
+procedural, so the men stopped being the larger half. Regraded to "a dominant
+lever exists and this says which", which is what "you cannot spend a total"
+actually needs. It now reports **the world at 221 draws, 49% of the frame**,
+against 182 for the men — a redirection of where optimisation effort belongs.
+
+`playtest` is **40/40 on the GPU** (the three pointer-lock claims that are NOT
+RUN headless all pass in a real browser).
+
 ### 11 Sep 2026 — the full sweep, and what a red instrument was hiding
 
 Sixty-six harnesses run with REAL exit codes; five were red and none of the five
@@ -342,12 +370,26 @@ beards are fuller". Read the rows: `beard=none/full/forked/braided` all report
 rungs carrying "wrapped hts 137". A height only becomes a case once the throat is
 genuinely wrapped, so fuller beards made this section examine 137 heights a head
 where it used to examine a handful. The bare arc was always in the mesh.
-Re-baselined to 15 WITH that evidence written at the number, PELT ratcheted
-67 -> 65, and the gate proved still to bite. **A real art defect is now named
-rather than buried in a red tally: the Sutton Hoo nape guard has a 3.0 deg bare
-arc at az 313, y 54, r~99 mm — about 5 mm of neck behind the ear — and
-warden/suttonhoo/hair=long is worse at 18.5 deg dead behind.** Both live in
-`napeHalf`; not fixed blind, because those constants feed every guard helm.
+Re-baselined to 15 WITH that evidence written at the number, and PELT ratcheted
+67 -> 65.
+
+**THEN THE 15 TURNED OUT NOT TO BE REAL EITHER, AND THE CORRECTION IS MINE.**
+This entry first said "a real art defect is now named: the Sutton Hoo nape guard
+has a 3.0 deg bare arc ... about 5 mm of neck behind the ear". THERE IS NO SUCH
+HOLE. That was read off a verdict line and written down without asking the mesh
+— the exact sin helmclash exists to stop. `npm run helmclash -- --probe
+huscarl/suttonhoo@313,54` was added so the question can be asked, and answers it
+in one command: the cheek plate is at 98.5 mm and a BEARD sits 1.0 mm over it.
+The other row is mail at 111.2 mm with a braid hanging at 128.8 mm.
+
+The fault was the ruler. §3 asked whether kit was the OUTERMOST thing when the
+question is whether kit is THERE, and that is only the same question while
+nothing legitimately lies over armour — which a beard and a hanging braid both
+do. Split into three cases (no metal at all; skin proud of metal; hair or beard
+over metal), the section's own worry is kept whole, because "a braid hangs over
+the gap" is about a bearing with NO METAL. **WRAP 15 -> 0, baseline tightened to
+0**, so a genuine clear back now fails from zero, and a branch tally rides the
+verdict so a PASS reads as coverage rather than as silence.
 
 **`warseed` was a loaded gun.** It is a FIXTURE, not a gate — it invents matches
 and writes them — and it fell back to `DATABASE_URL`. The configured database has
