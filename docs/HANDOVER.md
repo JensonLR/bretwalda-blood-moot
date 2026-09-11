@@ -316,6 +316,60 @@ anything else — the first hypothesis (the wall-clock number beside the
 INPUT_LAPSE_MS claim at protocoltest.mjs:666) was checked and is WRONG: that
 claim's condition is sim time and the wall clock appears only in its message.
 
+### 11 Sep 2026 — the full sweep, and what a red instrument was hiding
+
+Sixty-six harnesses run with REAL exit codes; five were red and none of the five
+was a regression from the day's work. Each was traced rather than re-baselined
+on a hunch.
+
+**`freezetest` was not failing — it was DEAD, and had been for as long as rigs
+have been skinned.** It called
+`createWarriorRig(parent, player, undefined, settings)`; that third argument is
+`materials: MaterialLibrary`, required, and `articulate` calls `materials.twin(m)`
+on every skinned child. Every call died with "Cannot read properties of undefined
+(reading 'twin')" before one landmark was sampled, and the whole headless half
+reported nothing at all — behind a caught throw and a one-line message. Given
+`chars.RAW`, the stub five other geometry harnesses already use, it now prints
+the table it was built for: a standing man's head travels **24.3 mm** in half a
+second against a walking man's **170.1 mm**.
+
+**`helmclash`'s WRAP 6 -> 15 was the instrument getting BIGGER, not the mesh
+getting worse.** It had been red and unexplained for over a week, which made the
+whole thing useless — a gate already failing cannot report the next break. So it
+was bisected: `fb1e4ec` 6, `a44084c` 6, **`ec497ad` 15**. That commit is "the
+beards are fuller". Read the rows: `beard=none/full/forked/braided` all report
+360 deg of throat cover and PASS; the nine new failures are all DEFAULT-beard
+rungs carrying "wrapped hts 137". A height only becomes a case once the throat is
+genuinely wrapped, so fuller beards made this section examine 137 heights a head
+where it used to examine a handful. The bare arc was always in the mesh.
+Re-baselined to 15 WITH that evidence written at the number, PELT ratcheted
+67 -> 65, and the gate proved still to bite. **A real art defect is now named
+rather than buried in a red tally: the Sutton Hoo nape guard has a 3.0 deg bare
+arc at az 313, y 54, r~99 mm — about 5 mm of neck behind the ear — and
+warden/suttonhoo/hair=long is worse at 18.5 deg dead behind.** Both live in
+`napeHalf`; not fixed blind, because those constants feed every guard helm.
+
+**`warseed` was a loaded gun.** It is a FIXTURE, not a gate — it invents matches
+and writes them — and it fell back to `DATABASE_URL`. The configured database has
+**209 players, 16 war_ledger rows and 4 hearths** of real data. Anyone who had
+exported those credentials for any other reason and typed `npm run warseed` would
+have written a synthetic season across real standings, unasked. The fallback is
+gone; `--use-database-url` must be typed. It exits **3**, not 1: "no database was
+named" is a thing that did not run, and a battery that treats it as red is a
+battery that learns to ignore red.
+
+**`spectatetest` is FLAKY, and that is the finding.** Two consecutive runs on one
+build: 2 failures, then 0 failures and exit 0. Its claims need the fight to leave
+a living man on the field while the local warrior is dead, and against AI that is
+luck. Not a product defect and not the authored default — do not chase it as one.
+
+**`factionread` 26/34 with 6 stated deferrals** is its chronic standing. Its
+inputs were verified unchanged by the `loadClient` refactor — same `{CH, ANIM,
+work}`, same members.
+
+`protocoltest`'s one-in-fifteen 84/85 remains OPEN and unreproduced; it passed
+again in this sweep. The rule stands: capture the FAIL line before anything else.
+
 ### The battery, 9 Sep 2026
 
 typecheck · lint · build clean. blenderdoctor 13/13 · cliptest 9/9 ·

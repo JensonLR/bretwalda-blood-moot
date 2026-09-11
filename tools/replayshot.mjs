@@ -602,8 +602,8 @@ async function playCase(browser, kind, pass) {
 
 async function main() {
   const choice = chooseServer(ROOT, "replayshot");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   say("");
   say(`  REPLAYSHOT — the match-end replay, photographed, for the man who died.`);
   say(`  starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);

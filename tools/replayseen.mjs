@@ -168,8 +168,8 @@ const LOOK = () => {
 
 async function main() {
   const choice = chooseServer(ROOT, "replayseen");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   say(`  REPLAYSEEN — the replay, in the real client, against the real server.`);
   say(`  starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", ["--import", SEED_DIE, choice.script], {

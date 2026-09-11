@@ -29,8 +29,39 @@ import {
   TERRITORIES, PEOPLES, POINTS, SEASON_DAYS, openingHoldings, contestGround,
 } from "../src/game/war.mjs";
 
-const DB = process.env.WAR_TEST_DB || process.env.DATABASE_URL || "";
-if (!DB) { console.error("[warseed] needs WAR_TEST_DB"); process.exit(1); }
+// ---------------------------------------------------------------------------
+// WHICH DATABASE, AND WHY IT WILL NOT GUESS
+// ---------------------------------------------------------------------------
+//
+// THIS TOOL WRITES. It invents matches, mints a player with credentials, and
+// drives points through `contestGround` until territories flip. Every one of
+// those is a row in somebody's database.
+//
+// It used to fall back to `DATABASE_URL`, and that is a loaded gun in a
+// repository where `.env.local` holds the real one. Checked on 11 Sep 2026,
+// the project's configured database has 209 players, 16 war_ledger rows and 4
+// hearths in it — real people with real standings. Anyone who exported those
+// credentials for any other reason (a migration, a query, `npm run dev`) and
+// then ran `npm run warseed` would have written a synthetic season across
+// them, and nothing would have asked first.
+//
+// So the fallback is gone. `WAR_TEST_DB` must be set, and it must be set
+// deliberately — the point is that naming a throwaway database is an act, not
+// a default. `--use-database-url` is the escape hatch for somebody who really
+// does mean the configured one, and it has to be typed.
+const WANTS_DEFAULT = process.argv.includes("--use-database-url");
+const DB = process.env.WAR_TEST_DB || (WANTS_DEFAULT ? process.env.DATABASE_URL : "") || "";
+if (!DB) {
+  console.error("[warseed] needs WAR_TEST_DB — a THROWAWAY database.");
+  console.error("[warseed] This tool writes: it seeds a fought-over season, so it must never");
+  console.error("[warseed] be pointed at a database with real players in it. It no longer");
+  console.error("[warseed] falls back to DATABASE_URL; pass --use-database-url if you mean it.");
+  console.error("[warseed]   WAR_TEST_DB=postgres://... npm run warseed");
+  // 3, not 1: "no database was named" is a thing that did not run, not a thing
+  // that failed. A battery that treats this as a red harness is a battery that
+  // learns to ignore a red harness.
+  process.exit(3);
+}
 
 const DAY = 86_400_000;
 const hash = (s) => createHash("sha256").update(s).digest("hex");

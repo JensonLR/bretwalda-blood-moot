@@ -245,8 +245,8 @@ async function main() {
   if (!fall.length) throw new Error("the engine produced NO knockdown — the strip would be a lie, so nothing is written");
 
   const choice = chooseServer(ROOT, "weightshot");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[weightshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [choice.script], {
     cwd: ROOT,

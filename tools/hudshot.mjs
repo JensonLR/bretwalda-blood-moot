@@ -181,8 +181,8 @@ async function shootOne(browser, view) {
 
 async function main() {
   const choice = chooseServer(ROOT, "hudshot");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[hudshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,

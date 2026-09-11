@@ -956,8 +956,8 @@ async function bootServer() {
   const PORT = 3400 + (process.pid % 600);
   const origin = `http://localhost:${PORT}`;
   const choice = chooseServer(ROOT, "factionread");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   const proc = spawn("node", [choice.script], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],

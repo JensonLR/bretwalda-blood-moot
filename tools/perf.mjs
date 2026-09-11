@@ -39,8 +39,8 @@ function waitForServer(url, timeoutMs = 180000) {
 
 async function main() {
   const choice = chooseServer(ROOT, "perf");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },

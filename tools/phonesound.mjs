@@ -171,8 +171,8 @@ async function listen(page, ms) {
 
 async function main() {
   const choice = chooseServer(ROOT, "phonesound");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[phonesound] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [choice.script], {
     cwd: ROOT,

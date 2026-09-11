@@ -120,8 +120,8 @@ const controls = (page) => page.evaluate(() => {
 let server;
 async function main() {
   const choice = chooseServer(ROOT, "safearea", { forceDev: USE_DEV });
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log("SAFEAREA — the fight, against the hardware that covers it\n");
   server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],

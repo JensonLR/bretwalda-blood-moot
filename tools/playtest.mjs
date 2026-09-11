@@ -681,8 +681,8 @@ async function main() {
     clearInterval(getEngine()._tickInterval);
   }
   const choice = chooseServer(ROOT, "playtest");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[playtest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   // Same fixed die the in-process engine above got, so the browser's opponents
   // are as reproducible as the scripted ones. See tools/seeddie.mjs.

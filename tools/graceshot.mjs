@@ -144,8 +144,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const choice = chooseServer(ROOT, "graceshot");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[graceshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [choice.script], {
     cwd: ROOT,

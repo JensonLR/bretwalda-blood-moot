@@ -270,8 +270,33 @@ async function loadAnim() {
     }
   }
   ANIM = await import(pathToFileURL(animFile).href);
+  // THE MATERIAL LIBRARY IS NOT OPTIONAL, and this harness had been passing
+  // `undefined` for it. `createWarriorRig(parent, player, materials, settings)`
+  // declares `materials: MaterialLibrary` — required — and `articulate` calls
+  // `materials.twin(m)` on every skinned child. So every call here died with
+  // "Cannot read properties of undefined (reading 'twin')" before a single
+  // landmark was sampled, and the whole headless half of this file reported
+  // nothing at all.
+  //
+  // It is not a new fault: `twin` arrived with the skinning work and this call
+  // site was never updated, so the crash has been the harness's normal output
+  // for as long as skinned rigs have existed. Nothing failed loudly enough to
+  // be noticed because the exit was a caught throw with a one-line message.
+  //
+  // `chars.RAW` is the same stub bladereach, swingstrip, gravitytest,
+  // wearmeasure and replaytest all use: real THREE materials, no texture bake,
+  // which is what a geometry harness wants. It rides in on the same emit —
+  // anim.ts imports characters.ts, so tsc has already written it.
+  const charFile = emitted.find((f) => f.endsWith("characters.js"));
+  if (charFile) {
+    const chars = await import(pathToFileURL(charFile).href);
+    RAW_MATERIALS = chars.RAW ?? null;
+  }
   return ANIM;
 }
+
+/** The material library every other geometry harness hands to createWarriorRig. */
+let RAW_MATERIALS = null;
 
 
 async function phaseCollapse(anim) {
@@ -301,7 +326,7 @@ async function phaseCollapse(anim) {
   const oneDeath = (cls, cause, zone) => {
     const parent = new THREE.Group();
     const player = man(cls);
-    const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+    const rig = anim.createWarriorRig(parent, player, RAW_MATERIALS, { tier: "high", shadows: false });
     const motion = anim.createMotion(player);
     const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
       focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk", quality: { tier: "high", shadows: false } };
@@ -468,7 +493,7 @@ async function phaseIdle(anim) {
   const track = (player, secs, hp = 100) => {
     const parent = new THREE.Group();
     player.health = hp;
-    const rig = anim.createWarriorRig(parent, player, undefined, { tier: "high", shadows: false });
+    const rig = anim.createWarriorRig(parent, player, RAW_MATERIALS, { tier: "high", shadows: false });
     const motion = anim.createMotion(player);
     const ctx = { dt: 1 / 60, rawDt: 1 / 60, time: 0, camera: new THREE.PerspectiveCamera(),
       focus: new THREE.Vector3(), localId: "", localState: null, mood: "dusk", quality: { tier: "high", shadows: false } };

@@ -1137,8 +1137,8 @@ async function liveNet(out) {
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const choice = chooseServer(ROOT, "fpstest", { forceDev: !(process.env.FPSTEST_DEV !== "1") });
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   say(`[fpstest] server: ${useProd ? "production build" : "dev build"} on :${PORT}`);
   say(`[fpstest] viewport ${VIEW.width}x${VIEW.height} @dpr1 — small ON PURPOSE, see the header`);
   server = spawn("node", [choice.script], {

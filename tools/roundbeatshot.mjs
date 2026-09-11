@@ -139,8 +139,8 @@ const PROBE = () => {
 
 async function main() {
   const choice = chooseServer(ROOT, "roundbeatshot");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[roundbeatshot] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", ["--import", SEED_DIE, choice.script], {
     cwd: ROOT,

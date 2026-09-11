@@ -336,8 +336,8 @@ async function main() {
   if (process.env.SOUNDWIRE_PHASE === "0") { verdict(true); return; }
 
   const choice = chooseServer(ROOT, "soundwire");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[soundwire] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [choice.script], {
     cwd: ROOT,

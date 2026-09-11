@@ -206,8 +206,8 @@ async function sample(page, secs, during) {
 let server;
 async function main() {
   const choice = chooseServer(ROOT, "hudcost", { forceDev: USE_DEV });
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`HUDCOST — what the interface costs during a fight\n`);
   console.log(`  starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", ["--import", SEED_DIE, choice.script], {

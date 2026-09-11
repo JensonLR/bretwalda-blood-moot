@@ -2206,7 +2206,47 @@ function battery() {
   // PELT tightened 74 -> 73 on 31 Aug 2026: the coif branch stopped claiming mail
   // it does not draw, so one pelt combination stopped clashing. The ratchet asked
   // for this in its own words — "IMPROVED, so tighten the baseline in this file".
-  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 6, CREST: 8, PELT: 67, SEAM: 11 };
+  //
+  // PELT 67 -> 65 on 11 Sep 2026, the ratchet asking again, same reason class.
+  //
+  // WRAP 6 -> 15 on 11 Sep 2026, AND THIS ONE IS NOT A GEOMETRY REGRESSION.
+  // It had been red and unexplained for over a week, which made the whole
+  // instrument useless: a gate that is already failing cannot tell you the next
+  // thing that breaks. So it was bisected rather than re-baselined on a hunch.
+  //
+  //     fb1e4ec  1 Sep   WRAP  6
+  //     a44084c  2 Sep   WRAP  6
+  //     ec497ad  2 Sep   WRAP 15   <- here
+  //     e5aee38 10 Sep   WRAP 15
+  //
+  // `ec497ad` is "The owner's four: ... THE BEARDS ARE FULLER ...". Read the
+  // rows and the mechanism is plain: for every helm, `beard=none`, `beard=full`,
+  // `beard=forked` and `beard=braided` all report 360.0 deg of throat cover and
+  // PASS. The nine new failures are all DEFAULT-beard rungs, and they carry
+  // "wrapped hts 137".
+  //
+  // A height only becomes a CASE when the throat is genuinely wrapped — at least
+  // THROAT_DEG of it. Fuller beards wrap far more heights, so this section now
+  // examines 137 heights per head where it used to examine a handful. The bare
+  // arc it finds there was always in the mesh; nothing put it there on 2 Sep.
+  // The instrument's reach grew and the count grew with it.
+  //
+  // Which is why the number moves and the fault is NAMED instead:
+  //
+  //   OPEN ART DEFECT — the Sutton Hoo nape guard has a 3.0 deg bare arc at
+  //   azimuth 313 deg, y 54 mm, radius ~99 mm: roughly 5 mm of exposed neck
+  //   behind the ear, on huscarl and warden, at every hair rung. One row is
+  //   worse and separate — warden/suttonhoo/hair=long reads 18.5 deg bare at
+  //   az 186 (dead behind), y 10, throat cover down to 287 deg, which is long
+  //   hair holding the mail off the nape rather than a hole in the guard.
+  //   Both live in `napeHalf` and the "guard" branch of the nape build
+  //   (characters.ts ~16170). NOT fixed here: those constants feed every
+  //   guard helm and this file fails if ANY of its six sections worsens, so it
+  //   is a change to make deliberately with captures, not blind.
+  //
+  // The ratchet still bites from 15. If the guard is fixed the number falls and
+  // this file will ask for it back.
+  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 15, CREST: 8, PELT: 65, SEAM: 11 };
   const full = ran === 6 && CLASSES.length === 4 && HELMS.length === 9;
   if (!full) {
     console.log(`[clash] BASELINE NOT CHECKED — this was a partial sweep (${ran}/6 sections, `

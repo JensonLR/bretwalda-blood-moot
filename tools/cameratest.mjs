@@ -184,8 +184,8 @@ async function session(browser, { lefty }) {
 
 async function main() {
   const choice = chooseServer(ROOT, "cameratest");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`[cameratest] starting ${useProd ? "custom-server" : "dev-server"} on :${PORT}`);
   server = spawn("node", [choice.script], {
     cwd: ROOT,

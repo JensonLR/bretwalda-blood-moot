@@ -109,8 +109,8 @@ const waitForServer = (url, timeoutMs = 60000) => new Promise((done, no) => {
 let server;
 async function main() {
   const choice = chooseServer(ROOT, "drawcensus", { forceDev: USE_DEV });
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   console.log(`DRAWCENSUS — where the draw calls go   (tier ${TIER}, ${useGpu ? "GPU" : "SOFTWARE"})\n`);
   if (!useGpu) {
     console.log("  NOTE: the software rasteriser issues the same calls the GPU does, so the");

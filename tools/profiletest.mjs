@@ -66,8 +66,8 @@ async function waitForServer(timeoutMs = 180000) {
 async function boot(env) {
   if (server) { server.kill("SIGKILL"); await sleep(1200); port++; base = `http://127.0.0.1:${port}`; }
   const choice = chooseServer(ROOT, "profiletest");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   server = spawn("node", [choice.script], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(port), NODE_ENV: useProd ? "production" : "development", ...env },

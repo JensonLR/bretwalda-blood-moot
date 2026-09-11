@@ -1042,8 +1042,8 @@ async function renderPass() {
   const PORT = 3100 + (process.pid % 700);
   const ORIGIN = `http://localhost:${PORT}`;
   const choice = chooseServer(ROOT, "cosmetictest");
-// Which bundle this run actually measured, and it rides the verdict.
-const useProd = choice.prod;
+  // Which bundle this run actually measured, and it rides the verdict.
+  const useProd = choice.prod;
   server = spawn("node", [choice.script], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: useProd ? "production" : "development" },
     stdio: ["ignore", "pipe", "pipe"],
