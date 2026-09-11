@@ -1334,19 +1334,26 @@ function sectionWrap(rows) {
   console.log("[clash] ---------------------------------------------------------------------------------------------------------------------");
   let fails = 0, cases = 0, quiet = 0;
   const M = Math.round(360 / WRAP_STEP);
+  // WHY A PASS IS A PASS. A section that reports only "pass" cannot be told
+  // apart from a section that has stopped looking, and this one has just had
+  // its rule changed — so it counts which of the three branches every bearing
+  // took and prints the tally. `noMetal` and `skinProud` are the two that FAIL;
+  // seeing them at 0 beside a large `peltOver` is the difference between "the
+  // armour covers" and "the test is blind".
+  const branch = { noMetal: 0, skinProud: 0, peltOver: 0, bothClear: 0 };
   for (const cls of CLASSES) {
     for (const helm of HELMS) {
      for (const g of getupsOf(cls)) {
       const rung = g.name;
-      const { pelt, kit } = sortPieces(cls, helm, g);
-      const PT = soup(pelt), KT = soup(kit);
+      const { pelt, kit, flesh } = sortPieces(cls, helm, g);
+      const PT = soup(pelt), KT = soup(kit), FT = soup(flesh);
       // `best` is the widest BARE arc; `wrapped` counts the heights that are a
       // case at all, and the two are separate because a head can be the second
       // without ever being the first — see the note over `!wrapped` below.
       let best = null, wrapped = 0, widest = null;
       for (let ymm = 10; ymm <= 175; ymm++) {
         const y = ymm / 1000;
-        const P = slabAt(PT, y), K = slabAt(KT, y);
+        const P = slabAt(PT, y), K = slabAt(KT, y), F = slabAt(FT, y);
         if (!P.length) continue;
         const flags = new Int8Array(M);
         const rad = new Float64Array(M);
@@ -1355,7 +1362,44 @@ function sectionWrap(rows) {
           const dx = Math.sin(t), dz = Math.cos(t);
           const f = rayHitFar(P, 0, y, 0, dx, 0, dz, 0.40);
           const g = rayHitFar(K, 0, y, 0, dx, 0, dz, 0.40);
-          flags[i] = (f < 0 && g < 0) ? 0 : (g > f ? 1 : -1);
+          const fl = rayHitFar(F, 0, y, 0, dx, 0, dz, 0.40);
+          // WHAT MAKES A BEARING BARE, in three cases that are not the same
+          // question — and the old single test `g > f` ran them together.
+          //
+          // It asked "is kit the OUTERMOST thing here?". That is right only
+          // while nothing legitimately lies over armour, and two things do: a
+          // beard and hanging hair. `--probe huscarl/suttonhoo@313,54` reads
+          //
+          //     r = 98.5 mm  KIT  PLATE 9aa6ae
+          //     r = 99.5 mm  PELT BEARD 00fe02
+          //
+          // — the Sutton Hoo's cheek plate is THERE, and a beard sits 1.0 mm
+          // over it. The old test called that a bare nape. So did
+          // `warden/suttonhoo/hair=long@186,10`, where mail is at 111.2 mm and
+          // a braid hangs at 128.8 mm. Every one of the nine failures that
+          // arrived with "the beards are fuller" was this, and none of them was
+          // a hole in a helmet.
+          //
+          // The section's own note defends counting all pelt alike — "a gate
+          // that goes green because a 100-gold braid happens to hang over the
+          // gap is a gate that reports the shop rather than the armour" — and
+          // that worry is kept whole, because it is about a bearing with NO
+          // METAL ON IT. Hair cannot hide a gap from a test that asks whether
+          // metal exists rather than whether metal is last.
+          //
+          // FLESH still counts, and that is the documented fault this section
+          // was repaired for: the ground truth over WRAP_DEG has `c99d75` —
+          // skin — standing 1.7 mm proud of the last of the Sutton Hoo's metal
+          // at az 180. Neck showing through armour is a real defect and stays
+          // one.
+          if (f < 0 && g < 0) { flags[i] = 0; branch.bothClear++; }
+          // Nothing metal on this bearing at all: the original fault, "a full
+          // neck mesh on the front with a clear back".
+          else if (g < 0) { flags[i] = -1; branch.noMetal++; }
+          // Skin standing proud of the armour that is there.
+          else if (fl > g) { flags[i] = -1; branch.skinProud++; }
+          // Armour present, and only hair or beard outside it.
+          else { flags[i] = 1; branch.peltOver++; }
           rad[i] = f;
         }
         // How much of the front is actually wrapped: the covered run through
@@ -1427,6 +1471,21 @@ function sectionWrap(rows) {
   }
   console.log("");
   console.log(`[clash]    ${fails} of ${cases} combinations with a wrapped throat are red; ${quiet} never wrap a throat and are not a case.`);
+  // The branch tally, so a PASS is readable as coverage rather than as silence.
+  // `no metal` and `skin proud` are the two that fail a bearing; both at zero
+  // beside a large `pelt over metal` is the armour covering, not the test
+  // sleeping. If this section ever goes quiet because it stopped looking, this
+  // line goes quiet with it.
+  const tot = branch.noMetal + branch.skinProud + branch.peltOver;
+  console.log(`[clash]    every bearing at every height, BEFORE the throat filter and the `
+    + `${WRAP_DEG.toFixed(1)} deg arc rule — ${tot.toLocaleString()} judged: `
+    + `no metal ${branch.noMetal.toLocaleString()}, `
+    + `skin proud ${branch.skinProud.toLocaleString()}, `
+    + `pelt over metal ${branch.peltOver.toLocaleString()}.`);
+  console.log(`[clash]    These are NOT failures. Most of a head's height has no neck defence on `
+    + `it and is not meant to; only a height whose throat is wrapped is a case, and only a `
+    + `continuous bare arc over ${WRAP_DEG.toFixed(1)} deg on such a height is red. The line is here so a `
+    + `PASS can be read as "the first two were looked for" rather than as silence.`);
   return fails;
 }
 
@@ -2209,6 +2268,11 @@ function battery() {
   //
   // PELT 67 -> 65 on 11 Sep 2026, the ratchet asking again, same reason class.
   //
+  // WRAP 15 -> 0 later the same day, and the 15 was never real either. See the
+  // correction at the end of this block: every one of those fifteen was pelt
+  // lying over intact armour, and the section now says so. The account below is
+  // kept because the bisect is still the truth about WHEN the count moved.
+  //
   // WRAP 6 -> 15 on 11 Sep 2026, AND THIS ONE IS NOT A GEOMETRY REGRESSION.
   // It had been red and unexplained for over a week, which made the whole
   // instrument useless: a gate that is already failing cannot tell you the next
@@ -2231,22 +2295,34 @@ function battery() {
   // arc it finds there was always in the mesh; nothing put it there on 2 Sep.
   // The instrument's reach grew and the count grew with it.
   //
-  // Which is why the number moves and the fault is NAMED instead:
+  // THE CORRECTION, AND IT IS MINE TO MAKE. The paragraph that stood here named
+  // "an OPEN ART DEFECT — the Sutton Hoo nape guard has a 3.0 deg bare arc ...
+  // roughly 5 mm of exposed neck behind the ear". THERE IS NO SUCH HOLE. That
+  // was read off the section's verdict line and written down without asking the
+  // mesh, which is the exact sin this whole file exists to stop.
   //
-  //   OPEN ART DEFECT — the Sutton Hoo nape guard has a 3.0 deg bare arc at
-  //   azimuth 313 deg, y 54 mm, radius ~99 mm: roughly 5 mm of exposed neck
-  //   behind the ear, on huscarl and warden, at every hair rung. One row is
-  //   worse and separate — warden/suttonhoo/hair=long reads 18.5 deg bare at
-  //   az 186 (dead behind), y 10, throat cover down to 287 deg, which is long
-  //   hair holding the mail off the nape rather than a hole in the guard.
-  //   Both live in `napeHalf` and the "guard" branch of the nape build
-  //   (characters.ts ~16170). NOT fixed here: those constants feed every
-  //   guard helm and this file fails if ANY of its six sections worsens, so it
-  //   is a change to make deliberately with captures, not blind.
+  // `--probe` was added to ask it, and the answer took one command:
   //
-  // The ratchet still bites from 15. If the guard is fixed the number falls and
-  // this file will ask for it back.
-  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 15, CREST: 8, PELT: 65, SEAM: 11 };
+  //     --probe huscarl/suttonhoo@313,54
+  //       r = 98.5 mm  KIT  PLATE 9aa6ae     <- the cheek plate IS there
+  //       r = 99.5 mm  PELT BEARD 00fe02     <- a beard, 1.0 mm over it
+  //
+  //     --probe warden/suttonhoo/hair=long@186,10
+  //       r = 111.2 mm KIT  MAIL  5f6b7a     <- mail IS there
+  //       r = 128.8 mm PELT HAIR  00fe01     <- a braid hanging over it
+  //
+  // Armour present on both bearings, pelt draped over it. A beard over a cheek
+  // plate is a beard. So the fault was in the RULER: `g > f` asked whether kit
+  // was the OUTERMOST thing when the question is whether kit is THERE. Fixed at
+  // the sweep, in three cases that are genuinely different — no metal at all,
+  // skin proud of metal, hair or beard over metal — and the documented repair
+  // this section was built for (skin `c99d75` standing 1.7 mm proud at az 180)
+  // still reads bare, because flesh outside armour still counts.
+  //
+  // WRAP 15 -> 0. All fifteen were the ruler, not the helms. The section now
+  // passes and is measuring the thing it names; a real "clear back" would land
+  // on the `g < 0` branch and fail from 0.
+  const BASELINE = { LAYERS: 19, FLESH: 24, WRAP: 0, CREST: 8, PELT: 65, SEAM: 11 };
   const full = ran === 6 && CLASSES.length === 4 && HELMS.length === 9;
   if (!full) {
     console.log(`[clash] BASELINE NOT CHECKED — this was a partial sweep (${ran}/6 sections, `
@@ -2273,6 +2349,91 @@ function battery() {
   console.log(`[clash] seed ${SEED}, lod ${LOD}, ${CLASSES.length} classes x ${HELMS.length} helms x ${rungs} hair-and-beard rungs, read off the built mesh.`);
   console.log("[clash] ============================================================");
   return { rows, fails };
+}
+
+// ============================================================
+// --probe — WHAT IS ACTUALLY ON THAT BEARING?
+// ============================================================
+//
+//   node tools/helmclash.mjs --probe huscarl/suttonhoo@313,54
+//   node tools/helmclash.mjs --probe warden/suttonhoo/hair=long@186,10
+//
+// WHY. §3 reports a bare arc as "az 313 deg, y 54 mm, r 99.4 mm" and that is
+// enough to fail a run and nowhere near enough to FIX one. The section's own
+// header carries a hand-made table of every surface a ray crosses at one
+// bearing — it is the most useful thing in this file and it was typed once, by
+// hand, and could not be re-made when the geometry moved.
+//
+// This is that table, on demand. It casts the section's own ray, with the
+// section's own `sortPieces` classification, and prints every crossing out from
+// the axis with what it belongs to.
+//
+// IT ANSWERS THE QUESTION THE DEGREES CANNOT: whether the outermost thing on a
+// "bare" bearing is NECK SKIN — a real hole in the armour — or a BEARD hanging
+// over the mail, which is what a beard is supposed to do and is a limit of the
+// metric rather than a fault in the helm. §3 deliberately counts all pelt
+// alike, and its comment says why ("a gate that goes green because a 100-gold
+// braid hangs over the gap is a gate that reports the shop"). That is the right
+// default for a gate and the wrong one for a diagnosis.
+if (flag("probe", "")) {
+  const spec = flag("probe");
+  const m = /^([a-z]+)\/([a-z]+)(?:\/([^@]+))?@(-?[\d.]+),(-?[\d.]+)$/.exec(spec);
+  if (!m) {
+    console.error("[clash] --probe <class>/<helm>[/<rung>]@<az deg>,<y mm>");
+    process.exit(2);
+  }
+  const [, cls, helm, rungName, azS, yS] = m;
+  const az = Number(azS), ymm = Number(yS);
+  const g = rungName ? (getupsOf(cls).find((x) => x.name === rungName) ?? null) : defaultGetup(cls);
+  if (!g) {
+    console.error(`[clash] no rung "${rungName}" on ${cls}. Rungs: ${getupsOf(cls).map((x) => x.name).join(", ")}`);
+    process.exit(2);
+  }
+  const parts = sortPieces(cls, helm, g);
+  // Label every piece by the bucket `sortPieces` put it in. Beard and hair are
+  // named apart from flesh here precisely because the gate does not name them
+  // apart — that distinction is the whole point of the probe.
+  const label = new Map();
+  for (const p of parts.plate) label.set(p, "PLATE");
+  for (const p of parts.mail) label.set(p, "MAIL");
+  for (const p of parts.flesh) label.set(p, "FLESH");
+  for (const p of parts.hair) label.set(p, "HAIR");
+  for (const p of parts.beard) label.set(p, "BEARD");
+
+  const y = ymm / 1000;
+  const t = az * Math.PI / 180;
+  const dx = Math.sin(t), dz = Math.cos(t);
+  const hits = [];
+  for (const piece of parts.all) {
+    const slab = slabAt(piece.T, y);
+    if (!slab.length) continue;
+    // Farthest AND nearest, so a shell that the ray enters and leaves is one
+    // row with a span rather than two rows that look like two shells.
+    const far = rayHitFar(slab, 0, y, 0, dx, 0, dz, 0.40);
+    const near = rayHit(slab, 0, y, 0, dx, 0, dz, 0.40);
+    if (far < 0) continue;
+    hits.push({ r: far, near, kind: label.get(piece) ?? "?", hex: piece.hex, tris: piece.tris });
+  }
+  hits.sort((a, b) => a.r - b.r);
+
+  console.log(`[clash] PROBE  ${cls} / ${helm} / ${g.name}   az ${az} deg, y ${ymm} mm`);
+  console.log("[clash] every surface the section's own ray crosses, out from the axis:\n");
+  if (!hits.length) console.log("    (nothing on this bearing at this height)");
+  for (const h of hits) {
+    const kit = h.kind === "MAIL" || h.kind === "PLATE";
+    console.log(`    r = ${h.r * 1000 >= 100 ? "" : " "}${(h.r * 1000).toFixed(1)} mm  ${(kit ? "KIT " : "PELT").padEnd(4)} ${h.kind.padEnd(5)} ${h.hex}  (${h.tris} tri)`);
+  }
+  const outer = hits[hits.length - 1];
+  if (outer) {
+    const kit = outer.kind === "MAIL" || outer.kind === "PLATE";
+    console.log(`\n[clash] OUTERMOST: ${outer.kind}. ${kit
+      ? "This bearing is COVERED — metal is the last thing the eye meets."
+      : outer.kind === "FLESH"
+        ? "This is BARE NECK standing proud of the armour. A real hole."
+        : `This is ${outer.kind.toLowerCase()} lying over the armour, not a hole in it — `
+          + "§3 counts all pelt alike by design, so it reads as bare."}`);
+  }
+  process.exit(0);
 }
 
 if (has("twice")) {

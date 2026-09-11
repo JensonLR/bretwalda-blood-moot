@@ -626,7 +626,17 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     //
     // OPT-IN while the visual verdict is unmade. `?authored=1` turns it on;
     // the default is the man this project has spent months on.
-    if (authoredWanted()) {
+    // AND NOT OVER A PAINTED FACE. The comment eight lines up says "a shop that
+    // showed a phone player the 14-row head would be selling him a war paint he
+    // cannot see" — and the authored head does exactly that, at every tier,
+    // because the paint is baked into the PROCEDURAL head's vertex colours and
+    // the upgrade replaces it. Measured at dE 0.00 for all six paints; the
+    // arena keeps the same gate, in `wearsWarPaint`. Six of the eight slots in
+    // this shop sell something on his face, so this is the one window that most
+    // has to be honest.
+    const painted = typeof loadout.appearance?.warPaint === "string"
+      && loadout.appearance.warPaint !== "none";
+    if (authoredWanted() && !painted) {
       const want = built;
       void loadAuthoredWarrior(player.warriorClass).then((asset) => {
         // He may have been rebuilt or disposed while 1.6 MB was in flight.

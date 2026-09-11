@@ -246,9 +246,29 @@ async function main() {
     tooBig.length === 0,
     tooBig.length ? tooBig.map((p) => `${p.label} ${p.saved.toFixed(0)}`).join(", ")
       : `largest is ${parts.reduce((a, p) => Math.max(a, p.saved), 0).toFixed(0)} of ${base.calls.toFixed(0)}`);
-  check("and the men are the lever, not the arena",
-    perMan > 0 && warriors > world,
-    `${warriors.toFixed(0)} draws for ${meshes.men} men against ${world.toFixed(0)} for the whole world`);
+  // A CENSUS NAMES THE LEVER. IT DOES NOT DECIDE WHAT THE ANSWER MUST BE.
+  //
+  // This asked `warriors > world` — "the men are the lever, not the arena" —
+  // which was TRUE when it was written and is a finding, not a requirement.
+  // Freezing a finding into an assertion means the gate fails exactly when the
+  // thing it measures gets better, and that is what happened: with the authored
+  // bodies on, three men cost 182 draws against 261 procedural, so the men
+  // stopped being the larger half and this went red for an IMPROVEMENT.
+  //
+  //     authored off   261 draws for 3 men   vs 222 for the world   "pass"
+  //     authored on    182 draws for 3 men   vs 220 for the world   "fail"
+  //
+  // Same shape as `forgedtest`'s first claim, which spent a day asserting the
+  // opposite of the shipped default. What this file is FOR is "you cannot spend
+  // a total" — so what has to hold is that the total is still attributable: a
+  // dominant lever exists and is named. Which one it is, is the output.
+  const lever = warriors >= world ? "the men" : "the world";
+  const larger = Math.max(warriors, world), smaller = Math.min(warriors, world);
+  const share = larger / Math.max(1, base.calls);
+  check("the frame still has a nameable lever, and this says which",
+    perMan > 0 && share >= 0.25,
+    `${lever} at ${larger.toFixed(0)} draws (${(share * 100).toFixed(0)}% of a ${base.calls.toFixed(0)}-draw frame), `
+    + `against ${smaller.toFixed(0)} for the other — ${meshes.men} men at ${perMan.toFixed(0)} draws each`);
 
   console.log(`\n[drawcensus] ${pass} passed, ${fail} failed`);
   server.kill();

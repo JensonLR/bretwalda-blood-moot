@@ -285,6 +285,42 @@ function clipsWanted(): boolean {
   return getForged().motion;
 }
 
+/**
+ * A MAN WEARING WAR PAINT KEEPS THE FACE THAT CAN SHOW IT.
+ *
+ * The paint is not a texture and not a decal — `faceComplexion` bakes it into
+ * the PROCEDURAL head's vertex colours, one multiplier per vertex of the skull,
+ * the lids, the lip band, the ears and the throat. The authored upgrade
+ * re-parents the whole body, so that head and everything written on it goes.
+ *
+ * Which made six paid items render as nothing the moment the authored man
+ * became the default. Measured, not guessed — `BRETWALDA_GPU=1 npm run
+ * cosmetictest`, 19/19 with the authored man off and 17/19 with him on:
+ *
+ *     warPaint  None -> Blood Stripes    portrait   dE 0.00   RECOLOUR
+ *     warPaint  None -> Blood Stripes    fight      dE 0.00   RECOLOUR
+ *     ... and the same for all six, at both ranges
+ *
+ * A shop selling a 130-gold Glastum Mask that renders identically to bare skin
+ * is `docs/COSMETICS-AUDIT.md`'s founding complaint, restated.
+ *
+ * THE OWNER'S RULING, 11 Sep 2026: the painted man keeps the procedural body.
+ * A fight can therefore mix the two looks, and that is the accepted cost — it
+ * is visibly a different body, where an invisible purchase is not visible at
+ * all. Everyone not wearing paint gets the authored man.
+ *
+ * THIS IS A STOPGAP AND SHOULD READ AS ONE. The real fix is for the authored
+ * head to carry the complexion field, which needs a Skull derived for the
+ * authored mesh and vertex colours on its skin material. When that lands, this
+ * gate comes out and `cosmetictest` goes to 19/19 with the authored man ON,
+ * which is the condition for removing it.
+ */
+function wearsWarPaint(p: GamePlayer): boolean {
+  const ap = (p as GamePlayer & { appearance?: { warPaint?: unknown } }).appearance;
+  const v = ap?.warPaint;
+  return typeof v === "string" && v !== "none";
+}
+
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
 function wearsAuthoredRole(p: GamePlayer, role: AuthoredRole): boolean {
   const ap = (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance;
@@ -1201,7 +1237,10 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // because `upgradeRigToAuthored` RE-PARENTS what it is handed — two
           // men swapping against one scene means the second takes the first's
           // body off him.
-          if (authoredWanted()) {
+          // `!wearsWarPaint` and not a filter inside the upgrade: the paint is
+          // on the head this would REPLACE, so the only way to keep it is not
+          // to replace him. See `wearsWarPaint`.
+          if (authoredWanted() && !wearsWarPaint(p)) {
             void loadAuthoredWarrior(p.warriorClass).then((asset) => {
               // He may have died, left, or taken up a dead man's weapon (which
               // rebuilds the whole rig) during the fetch.
