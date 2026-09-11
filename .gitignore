@@ -218,6 +218,11 @@ tools/blender/__pycache__/
 .bloodshot/
 
 .bladereach/
+# tsc emit dirs, same as the eleven above. These two were TRACKED — 34 compiled
+# .js files of build output in the history, rewritten and dirtying the tree on
+# every run of their harness. Untracked 11 Sep 2026.
+.gaitprobe/
+.swingstrip/
 .cliptest/
 .severauthored/
 # railgate compiles fightRail.ts here to call railStyle for real.
