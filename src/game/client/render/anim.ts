@@ -77,7 +77,7 @@ import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId, SHIELD } from "../../types";
 import { type ClipDriver, type ClipIntent } from "./clipDriver";
 import { severAuthoredZone } from "./authoredSever";
-import { drivePivot, nudgeAbout, foldBoard, type AuthoredRest } from "./authored";
+import { drivePivot, driveRest, nudgeAbout, foldBoard, type AuthoredRest } from "./authored";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -4058,7 +4058,12 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
   // two wings turn opposite ways because they are on opposite sides of the axis.
   const yx = clamp(motion.drapeX[0], -SWING_FWD, SWING_BACK);
   const yz = clamp(motion.drapeZ[0], -SWING_SIDE, SWING_SIDE);
-  rings[0].rotation.set(yx, 0, yz);
+  // An authored cloak's bones rest turned (the yoke 34 degrees about Z), so the
+  // same absolute angles go through their captured rest frames — see
+  // `AuthoredRest.drape`. A procedural cloak has none and is written as ever.
+  const dr = rig.pivots.rest?.drape;
+  if (dr) driveRest(dr[0], rings[0], yx, 0, yz);
+  else rings[0].rotation.set(yx, 0, yz);
   for (let c = 0; c < cols; c++) {
     let prevX = yx;
     let prevZ = yz;
@@ -4076,7 +4081,8 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
       const twist = r === DRAPE_RINGS - 1
         ? (-w * 0.07 - DRAPE_SIDE[c] * 0.05) * upright
         : 0;
-      rings[i].rotation.set(x - prevX, twist, z - prevZ);
+      if (dr) driveRest(dr[i], rings[i], x - prevX, twist, z - prevZ);
+      else rings[i].rotation.set(x - prevX, twist, z - prevZ);
       prevX = x;
       prevZ = z;
     }

@@ -370,12 +370,21 @@ export function dressFromSurfaceNames(
  *
  * So an authored man can be driven by the SAME pose the procedural one is —
  * the same `SWINGS`, the same `chainSwing` variants, the same weight, hitstop
- * and stagger — with no change to a line of it. The upgrade is the mesh
- * underneath, and everything this project has learned about how a man moves
- * stays exactly where it is.
+ * and stagger. The upgrade is the mesh underneath, and everything this project
+ * has learned about how a man moves stays exactly where it is.
  *
  * That is the difference between a wave and a rewrite, and it is worth being
  * exact about because the roadmap costed it as the latter.
+ *
+ * CORRECTED 28 Sep 2026: THIS PARAGRAPH SAID "WITH NO CHANGE TO A LINE OF IT",
+ * AND THAT WAS FALSE. The NAMES map; the FRAMES do not. Blender's bones rest
+ * turned and the GLB is the mirror image of the space the pose was written in,
+ * so `applyPose` writing `rotation.set()` onto them put the head upside-down in
+ * the chest of every default-build player. The pose is still the same pose and
+ * still needs no new layer — what it needs is that its writes go through the
+ * bones' captured rest frames, which `applyPose` now does when `pivots.rest` is
+ * present. See `AuthoredRest`. It was believed for a month because every gate
+ * asked about names and counts.
  */
 export const PIVOT_BONE_NAMES = {
   chest: "Spine",
@@ -571,6 +580,15 @@ export interface AuthoredRest {
    */
   legLen?: number;
   armX?: number;
+  /**
+   * The cloth's seven bones (`CloakYoke`, `Drape1..6`), captured the same way, in
+   * the solver's own index order. Present only when the swap repointed the
+   * solver's array at them. The drape had the same defect as the pivots and it
+   * showed as a cloak 0.2 to 0.34 m from where the procedural man's hangs: the
+   * export's `CloakYoke` rests 34 degrees about Z (and `Drape1/3/5` rest at -34,
+   * cancelling it), and `drapeCloak` wrote an absolute rotation over all of them.
+   */
+  drape?: RestSlot[];
 }
 
 const _dq = new THREE.Quaternion();
@@ -591,17 +609,18 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 export function captureRest(
   scene: THREE.Object3D,
   bones: Record<PivotSlot, THREE.Object3D>,
+  drape?: readonly THREE.Object3D[] | null,
 ): AuthoredRest {
-  const slots = {} as Record<PivotSlot, RestSlot>;
-  for (const slot of Object.keys(bones) as PivotSlot[]) {
-    const bone = bones[slot];
+  const restOf = (bone: THREE.Object3D): RestSlot => {
     const chain: THREE.Object3D[] = [];
     for (let o = bone.parent; o && o !== scene; o = o.parent) chain.push(o);
     const p = new THREE.Quaternion();
     for (let i = chain.length - 1; i >= 0; i--) p.multiply(chain[i].quaternion);
-    slots[slot] = { q: bone.quaternion.clone(), p, pInv: p.clone().invert() };
-  }
-  return { slots };
+    return { q: bone.quaternion.clone(), p, pInv: p.clone().invert() };
+  };
+  const slots = {} as Record<PivotSlot, RestSlot>;
+  for (const slot of Object.keys(bones) as PivotSlot[]) slots[slot] = restOf(bones[slot]);
+  return drape && drape.length ? { slots, drape: drape.map(restOf) } : { slots };
 }
 
 /**
@@ -613,7 +632,14 @@ export function drivePivot(
   rest: AuthoredRest, slot: PivotSlot, bone: THREE.Object3D,
   x: number, y: number, z: number, gripPitch = 0,
 ): void {
-  const s = rest.slots[slot];
+  driveRest(rest.slots[slot], bone, x, y, z, gripPitch);
+}
+
+/** The same write for any bone whose rest frame was captured — the drape's seven. */
+export function driveRest(
+  s: RestSlot, bone: THREE.Object3D,
+  x: number, y: number, z: number, gripPitch = 0,
+): void {
   _dq.setFromEuler(_de.set(x, y, z, "XYZ"));
   if (gripPitch !== 0) _dq.multiply(_gq.set(-Math.sin(gripPitch / 2), 0, 0, Math.cos(gripPitch / 2)));
   // Conjugation by the x-reflection.
@@ -758,7 +784,12 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   if (!(armX < 0)) {
     return { ok: false, why: `the export is not right-handed (weapon arm at x = ${armX.toFixed(3)}, wanted < 0)` };
   }
-  const rest = captureRest(swap.scene, bones);
+  // The cloth, when the solver's array can be pointed at the export's bones (the
+  // same test step 5 applies — a class with no cloak has no drape and that is
+  // not a failure).
+  const authoredDrape = rig.drape && rig.drape.length ? drapeBonesOf(swap.scene) : null;
+  const drapeFits = !!authoredDrape && authoredDrape.length === rig.drape!.length;
+  const rest = captureRest(swap.scene, bones, drapeFits ? authoredDrape : null);
   // What the pose reads off the PROCEDURAL pivots' positions, before they are gone.
   const proc = rig.pivots as unknown as Record<string, { position?: THREE.Vector3 } | undefined>;
   rest.legLen = proc.leftLeg?.position?.y;
@@ -827,6 +858,20 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
     const authored = drapeBonesOf(swap.scene);
     if (authored && authored.length === rig.drape.length) {
       for (let i = 0; i < authored.length; i++) { rig.drape[i] = authored[i]; drape++; }
+      // THE SOLVER'S FRAME. `drapeCloak` projects gravity and the man's own
+      // acceleration onto the basis of `rig.pivots.cloak`, and that node was the
+      // PROCEDURAL cloak group — which the swap detached, so its world matrix
+      // froze at the last procedural pose and an authored man's cloth was blown
+      // about in the frame of a man standing upright whatever he was doing. It is
+      // repointed at a node under the authored `Spine` that reproduces the
+      // procedural chest frame: the same `E⁻¹ · M` fold the board takes.
+      const chest = rest.slots.chest;
+      const frame = new THREE.Object3D();
+      frame.name = "authoredCloakFrame";
+      frame.quaternion.copy(chest.p).multiply(chest.q).invert();
+      frame.scale.x = -1;
+      bones.chest.add(frame);
+      (rig.pivots as Record<string, THREE.Object3D>).cloak = frame;
     }
   }
 

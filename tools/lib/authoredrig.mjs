@@ -137,6 +137,8 @@ export function buildPair(kit, cls, gltf) {
   const B = buildMan(kit, cls, gltf, true);
   const bind = (m) => Object.fromEntries(SLOTS.map((s) => [s, worldRot(m.rig.pivots[s])]));
   A.bind = bind(A); B.bind = bind(B);
+  const dbind = (m) => (m.rig.pivots.drape || []).map((b) => worldRot(b));
+  A.dbind = dbind(A); B.dbind = dbind(B);
   return { A, B, cls, gltf };
 }
 
@@ -244,6 +246,18 @@ export function measure(pair) {
     const db = worldRot(B.rig.pivots[s]).multiply(B.bind[s].clone().invert());
     joints[s] = { a, b, d: a.distanceTo(b), deg: angleDeg(da, db) };
   }
+  // The cloth's seven bones, in the solver's own index order — the same
+  // question asked of the drape, which had the same defect as the pivots.
+  const drape = [];
+  const da_ = A.rig.pivots.drape, db_ = B.rig.pivots.drape;
+  if (da_ && db_) {
+    for (let i = 0; i < da_.length; i++) {
+      const a = worldPos(da_[i]), b = worldPos(db_[i]);
+      const ra = worldRot(da_[i]).multiply(A.dbind[i].clone().invert());
+      const rb = worldRot(db_[i]).multiply(B.dbind[i].clone().invert());
+      drape.push({ d: a.distanceTo(b), deg: angleDeg(ra, rb) });
+    }
+  }
   const ha = boxOf(headVerts(A)), hb = boxOf(headVerts(B));
   const head = {
     a: ha, b: hb, crown: hb.max.y - ha.max.y,
@@ -272,7 +286,7 @@ export function measure(pair) {
   const tipA = A.rig.weapon.localToWorld(new THREE.Vector3(0, A.rig.reach, 0));
   const tipB = B.rig.weapon.localToWorld(new THREE.Vector3(0, B.rig.reach, 0));
   return {
-    joints, head,
+    joints, head, drape,
     weaponSide: { a: side(A), b: side(B) },
     armSide: { a: arm(A), b: arm(B) },
     weapon: { tip: tipA.distanceTo(tipB), probe: probe(A.rig.weapon, B.rig.weapon) },

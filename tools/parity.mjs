@@ -48,8 +48,12 @@
 //            the board, world A against world B. Bar: 1.5 cm. Probes rather than
 //            an origin, on purpose: a weapon reflected in its own x, or turned by
 //            the wrist twice, has the right origin and the wrong blade.
-//   clips    the ARENA man, whom `clipDriver` poses instead of `applyPose`: right
-//            hand, and the weapon rides the fist.
+//   cloak    the seven bones of the cloth (`CloakYoke`, `Drape1..6`), position and
+//            turn, same bars. The drape had the same defect as the pivots: its
+//            yoke rests 34 degrees about Z and `drapeCloak` wrote over it.
+//   clips    the ARENA man, whom `clipDriver` poses instead of `applyPose`: his
+//            weapon arm is on the procedural man's side, the carried blade is in
+//            that hand, and the blade rides the fist.
 //
 // R1 IS BUILT IN: `--lever=90` turns the captured rest of the head, the weapon
 // wrist and the board's elbow by 90 deg and requires all three quantities to move.
@@ -109,12 +113,13 @@ for (const lefty of [false, true]) {
         tip: L.worst(s, (x) => x.weapon.tip), probe: L.worst(s, (x) => x.weapon.probe),
         off: pair.A.rig.offhand ? L.worst(s, (x) => x.offhand) : null,
         shield: pair.A.rig.shield ? L.worst(s, (x) => x.shield) : null,
+        cloak: last.drape.length ? { d: L.worst(s, (x) => Math.max(...x.drape.map((v) => v.d))), deg: L.worst(s, (x) => Math.max(...x.drape.map((v) => v.deg))) } : null,
         hand: { a: last.weaponSide.a, b: last.weaponSide.b },
       };
       rows.push(r);
       console.log(`  ${lefty ? "LEFT " : "right"} ${cls.padEnd(10)} ${state.padEnd(9)} worst joint ${wj[0]} ${L.mm(wj[1])}   worst turn ${wt[0]} ${wt[1].toFixed(2)} deg   ` +
         `weapon x A ${last.weaponSide.a.toFixed(3)} B ${last.weaponSide.b.toFixed(3)}   tip ${L.mm(r.tip)}  blade probes ${L.mm(r.probe)}` +
-        `${r.off !== null ? `  off ${L.mm(r.off)}` : ""}${r.shield !== null ? `  board ${L.mm(r.shield)}` : ""}`);
+        `${r.off !== null ? `  off ${L.mm(r.off)}` : ""}${r.shield !== null ? `  board ${L.mm(r.shield)}` : ""}${r.cloak ? `  cloak ${L.mm(r.cloak.d)}/${r.cloak.deg.toFixed(2)}deg` : ""}`);
     }
   }
 }
@@ -164,6 +169,7 @@ if (!lever) {
     check(`${tag}: the weapon's probe points are within ${MOUNT_BAR * 100} cm (tip ${r.tip.toFixed(3)})`, r.probe <= MOUNT_BAR && r.tip <= MOUNT_BAR, `worst ${r.probe.toFixed(3)} m`);
     if (r.off !== null) check(`${tag}: the off-hand blade's probe points are within ${MOUNT_BAR * 100} cm`, r.off <= MOUNT_BAR, `worst ${r.off.toFixed(3)} m`);
     if (r.shield !== null) check(`${tag}: the board's probe points are within ${MOUNT_BAR * 100} cm`, r.shield <= MOUNT_BAR, `worst ${r.shield.toFixed(3)} m`);
+    if (r.cloak) check(`${tag}: the cloak's seven bones are within ${JOINT_BAR * 100} cm and ${TURN_BAR} deg of the procedural cloak's`, r.cloak.d <= JOINT_BAR && r.cloak.deg <= TURN_BAR, `worst ${r.cloak.d.toFixed(3)} m / ${r.cloak.deg.toFixed(1)} deg`);
   }
   for (const r of clipRows) {
     const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.state} (clips)`;
