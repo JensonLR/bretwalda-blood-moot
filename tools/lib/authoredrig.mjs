@@ -44,10 +44,21 @@ export const ARMS = { huscarl: "sword_board", warden: "gar", runekeeper: "twin_s
 export const SLOTS = ["chest", "head", "rightArm", "leftArm", "rightLeg", "leftLeg",
   "elbowR", "elbowL", "wristR", "wristL", "kneeR", "kneeL"];
 
-/** The three the owner sees: the mannequin idles, the arena swings, and the floored man is the one that used to lose his head. */
-export const STATES = ["idle", "attacking", "knocked"];
-/** Every state the pose has a layer for, for the wide sweep (`--wide`). */
-export const WIDE_STATES = ["idle", "walking", "running", "blocking", "attacking", "staggered", "dodging", "shoving", "ability", "knocked", "rising"];
+/**
+ * The three the owner sees — the mannequin idles, the arena swings, the floored man
+ * is the one that lost his head in the arena even with clips on — plus the two that
+ * exist because a mutation test found the gate could be passed without them:
+ * `walking` reads the hip height the swap captured off the procedural pivot (without
+ * it the knees are 15 mm off and idle does not notice), and `dead` reads the shoulder
+ * half-width the same way (without it the elbow is 34 mm off and nothing else does).
+ */
+export const STATES = ["idle", "walking", "attacking", "knocked", "dead"];
+/**
+ * Every state the pose has a layer for, for the wide sweep (`--wide`). `dead` is in it
+ * because `deathLayer` reads the shoulder half-width off a pivot's POSITION, which on
+ * an authored man is 0 unless the swap captured the procedural figure first.
+ */
+export const WIDE_STATES = ["idle", "walking", "running", "blocking", "attacking", "staggered", "dodging", "shoving", "ability", "knocked", "rising", "dead"];
 
 /**
  * Stand the client up in node: emit the real TypeScript, stub the four browser

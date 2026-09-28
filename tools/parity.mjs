@@ -2,9 +2,9 @@
 // ============================================================
 // PARITY — is the authored man driven by the pose in the frames the pose was written for?
 //
-//   node tools/parity.mjs                           gate: 4 classes x idle/attacking/knocked, 90 frames each, right-handed AND left-handed
+//   node tools/parity.mjs                           gate: 4 classes x idle/walking/attacking/knocked/dead, 90 frames each, right-handed AND left-handed
 //   node tools/parity.mjs --cls=huscarl --states=attacking
-//   node tools/parity.mjs --wide                    the wider sweep: all eleven states the pose has a layer for
+//   node tools/parity.mjs --wide                    the wider sweep: all twelve states the pose has a layer for
 //   node tools/parity.mjs --lever=90                R1: turn the captured Rest of one pivot; the gate MUST go red
 //   node tools/parity.mjs --naive                   control: absolute rotation.set() onto the GLB bones (today's drive). MUST fail
 //   node tools/parity.mjs --no-mirror               control: the double mirror put back. MUST fail

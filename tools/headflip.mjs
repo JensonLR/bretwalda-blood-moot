@@ -2,9 +2,9 @@
 // ============================================================
 // HEADFLIP — does the authored man still have his head on the right way up?
 //
-//   node tools/headflip.mjs                          gate: 4 classes x idle/attacking/knocked, 90 frames each
+//   node tools/headflip.mjs                          gate: 4 classes x idle/walking/attacking/knocked/dead, 90 frames each
 //   node tools/headflip.mjs --cls=warden --states=idle
-//   node tools/headflip.mjs --wide                   all eleven states the pose has a layer for
+//   node tools/headflip.mjs --wide                   all twelve states the pose has a layer for
 //   node tools/headflip.mjs --lever=90               R1: turn the captured Head rest by 90 deg; the gate MUST go red
 //   node tools/headflip.mjs --naive                  the control: today's write, absolute rotations onto the GLB bones. MUST fail
 //   node tools/headflip.mjs --no-mirror              the other control: the double mirror put back. MUST fail (handedness lives in parity)
