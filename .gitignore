@@ -228,5 +228,8 @@ tools/blender/__pycache__/
 .headflip/
 .parity/
 .authoredrig-*/
+# tools/eyeclip.mjs compiles here and deletes the directory again. It was not ignored, and one
+# `git add -A` after a run committed 20,000 lines of characters.js (aa59848).
+.eyeclip/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
