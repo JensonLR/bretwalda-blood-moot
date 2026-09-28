@@ -44,8 +44,10 @@ export const ARMS = { huscarl: "sword_board", warden: "gar", runekeeper: "twin_s
 export const SLOTS = ["chest", "head", "rightArm", "leftArm", "rightLeg", "leftLeg",
   "elbowR", "elbowL", "wristR", "wristL", "kneeR", "kneeL"];
 
-/** What poseWarrior's own tests drive a man through; the three the owner sees. */
+/** The three the owner sees: the mannequin idles, the arena swings, and the floored man is the one that used to lose his head. */
 export const STATES = ["idle", "attacking", "knocked"];
+/** Every state the pose has a layer for, for the wide sweep (`--wide`). */
+export const WIDE_STATES = ["idle", "walking", "running", "blocking", "attacking", "staggered", "dodging", "shoving", "ability", "knocked", "rising"];
 
 /**
  * Stand the client up in node: emit the real TypeScript, stub the four browser
@@ -110,7 +112,11 @@ const ctxOf = (kit) => ({ dt: 0, rawDt: 0, time: 0, camera, focus: new THREE.Vec
  */
 export function buildMan(kit, cls, gltf, authored) {
   const parent = new THREE.Group();
-  const p = mkPlayer(kit, cls, authored ? "b" : "a");
+  // ONE ID FOR BOTH MEN. `createMotion` seeds the idle sway, the stride phase and
+  // the cloak from a hash of it, so two ids are two different men breathing out of
+  // step: a first cut of this gave them "a" and "b" and read a 5 degree head
+  // difference in idle that was two phases of one sway, not a defect.
+  const p = mkPlayer(kit, cls, "man");
   const rig = kit.anim.createWarriorRig(parent, p, kit.materials, kit.settings);
   let res = null, scene = null;
   if (authored) {
@@ -147,8 +153,16 @@ export function setState(man, state, frame = 0) {
   const p = man.p;
   const dur = 0.6;
   p.state = "idle"; p.velocity = { x: 0, y: 0, z: 0 };
-  if (state === "moving") { p.state = "moving"; p.velocity = { x: 0, y: 0, z: 2.6 }; }
+  // `PlayerState` says "walking" and "running"; the first cut of this said "moving",
+  // which is not a state, so the pose fell through to no layer and a clip-driven
+  // man "matched" the procedural one because neither was walking.
+  if (state === "walking") { p.state = "walking"; p.velocity = { x: 0, y: 0, z: 2.2 }; }
+  else if (state === "running") { p.state = "running"; p.velocity = { x: 0, y: 0, z: 4.6 }; }
   else if (state === "blocking") { p.state = "blocking"; p.blockTimer = 0.4; }
+  else if (state === "staggered") { p.state = "staggered"; p.staggerTimer = Math.max(0.1, 0.5 - frame / 120); }
+  else if (state === "dodging") { p.state = "dodging"; p.dodgeTimer = Math.max(0.1, 0.4 - (frame % 30) / 100); }
+  else if (state === "shoving") { p.state = "shoving"; }
+  else if (state === "rising") { p.state = "rising"; p.downTimer = Math.max(0.05, 0.6 - frame / 200); }
   else if (state === "ability") { p.state = "ability"; p.abilityActive = true; p.abilityTimer = 0.5; }
   else if (state === "attacking") {
     // Swept through a whole stroke and started again, so the sample frames land
@@ -239,7 +253,13 @@ export function measure(pair) {
       Math.abs(hb.min.x - ha.min.x), Math.abs(hb.max.x - ha.max.x), Math.abs(hb.min.y - ha.min.y),
       Math.abs(hb.max.y - ha.max.y), Math.abs(hb.min.z - ha.min.z), Math.abs(hb.max.z - ha.max.z)),
   };
+  // Which side of his own body, in the warrior's own frame — what `reportHand`
+  // publishes for `cameratest`. Negative is right-handed.
   const side = (m) => { const p = worldPos(m.rig.weapon); m.rig.group.worldToLocal(p); return p.x; };
+  // The weapon ARM'S shoulder, which stays on its side of the body whatever the
+  // pose does: a blade crosses the midline in a swing, so "which hand" cannot be
+  // read off the blade in every frame, but it can be read off the arm.
+  const arm = (m) => { const p = worldPos(m.rig.pivots.rightArm); m.rig.group.worldToLocal(p); return p.x; };
   const probe = (oa, ob) => {
     if (!oa || !ob) return null;
     let worst = 0;
@@ -254,6 +274,7 @@ export function measure(pair) {
   return {
     joints, head,
     weaponSide: { a: side(A), b: side(B) },
+    armSide: { a: arm(A), b: arm(B) },
     weapon: { tip: tipA.distanceTo(tipB), probe: probe(A.rig.weapon, B.rig.weapon) },
     offhand: probe(A.rig.offhand, B.rig.offhand),
     shield: probe(A.rig.shield, B.rig.shield),
@@ -278,3 +299,5 @@ export function run(kit, pair, state, frames, every = 15) {
 /** The worst of a metric over a run's samples. */
 export const worst = (samples, pick) => Math.max(...samples.map((s) => pick(s) ?? 0));
 export const f3 = (n) => (n >= 0 ? " " : "") + n.toFixed(3);
+/** Millimetres, because 0.000 m is a reading of nothing and 0.4 mm is a reading. */
+export const mm = (n) => `${(n * 1000).toFixed(1)}mm`;

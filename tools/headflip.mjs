@@ -4,6 +4,7 @@
 //
 //   node tools/headflip.mjs                          gate: 4 classes x idle/attacking/knocked, 90 frames each
 //   node tools/headflip.mjs --cls=warden --states=idle
+//   node tools/headflip.mjs --wide                   all eleven states the pose has a layer for
 //   node tools/headflip.mjs --lever=90               R1: turn the captured Head rest by 90 deg; the gate MUST go red
 //   node tools/headflip.mjs --naive                  the control: today's write, absolute rotations onto the GLB bones. MUST fail
 //   node tools/headflip.mjs --no-mirror              the other control: the double mirror put back. MUST fail (handedness lives in parity)
@@ -64,7 +65,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || `--${k}=${d}`).slice(k.length + 3);
 const flag = (k) => process.argv.includes(`--${k}`);
 const classes = arg("cls", L.CLASSES.join(",")).split(",");
-const states = arg("states", L.STATES.join(",")).split(",");
+const states = arg("states", (flag("wide") ? L.WIDE_STATES : L.STATES).join(",")).split(",");
 const frames = Number(arg("frames", 90));
 const lever = Number(arg("lever", 0));
 const naive = flag("naive"), noMirror = flag("no-mirror");
