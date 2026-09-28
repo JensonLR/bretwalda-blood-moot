@@ -293,6 +293,43 @@ server; it belongs in the **MIDDLE** tier for any change to the class roster,
 `StatBar`, or `WARRIOR_STATS`, and in the **OUTER** gate otherwise. Neither is an
 inner-loop instrument.
 
+## The authored man: `headflip` and `parity` — the two gates that pose him
+
+Added 28 Sep 2026, after the owner reported "a torso ending in a neck stump" in
+the armoury and men "with inverted heads, the beard on top" in the arena — what
+every default-build player sees, because `next.config.ts` stamps
+`NEXT_PUBLIC_AUTHORED=1` whenever `public/authored/*.glb` is committed.
+
+| harness | costs | answers |
+|---|---|---|
+| `npm run headflip` | ~8 s, no browser | the Head-weighted crown, box and turn of the AUTHORED man against the PROCEDURAL man's, after 90 frames of the real `poseWarrior`, 4 classes x idle/attacking/knocked. Bars 3 cm / 3 cm / 3 deg |
+| `npm run parity` | ~15 s, no browser | all twelve pivots (1 cm, 3 deg), the cloak's seven bones (same bars), which hand the weapon is in (right AND left-handed), the weapon / off-hand blade / board probe points (1.5 cm), and the clip-driven arena man. `--wide` sweeps all eleven states |
+| either, `--naive` | same | the control: today's drive, absolute `rotation.set()` onto the GLB bones. **Must fail** |
+| either, `--no-mirror` | same | the control: the double mirror put back. **Must fail** |
+| either, `--lever=90` | same | R1: turns the captured rest of the head (and, in `parity`, the weapon wrist and the board's elbow) by 90 degrees. **Must move the numbers** |
+
+They share `tools/lib/authoredrig.mjs`, which builds the same man twice — once as
+`createWarriorRig` makes him, once after the real `upgradeRigToAuthored` on the
+shipped warrior GLB — and poses both with one id (two ids are two men breathing
+out of step: `createMotion` seeds the idle sway from it).
+
+**Why nothing else could see this.** The head census (`GameCanvas.tsx`,
+`armouryStage.ts`) counts meshes whose BIND bounding box reaches y >= 1.6 and are
+`visible`; a skull drawn 0.34 m inside the chest passes it. `head.det` looks for
+a collapsed matrix; this one was fine, merely 180 degrees wrong. `authoredtest`,
+`gltftest`, `cliptest`, `severauthored` and `weightprobe` read the files or run
+one function on them and never pose a man. Every ruler that builds
+`buildCharacter` directly (`headmeasure`, `wearmeasure`, `hairmail`, `teamread`,
+`factionread`'s CPU sections, ...) is blind to the authored path entirely: **a
+green from any of them says nothing about what the default player sees.**
+
+**What they were the first time, on the tree that shipped:** `headflip` 0 of 36,
+head turned exactly 180.0 deg in every run, crown -0.157 m (runekeeper) to
+-0.336 m (warden); `parity` 16 of 146, worst joint 0.65-1.12 m, the arena man's
+weapon in his LEFT hand (x +0.304 against -0.463) and a left-hander's man
+right-handed. The 16 that passed were "the weapon origin sits on the fist", true
+by construction.
+
 ## What this does not mean
 
 It does not mean lowering the bar. `docs/VISUAL-BAR.md` still says 8+ on every
