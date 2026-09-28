@@ -8,6 +8,48 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN 28 Sep 2026 — THREE THINGS THE AUTHORED-MAN INTEGRITY WORK FOUND AND DID NOT CLOSE
+
+Found while fixing the head, the pivots and the handedness (`tools/headflip.mjs`,
+`tools/parity.mjs`; the fix is `AuthoredRest` in `authored.ts`). None of them is
+in the way of that fix and none belongs to it.
+
+**1. `WarriorRig.authored` is never true in the game, so an authored man is never
+severed by `severAuthoredZone`.** `upgradeRigToAuthored` writes `rig.authored =
+true` — onto whatever object it is handed. Both call sites (`GameCanvas.tsx`
+~:1253, `armouryStage.ts` ~:652) hand it a fresh object LITERAL built from the
+rig's fields (`{ body, pivots, weapon, offhand, shield, drape }`), not the
+`WarriorRig`, so the write lands on the literal and is thrown away.
+`beginGore` reads `rig.authored`, finds it undefined, and calls the procedural
+`built.sever`, which returns null for an authored body — so every severing kill
+plays as an intact collapse and the "[gore] an authored body refused the cut"
+warning, which is guarded by the same flag, can never fire. `tools/authoredtest`
+passes because it hands the function the rig itself. **Not fixed here because the
+fix (`rig.authored = true` at both sites, or pass the rig) turns
+`severAuthoredZone` on in a real match for the first time**, and it has only ever
+run against `severauthored`'s fixtures. It bakes the piece through
+`applyBoneTransform` in body space: with the authored scene now at `scale.x = -1`
+its winding, the carried proxies (the blade and board are direct children of
+`HandR`/`LeftElbow` and travel with the limb; the cloak's `authoredCloakFrame`
+under `Spine` would travel with a waist cut) and `rig.gore.dropped` all want a
+capture campaign of their own.
+
+**2. `tools/eyeclip.mjs` compiles into `.eyeclip/` and deletes it again, and the
+directory is not in `.gitignore`.** Anything that runs it and then `git add -A`
+commits 20,000 lines of `characters.js`; anything that runs it after that shows
+two tracked files deleted. It happened once on this stream and was removed from
+the history. `.eyeclip/` is ignored now; the other tsc-emit directories were
+already.
+
+**3. Clip-driven men do not re-place their board.** In clip mode `applyPose` is
+not called, so an authored huscarl's board keeps the last position the PROCEDURAL
+pose gave it (folded once at the swap). It rides the forearm correctly and is not
+re-solved against the clip's guard. It was that way before this change (by
+`parity`'s board probe points it was 1.2-2.1 m off on the tree that shipped); it is
+now in the right place and merely unrefined.
+
+---
+
 ## CLOSED 9 Sep 2026 — THE BLADE IS NOW MEASURED AGAINST THE RANGE THAT TAKES HEALTH OFF, and it is a REACH question and not a timing one
 
 Carried here as: *"Nothing samples a warrior mid-stroke on the client and checks

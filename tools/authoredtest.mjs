@@ -332,6 +332,33 @@ for (const cls of CLASSES) {
       bad.body.children[0] === bad.kept && bad.pivots.chest.procedural === true && !bad.pivots.rest);
   }
 
+  // THE BOARD IS FOLDED AT THE SWAP, not only by the pose. A man a CLIP poses never
+  // calls `applyPose` again, so his board keeps whatever local transform the swap
+  // left it — and `parity` cannot see that, because its procedural men re-fold it
+  // every frame (a mutation that dropped the swap's fold passed both gates). So it
+  // is asked here, of a board given a known local transform before the swap:
+  // position -> E^-1 . (-x, y, z), quaternion -> E^-1 . M(q), scale.x -> -1.
+  {
+    const THREE = await import("three");
+    const gb = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const rigB = fakeRig();
+    const board = new THREE.Group();
+    board.position.set(0.10, 0.20, 0.30);
+    board.rotation.set(0.30, 0.20, 0.10);
+    const q0 = board.quaternion.clone();
+    rigB.shield = board;
+    const res = upgradeRigToAuthored(rigB, {
+      scene: gb.scene, wornRoles: new Set(["helm"]), resolveMaterial: () => ({ isMaterial: true }), clips: gb.animations,
+    });
+    const e = rigB.pivots.rest.slots.elbowL;
+    const R = e.p.clone().multiply(e.q).invert();
+    const wantP = new THREE.Vector3(-0.10, 0.20, 0.30).applyQuaternion(R);
+    const wantQ = R.clone().multiply(new THREE.Quaternion(q0.x, -q0.y, -q0.z, q0.w));
+    check("the swap folds a board's local transform through the elbow's rest and the mirror",
+      res.ok && board.position.distanceTo(wantP) < 1e-6 && board.quaternion.angleTo(wantQ) < 1e-6 && board.scale.x === -1,
+      res.ok ? `position off ${board.position.distanceTo(wantP).toExponential(1)} m, turn off ${board.quaternion.angleTo(wantQ).toExponential(1)} rad` : res.why);
+  }
+
   // ---- THE CLOAK: the drape the solver integrates ----------------------
   //
   // This was declared an unfixable topology mismatch and withheld, on the

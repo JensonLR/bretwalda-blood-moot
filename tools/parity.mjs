@@ -126,6 +126,33 @@ for (const lefty of [false, true]) {
 kit.input.setHandedness(false);
 console.log("");
 
+// ---- THE BLADE OUT OF THE TURF: `groundBlade` -----------------------------
+//
+// It only acts when the tip is under the ground, and on flat ground at y = 0 no
+// state the harness poses puts it there — so a mutation that took the authored
+// half out of it (the wrist nudge) passed every gate above. The ground is raised
+// to 0.55 m here, which puts the tip under it in every stroke, and the two men
+// must still agree: A lifts the blade by turning `weapon.rotation` and the wrist,
+// B by turning the wrist alone through its rest frame.
+const groundRows = [];
+if (!lever && !naive && !noMirror && !flag("no-ground")) {
+  console.log("  THE BLADE OUT OF THE TURF (ground raised to 0.55 m)");
+  const GROUND = 0.55;
+  const hooks = { groundAt: () => GROUND };
+  for (const cls of classes) {
+    const gltf = await L.parseGlb(ROOT, cls);
+    for (const state of ["idle", "attacking"]) {
+      const pair = L.buildPair(kit, cls, gltf);
+      const s = L.run(kit, pair, state, frames, 15, hooks);
+      const tip = L.worst(s, (x) => x.weapon.tip), probe = L.worst(s, (x) => x.weapon.probe);
+      const lifted = L.worst(s, (x) => Math.max(0, GROUND - x.tipY.a));   // how far the procedural blade still is under the turf
+      groundRows.push({ cls, state, tip, probe, lifted, lowest: Math.min(...s.map((x) => x.tipY.b)) });
+      console.log(`  right ${cls.padEnd(10)} ${state.padEnd(9)} tip ${L.mm(tip)}  blade probes ${L.mm(probe)}   lowest authored tip y ${Math.min(...s.map((x) => x.tipY.b)).toFixed(3)} m (turf at ${GROUND})`);
+    }
+  }
+  console.log("");
+}
+
 // ---- the arena man: driven by the clips, not by applyPose -------------------
 const clipRows = [];
 if (!lever && !naive && !noMirror && !flag("no-clips")) {
@@ -170,6 +197,10 @@ if (!lever) {
     if (r.off !== null) check(`${tag}: the off-hand blade's probe points are within ${MOUNT_BAR * 100} cm`, r.off <= MOUNT_BAR, `worst ${r.off.toFixed(3)} m`);
     if (r.shield !== null) check(`${tag}: the board's probe points are within ${MOUNT_BAR * 100} cm`, r.shield <= MOUNT_BAR, `worst ${r.shield.toFixed(3)} m`);
     if (r.cloak) check(`${tag}: the cloak's seven bones are within ${JOINT_BAR * 100} cm and ${TURN_BAR} deg of the procedural cloak's`, r.cloak.d <= JOINT_BAR && r.cloak.deg <= TURN_BAR, `worst ${r.cloak.d.toFixed(3)} m / ${r.cloak.deg.toFixed(1)} deg`);
+  }
+  for (const r of groundRows) {
+    check(`${r.cls}/${r.state} on raised ground: the authored blade is lifted exactly as the procedural one is (within ${MOUNT_BAR * 100} cm)`,
+      r.tip <= MOUNT_BAR && r.probe <= MOUNT_BAR, `tip ${r.tip.toFixed(3)} m, probes ${r.probe.toFixed(3)} m`);
   }
   for (const r of clipRows) {
     const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.state} (clips)`;

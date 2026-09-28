@@ -297,6 +297,7 @@ export function measure(pair) {
   const tipA = A.rig.weapon.localToWorld(new THREE.Vector3(0, A.rig.reach, 0));
   const tipB = B.rig.weapon.localToWorld(new THREE.Vector3(0, B.rig.reach, 0));
   return {
+    tipY: { a: tipA.y, b: tipB.y },
     joints, head, drape,
     weaponSide: { a: side(A), b: side(B) },
     armSide: { a: arm(A), b: arm(B) },
@@ -307,14 +308,14 @@ export function measure(pair) {
 }
 
 /** Pose both men for `frames` frames of `state`, sampling `measure` on the way. */
-export function run(kit, pair, state, frames, every = 15) {
+export function run(kit, pair, state, frames, every = 15, hooks = undefined) {
   const dt = 1 / 60;
   const samples = [];
   for (let f = 0; f < frames; f++) {
     for (const m of [pair.A, pair.B]) {
       setState(m, state, f);
       m.ctx.dt = m.ctx.rawDt = dt; m.ctx.time += dt;
-      kit.anim.poseWarrior(m.rig, m.motion, m.p, dt, m.ctx);
+      kit.anim.poseWarrior(m.rig, m.motion, m.p, dt, m.ctx, hooks);
     }
     if (f % every === every - 1 || f === frames - 1) { samples.push({ f, ...measure(pair) }); }
   }
