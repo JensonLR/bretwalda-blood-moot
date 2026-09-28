@@ -174,7 +174,8 @@ export const DEATH_FOV = { from: 55, to: 44 };
  * to run, measured 7/7. See the constant itself below.
  *
  * ---------------------------------------------------------------------------
- * THE TOTAL IS NOT A FREE CHOICE. `src/app/page.tsx` already holds the round-end
+ * THE TOTAL IS NOT A FREE CHOICE. `RoundBreak` (`src/app/ui/hudParts.tsx`; it was in
+ * `src/app/page.tsx` before the F0 carve) already holds the round-end
  * screen for `ROUND_HOLD_MS` — for exactly that long after a round ends,
  * `RoundBreak` draws only a verdict line and the victor's flourish row over the
  * LIVE ARENA, and only then does the opaque `data-break-card` scrim come down.

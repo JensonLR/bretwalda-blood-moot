@@ -1740,6 +1740,47 @@
     color: #7d7364;
     letter-spacing: 0.03em;
   }
+
+  /* ==========================================================================
+     UNIT-OWNED BLOCKS
+
+     One fence per unit of the UI overhaul (`src/app/ui/shared.ts` lists the unit
+     letters). A unit adds its NEW rules between its own BEGIN and END markers and
+     nowhere else; a rule that already existed is edited where it stands by the
+     unit that owns the component it styles.
+
+     The fences sit INSIDE `@layer components` on purpose. See LAYERS at the top:
+     an unlayered rule outranks every Tailwind utility, so a rule added below the
+     layer's closing brace would silently beat p-*, gap-* and text-*.
+
+     Each fence is set apart by a blank line and a heading comment so that two
+     units appending in neighbouring fences never produce hunks that touch, which
+     is what turns a clean git merge into a conflict.
+     ========================================================================== */
+
+  /* T — title screen, join and the menu shell */
+  /* ==== UNIT:T BEGIN */
+  /* ==== UNIT:T END */
+
+  /* L — lobby, create, training, muster and the class cards */
+  /* ==== UNIT:L BEGIN */
+  /* ==== UNIT:L END */
+
+  /* A — the armoury shop */
+  /* ==== UNIT:A BEGIN */
+  /* ==== UNIT:A END */
+
+  /* W — the war layer: map, oath and hearth */
+  /* ==== UNIT:W BEGIN */
+  /* ==== UNIT:W END */
+
+  /* S — the Saga screen, the marks and the glyph library */
+  /* ==== UNIT:S BEGIN */
+  /* ==== UNIT:S END */
+
+  /* H — the combat HUD, the round break and the match summary */
+  /* ==== UNIT:H BEGIN */
+  /* ==== UNIT:H END */
 }
 
 @media (prefers-reduced-motion: reduce) {

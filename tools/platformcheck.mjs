@@ -31,6 +31,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, relative, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pageSources } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let passed = 0, failed = 0;
@@ -207,16 +208,19 @@ console.log("[platform] the dual-platform laws, held mechanically\n");
 // above is: the thing to prevent is a fourth call site being added later by
 // somebody who does not know about the third.
 {
-  const src = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
-  const lines = src.split("\n");
+  // The page and the modules carved out of it, one file at a time: the line numbers this
+  // reports are a file's own, so a concatenation would name lines that exist nowhere.
   const offenders = [];
-  lines.forEach((l, i) => {
-    if (!/saveProfile\(\s*\{[^}]*\bappearance\s*:/.test(l)) return;
-    // The push may be on the same line or within a few after it — the sites
-    // differ (an oath, a mark, an armoury commit) and all three end in one.
-    const near = lines.slice(i, i + 8).join("\n");
-    if (!/syncAppearance\s*\(/.test(near)) offenders.push(`page.tsx:${i + 1}`);
-  });
+  for (const { file, text } of pageSources(ROOT)) {
+    const lines = text.split("\n");
+    lines.forEach((l, i) => {
+      if (!/saveProfile\(\s*\{[^}]*\bappearance\s*:/.test(l)) return;
+      // The push may be on the same line or within a few after it — the sites
+      // differ (an oath, a mark, an armoury commit) and all three end in one.
+      const near = lines.slice(i, i + 8).join("\n");
+      if (!/syncAppearance\s*\(/.test(near)) offenders.push(`${file}:${i + 1}`);
+    });
+  }
   check("every appearance written to the profile is pushed to the server too",
     offenders.length === 0,
     offenders.length ? `${offenders.join(", ")} — saveProfile({ appearance }) with no syncAppearance within 8 lines`

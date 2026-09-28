@@ -32,6 +32,7 @@
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { pageSource } from "./lib/pagesrc.mjs";
 import { WARRIOR_STATS, ARMS } from "../src/game/engine.mjs";
 import { GROUNDS } from "../src/game/grounds.mjs";
 import { PEOPLES } from "../src/game/war.mjs";
@@ -71,11 +72,12 @@ if (countWord) {
     `page says ${said}, WARRIOR_STATS has ${classIds.length} (${classIds.join(", ")})`);
 }
 
-// The player-facing names. Held in `src/app/page.tsx`'s WARRIOR_INFO, which is
+// The player-facing names. Held in WARRIOR_INFO (`src/app/ui/shared.ts` since the F0 carve; it was
+// in `src/app/page.tsx`, so this reads the page and the modules carved out of it), which is
 // TSX and not importable here — so it is READ AS TEXT rather than guessed at,
 // and the read is asserted to have found one name per class. A parse that
 // silently found nothing would turn this whole section green by absence.
-const pageSrc = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+const pageSrc = pageSource(ROOT);
 const infoBlock = pageSrc.slice(pageSrc.indexOf("const WARRIOR_INFO"));
 const shownNames = [...infoBlock.slice(0, infoBlock.indexOf("];")).matchAll(
   /id:\s*"(\w+)",\s*name:\s*"([^"]+)"/g)].map((m) => ({ id: m[1], name: m[2] }));

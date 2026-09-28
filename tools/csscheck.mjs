@@ -35,6 +35,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = resolve(ROOT, "src/app/globals.css");
@@ -270,7 +271,14 @@ while (i < css.length) {
   for (const [rel, ceiling] of Object.entries(CEILING)) {
     const file = resolve(ROOT, rel);
     if (!existsSync(file)) continue;
-    const src = readFileSync(file, "utf8");
+    // "THE PAGE" IS NOT ONE FILE ANY MORE. The F0 scaffold carved the screen components out of
+    // `src/app/page.tsx` into `src/app/ui/*` (and reserved `src/app/glyphs/*`). Counted on the
+    // one file alone this ratchet read 7 against a ceiling of 15 the moment the carve landed:
+    // eight literals had not been tokenised, they had moved next door, and a ceiling with eight
+    // spare is a ceiling that lets eight new ones in. So the page's key counts the page family.
+    const isPage = rel === "src/app/page.tsx";
+    const src = isPage ? pageSource(ROOT) : readFileSync(file, "utf8");
+    const label = isPage ? `${rel} (+ src/app/ui, src/app/glyphs)` : rel;
     const hex = [...src.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0]);
     // A literal that IS a declared token is always wrong: that is the one this
     // ratchet can name a fix for, so it is reported separately and never
@@ -279,13 +287,13 @@ while (i < css.length) {
     for (const m of css.matchAll(/(--[a-z][\w-]*):\s*(#[0-9a-fA-F]{6})\b/g)) named.set(m[2].toLowerCase(), m[1]);
     const spelled = hex.filter((h) => named.has(h.toLowerCase()));
     if (spelled.length) {
-      fail(`${rel}: ${spelled.length} literal(s) spell out a colour that already has a token`);
+      fail(`${label}: ${spelled.length} literal(s) spell out a colour that already has a token`);
       [...new Set(spelled)].slice(0, 8).forEach((h) => console.log(`        ${h} is var(${named.get(h.toLowerCase())})`));
     } else if (hex.length > ceiling) {
-      fail(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling} — tokenise it, or name the new colour and raise the ceiling here`);
+      fail(`${label}: ${hex.length} raw hex literals, ceiling ${ceiling} — tokenise it, or name the new colour and raise the ceiling here`);
       [...new Set(hex)].slice(0, 8).forEach((h) => console.log(`        ${h}`));
     } else {
-      pass(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling}, none of them a colour that has a name`);
+      pass(`${label}: ${hex.length} raw hex literals, ceiling ${ceiling}, none of them a colour that has a name`);
     }
   }
 }

@@ -43,7 +43,7 @@ const ARENA = process.argv.includes("--arena");
 /**
  * WHAT THE PICKER CALLS HIM, which is not always his class id.
  *
- * `src/app/page.tsx`: "RUNEKEEPER became WRECCA — a name a player reads is
+ * `WARRIOR_INFO` (`src/app/ui/shared.ts`; in `src/app/page.tsx` before the F0 carve): "RUNEKEEPER became WRECCA — a name a player reads is
  * allowed to change". The asset, the engine and the wire all still say
  * `runekeeper`, so a harness that clicks on the id waits three minutes for a
  * button that does not exist. Mapped here rather than matched loosely: a

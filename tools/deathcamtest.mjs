@@ -53,6 +53,7 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { getEngine } from "../src/game/engine.mjs";
+import { pageSources, pageSource } from "./lib/pagesrc.mjs";
 import {
   createDeathCamera, createRoundCamera, frameDeathShot, roundOpening,
   DEATH_HOLD, DEATH_FOV, ROUND_HOLD, ROUND_FOV,
@@ -829,7 +830,7 @@ check("and it closes in from there rather than sitting at the cut",
 //     your lens already was, the round beat CUTS to 5.4 m and 2.5 m up), the
 //     lens (55->44 against 50->42, two bands that never touch), the length of
 //     the move (1.15 s against 0.90 s) and the total (3.35 s against 2.95 s,
-//     because the round beat lives inside a window `page.tsx` already holds and
+//     because the round beat lives inside a window the round break already holds and
 //     your own death does not).
 //
 //     SO THE DEFECT WAS THE INSTANT, and picking a better instant would be the
@@ -1134,7 +1135,8 @@ check("GameCanvas.tsx imports the round camera, runs it and binds the same skip"
 // ============================================================
 // 17. THE ONE MIRRORED CONSTANT, GATED RATHER THAN TRUSTED.
 //
-//     `src/app/page.tsx` holds the round-end screen for `ROUND_HOLD_MS` — for
+//     `src/app/ui/hudParts.tsx` (it was `page.tsx` until the F0 carve) holds the
+//     round-end screen for `ROUND_HOLD_MS` — for
 //     that long after a round ends, `RoundBreak` draws a verdict line and the
 //     victor's flourish row over the LIVE ARENA, and only then does the opaque
 //     break card come down. That window was already open and pointed at
@@ -1142,12 +1144,14 @@ check("GameCanvas.tsx imports the round camera, runs it and binds the same skip"
 //     arena while the arena showed you the lobby orbit. The beat is the length
 //     of that window, on purpose.
 //
-//     The two constants are NOT wired together, because `page.tsx` belongs to
+//     The two constants are NOT wired together, because that file belongs to
 //     another unit. That makes them the mirrored-definition fault this
 //     repository has recorded five times in one file, sitting one edit away —
 //     so it is not left to a comment. This reads the number out of that file.
 // ============================================================
-const pageSrc = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+// The page and the modules carved out of it: ROUND_HOLD_MS is in src/app/ui/hudParts.tsx now.
+const pageSrc = pageSource(ROOT);
+const holdFile = pageSources(ROOT).find((s) => /const ROUND_HOLD_MS\s*=/.test(s.text))?.file ?? "src/app/page.tsx";
 const canvasSrc = readFileSync(resolve(ROOT, "src/game/client/GameCanvas.tsx"), "utf8");
 const { REPLAY } = await import(pathToFileURL(resolve(ROOT, "src/game/replay.mjs")).href);
 
@@ -1161,19 +1165,19 @@ const { REPLAY } = await import(pathToFileURL(resolve(ROOT, "src/game/replay.mjs
 // the beat plays inside it rather than filling it.
 //
 // So the equality does not go away, it MOVES to the constant that now governs —
-// and it is asked of the SOURCE rather than of the value, because `page.tsx`
-// now derives the number instead of typing it. A declaration that reads
+// and it is asked of the SOURCE rather than of the value, because the round break
+// (`RoundBreak`'s file) now derives the number instead of typing it. A declaration that reads
 // `REPLAY.wall * 1000` cannot drift from `REPLAY.wall` at all, which is a
 // stronger answer to the mirrored-definition fault than any numeric compare.
 // The containment is then asked separately.
 const holdExpr = /const ROUND_HOLD_MS\s*=\s*([^;]+);/.exec(pageSrc);
 const derived = !!holdExpr && /REPLAY\.wall\s*\*\s*1000/.test(holdExpr[1]);
-check("the window page.tsx holds the arena open for is DERIVED from the replay's, not typed beside it",
+check("the window the round break holds the arena open for is DERIVED from the replay's, not typed beside it",
   derived,
   holdExpr
-    ? `page.tsx declares ROUND_HOLD_MS = ${holdExpr[1].trim()}. It must be REPLAY.wall * 1000, or it is a `
+    ? `${holdFile} declares ROUND_HOLD_MS = ${holdExpr[1].trim()}. It must be REPLAY.wall * 1000, or it is a `
       + `second declaration of the replay's length sitting one edit away from disagreeing with it`
-    : "page.tsx no longer declares ROUND_HOLD_MS; the window this beat plays inside has moved or gone");
+    : "neither page.tsx nor src/app/ui/* declares ROUND_HOLD_MS any more; the window this beat plays inside has moved or gone");
 
 check("and the round beat still fits inside that window",
   ROUND_HOLD.total <= REPLAY.wall + 1e-9,

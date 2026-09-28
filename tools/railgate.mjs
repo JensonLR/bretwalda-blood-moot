@@ -35,8 +35,8 @@
 // check makes: no rung's placement may depend on a className.
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { emitClient } from "./lib/clientmodule.mjs";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -202,7 +202,7 @@ console.log("");
 //    more, because a class cannot beat the inline style this file returns and
 //    a reader who adds one will believe it works.
 {
-  const page = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+  const page = pageSource(ROOT);
   const btn = /railStyle\("end"[\s\S]{0,400}?className="([^"]*)"/.exec(page);
   const cls = btn ? btn[1] : "";
   const positioning = /(^|\s)(pointer-fine:)?-?(left|right|top|bottom|translate-x|translate-y)-/.test(cls);
