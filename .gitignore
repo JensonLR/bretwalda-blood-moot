@@ -225,5 +225,8 @@ tools/blender/__pycache__/
 .swingstrip/
 .cliptest/
 .severauthored/
+.headflip/
+.parity/
+.authoredrig-*/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
