@@ -37,9 +37,10 @@ capture campaign of their own.
 **2. `tools/eyeclip.mjs` compiles into `.eyeclip/` and deletes it again, and the
 directory is not in `.gitignore`.** Anything that runs it and then `git add -A`
 commits 20,000 lines of `characters.js`; anything that runs it after that shows
-two tracked files deleted. It happened once on this stream and was removed from
-the history. `.eyeclip/` is ignored now; the other tsc-emit directories were
-already.
+two tracked files deleted. It happened once on this stream (commit aa59848 of
+`stream/mannequin`) and the files were removed from the tree in a later commit; the
+history was not rewritten, so that hunk wants dropping at integration. `.eyeclip/`
+is ignored now; the other tsc-emit directories were already.
 
 **3. Clip-driven men do not re-place their board.** In clip mode `applyPose` is
 not called, so an authored huscarl's board keeps the last position the PROCEDURAL
