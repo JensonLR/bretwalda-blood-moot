@@ -5,6 +5,8 @@
 //   node tools/armourycard.mjs                  # phone + desktop, helmets
 //   node tools/armourycard.mjs --tab CLOAKS
 //   node tools/armourycard.mjs --item "Sutton Hoo" --lens "AT FIGHT DISTANCE"
+//   node tools/armourycard.mjs --classes huscarl,warden,runekeeper,berserker --lenses "PORTRAIT,FULL KIT"
+//       one session, every class x every lens, waiting for the AUTHORED man each time
 //
 // `uishots.mjs` drives the whole menu flow and takes four minutes. This drives
 // ONE screen so the armoury can be iterated on, and — the part that matters —
@@ -33,6 +35,19 @@ const TAB = flag("tab", null);
 const ITEM = flag("item", null);
 const LENS = flag("lens", null);
 const NAME = flag("name", "armourycard");
+// `--classes` x `--lenses`: one page load, one settle, then the class picker and
+// the lens strip are driven for every combination. The 8.4 s first frame and the
+// forty thumbnails are paid once per viewport instead of once per frame, and —
+// the part that matters — each frame WAITS FOR THE AUTHORED MAN. The armoury
+// builds the procedural man first and swaps the authored one in when a 1.6 MB
+// GLB lands; a capture taken before the swap is a picture of the man the default
+// player does not see, and it has a head, which is exactly how a defect in the
+// authored one gets certified. `window.__authored` (the swap's own report, with
+// its class) and `window.__authoredProps` (the dressed head) are what is waited on.
+const CLASSES = flag("classes", null)?.split(",") ?? null;
+const LENSES = flag("lenses", null)?.split(",") ?? null;
+const CLASS_BUTTON = { huscarl: "HUSCARL", warden: "WEARD", runekeeper: "WRECCA", berserker: "BERSERKER" };
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 mkdirSync(OUT, { recursive: true });
 
 function waitForServer(url, timeoutMs = 180000) {
@@ -157,6 +172,55 @@ async function main() {
     if (LENS) {
       await page.getByRole("button", { name: new RegExp(LENS) }).first().click();
       await settle(page);
+    }
+
+    // ---- EVERY CLASS x EVERY LENS, on the authored man ----
+    if (CLASSES || LENSES) {
+      const classes = CLASSES ?? [null];
+      const lenses = LENSES ?? [null];
+      for (const cls of classes) {
+        if (cls) {
+          if (!CLASS_BUTTON[cls]) { console.log(`[card] unknown class ${cls}`); bad++; continue; }
+          // The props report is replaced (not mutated) by each dressing, so
+          // "a NEW object" is how a swap that has landed for THIS man is told
+          // from the last man's.
+          // The class the stage already holds is not rebuilt by clicking it, so
+          // there is nothing new to wait for: its swap is read as it stands.
+          const already = await page.evaluate((c) => window.__authored?.cls === c, cls);
+          await page.evaluate(() => { window.__cardPrev = window.__authoredProps ?? null; });
+          if (!already) await page.getByRole("button", { name: new RegExp(`^${CLASS_BUTTON[cls]}$`) }).first().click();
+          const t0 = Date.now();
+          let landed = false;
+          while (Date.now() - t0 < 120000) {
+            landed = await page.evaluate(([c, was]) => window.__authored?.cls === c && window.__authored?.ok === true
+              && !!window.__authoredProps && (was || window.__authoredProps !== window.__cardPrev), [cls, already]);
+            if (landed) break;
+            await page.waitForTimeout(500);
+          }
+          const rep = await page.evaluate(() => ({ a: window.__authored ?? null, p: window.__authoredProps ?? null }));
+          console.log(`[card] ${vp.tag} ${cls}: authored swap ${landed ? "LANDED" : "DID NOT LAND (this frame is the PROCEDURAL man)"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`
+            + `  joints=${rep.a?.joints} dressed=${rep.a?.dressed} rehung=${rep.a?.rehung} drape=${rep.a?.drape}`
+            + `  props mounted=${JSON.stringify(rep.p?.mounted)} missing=${JSON.stringify(rep.p?.missing)}`);
+          if (!landed) bad++;
+        }
+        for (const lens of lenses) {
+          if (lens) {
+            await page.getByRole("button", { name: new RegExp(lens) }).first().click();
+          }
+          // A few frames past the lens change, so the mannequin has re-framed and drawn.
+          const f0 = (await page.evaluate(() => window.__armouryStats?.frames ?? 0));
+          for (let i = 0; i < 60; i++) {
+            const f = await page.evaluate(() => window.__armouryStats?.frames ?? 0);
+            if (f - f0 >= 8) break;
+            await page.waitForTimeout(500);
+          }
+          const out = `${NAME}-${cls ?? "class"}-${slug(lens ?? "lens")}-${vp.tag}`;
+          await page.screenshot({ path: resolve(OUT, `${out}.png`) });
+          console.log(`[card] ${out}`);
+        }
+      }
+      await ctx.close();
+      continue;
     }
 
     // Is the stage alive, and what is it costing?
