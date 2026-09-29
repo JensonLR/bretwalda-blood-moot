@@ -187,7 +187,8 @@ console.log("THE SHEET");
 {
   const bad = [];
   for (const r of rules) {
-    if (!r.sel.some((s) => /:disabled|\[aria-disabled/.test(s))) continue;
+    // every way a stylesheet can say "disabled": the pseudo-class, the attribute, aria, and the two class names people reach for
+    if (!r.sel.some((s) => /:disabled|:not\(:enabled\)|\[aria-disabled|\[disabled|\.is-disabled|\.disabled/.test(s))) continue;
     for (const c of ruleNames(r, OWNED)) for (const v of dv(r, "opacity")) if (Number(v) !== 1) bad.push(`.${c} (disabled): opacity ${v}`);
   }
   if (bad.length) { fail(`${bad.length} disabled rule(s) fade the plate instead of drawing a different one`); [...new Set(bad)].slice(0, 8).forEach(note); }
@@ -200,6 +201,8 @@ console.log("THE SHEET");
   const bad = [];
   for (const r of rules) for (const c of ruleNames(r, OWNED)) {
     for (const v of dv(r, "text-shadow")) if (!/^none\b/.test(v)) bad.push(`.${c}: text-shadow ${v.slice(0, 40)}`);
+    // a glow can be spelled as a filter too: `.plate-lift` is the one wrapper allowed a drop-shadow, and it is not in OWNED's plates
+    if (c !== "plate-lift") for (const v of dv(r, "filter")) if (/drop-shadow\(/.test(v)) bad.push(`.${c}: filter ${v.slice(0, 40)} (a drop-shadow on a clipped plate is a glow or a lie)`);
     for (const v of dv(r, "box-shadow")) {
       if (/^none\b/.test(v)) continue;
       for (const layer of v.split(/,(?![^(]*\))/)) {
