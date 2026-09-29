@@ -319,6 +319,8 @@ const STATICS = [
   ["warcode-frame", `<div class="warcode-frame card-noble" data-subject style="width:310px;padding:24px;text-align:center"><span class="label-overline" style="display:block">WAR CODE</span><span class="warcode">JORVIK49</span><div class="knot-band" style="margin:6px auto 0;width:15rem"></div></div>`],
   ["badges", `<div data-subject style="display:flex;gap:10px"><span class="badge-sky">YOU</span><span class="badge-garnet">WAR-GEAR</span><span class="badge-stone">KEPT ON THIS DEVICE</span></div>`],
   ["kbd", `<div data-subject style="display:flex;gap:10px;align-items:center"><span class="kbd">SPACE</span><span class="kbd" style="min-width:0">W</span><span style="color:var(--ink-dim);font-size:14px">to jump</span></div>`],
+  ["plate-lift", `<div class="plate-lift" data-subject style="width:240px"><div class="plate-silver" style="padding:16px 22px;text-align:center;font:700 15px/1.2 var(--font-display);letter-spacing:.14em">THE HERO PLATE</div></div>`],
+  ["reason", `<div data-subject style="width:290px"><button class="btn-primary" disabled style="width:100%">EQUIP &amp; BUY</button><span class="plate-reason">NEED 2,400 &mdash; YOU HAVE 0. Gold is earned in battle.</span></div>`],
   ["ornament", `<div data-subject style="width:340px;display:flex;flex-direction:column;gap:14px"><div class="section-title">CHOOSE WARRIOR</div><div class="rule-label">OR SPAR AT ONCE</div><div class="knot-band"></div><div style="text-align:center"><span class="ornament-line"></span></div><div class="label-overline" style="text-align:center">THE FORGE</div><div class="plate" style="padding:14px"><div class="divider"></div><div style="margin-top:10px;display:flex;gap:12px;align-items:center"><div class="medallion"><span style="font-size:14px">&#9876;</span></div><span class="cabochon"></span><span class="tip-row">A tip in a row.</span></div></div></div>`],
 ];
 
@@ -444,7 +446,7 @@ const shapeProblems = (f, label, allow = {}) => {
 };
 
 const shapeIssues = [], stateIssues = [], legibility = [], targets = [], sheetRows = [];
-let stateChecks = 0, textChecks = 0, textProbes = 0, worstText = { c: Infinity, where: "" };
+let stateChecks = 0, textChecks = 0, textProbes = 0, worstText = { c: Infinity, where: "" }, liftDiff = 0;
 const noteWorst = (g, where) => { textChecks++; textProbes += g.count; if (g.worst < worstText.c) worstText = { c: g.worst, where: `${where} "${g.worstText}"` }; };
 const THRESH = 0.004; // a state must move at least 0.4% of the crop's pixels by more than 8 levels
 const diffLog = [];
@@ -513,6 +515,8 @@ const STATIC_SHAPE = {
   card: [["[data-subject]", {}]], "card-glow": [["[data-subject]", {}]], "card-noble": [["[data-subject]", {}]], "warcode-frame": [["[data-subject]", {}]],
   badges: [[".badge-sky", {}], [".badge-garnet", {}], [".badge-stone", {}]], kbd: [[".kbd", { radius: "2px", noClip: true }]],
   ornament: [[".plate", {}]],
+  "plate-lift": [[".plate-silver", {}]],
+  reason: [[".btn-primary", {}]],
 };
 for (const [id] of STATICS) {
   const root = page.locator(`[data-lab="${id}"] [data-root]`);
@@ -523,9 +527,23 @@ for (const [id] of STATICS) {
   noteWorst(await gradeText(root, `${id}`, legibility), id);
 }
 
+// LIFT IS A WRAPPER'S SHADOW. A shadow on the plate itself is clipped away by its own clip-path, so the hero plate's lift
+// lives on a wrapper (`.plate-lift`). Prove it: the same specimen with and without the class must differ OUTSIDE the plate.
+{
+  const root = page.locator('[data-lab="plate-lift"] [data-root]');
+  const rr = await root.evaluate(boxFn);
+  const withLift = await decode((await shot(rr, 24)).buf);
+  await root.locator("[data-subject]").evaluate((e) => e.classList.remove("plate-lift"));
+  const without = await decode((await shot(rr, 24)).buf);
+  await root.locator("[data-subject]").evaluate((e) => e.classList.add("plate-lift"));
+  const d = diffFrac(withLift, without, 4);
+  liftDiff = d;
+  if (d < 0.01) stateIssues.push(`plate-lift: a wrapper with the class draws the same pixels as one without (${(d * 100).toFixed(2)}%): the lift does not show`);
+}
+
 console.log(`  ${stateChecks} states driven (${diffLog.join(", ")})`);
 if (stateIssues.length) { fail(`${stateIssues.length} state(s) do not show: hover, active, focus-visible and disabled must each look different on the glass`); stateIssues.slice(0, 12).forEach(note); }
-else pass(`every control shows every one of its states: ${stateChecks} states, each moves at least ${(THRESH * 100).toFixed(1)}% of its pixels`);
+else pass(`every control shows every one of its states: ${stateChecks} states, each moves at least ${(THRESH * 100).toFixed(1)}% of its pixels; the wrapper's lift moves ${(liftDiff * 100).toFixed(1)}% outside the plate`);
 if (shapeIssues.length) { fail(`${shapeIssues.length} shape fault(s) on the rendered specimens`); shapeIssues.slice(0, 14).forEach(note); }
 else pass("every rendered specimen, in every state, is cut (clip-path), square, unblurred, opaque and unshadowed");
 if (legibility.length) { fail(`${legibility.length} piece(s) of type under the floor on the plate behind them`); legibility.slice(0, 12).forEach(note); }
