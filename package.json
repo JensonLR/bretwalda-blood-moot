@@ -116,7 +116,8 @@
     "authoredweight": "node tools/authoredweight.mjs",
     "headflip": "node tools/headflip.mjs",
     "parity": "node tools/parity.mjs",
-    "headnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/headnet.mjs"
+    "headnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/headnet.mjs",
+    "stagehead": "node tools/stagehead.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
