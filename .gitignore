@@ -242,3 +242,4 @@ tools/blender/**/__pycache__/
 .railgate/
 .weaponshape/
 .bladevalue/
+art/bladevalue/

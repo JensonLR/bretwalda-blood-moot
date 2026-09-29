@@ -309,6 +309,19 @@ const build = {
 };
 const tipOf = (tris) => bboxOf(tris).hi[1];
 
+/**
+ * The grip the baked fists close on (PROCESS R7: a number that lives in two places). `HAND_GRIP` in
+ * characters.ts is what the authored fists were sized to, and no weapon may move it: read off the
+ * emitted triangles at y = 0, where the hand mount is, the section's largest half-extent stays within
+ * 2.5 mm under and 4 mm over the fist's radius. HEAD passes this; it is here so the rework cannot leave.
+ */
+const gripCheck = (label, tris, fist) => {
+  const s = slice(tris, 1, 0);
+  const [xl, xh] = spanOf(s, 0), [zl, zh] = spanOf(s, 1);
+  const half = s.length ? Math.max(xh - xl, zh - zl) / 2 : 0;
+  check(`[${label}] the grip at the hand mount is what the baked fist closes on (${mm(fist)} radius: -2.5/+4 mm)`, half >= fist - 0.0025 && half <= fist + 0.004, `${mm(half)}`);
+};
+
 // ============================================================
 // MUTANTS - deliberately wrong weapons, to show a check is not vacuous (R3)
 // ============================================================
@@ -356,6 +369,7 @@ function swordChecks(styleId) {
   console.log(`\n  -- ${label}${note ? `  [MUTANT: ${note}]` : ""}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
 
   check(`[${label}] reach lock: the tip is where anim.ts reads it (rig.reach = 1.055)`, Math.abs(bb.hi[1] - 1.055) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
+  gripCheck(label, tris, CH.gripsFor("huscarl").main);
   check(`[${label}] no emissive anywhere (no magic: LORE 5.5)`, !tris.some((t) => t.mi.emissive), "");
 
   // ---- the grip: the anchor every hilt reading is taken against ----
@@ -385,7 +399,11 @@ function swordChecks(styleId) {
   let pw = 0;
   for (let y = gripBot - 0.20; y < gripBot + 0.03; y += 0.002) pw = Math.max(pw, widthAt(y, inButt));
   check(`[${label}] the pommel end is 50-80 mm across (finds 50-70 mm; was 124)`, pw >= 0.050 && pw <= 0.080, `widest slice of the butt ${mm(pw)}`);
-  const isl = islands(butt).map((t) => ({ t, b: bboxOf(t) })).filter((x) => Math.max(x.b.hi[0] - x.b.lo[0], x.b.hi[1] - x.b.lo[1], x.b.hi[2] - x.b.lo[2]) >= 0.015);
+  // A niello panel lying on a face is an inlay, not a part: an island whose thinnest side is under 2 mm is a
+  // plate, and it is left out of the count (a ball or a hoop is not thin).
+  const isl = islands(butt).map((t) => ({ t, b: bboxOf(t) }))
+    .filter((x) => Math.max(x.b.hi[0] - x.b.lo[0], x.b.hi[1] - x.b.lo[1], x.b.hi[2] - x.b.lo[2]) >= 0.015)
+    .filter((x) => Math.min(x.b.hi[0] - x.b.lo[0], x.b.hi[1] - x.b.lo[1], x.b.hi[2] - x.b.lo[2]) >= 0.002);
   check(`[${label}] the pommel end is integral: upper guard, ONE pommel shell and a ferrule at most (<= 3 islands of 15 mm or more; no loose balls or hoops)`, isl.length <= 3, `${isl.length} islands in the butt`);
   // butt-end silhouette: the lowest y at each x, across the pommel's own width
   const pommelIsland = isl.slice().sort((a, b) => a.b.lo[1] - b.b.lo[1])[0];
@@ -398,13 +416,15 @@ function swordChecks(styleId) {
   check(`[${label}] the guard and pommel carry a niello panel (dark interlace, at least 4 cm2: Trewhiddle mounts, LORE 5.1)`, inlayArea >= 0.0004, `${(inlayArea * 1e4).toFixed(2)} cm2`);
 
   // ---- the blade: from above the guard to the tip ----
-  const bladeTris = tris.filter((t) => (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.24 && isBladeMetal(t.mi));
-  const bladeAll = tris.filter((t) => (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.24);
+  // the blade zone starts just above the guard (its top is at 0.165) and must include the whole of the fuller's
+  // fade-in, which begins at 0.20: a zone that started at 0.24 read the fuller's first 40 mm from half a section
+  const bladeTris = tris.filter((t) => (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.175 && isBladeMetal(t.mi));
+  const bladeAll = tris.filter((t) => (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.175);
   const ymid = 0.55;
   const sec = slice(bladeAll, 1, ymid);
   const { area, W, T, flatFrac } = sectionStats(sec);
   const fill = area / (W * T);
-  check(`[${label}] blade section is a flat lens, not a rhombus (fill of its bounding box >= 0.72; a diamond is 0.5, HEAD's clipped one 0.62)`, fill >= 0.72, `fill ${fill.toFixed(3)} (${mm(W)} x ${mm(T)})`);
+  check(`[${label}] blade section is a lens or a flat bar, not a rhombus (fill of its bounding box >= 0.66; a diamond is 0.5, HEAD's clipped one 0.62, a lens 0.67, a grooved flat bar 0.72)`, fill >= 0.66, `fill ${fill.toFixed(3)} (${mm(W)} x ${mm(T)})`);
   check(`[${label}] ...and the faces are FLAT (>= 35% of the width within 2 degrees of the face plane: a rhombus has none)`, flatFrac >= 0.35, `${(flatFrac * 100).toFixed(0)}% flat`);
   check(`[${label}] ...and thin enough to be a blade (8-13 : 1 across its width; was 7)`, W / T >= 8 && W / T <= 14, `${(W / T).toFixed(1)} : 1`);
 
@@ -416,8 +436,10 @@ function swordChecks(styleId) {
     const prof = topProfile(s, x0, x1);
     const distEdge = (x) => Math.min(x - x0, x1 - x);
     // the FLAT is the shoulder: 9-15 mm in from the edge, wherever the fuller is not
-    const flatL = medianOf(prof.filter((r) => r.t && isBladeMetal(r.t.mi) && distEdge(r.x) >= 0.009 && distEdge(r.x) <= 0.015 && r.t.mi.L > 45).map((r) => r.t.mi.L));
-    const dark = prof.map((r) => (r.t && Number.isFinite(r.t.mi.L) && Number.isFinite(flatL) && r.t.mi.L <= flatL - 25 ? 1 : 0));
+    const flatL = medianOf(prof.filter((r) => r.t && isBladeMetal(r.t.mi) && !isPattern(r.t.mi) && distEdge(r.x) >= 0.009 && distEdge(r.x) <= 0.015).map((r) => r.t.mi.L));
+    // "dark" is 18 L* under the flat: the issued blade's is 49 under it, and a blackened blade (flat L* 31) cannot have
+    // a fuller 25 under a flat it is itself only 31 above black
+    const dark = prof.map((r) => (r.t && Number.isFinite(r.t.mi.L) && Number.isFinite(flatL) && r.t.mi.L <= flatL - 18 ? 1 : 0));
     // the run of dark texels nearest the centre
     let best = null;
     for (let i = 0; i < dark.length;) {
@@ -502,6 +524,7 @@ function seaxChecks(styleId) {
   const label = styleId;
   console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 0.5`, Math.abs(bb.hi[1] - 0.5) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
+  gripCheck(label, tris, CH.gripsFor("runekeeper").main);
   check(`[${label}] no emissive anywhere (the runes are cut and wire-inlaid, not lit: LORE 5.5, CH-09)`, !tris.some((t) => t.mi.emissive), "");
 
   const blade = tris.filter((t) => isBladeMetal(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.09);
@@ -510,16 +533,26 @@ function seaxChecks(styleId) {
   const tip = bb2.hi[1];
   const heel = Math.max(0.05, bb2.lo[1]);
   const L = tip - heel;
-  // thickness (z extent) 4 mm inboard of each lateral extreme, at y = heel + 30%
+  // thickness (top surface minus bottom surface, by envelope) 4 mm inboard of each lateral extreme, at y = heel + 30%
   const y3 = heel + 0.3 * L;
   const s3 = slice(blade, 1, y3);
   const [x0, x1] = spanOf(s3, 0);
-  const zAt = (x) => { const s = slice(blade, 1, y3).filter((q) => Math.min(q.p1[0], q.p2[0]) <= x && Math.max(q.p1[0], q.p2[0]) >= x); const [a, b] = spanOf(s, 1); return b - a; };
-  const tL = zAt(x0 + 0.004), tR = zAt(x1 - 0.004);
+  const thicknessAt = (x) => {
+    let hi = -Infinity, lo = Infinity;
+    for (const q of s3) {
+      const [a, b] = q.p1[0] <= q.p2[0] ? [q.p1, q.p2] : [q.p2, q.p1];
+      if (x < a[0] || x > b[0]) continue;
+      const u = b[0] - a[0] < 1e-12 ? 0 : (x - a[0]) / (b[0] - a[0]);
+      const z = a[1] + (b[1] - a[1]) * u;
+      hi = Math.max(hi, z); lo = Math.min(lo, z);
+    }
+    return hi - lo;
+  };
+  const tL = thicknessAt(x0 + 0.004), tR = thicknessAt(x1 - 0.004);
   const thick = Math.max(tL, tR), thin = Math.min(tL, tR);
   check(`[${label}] SINGLE-EDGED: one side is a thick spine, the other a thin edge (>= 4 : 1 thickness 4 mm in from each side)`, thin > 0 && thick / thin >= 4, `${mm(thick)} against ${mm(thin)}`);
   const spineSide = tL > tR ? -1 : 1;
-  const spineTop = (() => { const [a, b] = spanOf(slice(blade, 1, y3).filter((q) => (spineSide < 0 ? Math.max(q.p1[0], q.p2[0]) <= x0 + 0.0015 : Math.min(q.p1[0], q.p2[0]) >= x1 - 0.0015)), 1); return b - a; })();
+  const spineTop = thicknessAt(spineSide < 0 ? x0 + 0.003 : x1 - 0.003);
   check(`[${label}] the spine is 6-9 mm thick (a seax back is a bar, not a knife's edge)`, spineTop >= 0.006 && spineTop <= 0.009, mm(spineTop));
 
   // silhouette lines: edge side and spine side, every 5 mm
@@ -570,7 +603,8 @@ function seaxChecks(styleId) {
   for (let y = -0.20; y < heel - 0.004; y += 0.002) { const s = slice(hiltTris, 1, y); const [lo, hi] = spanOf(s, 0); if (s.length) hw = Math.max(hw, hi - lo); }
   check(`[${label}] NO cup guard: nothing in the hilt is wider than 50 mm (a silver bolster, was a 68 mm brass cup)`, hw > 0.02 && hw <= 0.050, `widest hilt slice ${mm(hw)}`);
   // inlay: brass wire in the fuller
-  const wire = tris.filter((t) => t.mi.surface !== "leather" && isBrass(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > heel);
+  // the wire is the brass-coloured steel ABOVE the bolster (a gilt or bronze finish makes the mounts brass too)
+  const wire = tris.filter((t) => t.mi.surface !== "leather" && isBrass(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > heel + 0.02);
   const wireArea = wire.reduce((a, t) => a + t.area, 0);
   check(`[${label}] brass wire inlay is laid in the blade (>= 2.5 cm2 of it: runes and lozenges, Beagnoth)`, wireArea >= 0.00025, `${(wireArea * 1e4).toFixed(2)} cm2`);
   // proud <= 0.4 mm over the surface it lies on
@@ -615,6 +649,7 @@ function axeChecks(form, styleId) {
   const lock = form === "dane" ? 0.997 : 0.401;
   console.log(`\n  -- ${label}  ${tris.length} triangles, top y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: the head's top is where anim.ts reads rig.reach (${lock})`, Math.abs(bb.hi[1] - lock) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
+  gripCheck(label, tris, form === "hand" ? CH.gripsFor("berserker", "hand_axes").main : CH.gripsFor("berserker").main);
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
 
   // the head: every y where something stands more than 42 mm off the haft axis
@@ -631,19 +666,22 @@ function axeChecks(form, styleId) {
   const above = y1 - yAtMax, below = yAtMax - y0;
   const beardX = head.filter((r) => r.y <= y0 + 0.006).reduce((a, r) => Math.max(a, r.x), 0);
   check(`[${label}] the crescent is kept: a BEARD hangs longer than the horn stands (>= 1.3 : 1) and hooks back to the haft (tip <= 0.65 of the full depth)`, below / above >= 1.3 && beardX <= 0.65 * xmax, `beard ${mm(below)} : horn ${mm(above)} = ${(below / above).toFixed(2)}, hook ${(beardX / xmax).toFixed(2)}`);
-  // two materials in the head
+  // two materials in the head: a bit that is BRIGHTER than the cheeks by 20 L* or more (a dark finish darkens both)
   const headTris = tris.filter((t) => Math.max(t.a[0], t.b[0], t.c[0]) > 0.042);
   const facing = headTris.filter((t) => Math.abs(t.n[2]) > 0.35);
-  const bright = facing.filter((t) => isBladeMetal(t.mi) && t.mi.L >= 55).reduce((a, t) => a + t.area, 0);
-  const darkA = facing.filter((t) => t.mi.L <= 40 && (t.mi.surface === "iron" || isBladeMetal(t.mi))).reduce((a, t) => a + t.area, 0);
+  const cheekL = medianOf(facing.filter((t) => t.mi.surface === "iron").map((t) => t.mi.L));
+  const isBit = (mi) => isBladeMetal(mi) && Number.isFinite(cheekL) && mi.L >= cheekL + 20;
+  const bright = facing.filter((t) => isBit(t.mi)).reduce((a, t) => a + t.area, 0);
+  const darkA = facing.filter((t) => t.mi.surface === "iron").reduce((a, t) => a + t.area, 0);
   const tot = facing.reduce((a, t) => a + t.area, 0);
-  check(`[${label}] TWO MATERIALS in the head: a bright steel bit (8-30% of the face) and dark iron cheeks (>= 55%)`, bright / tot >= 0.08 && bright / tot <= 0.30 && darkA / tot >= 0.55, `bit ${(100 * bright / tot).toFixed(0)}%, cheeks ${(100 * darkA / tot).toFixed(0)}%`);
-  // bit strip width, read as the bright run from the edge inward at the deepest slice
+  check(`[${label}] TWO MATERIALS in the head: a steel bit 20 L* brighter than the iron cheeks (8-30% of the face) and the dark iron cheeks (>= 55%)`, bright / tot >= 0.08 && bright / tot <= 0.30 && darkA / tot >= 0.55, `bit ${(100 * bright / tot).toFixed(0)}%, cheeks ${(100 * darkA / tot).toFixed(0)}%`);
+  // bit strip width, read as the bit-coloured run from the edge inward at the deepest slice
   const sM = slice(tris, 1, yAtMax);
   const topM = topProfile(sM.filter((q) => Math.max(q.p1[0], q.p2[0]) > 0.04), xmax - 0.05, xmax, 0.0005);
   let run = 0;
-  for (let i = topM.length - 1; i >= 0; i--) { const r = topM[i]; if (r.t && isBladeMetal(r.t.mi) && r.t.mi.L >= 55) run++; else if (run > 0) break; }
-  check(`[${label}] the bright bit strip is 12-24 mm across`, run * 0.0005 >= 0.012 && run * 0.0005 <= 0.024, mm(run * 0.0005));
+  for (let i = topM.length - 1; i >= 0; i--) { const r = topM[i]; if (r.t && isBit(r.t.mi)) run++; else if (run > 0) break; }
+  const stripLo = form === "dane" ? 0.012 : 0.008, stripHi = form === "dane" ? 0.024 : 0.016;
+  check(`[${label}] the bright bit strip is ${stripLo * 1000}-${stripHi * 1000} mm across`, run * 0.0005 >= stripLo && run * 0.0005 <= stripHi, mm(run * 0.0005));
   // haft is ash, not oak
   const woodTris = tris.filter((t) => t.mi.surface === "ash" || t.mi.surface === "oak");
   const ashA = woodTris.filter((t) => t.mi.surface === "ash").reduce((a, t) => a + t.area, 0);
@@ -668,6 +706,7 @@ function spearChecks(styleId) {
   const label = styleId;
   console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 1.44`, Math.abs(bb.hi[1] - 1.44) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
+  gripCheck(label, tris, CH.gripsFor("warden").main);
   check(`[${label}] overall length 2.06 m (gar: 1.8-2.3 m)`, Math.abs((bb.hi[1] - bb.lo[1]) - 2.06) < 0.006, mm(bb.hi[1] - bb.lo[1]));
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
   const width = (y) => { const s = slice(tris, 1, y); const [lo, hi] = spanOf(s, 0); return s.length ? hi - lo : 0; };
@@ -688,7 +727,16 @@ function spearChecks(styleId) {
   check(`[${label}] two or more rivets (separate islands <= 7 mm) hold the head`, rivets.length >= 2, `${rivets.length} rivet(s)`);
   const leafTris = tris.filter((t) => isBladeMetal(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > 1.1);
   const ironTris = tris.filter((t) => t.mi.surface === "iron" && (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.95);
-  check(`[${label}] two materials: a bright leaf (L* >= 55) over a dark iron socket and wings (L* <= 40)`, leafTris.length > 0 && ironTris.length > 0 && medianOf(leafTris.map((t) => t.mi.L)) >= 55 && medianOf(ironTris.map((t) => t.mi.L)) <= 40, `leaf ${medianOf(leafTris.map((t) => t.mi.L)).toFixed(0)} L*, socket ${medianOf(ironTris.map((t) => t.mi.L)).toFixed(0)} L*`);
+  {
+    // Values, not levels: an oil-blackened or etched head is dark by definition, and what has to survive
+    // is a leaf that reads bright against its own iron socket and wings. (The leaf is mostly bevel, 62% of
+    // its half width a side, so its median is the honed band; the flats are a strip down the middle.)
+    const leafL = medianOf(leafTris.map((t) => t.mi.L));
+    const ironL = medianOf(ironTris.map((t) => t.mi.L));
+    check(`[${label}] two values: a bright leaf (>= 45 L*) over a dark iron socket and wings (<= 40 L*, and >= 20 L* under the leaf)`,
+      leafTris.length > 0 && ironTris.length > 0 && leafL >= 45 && ironL <= 40 && leafL - ironL >= 20,
+      `leaf ${leafL.toFixed(0)} L*, socket and wings ${ironL.toFixed(0)} L*`);
+  }
   const wood = tris.filter((t) => t.mi.surface === "ash" || t.mi.surface === "oak");
   const ashA = wood.filter((t) => t.mi.surface === "ash").reduce((a, t) => a + t.area, 0);
   const woodA = wood.reduce((a, t) => a + t.area, 0);
