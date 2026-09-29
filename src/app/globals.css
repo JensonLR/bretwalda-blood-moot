@@ -690,7 +690,16 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    /* `manipulation`, NOT `pan-y` — F1. `pan-y` forbids pinch-zoom by definition
+       (single-finger vertical panning and nothing else), so removing
+       `maximum-scale=1, user-scalable=no` from the viewport did NOTHING for any
+       menu: every screen this container wraps stayed unzoomable, and D10 would
+       have been marked fixed on the strength of a meta tag. Found by reading
+       this rule while writing `tools/touchtest.mjs`'s zoom control, which pinches
+       the title screen and requires the page to grow, and which is what goes red
+       if `pan-y` comes back. `manipulation` is pan and pinch-zoom without the
+       300ms double-tap delay, so a menu tap is exactly as quick as it was. */
+    touch-action: manipulation;
     user-select: none;
   }
 
