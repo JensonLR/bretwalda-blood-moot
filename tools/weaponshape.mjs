@@ -5,11 +5,12 @@
 //   node tools/weaponshape.mjs              every weapon, every finish, gated
 //   node tools/weaponshape.mjs --shield     also GATE the shield (W-B's parts)
 //   node tools/weaponshape.mjs --mutant=[weapon:]NAME  build a deliberately wrong weapon
-//                                           and require the ruler to catch it. Nine of them:
+//                                           and require the ruler to catch it. Ten of them:
 //                                           sword: hoop-and-balls, wide-guard-pommel
 //                                           spear: fat-leaf, wingless, oak-broomstick
 //                                           seax:  emissive-runes, no-runes
 //                                           axe:   same-iron-bit, long-edge
+//                                           any:   inside-out (the largest steel mesh wound the other way)
 //   node tools/weaponshape.mjs --only=sword|seax|axe|spear|shield|real
 //
 // WHY THIS EXISTS. `docs/PROCESS.md` failure mode 1: a harness that measures
@@ -358,6 +359,20 @@ const mirrorCheck = (label, tris) => {
     `mean ${mean.toFixed(2)}; highest ${hi.metal.toFixed(2)} (${hi.name}), glassiest roughness ${lo.rough.toFixed(2)} (${lo.name})`);
 };
 
+/**
+ * A solid wound inside out is culled to nothing, silently: the frame shows a hole where a blade was and no test in the
+ * repository says why. Every connected piece of 4 cm2 or more has a signed volume (the divergence theorem over its triangles)
+ * that is positive when the triangles wind outward; a piece that is not is a piece the game will not draw. Thin open sheets
+ * (wire quads, the fuller's walls seen alone) have a volume near zero and are under the floor of -50 mm3.
+ */
+const windingCheck = (label, tris) => {
+  const vol = (ts) => { let v = 0; for (const t of ts) v += (t.a[0] * (t.b[1] * t.c[2] - t.b[2] * t.c[1]) - t.a[1] * (t.b[0] * t.c[2] - t.b[2] * t.c[0]) + t.a[2] * (t.b[0] * t.c[1] - t.b[1] * t.c[0])) / 6; return v; };
+  const pieces = islands(tris).filter((ts) => ts.reduce((q, t) => q + t.area, 0) >= 4e-4);
+  const bad = pieces.filter((ts) => vol(ts) < -5e-8);
+  check(`[${label}] every solid winds outward (signed volume >= -50 mm3 on every piece of 4 cm2 or more: an inside-out piece is culled to nothing)`,
+    pieces.length > 0 && bad.length === 0, bad.length ? `${bad.length} of ${pieces.length} pieces inside out, worst ${(Math.min(...bad.map(vol)) * 1e9).toFixed(0)} mm3: ${bad.slice(0, 3).map((ts) => { const b = bboxOf(ts); return `${ts[0].mi.name} at y ${((b.lo[1] + b.hi[1]) / 2).toFixed(3)}, ${((b.hi[0] - b.lo[0]) * 1000).toFixed(0)}x${((b.hi[1] - b.lo[1]) * 1000).toFixed(0)}x${((b.hi[2] - b.lo[2]) * 1000).toFixed(0)} mm`; }).join("; ")}` : `${pieces.length} pieces, all outward`);
+};
+
 // ============================================================
 // MUTANTS - deliberately wrong weapons, to show a check is not vacuous (R3)
 // ============================================================
@@ -388,6 +403,13 @@ function mutate(weapon, group) {
     }
     G.setIndex(keep);
   };
+  if (name === "inside-out") {
+    const big = meshes.filter((m) => STEELS.has(surf(m)) && !isBrass(matInfo(m.material))).sort((a, b) => b.geometry.attributes.position.count - a.geometry.attributes.position.count)[0];
+    const I = big.geometry.index;
+    for (let t = 0; t < I.count; t += 3) { const q = I.getX(t + 1); I.setX(t + 1, I.getX(t + 2)); I.setX(t + 2, q); }
+    I.needsUpdate = true;
+    return "the largest steel mesh wound the other way: the blade culled to nothing";
+  }
   if (weapon === "sword") {
     if (name === "hoop-and-balls") {
       // The right numbers, the wrong object: a 68 mm pommel that is a plain cap with three balls stacked on it.
@@ -457,6 +479,7 @@ function swordChecks(styleId) {
   check(`[${label}] reach lock: the tip is where anim.ts reads it (rig.reach = 1.055)`, Math.abs(bb.hi[1] - 1.055) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("huscarl").main);
   mirrorCheck(label, tris);
+  windingCheck(label, tris);
   check(`[${label}] no emissive anywhere (no magic: LORE 5.5)`, !tris.some((t) => t.mi.emissive), "");
 
   // ---- the grip: the anchor every hilt reading is taken against ----
@@ -614,6 +637,7 @@ function seaxChecks(styleId) {
   check(`[${label}] reach lock: rig.reach = 0.5`, Math.abs(bb.hi[1] - 0.5) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("runekeeper").main);
   mirrorCheck(label, tris);
+  windingCheck(label, tris);
   check(`[${label}] no emissive anywhere (the runes are cut and wire-inlaid, not lit: LORE 5.5, CH-09)`, !tris.some((t) => t.mi.emissive), "");
 
   const blade = tris.filter((t) => isBladeMetal(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.09);
@@ -741,6 +765,7 @@ function axeChecks(form, styleId) {
   check(`[${label}] reach lock: the head's top is where anim.ts reads rig.reach (${lock})`, Math.abs(bb.hi[1] - lock) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, form === "hand" ? CH.gripsFor("berserker", "hand_axes").main : CH.gripsFor("berserker").main);
   mirrorCheck(label, tris);
+  windingCheck(label, tris);
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
 
   // the head: every y where something stands more than 42 mm off the haft axis
@@ -800,6 +825,7 @@ function spearChecks(styleId) {
   check(`[${label}] reach lock: rig.reach = 1.44`, Math.abs(bb.hi[1] - 1.44) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("warden").main);
   mirrorCheck(label, tris);
+  windingCheck(label, tris);
   check(`[${label}] overall length 2.06 m (gar: 1.8-2.3 m)`, Math.abs((bb.hi[1] - bb.lo[1]) - 2.06) < 0.006, mm(bb.hi[1] - bb.lo[1]));
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
   const width = (y) => { const s = slice(tris, 1, y); const [lo, hi] = spanOf(s, 0); return s.length ? hi - lo : 0; };

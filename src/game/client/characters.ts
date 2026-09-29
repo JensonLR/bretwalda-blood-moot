@@ -3487,7 +3487,17 @@ function lensPrism(outline: Array<[number, number]>, thickness: number, inset: n
   fan(front, thickness * 0.5, false);
   fan(back, -thickness * 0.5, true);
 
-  return finish(pos, uv, idx);
+  const g = finish(pos, uv, idx);
+  // The caller's outline may wind either way, and a prism built from a clockwise one is INSIDE OUT: culled to nothing,
+  // silently. The axe's langets were exactly that from the day they were written (their outline runs clockwise), so the
+  // straps down the haft were never drawn. `weaponshape`'s winding check found them; make the volume positive here, once,
+  // as `wfPillow` does, instead of trusting every outline to be counter-clockwise.
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
 }
 
 /**
