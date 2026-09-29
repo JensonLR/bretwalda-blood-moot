@@ -8,7 +8,7 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
-## OPEN 28 Sep 2026 — THREE THINGS THE AUTHORED-MAN INTEGRITY WORK FOUND AND DID NOT CLOSE
+## OPEN 28-29 Sep 2026 — SIX THINGS THE AUTHORED-MAN INTEGRITY WORK FOUND AND DID NOT CLOSE
 
 Found while fixing the head, the pivots and the handedness (`tools/headflip.mjs`,
 `tools/parity.mjs`; the fix is `AuthoredRest` in `authored.ts`). None of them is
@@ -48,6 +48,42 @@ pose gave it (folded once at the swap). It rides the forearm correctly and is no
 re-solved against the clip's guard. It was that way before this change (by
 `parity`'s board probe points it was 1.2-2.1 m off on the tree that shipped); it is
 now in the right place and merely unrefined.
+
+**4. The brief's CARRY TARGETS are not properties of anything in this repository (R10).**
+The unit that finished this work was briefed with "spear ~150 mm outboard of the face
+midline, axe head ~180 mm outboard and 160 mm below the crown". No file, doc or harness
+in the tree states them, and neither man meets them. Measured with `tools/parity.mjs`'s
+own rig, 90 frames of idle, default loadouts, in the warrior's frame, against the
+skull's box midline: applyPose (the armoury / oath / lobby mannequin) — warden's gar
+point 408 mm outboard and 160 mm ABOVE the crown, berserker's great-axe point 470 mm
+outboard and 219 mm below the crown; clip-driven (the arena) — gar point 105 mm outboard
+and 300 mm below the crown but 1.27 m in front of him, great-axe point 215 mm outboard,
+575 mm below the crown and 0.91 m in front. What IS true: the fist is at 0.83-0.97 m in
+every class (hip 0.94-1.07 m, crown 1.87-2.12 m) — belly height — and the authored man's
+carry equals the procedural man's to 0.0 mm in every `applyPose` state (`parity`, gated).
+The fist height itself is NOT gated as an absolute: an absolute bar was tried and dropped
+because it also passes on the pre-fix drive (`parity --naive` puts the fist at 0.90-0.96 m
+too; what the owner saw at the face was the spear SHAFT, from a weapon in the wrong hand,
+not a raised fist), so it could never have failed on the defect (PROCESS R2). If the
+briefed numbers are a design intent they are a change to `STANCE` and to the clips, which
+this work did not make and should not be credited with.
+
+**5. The great axe rides the hand-axes clip.** `clipDriver.ts` never reads the loadout,
+the clips are baked for the loadout `exportrig.mjs` exports (its own copy of the table:
+`berserker: "hand_axes"`, which is not a berserker loadout — the engine's are `dane_axe`,
+the default, and `twin_beards`), so the default berserker's two-hander is carried at the
+angle a 0.4 m hand axe is (`ai1b` kit frames: the head sits out past his shoulder, and in
+the arena the point is 0.9 m in front of him). `tools/lib/authoredrig.mjs` had copied that
+table and so had never posed the default berserker; it reads `ARMS` from the engine now.
+`exportrig.mjs`'s copy is left as found — it decides which fists Blender bakes.
+
+**6. The authored beard and hair render WHITE in the armoury portrait lens** (`ai1b-*-portrait-*`
+frames: light spiky strands on a man whose card, thumbnail and class default are brown or
+black), and they did before this work (the pre-fix neck-stump frames carry the same white
+specks at the collar). The props are Blender's `hairStrand` ribbons with a flat glTF
+material that `materials.tinted()` cannot resolve (`RENDER-PATHS` section B); colour and
+lighting are the hair/beard stream's, and no rest frame or mirror in this work can
+explain them.
 
 ---
 
