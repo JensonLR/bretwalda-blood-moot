@@ -22354,7 +22354,11 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     if (!pos) return;
     if (name === `${RIG_TAG}torso`) { torsoMesh.push(mesh); return; }
     if (name === `${RIG_TAG}neck`) { neckMesh.push(mesh); return; }
-    if (name === `${RIG_TAG}head` && hex === "c99d75") {
+    // The head's skin, by being ANY tone's base and not by being one literal: this said `hex === "c99d75"`, which was the base
+    // of the tone this seed happened to draw before the table was re-graded, and after it no head matched, `mentonY` stayed
+    // at infinity, every beard vertex counted as hanging below a menton that did not exist, and sixteen rungs read 45-58 mm
+    // "in the neck" (wearmeasure section 7 and the block of cosmetictest that quotes it).
+    if (name === `${RIG_TAG}head` && hex && SKIN_TONES.some((t) => t.base.toString(16).padStart(6, "0") === hex)) {
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
         if (v.y < mentonY) mentonY = v.y;
