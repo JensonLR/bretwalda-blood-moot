@@ -240,3 +240,6 @@ tools/blender/**/__pycache__/
 .eyeclip/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
+
+# the face rulers' tsc scratch (tools/facemap.mjs, facecontrast.mjs, faceclass.mjs, lib/facecard.mjs)
+.faceprobe/

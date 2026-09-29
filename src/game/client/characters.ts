@@ -2759,6 +2759,22 @@ function clothRepeat(girth: number): number {
 // ==== IRIS COLOURS (owner: U5) ====
 
 
+/**
+ * The head's skin tile, in metres: 2.2 mm.
+ *
+ * It was a `const` inside `buildCharacter`, a hundred lines under the note that argues for it,
+ * and `render/authoredSkin.ts` needs the same number for the authored head: the export
+ * bakes the skin as a 35 mm cube projection, and the head's own texture repeat is set from
+ * THIS so the two men wear one grain. The argument for 2.2 mm is where it always was (the
+ * FACE_TILE note in `buildCharacter`: an FFT of a portrait frame returns the tile itself, so
+ * the repeat has to be under the resolving limit, and the variation that costs comes back in
+ * `faceComplexion`).
+ */
+export const FACE_TILE = 0.0022;
+
+/** The colour of the dark in an eye's opening: pupil, limbal ring, lid shadow, mouth slot, nostril. Hoisted for the authored eye's remap. */
+export const FACE_DARK = 0x1a1310;
+
 // Iris colours, as ALBEDO. Five, and they are all at L* 28 or more.
 //
 // The five that stood here were 0x33241a, 0x241810, 0x3d4a44, 0x4a5c66, 0x5a4528
@@ -13948,7 +13964,6 @@ export function buildCharacter(
   // `faceComplexion`, which is the right home for it anyway: it is written in the
   // skull's own direction space, it is on no lattice at all, and it is already
   // where every other thing that varies across a face lives.
-  const FACE_TILE = 0.0022;
   const faceTile = (color: number, roughness: number) => {
     if (thrifty) return skin;
     const m = M.tinted("skin", color, { roughness, tile: FACE_TILE });
@@ -14119,7 +14134,7 @@ export function buildCharacter(
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
   const furLock = pelt(2 * Math.PI * 0.024);
   const furPelt = pelt(0.3);
-  const dark = M.standard(0x1a1310, 0.42);
+  const dark = M.standard(FACE_DARK, 0.42);
   const rune = M.get("runeGlow");
   const cloakMat = cloth(cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people), bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
