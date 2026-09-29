@@ -5335,7 +5335,12 @@ export function faceLandmarks(cls: WarriorClass, identity = 0): FaceLandmarks {
       const zz = Math.sqrt(Math.max(1e-8, GLOBE * GLOBE - x * x - y * y));
       return P(f.c.clone().addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz));
     };
-    const mid = (f.wA + 0.0061) * 0.5;
+    // The iris sits where the GAZE puts it and the lids sit where the SOCKET puts them, and the socket's axis is splayed
+    // outward from the gaze's by about 20 degrees, so the iris is nearer the medial corner than the middle of the
+    // aperture (measured off the huscarl card: white 5.6 mm nasal of it, 11.3 lateral). The middle of the white each
+    // side of the iris is therefore not at plus and minus a fixed distance from the globe's centre; it is halfway
+    // between the iris's edge and the corner, on each side of where the iris actually is.
+    const xi = f.gaze.fwd.dot(f.lat) * (GLOBE + 0.0005);
     eyes.push({
       side,
       centre: P(f.c),
@@ -5345,7 +5350,7 @@ export function faceLandmarks(cls: WarriorClass, identity = 0): FaceLandmarks {
       // the midline: the −x end of the +x eye and the +x end of the −x eye.
       medial: side > 0 ? lid(true, 0) : lid(true, 1),
       lateral: side > 0 ? lid(true, 1) : lid(true, 0),
-      sclera: [scl(-mid), scl(mid)],
+      sclera: [scl((-f.wA + xi - 0.0061) * 0.5), scl((xi + 0.0061 + f.wA) * 0.5)],
       aperture,
     });
   }

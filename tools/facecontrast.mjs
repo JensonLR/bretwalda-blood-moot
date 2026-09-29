@@ -27,8 +27,13 @@
 //   sclera      the white of the eye is LIGHTER than the skin: between skin L* + 5 and + 25. Both sides of the iris are
 //               read and the lighter one is the sclera (the other may sit in a lid's shade). A grey sclera fails low, a
 //               lamp fails high.
-//   iris        the iris is not a black bead: mean L* of 20 or more, and it carries a HIGHLIGHT (a pixel 20 L* above the
-//               iris's own median): a catchlight is what makes an eye look wet and looked-at.
+//   iris        the iris is not a black bead: mean L* of 20 or more over its disc (the pupil is in the disc: a real iris
+//               has one, and it is still 20).
+//   glint       the iris carries a HIGHLIGHT: a pixel at L* 60 or more AND 20 or more above the iris's own median, read
+//               inside the inner four fifths of the disc so the sclera and the lid at its rim cannot supply it (the
+//               absolute floor is what keeps a grey sclera pixel at the rim from counting: it is 20 above a black
+//               iris and it is not a light). A catchlight is what makes an eye look wet and looked-at, and the plan's
+//               frame has none.
 //   brow        the brow is dark against the forehead (by 12 L*, so it is there) and is NOT ink: between hair L* + 4 and
 //               + 14. The hair reference is the frame's own hair when the card has any and otherwise `--hair-l`
 //               (default 20, the plan's lit-hair band 18-30) and it is printed either way.
@@ -68,13 +73,14 @@ const BARS = {
   socketDL: 8,          // cheek L* minus socket L*
   lipDE: 6,             // CIE76
   scleraLo: 5, scleraHi: 25,   // sclera L* minus skin L*
-  irisL: 20, irisHighlight: 20,
+  irisL: 20, irisHighlight: 20, glintFloor: 60,
   browContrast: 12, browLo: 4, browHi: 14,
   latticePeak: 0.15,
   stepL: 6, stepMm: 4,
 };
 const FACING = 0.35;      // a window is read only where the surface is at least this square to the lens
-const EYE_FACING = 0.5;
+const EYE_FACING = 0.7;   // an eye is read only when it faces the lens this squarely: at three-quarter the far eye is behind the nose bridge
+const WIN_FACING = 0.5;   // and a sclera window is read only where its own patch of the globe does
 
 function pngsUnder(p) {
   if (!existsSync(p)) throw new Error(`no such path: ${p}`);
@@ -130,19 +136,19 @@ function readCard(img, lm, lab) {
   for (const e of lm.eyes) {
     if (!vis(e.iris, EYE_FACING)) { R.eyes.push({ side: e.side, hidden: true }); continue; }
     const rI = Math.max(2, e.irisR * 1000 / lm.mmPerPx);
-    const sw = e.sclera.map((p) => { mark("sclera", p, 1.3, { side: e.side }); return win(p, 1.3); }).filter(Boolean);
+    const sw = e.sclera.filter((p) => vis(p, WIN_FACING)).map((p) => { mark("sclera", p, 1.3, { side: e.side }); return win(p, 1.3); }).filter(Boolean);
     const scleraL = sw.length ? Math.max(...sw.map((c) => c[0])) : NaN;
-    // the iris disc, and the highlight inside it
-    const inner = [];
+    // the iris disc (the pupil is in it: a real iris has one), and the catchlight inside its inner four fifths, which is
+    // where a highlight on the wet globe sits and where the sclera and the lid at the rim are not
+    const disc = [], core = [];
     for (let j = Math.floor(e.iris.y - rI); j <= Math.ceil(e.iris.y + rI); j++) for (let i = Math.floor(e.iris.x - rI); i <= Math.ceil(e.iris.x + rI); i++) {
       if (i < 0 || j < 0 || i >= lab.w || j >= lab.h) continue;
-      if ((i - e.iris.x) ** 2 + (j - e.iris.y) ** 2 <= rI * rI) inner.push(lab.L[j * lab.w + i]);
+      const d2 = (i - e.iris.x) ** 2 + (j - e.iris.y) ** 2;
+      if (d2 <= (0.85 * rI) ** 2) disc.push(lab.L[j * lab.w + i]);
+      if (d2 <= (0.8 * rI) ** 2) core.push(lab.L[j * lab.w + i]);
     }
-    mark("iris", e.iris, e.irisR * 1000, { side: e.side });
-    const irisL = inner.length ? mean(inner) : NaN;
-    const irisMed = inner.length ? median(inner) : NaN;
-    const irisMax = inner.length ? Math.max(...inner) : NaN;
-    R.eyes.push({ side: e.side, scleraL, irisL, highlight: irisMax - irisMed, irisMax });
+    mark("iris", e.iris, e.irisR * 850, { side: e.side });
+    R.eyes.push({ side: e.side, scleraL, irisL: disc.length ? mean(disc) : NaN, highlight: core.length ? Math.max(...core) - median(core) : NaN, glintL: core.length ? Math.max(...core) : NaN });
   }
 
   // ---- the brow ----
@@ -193,8 +199,10 @@ function checksOf(R, lattice) {
     const s = e.scleraL - R.skinL;
     push(`sclera ${e.side < 0 ? "L" : "R"}`, true, s, has(s) && s >= BARS.scleraLo && s <= BARS.scleraHi,
       `sclera L* ${fmt(e.scleraL)} vs skin L* ${fmt(R.skinL)}: ${s >= 0 ? "+" : ""}${fmt(s)}  (bar +${BARS.scleraLo}..+${BARS.scleraHi})`);
-    push(`iris ${e.side < 0 ? "L" : "R"}`, true, e.irisL, has(e.irisL) && e.irisL >= BARS.irisL && e.highlight >= BARS.irisHighlight,
-      `iris L* ${fmt(e.irisL)} (bar >= ${BARS.irisL}), highlight ${fmt(e.highlight)} L* over its median (bar >= ${BARS.irisHighlight})`);
+    push(`iris ${e.side < 0 ? "L" : "R"}`, true, e.irisL, has(e.irisL) && e.irisL >= BARS.irisL,
+      `iris L* ${fmt(e.irisL)} over the disc (bar >= ${BARS.irisL}; a black bead is 6)`);
+    push(`glint ${e.side < 0 ? "L" : "R"}`, true, e.highlight, has(e.highlight) && e.highlight >= BARS.irisHighlight && e.glintL >= BARS.glintFloor,
+      `brightest pixel of the iris L* ${fmt(e.glintL)} (bar >= ${BARS.glintFloor}: a highlight, not a white rim), ${fmt(e.highlight)} over its median (bar >= ${BARS.irisHighlight})`);
   }
   if (R.browL !== undefined) {
     const lo = HAIR_L + BARS.browLo, hi = HAIR_L + BARS.browHi;
@@ -223,13 +231,15 @@ function drawOverlay(img, R, lm, path) {
 }
 
 /** R1: paint the named feature on a copy of the picture at the landmark and hand the copy back. */
-function paint(img, R, kind, rgb, radiusPx) {
+function paint(img, R, kind, rgb, radiusPx, at = null) {
   const out = { ...img, data: new Uint8Array(img.data) };
   for (const w of R.windows) {
     if (w.kind !== kind) continue;
     const r = radiusPx ?? Math.ceil(w.r) + 1;
-    for (let j = Math.floor(w.y - r); j <= Math.ceil(w.y + r); j++) for (let i = Math.floor(w.x - r); i <= Math.ceil(w.x + r); i++) {
-      if (i < 0 || j < 0 || i >= img.w || j >= img.h || (i - w.x) ** 2 + (j - w.y) ** 2 > r * r) continue;
+    // `at` puts the dot off the window's centre by a fraction of its radius (a catchlight is a point, not a disc)
+    const cx = w.x + (at ? at[0] * w.r : 0), cy = w.y + (at ? at[1] * w.r : 0);
+    for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) {
+      if (i < 0 || j < 0 || i >= img.w || j >= img.h || (i - cx) ** 2 + (j - cy) ** 2 > r * r) continue;
       const o = (j * img.w + i) * img.ch; out.data[o] = rgb[0]; out.data[o + 1] = rgb[1]; out.data[o + 2] = rgb[2];
     }
   }
@@ -247,7 +257,7 @@ const CH = await loadCharacters();
 const lens = cardLens(CH);
 
 const table = new Map();   // check family -> { read: n, failed: n, cards: [] }
-let failed = 0, blind = 0, cards = 0;
+let failed = 0, blind = 0, cards = 0, leverFailed = 0;
 for (const f of files) {
   const card = parseCardName(f);
   if (!card) { console.log(`[facecontrast] ${basename(f)}: not a face card name, skipped`); continue; }
@@ -283,14 +293,15 @@ for (const f of files) {
       ["lip", [176, 98, 92], 2, (a, b) => (b.lipDE ?? NaN) - (a.lipDE ?? NaN), 5, "lip dE rises"],
       ["socket", [70, 48, 38], 3, (a, b) => (b.socketDL ?? NaN) - (a.socketDL ?? NaN), 8, "socket dL rises"],
       ["iris", [70, 100, 120], 2, (a, b) => (b.eyes.find((e) => !e.hidden)?.irisL ?? NaN) - (a.eyes.find((e) => !e.hidden)?.irisL ?? NaN), 10, "iris L* rises"],
+      ["glint", [255, 252, 240], 0, (a, b) => (b.eyes.find((e) => !e.hidden)?.highlight ?? NaN) - (a.eyes.find((e) => !e.hidden)?.highlight ?? NaN), 15, "catchlight rises", "iris", [-0.35, -0.35]],
     ];
-    for (const [kind, rgb, rad, delta, need, what] of tries) {
-      if (!R.windows.some((w) => w.kind === kind)) { moves.push(`${kind}: no window on this card`); continue; }
-      const after = readAfter(paint(img, R, kind, rgb, rad ? rad + Math.max(...R.windows.filter((w) => w.kind === kind).map((w) => w.r)) : undefined));
+    for (const [name, rgb, rad, delta, need, what, kind = name, at = null] of tries) {
+      if (!R.windows.some((w) => w.kind === kind)) { moves.push(`${name}: no window on this card`); continue; }
+      const after = readAfter(paint(img, R, kind, rgb, rad ? rad + Math.max(...R.windows.filter((w) => w.kind === kind).map((w) => w.r)) : (at ? 1.2 : undefined), at));
       const d = delta(R, after);
       const moved = Number.isFinite(d) && Math.abs(d) >= need;
-      if (!moved) failed++;
-      moves.push(`${kind}: ${what} by ${fmt(d)} (needs ${need}) ${moved ? "MOVED" : "DID NOT MOVE"}`);
+      if (!moved) leverFailed++;
+      moves.push(`${name}: ${what} by ${fmt(d)} (needs ${need}) ${moved ? "MOVED" : "DID NOT MOVE"}`);
     }
     console.log(`  LEVER ${label}: ${moves.join(" | ")}`);
   }
@@ -303,8 +314,8 @@ for (const [fam, t] of table) {
   console.log(`  ${fam.padEnd(9)} read ${String(t.read).padStart(2)}  red ${String(t.failed).padStart(2)}${b ? "  BLIND: nothing was read on any card" : ""}${t.failed ? `   (${[...new Set(t.cards)].slice(0, 6).join(", ")}${t.cards.length > 6 ? ", ..." : ""})` : ""}`);
 }
 if (LEVER) {
-  console.log(failed ? `[facecontrast] LEVER: ${failed} feature(s) did not follow the picture: the ruler is not reading where it says it reads` : "[facecontrast] LEVER: every painted feature moved its own reading");
-  process.exit(failed ? 1 : 0);
+  console.log(leverFailed ? `[facecontrast] LEVER: ${leverFailed} feature(s) did not follow the picture: the ruler is not reading where it says it reads` : "[facecontrast] LEVER: every painted feature moved its own reading");
+  process.exit(leverFailed ? 1 : 0);
 }
 console.log(failed || blind
   ? `[facecontrast] FAIL: ${failed} reading(s) red over ${cards} card(s)${blind ? `, and ${blind} check(s) BLIND (nothing read; a blind check is not a clean one)` : ""}`

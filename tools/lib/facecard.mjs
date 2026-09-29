@@ -169,38 +169,75 @@ export function facing(CH, cam, cls, point, normalBody) {
 // ---- registration ----------------------------------------------------------
 
 /**
- * Fit the landmark set to the image: a shift and a scale, chosen so that the parts a
- * face has DARK — the iris and pupil, the brows, the nostrils, the mouth line — land
- * on pixels darker than the ring of skin around them.
+ * Fit the landmark set to the image: a shift and a scale, in two stages.
  *
- * Contrast against a ring, not darkness alone: the hair above the forehead is darker
- * than any of these, and a fit that maximised darkness would slide the whole set up
- * into it. A brow or a nostril is dark AGAINST ITS SURROUNDINGS, and hair has no
- * surroundings to be dark against. It fits at every bearing because every part it uses
- * is a feature a portrait can see: at 0 both eyes and both brows, at -35 the near eye,
- * at -90 the nostril and the mouth line.
+ * STAGE 1 FINDS THE EYES, because they are the one part of a face that is a compact dark thing surrounded on ALL
+ * sides by something lighter: a pupil inside its iris inside the white and the lids. (The brows are dark and so are
+ * the hair and the nostrils, and a fit on "dark features" alone slid the whole landmark set onto the brows twice.)
+ * The detector is `min(ring) - disc`: the darkest of eight samples 10 px out, minus the mean of a 3 px disc. A bar
+ * (a brow, a hairline) has dark neighbours along its length and scores nothing; a pupil scores 20 to 50. The two
+ * strongest blobs that are a plausible interpupillary distance apart and level are the eyes, and they fix the
+ * shift and the scale outright. Where only one eye faces the lens (three-quarter, profile) the strongest single
+ * blob near a model iris that faces the lens fixes the shift and the scale is held.
  *
- * Coarse then fine. Returns `{ dx, dy, k, score }`; the caller PRINTS it.
+ * STAGE 2 REFINES within a few pixels on everything the lens can see (irises, brows, nostrils, the mouth line).
+ *
+ * Returns `{ dx, dy, k, score, found }`; the caller PRINTS it. `found` is how many eye blobs stage 1 used.
  */
 export function register(CH, lens, lab, cls, turn, opts = {}) {
-  const span = opts.span ?? 40;
-  const KMIN = opts.kmin ?? 0.96, KMAX = opts.kmax ?? 1.06;
   const at = (reg) => landmarksOnCard(CH, lens, cls, turn, reg);
   const base = at({ dx: 0, dy: 0, k: 1 });
-  // Which features to look for. An eye is dark against its ring only where the lens sees it, and
-  // the far eye at -35 and both at -90 are not that; the near-facing test is the projected IPD.
-  const feats = [];
   const FACE_MIN = 0.35;   // a feature on the far side of the head is not a feature the card can be asked about
+  const eyesSeen = base.eyes.filter((e) => e.iris.facing >= 0.5);
+  const rel = base.eyes.map((e) => e.iris);
+  const mid = { x: (rel[0].x + rel[1].x) / 2, y: (rel[0].y + rel[1].y) / 2 };
+  const ipd = Math.hypot(rel[0].x - rel[1].x, rel[0].y - rel[1].y);
+  const ringOf = (x, y) => {
+    let lo = 1e9;
+    for (let a = 0; a < 8; a++) { const q = discLab(lab, x + Math.cos(a * Math.PI / 4) * 10, y + Math.sin(a * Math.PI / 4) * 10, 1.5); if (!q) return -1e9; lo = Math.min(lo, q[0]); }
+    return lo;
+  };
+  // ---- stage 1: the compact dark blobs, within reach of where the model says the eyes are ----
+  const R = opts.reach ?? 90;
+  const cx = mid.x, cy = mid.y;
+  const blobs = [];
+  for (let y = Math.max(12, Math.round(cy - R)); y <= Math.min(lab.h - 13, Math.round(cy + R)); y += 2) {
+    for (let x = Math.max(12, Math.round(cx - R * 1.6)); x <= Math.min(lab.w - 13, Math.round(cx + R * 1.6)); x += 2) {
+      const d = discLab(lab, x, y, 3);
+      if (!d || d[0] > 45) continue;
+      const c = ringOf(x, y) - d[0];
+      if (c > 12) blobs.push({ x, y, c });
+    }
+  }
+  blobs.sort((p, q) => q.c - p.c);
+  const peaks = [];
+  for (const b of blobs) if (!peaks.some((p) => Math.hypot(p.x - b.x, p.y - b.y) < 14) && peaks.length < 8) peaks.push(b);
+  let fit = null;
+  if (eyesSeen.length === 2) {
+    let best = null;
+    for (let i = 0; i < peaks.length; i++) for (let j = i + 1; j < peaks.length; j++) {
+      const [L, Rr] = peaks[i].x < peaks[j].x ? [peaks[i], peaks[j]] : [peaks[j], peaks[i]];
+      const d = Math.hypot(Rr.x - L.x, Rr.y - L.y);
+      const k = d / ipd;
+      if (k < 0.9 || k > 1.12 || Math.abs(Rr.y - L.y) > 0.16 * d) continue;
+      const sc = L.c + Rr.c;
+      if (!best || sc > best.sc) best = { sc, k, x: (L.x + Rr.x) / 2, y: (L.y + Rr.y) / 2 };
+    }
+    if (best) fit = { k: best.k, dx: best.x - mid.x, dy: best.y - mid.y, found: 2 };
+  } else if (eyesSeen.length === 1 && peaks.length) {
+    const e = eyesSeen[0].iris;
+    // the peak nearest the model's near eye (the strongest within reach is usually it)
+    const near = peaks.filter((p) => Math.hypot(p.x - e.x, p.y - e.y) < R * 1.2).sort((p, q) => q.c - p.c)[0];
+    if (near) fit = { k: 1, dx: near.x - e.x, dy: near.y - e.y, found: 1 };
+  }
+  if (!fit) return { dx: 0, dy: 0, k: 1, score: -1, found: 0 };
+  // ---- stage 2: refine on everything the lens sees ----
+  const feats = [];
   const add = (p, r, w) => { if (p.facing >= FACE_MIN) feats.push({ p, r, w }); };
   for (const e of base.eyes) add(e.iris, 3.2, 3);
   for (const b of base.brows) for (const i of [2, 4, 6]) add(b.points[i], 2, 0.7);
   for (const n of base.nostrils) add(n, 2, 1);
   add(base.mouth.stomion, 2, 1.2);
-  const rel = base.eyes.map((e) => e.iris);
-  const mid = { x: (rel[0].x + rel[1].x) / 2, y: (rel[0].y + rel[1].y) / 2 };
-  // Contrast against the WEAKEST point of the ring: a dark blob that is dark against every side of
-  // itself. A dark disc on the hairline is dark against the skin below it and not against the hair
-  // above, so it scores nothing; a pupil, a nostril and a mouth line are dark against all of theirs.
   const scoreOf = (dx, dy, k) => {
     let sc = 0, wsum = 0;
     for (const f of feats) {
@@ -211,26 +248,20 @@ export function register(CH, lens, lab, cls, turn, opts = {}) {
       for (let a = 0; a < 8; a++) { const q = discLab(lab, x + Math.cos(a * Math.PI / 4) * f.r * 3.4, y + Math.sin(a * Math.PI / 4) * f.r * 3.4, 1.5); if (q) ring.push(q[0]); }
       if (ring.length < 6) continue;
       ring.sort((p, q) => p - q);
-      // the second-weakest side, so a single stray shadow or a lash cannot veto a true feature
       sc += f.w * Math.max(-20, ring[1] - c[0]); wsum += f.w;
     }
     return wsum ? sc / wsum : -1e9;
   };
-  let best = { dx: 0, dy: 0, k: 1, score: -1e9 };
-  for (let k = KMIN; k <= KMAX + 1e-9; k += 0.01)
-    for (let dy = -span; dy <= span; dy += 2)
-      for (let dx = -span * 1.2; dx <= span * 1.2; dx += 2) {
-        const sc = scoreOf(dx, dy, k);
-        if (sc > best.score) best = { dx, dy, k, score: sc };
-      }
-  for (let step = 1; step >= 0.25; step /= 2) {
+  let best = { dx: fit.dx, dy: fit.dy, k: fit.k, score: scoreOf(fit.dx, fit.dy, fit.k), found: fit.found };
+  for (let step = 2; step >= 0.25; step /= 2) {
     let moved = true;
     while (moved) {
       moved = false;
       for (const [ddx, ddy, dk] of [[step, 0, 0], [-step, 0, 0], [0, step, 0], [0, -step, 0], [0, 0, 0.004], [0, 0, -0.004]]) {
-        const c = { dx: best.dx + ddx, dy: best.dy + ddy, k: best.k + dk };
+        const c = { dx: best.dx + ddx, dy: best.dy + ddy, k: fit.found === 2 ? best.k + dk : 1 };
+        if (Math.hypot(c.dx - fit.dx, c.dy - fit.dy) > 6 || Math.abs(c.k - fit.k) > 0.03) continue;
         const sc = scoreOf(c.dx, c.dy, c.k);
-        if (sc > best.score + 1e-6) { best = { ...c, score: sc }; moved = true; }
+        if (sc > best.score + 1e-6) { best = { ...c, score: sc, found: fit.found }; moved = true; }
       }
     }
   }
