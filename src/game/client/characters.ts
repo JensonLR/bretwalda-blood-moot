@@ -347,6 +347,11 @@ export interface FinishKit {
  *     "yellow gaiters" and as a greave in the lore's own trap list. Real wraps were
  *     undyed grey-fawn or dyed like the rest. The face, the hands and the steel are
  *     the brightest things on a man; a wrap is never the brightest cloth.
+ *     The seven are picked to stay SEVEN: inside that little gamut each pair of wraps
+ *     is at least CIELAB dE 7.1 from every other (moorit-fawn, cool grey, soot, walnut
+ *     tan, rose-grey, woad-grey, weld-grey), the floor the shop's own table had before
+ *     the re-grade (7.18), because `factionread` 5.1b asks whether any two finishes are
+ *     one swatch on a surface and a first pass at this row put two at dE 1.70.
  *   * THE ISSUED MAIL IS NEUTRAL IRON, #64666a (L* 43.1, C* 2.5), not #5f6b7a
  *     (h 264: blue), and the issued fittings are cast bronze, #a07c45 (L* 54.4),
  *     not the #bfa25c (L* 67.8, C* 40.1) that read as yellow plastic on every man.
@@ -362,29 +367,63 @@ export const FINISH_KIT: Record<number, FinishKit> = {
   0x5f6b7a: { mail: 0x64666a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x7a6d58, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xa07c45 },
   // Polished Steel — everything on him goes cool and a shade brighter. Slate
   // wool, undyed grey wraps, tinned-bronze fittings that match the shirt.
-  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0x717069, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0x6f787e, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
   // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
   // fittings go to dark iron; brass buttons would undo the whole finish.
-  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x706a5f, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6b6865, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
   // Bronze Scales — the warm end. Walnut-dyed trousers, oat wraps, tan harness
   // and true cast bronze, so the whole man reads as one metal's worth of warmth.
-  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0x7c715c, hide: 0x513418, buff: 0x8d6b3c, fitting: 0xc79a4a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0x866b5f, hide: 0x513418, buff: 0x8d6b3c, fitting: 0xc79a4a },
   // Crimson Warplate — madder. The dyestuff that actually made a Dark Age man
   // look rich, on the tunic and the trousers and pulled through the leather; wraps
   // stay a rose-grey so the legs still break into two values at fight distance.
   // As worn madder is #743a30 on the mail (LORE 7.1 "deep", L* 31.7, C* 30.2) and
   // #85453a on the tunic (L* 37.0, C* 32.3): a brick, not a blood.
-  0x7a2f2a: { mail: 0x743a30, tunic: 0x85453a, trouser: 0x5d2d29, wrap: 0x7f6b66, hide: 0x46201a, buff: 0x8a5241, fitting: 0xa07c45 },
+  0x7a2f2a: { mail: 0x743a30, tunic: 0x85453a, trouser: 0x5d2d29, wrap: 0x7d6a69, hide: 0x46201a, buff: 0x8a5241, fitting: 0xa07c45 },
   // Sea Queen's Gift — woad, the other expensive vat, and the only cold blue on
   // the roster. Fittings go pewter rather than gold for the same reason.
-  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x69737b, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x5b6c7e, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
   // Bretwalda Gold — weld yellow over everything and fire-gilt fittings. The top
   // of the ladder, and now the only finish where the trousers, the wraps, the
   // belt and the brooch are all saying the same thing. Weld as worn is the DULL
   // one, #a89357 (LORE 7.1: L* 61.6, C* 34.5): the fresh weld the row used to carry
   // at C* 46.7 is a colour that fades in a season, and the gold is in the gilt.
-  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x78705d, hide: 0x4d3a14, buff: 0x957844, fitting: 0xdcc164 },
+  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x787867, hide: 0x4d3a14, buff: 0x957844, fitting: 0xdcc164 },
 };
+
+/**
+ * THE DYE LOT: the seven rows as they stood BEFORE the as-worn re-grade, which is what the four peoples' vats work
+ * from. Frozen, and not a second palette: it is the INPUT of `factionKit`, while `FINISH_KIT` above is what a man
+ * wears when nobody has sworn him to anything.
+ *
+ * WHY THE VATS DO NOT SEE THE RE-GRADED ROWS. A vat does not repaint cloth, it adds dyestuff to what is already
+ * there and snaps the sum onto the field's hue (`factionDye`), so the CHROMA of what comes out is the chroma of what
+ * went in: a saturated weld-yellow leg wrap goes into the woad vat and comes out a strong pale blue, a faded one comes
+ * out a grey. The re-grade took every worn cell under C* 35 and every wrap to L* 44-50; fed to the vats, that moved
+ * `factionread` 1.3 (does every sworn man's hue land nearer his own people's field than any other's?) from 2 readings
+ * more than 5 degrees off the field to 32, measured on the shipped resolver over the whole 1680-reading roster (the
+ * Norse huscarl 11 and warden 5, the Pict berserker 16; in Bretwalda Gold, Blackened Steel and Bronze Scales), and 11
+ * of them, every one the sworn Pict berserker in Bretwalda Gold, more than 100 degrees off. A berserker wears no tunic
+ * and no mail, so the trousers, the wraps and the harness are all a vat has to dye on him, and the wraps were what
+ * carried his chroma. So the peoples keep the colours they were tuned on, byte for byte (1.3 reads 2 again), and the
+ * as-worn re-grade of what a SWORN man wears is the FACTION rows' own (CHAR-PLAN U6, DEFERRED: `tools/chromabudget.mjs`
+ * reports the 63 of 180 vat cells that are still over C* 35 and says so on its verdict line). A team's vat re-dyes from
+ * the worn row (`kitFor`): it keeps a surface's lightness and forces its own chroma, so a war band's read is the
+ * re-graded man's, and `tools/teamread.mjs` measures it.
+ */
+const FINISH_LOT: Record<number, FinishKit> = {
+  0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  0x7a2f2a: { mail: 0x7a2f2a, tunic: 0x8a3730, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  0x9a7a2a: { mail: 0x9a7a2a, tunic: 0x8a6f2c, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
+};
+/** Row -> its dye lot, by object identity (`finishKit` hands back the very row). A kit that is not a row - a hue-derived one - is its own lot. */
+const LOT_OF = new WeakMap<FinishKit, FinishKit>(
+  Object.keys(FINISH_LOT).map((k) => [FINISH_KIT[Number(k)], FINISH_LOT[Number(k)]] as [FinishKit, FinishKit]),
+);
 
 /**
  * The kit for a stored finish. Anything not in the table — a retired hex that
@@ -669,7 +708,8 @@ export function setTeamContrast(on: boolean): void {
  * silhouette with nothing in it.
  *
  * The band exists because the two ends of that range do not survive dyeing.
- * Blackened Steel's harness is at l 0.09 and Bretwalda Gold's wraps at 0.66;
+ * Blackened Steel's harness is at l 0.09 and Bretwalda Gold's wraps WERE at 0.66
+ * (before the as-worn re-grade, which put every wrap at L* 44-50);
  * below the floor a red is indistinguishable from black at fight distance and
  * above the ceiling it washes to pink, and both of those are the failure this
  * rule exists to prevent.
@@ -1251,18 +1291,27 @@ const HUE_CONE = 0.022;
  * the shop already sells, because that brightness is what the arena's fire key
  * was exposed for:
  *
- *   * a CLOAK is measured against `CLOAK_COLORS` — the four cloaks a player can
- *     buy, of which the 400 gold Gilded War Cloak is the brightest. That is the
- *     control `tools/factionread.mjs` §6 uses, and it is the right comparison
- *     because a cloak is one flat field over the largest single area on a man.
- *   * a KIT surface is measured against `FINISH_KIT` — the seven rungs, whose
- *     brightest surface is Bretwalda Gold's leg wraps. A vat that lifts a
- *     surface past those has stopped dyeing wool and started emitting light.
+ *   * a CLOAK is measured against the cloaks a player can buy, of which the 400 gold
+ *     Gilded War Cloak is the brightest. That is the control `tools/factionread.mjs`
+ *     §6 uses, and it is the right comparison because a cloak is one flat field over
+ *     the largest single area on a man.
+ *   * a KIT surface is measured against the seven rungs, whose brightest surface is
+ *     Bretwalda Gold's leg wraps. A vat that lifts a surface past those has stopped
+ *     dyeing wool and started emitting light.
  *
- * Both are computed from those tables at first use, so a new cloak or a new
- * finish moves the ceiling with it and there is no second number to drift. The
- * bend is asymptotic rather than a clamp, for the reason `softBand` gives: a
- * clamp has zero slope, and zero slope is where paid rungs go to die.
+ * They WERE computed from `FINISH_KIT` and `CLOAK_COLORS` at first use, so that a new
+ * cloak or a new finish moved the ceiling with it and there was no second number to
+ * drift. THAT COUPLING IS CUT, and the reason is the re-grade (`tools/chromabudget.mjs`):
+ * the ceiling is the four vats' envelope, the vats are tuned on the dye lot
+ * (`FINISH_LOT`), and the re-grade moved the numbers it was read from. The brightest
+ * channel on the worn rows is 168 (Gold's mail) where the lot's is 210 (Gold's leg
+ * wraps, which the lore's own rule, that no wrap is the brightest cloth on a man, took
+ * down to L* 44-50), and the dearest cloak went from a channel of 168 to 178 when its
+ * gold was re-graded to weld ochre. So the kit's ceiling is read off the lot and the
+ * cloak's off the reference below: byte for byte the envelope the vats were tuned
+ * under, and a livery's brightness no longer depends on what the shop's re-grade did
+ * to its own rungs. The bend is asymptotic rather than a clamp, for the reason
+ * `softBand` gives: a clamp has zero slope, and zero slope is where paid rungs go to die.
  */
 const SHOP_CEIL_KNEE = 0.06;
 const softCeil = (x: number, cap: number): number =>
@@ -1299,10 +1348,17 @@ function underMaxChannel(hex: number, cap: number): number {
 }
 const maxChannel = (hex: number) => Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
 let kitCeil = 0, cloakCeil = 0, kitChan = 0, cloakChan = 0;
-/** The brightest surface any finish in the shop dyes. Memoised; `FINISH_KIT` is above. */
+/**
+ * THE CLOAK REFERENCE THE ENVELOPE IS HELD AT: the brightest cloak the shop sold when the
+ * four vats were tuned, the 400-gold Gilded War Cloak at `0xa8842a` (max channel 168). The
+ * shop's gold cloak is `0xb29e62` now (max channel 178); the people's flat fields are held
+ * where they were, whatever the shop's rungs do.
+ */
+const CLOAK_CEIL_REFERENCE = 0xa8842a;
+/** The brightest surface a livery may hand back on a kit surface: the brightest cell of the dye lot the vats were tuned on. */
 function kitCeiling(): number {
   if (!kitCeil) {
-    for (const kit of Object.values(FINISH_KIT)) {
+    for (const kit of Object.values(FINISH_LOT)) {
       for (const k of ["mail", "tunic", "trouser", "wrap", "hide", "buff"] as const) {
         kitCeil = Math.max(kitCeil, litOf(kit[k]));
         kitChan = Math.max(kitChan, maxChannel(kit[k]));
@@ -1311,17 +1367,17 @@ function kitCeiling(): number {
   }
   return kitCeil;
 }
-/** The brightest single channel any finish in the shop reaches. */
+/** The brightest single channel a livery may hand back on a kit surface. */
 const kitChannel = (): number => { kitCeiling(); return kitChan; };
-/** The brightest cloak the shop sells. Memoised; `CLOAK_COLORS` is declared below this. */
+/** The brightest a people's flat cloak or board may be. */
 function cloakCeiling(): number {
-  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) {
-    cloakCeil = Math.max(cloakCeil, litOf(hex));
-    cloakChan = Math.max(cloakChan, maxChannel(hex));
+  if (!cloakCeil) {
+    cloakCeil = litOf(CLOAK_CEIL_REFERENCE);
+    cloakChan = maxChannel(CLOAK_CEIL_REFERENCE);
   }
   return cloakCeil;
 }
-/** The brightest single channel any cloak in the shop reaches. */
+/** The brightest single channel a people's flat cloak or board may reach. */
 const cloakChannel = (): number => { cloakCeiling(); return cloakChan; };
 /**
  * A people's flat field AS SOMETHING WORN — the map token brought down into the
@@ -1855,13 +1911,16 @@ export function factionWorn(hex: number, people: Allegiance, kind: DyeKind): num
  */
 export function factionKit(kit: FinishKit, people: Allegiance): FinishKit {
   if (people === "none") return kit;
+  // THE VATS WORK FROM THE DYE LOT, not from what the finish is worn as: see `FINISH_LOT`. The fittings are cast and
+  // are not dyed, so they are the worn row's.
+  const lot = LOT_OF.get(kit) ?? kit;
   return {
-    mail: factionWorn(kit.mail, people, "metal"),
-    tunic: factionWorn(kit.tunic, people, "cloth"),
-    trouser: factionWorn(kit.trouser, people, "cloth"),
-    wrap: factionWorn(kit.wrap, people, "wrap"),
-    hide: factionWorn(kit.hide, people, "leather"),
-    buff: factionWorn(kit.buff, people, "leather"),
+    mail: factionWorn(lot.mail, people, "metal"),
+    tunic: factionWorn(lot.tunic, people, "cloth"),
+    trouser: factionWorn(lot.trouser, people, "cloth"),
+    wrap: factionWorn(lot.wrap, people, "wrap"),
+    hide: factionWorn(lot.hide, people, "leather"),
+    buff: factionWorn(lot.buff, people, "leather"),
     fitting: kit.fitting,
   };
 }
