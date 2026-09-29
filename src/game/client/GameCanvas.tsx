@@ -2776,7 +2776,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   }, [playerId, rumble, touch.joystick]);
 
   return (
-    <div ref={rootRef} className="relative w-full h-full select-none" onTouchStart={() => { if (glError) setGlError(null); }} onMouseDown={() => { if (glError) setGlError(null); }}>
+    // `fight-root`: the pinch-zoom guard (globals.css). It is on THIS element and not on
+    // the canvas alone because the HUD is a sibling of the canvas, not a child.
+    <div ref={rootRef} className="fight-root relative w-full h-full select-none" onTouchStart={() => { if (glError) setGlError(null); }} onMouseDown={() => { if (glError) setGlError(null); }}>
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none"

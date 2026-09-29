@@ -405,7 +405,7 @@ reason is worth.
    arena is not sprayed twice. The rig re-cuts itself, as this document said.
 5. **The camera** — `runRoundCam`'s `ended` now includes a running match-end
    replay, which is the hole `docs/BACKLOG.md` 2.6 named.
-6. **`src/app/page.tsx`** — `ROUND_HOLD_MS = REPLAY.wall * 1000`, the break
+6. **`src/app/ui/hudParts.tsx`** (`src/app/page.tsx` when this landed, before the F0 carve) — `ROUND_HOLD_MS = REPLAY.wall * 1000`, the break
    card's guard moved `left > 2` -> `left > 1` to match, the results panel waits
    while a match-end replay runs, and a **SKIP** is offered at match end which
    ends the beat and leaves the arena.

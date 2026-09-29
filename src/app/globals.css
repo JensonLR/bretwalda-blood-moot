@@ -1,6 +1,166 @@
 @import "tailwindcss";
 
 /* ==========================================================================
+   THE FRAMEWORK'S HUES ARE REMAPPED ONTO THE PALETTE — F1, 29 Sep 2026
+
+   `text-amber-300`, `bg-emerald-500`, `border-red-700/70` and the rest of
+   Tailwind's default colour scale are still written about 300 times across the
+   menus and the HUD, and every one of them is a hue this game says it does not
+   have: there is no orange, no emerald, no sky blue, no purple, and the only
+   gold is the crowned Bretwalda's (DESIGN-SYSTEM.md section 1, UI-PLAN 1.2).
+   Editing 300 call sites in one commit would collide with every other unit
+   that owns them, so the SCALE is what moves: each of these eight hues now
+   resolves to a step on one of three ramps declared on :root below, and a call
+   site keeps its class name until the unit that owns its component gives it
+   the semantic token it should have had all along.
+
+     amber, yellow, orange, purple -> --ramp-warm-*   the ink ramp, over silver
+     emerald, sky, cyan            -> --ramp-cold-*   cold silver, no hue
+     red                           -> --ramp-blood-*  the blood tokens
+
+   WHERE THIS BLOCK LIVES MATTERS. It is TOP LEVEL, not inside a layer: Tailwind
+   reads `@theme` only there, and this is exactly the "a rule inside the wrong
+   block silently does nothing" trap the LAYERS note below describes, from the
+   other side. And it is `inline`, so the utility carries the palette token's
+   name (`color: var(--ramp-warm-300)`) instead of a second hop through a
+   `--color-amber-300` that a reader would have to trust. That is also what lets
+   `tools/palettecheck.mjs` read the COMPILED sheet and prove the remap took: the
+   source cannot say so, because a `@theme` in the wrong place compiles cleanly
+   and leaves every default hue in the build (DESIGN-SYSTEM.md section 10:
+   "verify tokens in the compiled sheet, not the source").
+
+   EVERY SHADE IS DEFINED, 50 to 950, for all eight hues. `--color-amber-*:
+   initial` would have been shorter and worse: a shade left undefined does not
+   fall back to anything, it makes the utility vanish, and `text-amber-600`
+   typed next month would compile to nothing and leave the text inheriting
+   whatever colour was around it.
+
+   The ramps are ordered by LIGHTNESS, the way the scales they replace were, so
+   a `hover:` step or a `/40` tint reads the same direction it always did. What
+   they cannot preserve is chroma, and that is the point.
+   ========================================================================== */
+@theme inline {
+  --color-amber-50: var(--ramp-warm-50);
+  --color-amber-100: var(--ramp-warm-100);
+  --color-amber-200: var(--ramp-warm-200);
+  --color-amber-300: var(--ramp-warm-300);
+  --color-amber-400: var(--ramp-warm-400);
+  --color-amber-500: var(--ramp-warm-500);
+  --color-amber-600: var(--ramp-warm-600);
+  --color-amber-700: var(--ramp-warm-700);
+  --color-amber-800: var(--ramp-warm-800);
+  --color-amber-900: var(--ramp-warm-900);
+  --color-amber-950: var(--ramp-warm-950);
+
+  --color-yellow-50: var(--ramp-warm-50);
+  --color-yellow-100: var(--ramp-warm-100);
+  --color-yellow-200: var(--ramp-warm-200);
+  --color-yellow-300: var(--ramp-warm-300);
+  --color-yellow-400: var(--ramp-warm-400);
+  --color-yellow-500: var(--ramp-warm-500);
+  --color-yellow-600: var(--ramp-warm-600);
+  --color-yellow-700: var(--ramp-warm-700);
+  --color-yellow-800: var(--ramp-warm-800);
+  --color-yellow-900: var(--ramp-warm-900);
+  --color-yellow-950: var(--ramp-warm-950);
+
+  --color-orange-50: var(--ramp-warm-50);
+  --color-orange-100: var(--ramp-warm-100);
+  --color-orange-200: var(--ramp-warm-200);
+  --color-orange-300: var(--ramp-warm-300);
+  --color-orange-400: var(--ramp-warm-400);
+  --color-orange-500: var(--ramp-warm-500);
+  --color-orange-600: var(--ramp-warm-600);
+  --color-orange-700: var(--ramp-warm-700);
+  --color-orange-800: var(--ramp-warm-800);
+  --color-orange-900: var(--ramp-warm-900);
+  --color-orange-950: var(--ramp-warm-950);
+
+  --color-purple-50: var(--ramp-warm-50);
+  --color-purple-100: var(--ramp-warm-100);
+  --color-purple-200: var(--ramp-warm-200);
+  --color-purple-300: var(--ramp-warm-300);
+  --color-purple-400: var(--ramp-warm-400);
+  --color-purple-500: var(--ramp-warm-500);
+  --color-purple-600: var(--ramp-warm-600);
+  --color-purple-700: var(--ramp-warm-700);
+  --color-purple-800: var(--ramp-warm-800);
+  --color-purple-900: var(--ramp-warm-900);
+  --color-purple-950: var(--ramp-warm-950);
+
+  --color-emerald-50: var(--ramp-cold-50);
+  --color-emerald-100: var(--ramp-cold-100);
+  --color-emerald-200: var(--ramp-cold-200);
+  --color-emerald-300: var(--ramp-cold-300);
+  --color-emerald-400: var(--ramp-cold-400);
+  --color-emerald-500: var(--ramp-cold-500);
+  --color-emerald-600: var(--ramp-cold-600);
+  --color-emerald-700: var(--ramp-cold-700);
+  --color-emerald-800: var(--ramp-cold-800);
+  --color-emerald-900: var(--ramp-cold-900);
+  --color-emerald-950: var(--ramp-cold-950);
+
+  --color-sky-50: var(--ramp-cold-50);
+  --color-sky-100: var(--ramp-cold-100);
+  --color-sky-200: var(--ramp-cold-200);
+  --color-sky-300: var(--ramp-cold-300);
+  --color-sky-400: var(--ramp-cold-400);
+  --color-sky-500: var(--ramp-cold-500);
+  --color-sky-600: var(--ramp-cold-600);
+  --color-sky-700: var(--ramp-cold-700);
+  --color-sky-800: var(--ramp-cold-800);
+  --color-sky-900: var(--ramp-cold-900);
+  --color-sky-950: var(--ramp-cold-950);
+
+  --color-cyan-50: var(--ramp-cold-50);
+  --color-cyan-100: var(--ramp-cold-100);
+  --color-cyan-200: var(--ramp-cold-200);
+  --color-cyan-300: var(--ramp-cold-300);
+  --color-cyan-400: var(--ramp-cold-400);
+  --color-cyan-500: var(--ramp-cold-500);
+  --color-cyan-600: var(--ramp-cold-600);
+  --color-cyan-700: var(--ramp-cold-700);
+  --color-cyan-800: var(--ramp-cold-800);
+  --color-cyan-900: var(--ramp-cold-900);
+  --color-cyan-950: var(--ramp-cold-950);
+
+  --color-red-50: var(--ramp-blood-50);
+  --color-red-100: var(--ramp-blood-100);
+  --color-red-200: var(--ramp-blood-200);
+  --color-red-300: var(--ramp-blood-300);
+  --color-red-400: var(--ramp-blood-400);
+  --color-red-500: var(--ramp-blood-500);
+  --color-red-600: var(--ramp-blood-600);
+  --color-red-700: var(--ramp-blood-700);
+  --color-red-800: var(--ramp-blood-800);
+  --color-red-900: var(--ramp-blood-900);
+  --color-red-950: var(--ramp-blood-950);
+}
+
+/* `hover:` is the pointer's, not the finger's. Tailwind 4 already gates it
+   behind `(hover: hover)`, which a touch laptop and a phone with a paired mouse
+   both satisfy while a thumb is on the glass, so the state sticks after a tap.
+   UI-PLAN 1.7 ("every :hover that moves or recolours is wrapped in
+   @media (hover:hover) and (pointer:fine)") is met for the utilities here, and
+   for the hand-written rules further down by wrapping each in the same query.
+
+   THE FIRST DRAFT OF THIS BLOCK WAS ONE LINE AND DELETED EVERY `hover:` UTILITY
+   IN THE APP. `@custom-variant hover (@media (...) { &:hover });` looks like the
+   documented shorthand and is not: the shorthand takes a selector OR an at-rule,
+   not both, and the rest is not an error, it is a variant that matches nothing.
+   The build passed, tsc passed, csscheck passed, and the compiled sheet had zero
+   `.hover\:` rules where the old one had twenty distinct utilities. Only reading
+   the COMPILED stylesheet showed it, which is why `tools/palettecheck.mjs` counts
+   them. */
+@custom-variant hover {
+  &:hover {
+    @media (hover: hover) and (pointer: fine) {
+      @slot;
+    }
+  }
+}
+
+/* ==========================================================================
    LAYERS
 
    Everything this file defines sits in a cascade layer, and that is the whole
@@ -28,6 +188,34 @@
     --rhythm: clamp(1.5rem, 4.5vw, 2.25rem);
     --tap: 44px;
 
+    /* ---- THE TYPE SCALE — UI-PLAN 1.5, F1, 29 Sep 2026 -----------------------
+       Cinzel for display, Alegreya for body, and nothing imported (DESIGN-SYSTEM.md
+       section 4). The faults the critics measured were never the faces: they were
+       SIZE (98 arbitrary sizes under 11px across page.tsx and GameHud.tsx, down
+       to 7.5px), TRACKING (`.label-overline` at .42em), FIGURES (below) and
+       colour (the ink ramp, above). So the scale is declared once, here, and the
+       `.t-*` classes further down are the only place it is applied; a size that
+       is not one of these steps is a site to explain, and `csscheck` ratchets the
+       count of them downward.
+
+       FLOOR: menus 12px, and the fight HUD 11px only where geometry forces it
+       (a pad's label). Never below. These are in rem so that a player who has
+       raised the browser's text size, which F1 now lets him do by removing the
+       zoom lock, actually gets bigger type and not just a bigger page. */
+    --fs-display: clamp(2.75rem, 6.4vw, 6rem);
+    --fs-h1: clamp(1.75rem, 3vw, 2.5rem);
+    --fs-h2: 1.5rem;
+    --lh-h2: 1.15;
+    --fs-title: 1.25rem;
+    --fs-label: 0.75rem;
+    --track-label: 0.18em;
+    /* The most tracking any label may take. `.label-overline` shipped at .42em. */
+    --track-cap: 0.28em;
+    --fs-body: 1rem;
+    --lh-body: 1.55;
+    --fs-support: 0.875rem;
+    --fs-floor-hud: 0.6875rem;
+
     /* THE HARDWARE'S OWN BITE, BEHIND A NAME — 9 Sep 2026.
        `env(safe-area-inset-*)` is set by the browser and cannot be written by
        anything else, which made the combat HUD's safe-area work UNTESTABLE:
@@ -45,20 +233,163 @@
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
 
-    /* ---- SUTTON HOO ----------------------------------------------------
-       docs/SUTTON-HOO.md gives the game its palette: gilded bronze fittings
-       and garnet inlay on tinned-silver panels, over near black. The amber
-       these screens already used was reaching for gilt and never got there,
-       so gilt REPLACES it rather than joining it — three metals and one
-       stone, and no fourth accent hue anywhere in the menus.
+    /* ---- TREWHIDDLE: THE COLD PALETTE — F1, 29 Sep 2026 ---------------------
+       docs/DESIGN-SYSTEM.md section 1 ADOPTED this thesis — tinned silver with
+       black niello inlay, from a hoard buried about 868 — and the stylesheet
+       never built it. `grep niello src/` found nothing; every panel was warm
+       brown with a gilt line, so the interface was the same colour as the
+       world behind it and blood, the only warm thing that is supposed to read,
+       had nothing cold to read against.
 
-       The doc also rules that the reference badge's crown, interlace ring
-       and cabochons belong on the UI and not on the helmet. That is what
-       --knot and .cabochon below are. */
+       THE WORLD IS WARM AND ALIVE; THE INTERFACE IS COLD CUT METAL. The hall
+       (--hall, and the hearth in the 3D scene) is the one warm light on any
+       screen and it never sits on a control. Everything a hand touches is one
+       of these two faces of the same metal, and the only warm things allowed on
+       a plate are blood and, once, a crown:
+
+         niello    the inlay seen from its own side: the dark plate ground, the
+                   sea, a stat track, the HUD plate
+         silver    the metal seen against the room: the ONE hero plate a screen
+                   has (its primary action or its item plaque), and type or
+                   glyph laid on niello
+
+       Values are UI-PLAN 1.2 and each is measured, not chosen by eye: every
+       text step below clears 4.5:1 on niello-raised, on the hall ground and on
+       the lit top of a card as it is still drawn today, and `tools/palettecheck`
+       holds that number so a later edit cannot drift it under. */
+    --hall: #14100b;
+    --niello: #111013;
+    --niello-raised: #1a191d;
+    --niello-line: #2e2d31;
+    --silver: #c7c8c4;
+    --silver-lit: #e4e5e1;
+    --silver-dim: #8b8d8a;
+    /* Non-text only: an inactive rule, a stroke that is not read. 2.6:1 on
+       niello-raised, which is the right number for a line and the wrong one for
+       a word. */
+    --pewter: #5a5d60;
+
+    /* ---- GILT IS RESERVED — UI-PLAN 1.2 and 1.9 ------------------------------
+       docs/SUTTON-HOO.md gave the game gilded bronze and garnet on tinned
+       silver, and these two names were then spent as the default accent on
+       every screen: LORE.md 8.8 counted `var(--gilt` 55 times and `var(--gilt-lit`
+       39 times outside this file. DESIGN-SYSTEM.md section 3 says the opposite
+       and better: "the game has exactly one gold thing and you have to win a
+       season to wear it."
+
+       So the law from here on is that gilt is the crown of the helm mark, the
+       Bretwalda title and its mark tile, a won-season plate, and the season
+       leader's coast line — and NOTHING else. THIS COMMIT DOES NOT MOVE THE
+       EXISTING SITES. They belong to the units that own the components (T, L,
+       A, W, S, H), and each of them retires its own; `--gilt` stays declared
+       until the last one has. The three focus rings (the base rule, `.input-frame`
+       and `.select-frame`) are the exception, because a focus ring is the
+       foundation's and not a screen's; the war map's territory ring
+       (`.fm-hit:focus-visible`) is W's and still reads gilt.
+
+       Garnet keeps its own reserve: won-round pips and the Norse field edge.
+       Never a price, never a selection. */
     --gilt: #d9a441;
     --gilt-lit: #f6dda0;
     --garnet: #7c1420;
     --garnet-lit: #c8323c;
+
+    /* ---- BLOOD ----------------------------------------------------------------
+       The only heat. Wounds and death, never a glow, never a pulse (the cold
+       palette is what lets it read without either). --hp-critical (#b04430) is
+       the UI's critical fill and --hp-critical-lit (#d4634a) the critical TEXT,
+       both declared with the health ladder below. */
+    --blood: #b4200c;
+    /* The two TEAM fields (FACTIONS.md section 8, TEAM_FIELD): madder for one
+       side and woad for the other. The lobby and the HUD show them as a lozenge
+       and a square so that shape is the second channel; that is unit H's, and
+       these are only the two colours it will read. Not --woad, which is the
+       Pictish map field further down and is deliberately left as it is. */
+    --madder: #8e2320;
+    --woad-team: #24457e;
+
+    /* ---- THE FOUR PEOPLES, MEASURED FOR COLOUR-BLINDNESS ----------------------
+       UI-PLAN 1.3. The fields that ship today have a minimum dE76 of 9.6 between
+       Briton and Pict for a tritan viewer (20.4 protan, 24.0 deutan), and the
+       Norse field is 1.79:1 against the plate, which is a hole in the map, not a
+       colour. These were solved and measured with `plan/cvd.mjs`: minimum dE76
+       54.8 normal, 41.2 protan, 35.3 deutan, 27.0 tritan. The -lit step is the
+       people's colour AS TEXT on niello, at least 4.5:1, and that IS held by
+       `tools/palettecheck.mjs`.
+
+       Saxon is a weld colour and deliberately not gilt: `territories.ts` sets
+       Saxon to var(--gilt) today, which spends the reserved gold on a field and
+       is 12.6 dE from the value below.
+
+       DECLARED HERE, READ BY UNIT W. `territories.ts` and `banners.ts` still hold
+       the values they shipped with (Norse is `#7c1420` in banners.ts:35), so
+       until W moves them these four rows and those two files are TWO definitions
+       of one colour — the mirrored-definition fault this repository has recorded
+       five times. W lands the mirror check with the move; nothing reads these
+       before then. */
+    --field-saxon: #b5923a;
+    --field-saxon-lit: #e6d08e;
+    --field-norse: #7b2029;
+    --field-norse-lit: #d98b6e;
+    --field-briton: #5da28c;
+    --field-briton-lit: #a9d8c6;
+    --field-pict: #3b558a;
+    --field-pict-lit: #9db4e0;
+
+    /* ---- THREE RAMPS FOR THE FRAMEWORK'S HUES ---------------------------------
+       What `text-amber-300` and its 87 siblings resolve to (see the @theme block
+       at the top of this file for why). Named by which family of Tailwind hue
+       they take over, and ordered lightest to darkest so a step means what it
+       always meant. Every entry is another token in this block, so changing the
+       ink or the silver changes every call site at once and none of them can
+       fall out of the palette.
+
+       TEXT-SAFE TO 500, EDGE AND FILL FROM 600: 50-500 are all at least 4.5:1
+       on niello-raised and on the hall ground (palettecheck holds it against the
+       compiled sheet, not against this list), because that is where the sites
+       use them as words. 600 and darker are borders, tints and fills. */
+    --ramp-warm-50: var(--ink-bright);
+    --ramp-warm-100: var(--ink-bright);
+    --ramp-warm-200: var(--silver-lit);
+    --ramp-warm-300: var(--ink);
+    --ramp-warm-400: var(--ink-soft);
+    --ramp-warm-500: var(--ink-dim);
+    --ramp-warm-600: var(--ink-faint);
+    --ramp-warm-700: var(--silver-dim);
+    --ramp-warm-800: var(--pewter);
+    --ramp-warm-900: var(--niello-line);
+    --ramp-warm-950: var(--niello-raised);
+
+    --ramp-cold-50: var(--silver-lit);
+    --ramp-cold-100: var(--silver-lit);
+    --ramp-cold-200: var(--silver-lit);
+    --ramp-cold-300: var(--silver-lit);
+    --ramp-cold-400: var(--silver);
+    --ramp-cold-500: var(--silver-dim);
+    --ramp-cold-600: var(--pewter);
+    --ramp-cold-700: var(--pewter);
+    --ramp-cold-800: var(--niello-line);
+    --ramp-cold-900: var(--niello-line);
+    --ramp-cold-950: var(--niello-raised);
+
+    /* Blood's light end is a TINT of its own text colour toward bone, because a
+       pale step that was a different hue would be a fifth accent. 500 is the
+       plan's #d4634a, the darkest step that is still a WORD (4.7:1 on
+       niello-raised); 600 is the UI's critical FILL (#b04430, 3.1:1, so not a
+       word) and everything darker is an edge or a tint. The first draft put the
+       fill at 500, which made `text-red-500` a 3.1:1 word; palettecheck found it
+       by resolving the step through the compiled sheet. */
+    --ramp-blood-50: color-mix(in oklab, var(--hp-critical-lit) 15%, var(--ink-bright));
+    --ramp-blood-100: color-mix(in oklab, var(--hp-critical-lit) 25%, var(--ink-bright));
+    --ramp-blood-200: color-mix(in oklab, var(--hp-critical-lit) 40%, var(--ink-bright));
+    --ramp-blood-300: color-mix(in oklab, var(--hp-critical-lit) 65%, var(--ink-bright));
+    --ramp-blood-400: color-mix(in oklab, var(--hp-critical-lit) 85%, var(--ink-bright));
+    --ramp-blood-500: var(--hp-critical-lit);
+    --ramp-blood-600: var(--hp-critical);
+    --ramp-blood-700: var(--blood);
+    --ramp-blood-800: var(--madder);
+    --ramp-blood-900: var(--garnet);
+    --ramp-blood-950: color-mix(in oklab, var(--garnet) 30%, var(--niello));
 
     /* THE TYPE RAMP — six steps of limewashed bone, and the reason the design
        system reads as ignored.
@@ -85,12 +416,33 @@
          soft    supporting copy that still has to be read easily
          dim     the interface's most common voice — labels, units, captions
          faint   present but receded: hints, disabled, secondary metadata
-         ghost   structural traces; the quietest thing that is still ink */
+         ghost   structural traces; the quietest thing that is still ink
+
+       RE-BASED IN F1 BECAUSE THE BOTTOM OF IT WAS BELOW THE FLOOR. Measured
+       against the lit top of a card (#362d22, the `.card` gradient's first stop
+       over the hall), `--ink-faint` was #7d7057 at 2.78:1 and `--ink-ghost` 1.73:1;
+       on the hall ground itself faint was 3.90:1. 44 sites in the TSX set words in
+       faint (hints, disabled labels, metadata) and none of them could be read
+       by anyone with less than perfect sight or a bright room. The step values
+       below are UI-PLAN 1.2's, chosen so that soft, dim and faint stay three
+       distinct steps (a straight lift to one floor would have collapsed them
+       into one):
+
+                  niello-raised   hall      lit card top
+         soft        9.0:1        9.7:1        6.9:1
+         dim         7.4:1        8.0:1        5.7:1
+         faint       6.0:1        6.5:1        4.6:1   <- the floor for any WORD
+
+       `tools/palettecheck.mjs` holds those three columns. GHOST IS FOR RULES AND
+       TRACES ONLY, NEVER TEXT: at 2.3:1 it is meant to be barely there, and a
+       word set in it is a word nobody can read. It is unchanged, and
+       `csscheck` ratchets the sites that still set text in it (3 today: two
+       separator dots and one zero). */
     --ink-bright: #f3ecdc;
     --ink: #d9cdb2;
-    --ink-soft: #b6a888;
-    --ink-dim: #a89a7c;
-    --ink-faint: #7d7057;
+    --ink-soft: #c6b999;
+    --ink-dim: #b5a788;
+    --ink-faint: #a39679;
     --ink-ghost: #5b5140;
 
     /* BLOOD, IN ONE LANGUAGE — 9 Sep 2026.
@@ -111,9 +463,23 @@
        `postfx.setPressure` closes the frame in over the last 35% of health as a
        ramp, which hud3d's own note calls "a read you get pre-attentively
        without decoding a colour code". Dropping to oxblood removes a redundant
-       second colour language, not the warning. */
-    --hp-healthy: #a8bf8e;
-    --hp-healthy-lit: #c6d9ab;
+       second colour language, not the warning.
+
+       F1, 29 Sep 2026: HEALTHY MOVED FROM #a8bf8e TO #b7c4a3 and nothing else in
+       the ladder did (UI-PLAN 1.2). The mint was the most saturated cool pixel
+       in `store/steam/screenshots/01-duel.png`, brighter in chroma than anything
+       else on the plate, which is the wrong thing for the calm end of a health
+       ramp to be. The three bases below are byte-mirrored in `hud3d.ts`
+       (`FILL_HEALTHY`, `FILL_WOUNDED`, `FILL_CRITICAL`) and `tools/palettecheck.mjs`
+       reads both files and fails if they disagree; before this commit no gate
+       compared them, and this comment used to say only that they matched.
+       `--hp-healthy-lit` is NOT in the plan: it is the new base lifted 30% of
+       the way to white (#b7c4a3 -> #cdd6bf), derived here so that the bar's
+       gradient stays a lift from base to lit and not a shift from one green to
+       a more saturated one, which is what leaving the old #c6d9ab in place would
+       have drawn. The wounded and critical ends are untouched. */
+    --hp-healthy: #b7c4a3;
+    --hp-healthy-lit: #cdd6bf;
     --hp-wounded: #dcae72;
     --hp-wounded-lit: #f0cb9a;
     --hp-critical: #b04430;
@@ -182,6 +548,77 @@
     --pad-power-on: #f6dda0;
     --pad-spent: rgba(74, 68, 58, 0.55);
 
+    /* ---- MATERIALS: THE PLATE — F2, 29 Sep 2026 -----------------------------
+       F1 declared the cold palette and moved every framework hue onto it. What it
+       could not do is make a panel LOOK like cut metal, because every panel, chip
+       and control was still a rounded brown gradient with a blur behind it and a
+       glow on it (`.card`, `.btn-primary`: UI-PLAN D02). These are the numbers the
+       plate rules below are built from.
+
+       CHAMFERS, NOT RADII. A plate is a rectangle with its four corners cut off
+       at 45 degrees, which is what a jeweller does to silver sheet with a
+       chisel and what a border-radius cannot say. Four sizes, by how much plate
+       there is to spare: 8px for a menu panel, a button and a field (UI-PLAN
+       1.1); 6px for a track that holds other things (the tab strip, the
+       segmented control); 4px for a chip; 5px for a combat plate, which is
+       smaller and sits over the fight. Round survives only where the design
+       system carves it out (a thumb pad, the mark roundel, a pip, the keycap's
+       2px).
+
+       --edge-lit is the one edge the light catches: the top one, at the plan's
+       .45 of silver-dim. It is a color-mix rather than an rgba() so that it
+       follows the token if silver-dim ever moves. The two silver stops are the
+       plan's hero plate (#d5d6d3 to #b9bab6, about a 6% delta, a sheet and not a
+       bevel); the three --onsilver-* steps are the ink ramp turned over for type
+       set ON that plate, each at least 4.5:1 on its darker stop, so a piece of
+       markup that still says text-[var(--ink-dim)] stays a word when someone
+       puts it on silver. tools/platecheck.mjs holds those numbers. */
+    --cut-lg: 8px;
+    --cut-md: 6px;
+    --cut-sm: 4px;
+    --cut-hud: 5px;
+    --edge-lit: color-mix(in srgb, var(--silver-dim) 45%, transparent);
+    --plate-silver-top: #d5d6d3;
+    --plate-silver-bot: #b9bab6;
+    --onsilver-soft: #2a292d;
+    --onsilver-dim: #3a393d;
+    --onsilver-faint: #48474b;
+    /* The colour of a small caps label, which flips on silver. SILVER, not silver-dim: the
+       first proof sheet graded "YOUR WARRIOR" at 4.4:1 on a plate's lit top, 4.3 on hover
+       and 3.5 on a selected card, where the plate is one step lighter still. */
+    --label-ink: var(--silver);
+
+    /* THE GRAIN. Two 160px tiles of feTurbulence (baseFrequency .85, two octaves,
+       UI-PLAN 1.1) drawn as an inline SVG, so it is markup and not an asset and
+       costs no request: the reason this game opens from a link. The colour
+       matrix turns the noise into alpha only (about .055 on average and .10 at the
+       peaks: the first cut, at .07 and .15, read as pebbled plastic in the first
+       proof sheet, so the gain came down by a quarter), white on niello and black on silver, so a plate has tooth without
+       changing its colour. `color-interpolation-filters='sRGB'` because the
+       default (linearRGB) would re-curve the noise and the mean alpha with it. */
+    --grain-lit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .38 0 0 0 -.13'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --grain-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .32 0 0 0 -.11'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+    /* THE PLAIT, as a MASK. Two strands of period 24 that cross every 12px,
+       alternating over and under, and the strand that goes under is CUT where it
+       meets the one that goes over: (half a stroke + a 3px gap) / sin(105 degrees,
+       the angle they cross at) = 4.15px of arc each side, computed and not judged
+       by eye (the cut is the whole difference between a plait and a chain: the
+       old two-strand tile had no gap at all, so it read as links,
+       `armzoom/stagehead.png`). It is a mask so that the metal is a TOKEN
+       (`background: var(--silver-dim)`) and not a hex baked into a URI. Tiles
+       every 48px, which is what lets a band be n whole tiles. */
+    --plait: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='16' viewBox='0 0 48 16'%3E%3Cpath d='M0 3L0.5 3.04L1 3.17L1.5 3.38L2 3.67L2.5 4.03L3 4.46L3.5 4.96L4 5.5L4.5 6.09L5 6.71L5.5 7.35L6 8L6.5 8.65L7 9.29L7.5 9.91L8 10.5L8.5 11.04L9 11.54L9.5 11.97L10 12.33L10.5 12.62L11 12.83L11.5 12.96L12 13L12.5 12.96L13 12.83L13.5 12.62L14 12.33L14.5 11.97L15 11.54M21 4.46L21.5 4.03L22 3.67L22.5 3.38L23 3.17L23.5 3.04L24 3L24.5 3.04L25 3.17L25.5 3.38L26 3.67L26.5 4.03L27 4.46L27.5 4.96L28 5.5L28.5 6.09L29 6.71L29.5 7.35L30 8L30.5 8.65L31 9.29L31.5 9.91L32 10.5L32.5 11.04L33 11.54L33.5 11.97L34 12.33L34.5 12.62L35 12.83L35.5 12.96L36 13L36.5 12.96L37 12.83L37.5 12.62L38 12.33L38.5 11.97L39 11.54M45 4.46L45.5 4.03L46 3.67L46.5 3.38L47 3.17L47.5 3.04L48 3M0 13L0.5 12.96L1 12.83L1.5 12.62L2 12.33L2.5 11.97L3 11.54M9 4.46L9.5 4.03L10 3.67L10.5 3.38L11 3.17L11.5 3.04L12 3L12.5 3.04L13 3.17L13.5 3.38L14 3.67L14.5 4.03L15 4.46L15.5 4.96L16 5.5L16.5 6.09L17 6.71L17.5 7.35L18 8L18.5 8.65L19 9.29L19.5 9.91L20 10.5L20.5 11.04L21 11.54L21.5 11.97L22 12.33L22.5 12.62L23 12.83L23.5 12.96L24 13L24.5 12.96L25 12.83L25.5 12.62L26 12.33L26.5 11.97L27 11.54M33 4.46L33.5 4.03L34 3.67L34.5 3.38L35 3.17L35.5 3.04L36 3L36.5 3.04L37 3.17L37.5 3.38L38 3.67L38.5 4.03L39 4.46L39.5 4.96L40 5.5L40.5 6.09L41 6.71L41.5 7.35L42 8L42.5 8.65L43 9.29L43.5 9.91L44 10.5L44.5 11.04L45 11.54L45.5 11.97L46 12.33L46.5 12.62L47 12.83L47.5 12.96L48 13' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E");
+
+    /* A COMPARTMENTED RULE: cells of 42px with 6px between them, so a rule is
+       a run of cut pieces and never a line that runs the length of a panel
+       (UI-PLAN 1.6 law 2). The dim variant is for a rule inside a plate. */
+    --rule-cells: linear-gradient(90deg, transparent 0 3px, var(--silver-dim) 3px 45px, transparent 45px 48px);
+    --rule-cells-dim: linear-gradient(90deg, transparent 0 3px, var(--pewter) 3px 45px, transparent 45px 48px);
+
+    /* `--knot` STAYS, UNTOUCHED, FOR THE WAR MAP. It is the OLD plait (two strands, no gap, the
+       strokes hard-coded gilt in the URI) and its only reader is `.faction-map-plate::before` at
+       7% opacity, which is unit W's. `.knot-band` reads `--plait` now. Delete this with that rule. */
     /* Plaitwork, drawn as two strands weaving through each other. An inline
        SVG is the only honest way to get a curve that crosses itself — it is
        markup, not an asset, so it still costs zero requests, which is the
@@ -202,10 +639,24 @@
     user-select: none;
     -webkit-user-select: none;
     font-family: var(--font-body), "Alegreya", Georgia, serif;
-    background: #14100b;
+    background: var(--hall);
     color: #f0e9da;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* NOTHING WAS SELECTABLE, AND THE THINGS A PLAYER HAS TO COPY ARE TEXT.
+     `user-select: none` on html and body is right for a game (a drag that
+     starts on a HUD label must not paint a blue selection over the fight) and
+     wrong for exactly three things: the war code you paste into a group chat,
+     the link preview under it, and a status line a screen reader reads out and
+     a person may want to quote. UI-PLAN D10. Opted back in by name so that
+     everything else stays a control and not a paragraph. */
+  .warcode,
+  .link-preview,
+  [role="status"] {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   input,
@@ -238,18 +689,29 @@
 
      `:focus-visible` and not `:focus`, so a mouse click never draws it: the
      ring is for the person who cannot see the cursor, and on a pointer it just
-     leaves a box behind on everything you press. Gilt rather than the browser's
-     blue, because the one colour this interface does not have is blue, and the
-     offset keeps the ring off the letterform on the tight tracking these
-     buttons use.
+     leaves a box behind on everything you press. Silver rather than the
+     browser's blue, because the one colour this interface does not have is
+     blue, and the offset keeps the ring off the letterform on the tight
+     tracking these buttons use. It WAS gilt, which spent the one reserved gold
+     on a state every control has; silver-lit is 13.8:1 on niello-raised, so it
+     is the easier ring to find, too.
+
+     THIS RULE IS FOR EVERYTHING THAT IS NOT A PLATE: a link, a summary, a bare
+     button. A plate clips an outline that sits outside it (clip-path), so every
+     plate class draws its own ring INSIDE the cut (`outline-offset: -4px`, in
+     the plate's own --focus-ring: niello on silver) in the F2 block below, and
+     this rule is `:where()` so that it always loses to them. It used to set a
+     `border-radius: .25rem` as well, to round the ring on a link. That put a
+     radius on every plate the moment it took focus, which UI-PLAN 1.1 forbids
+     ("no border-radius on plates") and `tools/platecheck.mjs` reads off the
+     rendered element; a square ring on a link is nothing to lose.
 
      Anything that opts out below is opting out deliberately and says so; the
      `.fm-hit` rule further down draws a territory's own edge instead, because a
      rectangle round Wessex's bounding box is most of England. */
   :where(a, button, select, input, textarea, summary, [tabindex]):focus-visible {
-    outline: 2px solid var(--gilt-lit);
+    outline: 2px solid var(--silver-lit);
     outline-offset: 2px;
-    border-radius: 0.25rem;
   }
 
   ::-webkit-scrollbar {
@@ -259,7 +721,7 @@
     background: rgba(0, 0, 0, 0.25);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(217, 119, 6, 0.4);
+    background: var(--pewter);
     border-radius: 3px;
   }
 }
@@ -281,17 +743,21 @@
     animation: fadeIn 0.3s ease-out;
   }
 
-  @keyframes glowPulse {
-    0%,
-    100% {
-      box-shadow: 0 0 18px rgba(217, 119, 6, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    }
-    50% {
-      box-shadow: 0 0 38px rgba(240, 160, 50, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    }
-  }
+  /* NEUTRALISED, NOT DELETED — F1, 29 Sep 2026.
+     This pulsed an orange box-shadow on the two hero buttons on the title
+     screen (`page.tsx`: CREATE BATTLE and FIND A FIGHT / THE FIRST MOOT). A
+     control that glows to ask for attention is what the aliveness law forbids:
+     DESIGN-SYSTEM.md section 3, "one living thing per screen, and it comes from
+     the world rather than the interface ... nothing pulsing for attention", and
+     the glow was an orange heat source on a palette whose only heat is blood.
+     The keyframes are gone and the class is kept as an empty name because the
+     two call sites belong to unit T, which deletes them along with the class
+     string; removing the rule first would only have hidden that they exist.
+     `prefers-reduced-motion` no longer has anything to do for it, and still
+     lists it below, harmlessly, so nobody has to remember to add it back if a
+     motion is ever given to this name again. */
   .animate-glow {
-    animation: glowPulse 2.6s ease-in-out infinite;
+    animation: none;
   }
 
   /* ---------------------------------------------------------------- layout */
@@ -304,8 +770,35 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    /* `manipulation`, NOT `pan-y` — F1. `pan-y` forbids pinch-zoom by definition
+       (single-finger vertical panning and nothing else), so removing
+       `maximum-scale=1, user-scalable=no` from the viewport did NOTHING for any
+       menu: every screen this container wraps stayed unzoomable, and D10 would
+       have been marked fixed on the strength of a meta tag. Found by reading
+       this rule while writing `tools/touchtest.mjs`'s zoom control, which pinches
+       the title screen and requires the page to grow, and which is what goes red
+       if `pan-y` comes back. `manipulation` is pan and pinch-zoom without the
+       300ms double-tap delay, so a menu tap is exactly as quick as it was. */
+    touch-action: manipulation;
     user-select: none;
+  }
+
+  /* THE FIGHT DOES NOT ZOOM. F1 removes `maximum-scale=1, user-scalable=no` from
+     the viewport (UI-PLAN D10): a player with low vision could not pinch a menu
+     bigger, and the lock stopped nobody from anything else, since iOS has
+     ignored it since 10. But the same pinch mid-fight would be a disaster, two
+     thumbs on the pads becoming a zoom that leaves the joystick drawn 1.4x off
+     the finger. So the game's own root refuses every browser gesture: pan,
+     pinch and double-tap alike. `GameCanvas` puts this class on the element that
+     holds the canvas AND the HUD; `touch-action` is not inherited but the
+     effective value is the intersection down the chain to the touched element,
+     so a HUD chip added next month is covered without knowing this exists, and
+     a scrolling panel inside the fight still scrolls, because a scroll container
+     ends the pan intersection. `touchtest` measures it two ways: by pinching
+     (the visual viewport must stay at 1) and by walking every element in the
+     fight to prove none of them leaves pinch-zoom on. */
+  .fight-root {
+    touch-action: none;
   }
 
   /* Gutters and safe areas live here and nowhere else. The bottom pad clears
@@ -552,6 +1045,85 @@
     font-weight: 700;
   }
 
+  /* THE SCALE, AS CLASSES. Nothing in the app wears these yet: they are what a
+     unit reaches for in place of `text-[9px] tracking-[0.3em]`, and the reason
+     F1 declares them before any unit needs them is that a unit with no name to
+     reach for writes a literal (DESIGN-SYSTEM.md section 10: 133 of 178 hex
+     literals were six values that had never been declared). Body and support
+     text take no class: they are the inherited default, 16px and 14px. */
+  .t-display {
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-weight: 800;
+    font-size: var(--fs-display);
+    line-height: 1;
+  }
+  .t-h1 {
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-weight: 700;
+    font-size: var(--fs-h1);
+    line-height: 1.08;
+    letter-spacing: 0.03em;
+  }
+  .t-h2 {
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-weight: 700;
+    font-size: var(--fs-h2);
+    line-height: var(--lh-h2);
+  }
+  .t-title {
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-weight: 700;
+    font-size: var(--fs-title);
+    line-height: 1.2;
+  }
+  .t-label {
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-weight: 700;
+    font-size: var(--fs-label);
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    line-height: 1.3;
+  }
+  .t-body {
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+  }
+  .t-support {
+    font-size: var(--fs-support);
+    line-height: var(--lh-body);
+  }
+
+  /* FIGURES. Cinzel draws a `1` as a bare bar, so "21H 51M" reads "2IH 5IM"
+     (`warmap-desktop.png`), and Alegreya's own default figures are OLD-STYLE:
+     the `1` is x-height tall and sinks below the caps beside it, which is right
+     in a paragraph of prose and wrong in a timer, a price or a code.
+     `font-variant-numeric` asks for the lining and tabular forms; whether the
+     file the player is served still HAS those OpenType features, after Google's
+     subsetter and `next/font` have both had a go at it, is a question no
+     stylesheet can answer, and `tools/numeralprobe.mjs` answers it by drawing
+     the glyph. ANSWERED 29 Sep 2026: they survived. At 160px Alegreya 700's "1"
+     is 85px tall by default (x-height, so the default IS old-style) and 98px under
+     `lining-nums`, and `tabular-nums` gives "1" and "0" one 72.0 advance where
+     proportional gives 57.3 and 80.5. Cinzel ignores both, which is the control.
+
+       .nums          every timer, code, count and price: Alegreya 700, lining
+                      and tabular, so a ticking clock does not shiver
+       .nums-lining   lining figures in the surrounding face and weight, for a
+                      number inside a sentence that must stand with its caps
+       .nums-tab      tabular in whatever face it is already in, for a column
+                      of them */
+  .nums {
+    font-family: var(--font-body), "Alegreya", Georgia, serif;
+    font-weight: 700;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+  .nums-lining {
+    font-variant-numeric: lining-nums;
+  }
+  .nums-tab {
+    font-variant-numeric: tabular-nums;
+  }
+
   /* The gradient is clipped to the glyphs, so any glyph that overflows this
      element's box is painted with nothing at all and simply disappears —
      which is why the title used to read "BRETWALD". The size is therefore
@@ -582,16 +1154,22 @@
       0 2px 5px rgba(0, 0, 0, 0.9);
   }
 
+  /* THE SMALL CAPS LABEL. 12px (the plan's --fs-label, was 10px), tracked .22em
+     (the cap is .28em, it was .42em), and in --label-ink, which is silver-dim on a
+     dark ground and turns over on silver. It was --gilt with a text-shadow: gold
+     is reserved for the crowned Bretwalda (UI-PLAN 1.2), and a shadow behind
+     thin letters is a glow by another name. Cinzel draws lowercase as small
+     capitals, so no text-transform is needed for the war layer's sentence-case
+     overlines. The indent is the tracking again, so a centred label sits on its
+     centre and not a third of a letter to its left. */
   .label-overline {
     font-family: var(--font-display), "Cinzel", serif;
-    font-size: 10px;
-    letter-spacing: 0.42em;
-    /* The tracking pushes the last glyph past the box; without this the text
-       looks optically off-centre everywhere it is centred. */
-    text-indent: 0.42em;
-    color: var(--gilt);
-    font-weight: 800;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+    font-size: var(--fs-label);
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 0.22em;
+    text-indent: 0.22em;
+    color: var(--label-ink);
   }
 
   /* A screen's masthead: overline, title, optional lede. One component so
@@ -632,66 +1210,80 @@
     margin-inline: auto;
   }
 
-  /* The rule running off to the right is what makes a heading read as owning
-     the block beneath it instead of floating above it. */
+  /* A SECTION'S HEADING is Cinzel 700 at 1.5rem (the plan's --fs-h2; it was 11px,
+     which is a label and not a heading). The rule beside it is compartmented: cells
+     of 42px with 6px between them, so it is a run of cut pieces and never a line
+     that fades off the end of a panel (UI-PLAN 1.6 law 2). `round` lets the row fit
+     a whole number of cells whatever the width, so no cell is ever half drawn. */
   .section-title {
     font-family: var(--font-display), "Cinzel", serif;
-    font-size: 11px;
-    letter-spacing: 0.28em;
-    color: #d6cbb2;
+    font-size: var(--fs-h2);
+    line-height: var(--lh-h2);
+    letter-spacing: 0.04em;
+    color: var(--silver-lit);
     font-weight: 700;
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.75rem;
     min-width: 0;
   }
   .section-title::after {
     content: "";
     flex: 1 1 auto;
-    height: 1px;
+    height: 2px;
     min-width: 1.5rem;
-    background: linear-gradient(90deg, rgba(217, 164, 65, 0.7), rgba(217, 164, 65, 0));
+    background-image: var(--rule-cells);
+    background-size: 48px 2px;
+    background-repeat: round no-repeat;
   }
 
+  /* A SHORT BAND, ONE COMPARTMENT WIDE: a 2px bar in silver-dim between two solid
+     end caps. n x 48px, here n is 1. It was a 1px line fading to nothing at both
+     ends, which is exactly the "fading gradient rule" the ornament laws forbid. */
   .ornament-line {
     display: inline-block;
-    width: clamp(1.5rem, 8vw, 2.75rem);
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--gilt), transparent);
+    width: 48px;
+    height: 8px;
+    vertical-align: middle;
+    background:
+      linear-gradient(var(--silver-dim), var(--silver-dim)) left center / 3px 100% no-repeat,
+      linear-gradient(var(--silver-dim), var(--silver-dim)) right center / 3px 100% no-repeat,
+      linear-gradient(var(--silver-dim), var(--silver-dim)) center / calc(100% - 10px) 2px no-repeat;
   }
 
-  /* ------------------------------------------------------- knot & garnet */
+  /* ------------------------------------------------------- the plait band */
 
-  /* A band of plaitwork with a garnet set in the middle of it. This is the
-     one ornament the screens repeat, so it is a single component rather than
-     a shape each screen draws for itself. The plait lives on the ::before and
-     not on the element, because the mask that fades its ends would otherwise
-     take the stone with it — a mask applies to everything the box paints,
-     generated content included. */
+  /* A BAND OF PLAITWORK between two solid end caps, with a ring-and-dot pellet in
+     the middle. THE DIFFERENCE FROM THE OLD ONE is the gap: the strand that goes
+     under is cut where it meets the one that goes over (see --plait), which is
+     what makes it a plait; without the gap the two strands read as the links of
+     a chain. The plait is a mask on ::before so the metal is a token and so the
+     hole for the pellet is a second mask layer, intersected with it (the old band
+     did the same for a garnet, and without a hole a stone sitting on an unbroken
+     plait reads as a sticker). `round` fits a whole number of 48px tiles between the
+     caps whatever the width. The garnet, and the glow round it, are gone: garnet
+     is for won rounds and the Norse edge, and blood is the only heat. The end caps
+     are the element's own background so the mask cannot take them with it. One
+     plait per screen, at the masthead (UI-PLAN 1.6 law 3); each unit removes its
+     own repeats as it lands. */
   .knot-band {
     position: relative;
     height: 16px;
+    background:
+      linear-gradient(var(--silver-dim), var(--silver-dim)) left center / 3px 100% no-repeat,
+      linear-gradient(var(--silver-dim), var(--silver-dim)) right center / 3px 100% no-repeat;
   }
   .knot-band::before {
     content: "";
     position: absolute;
-    inset: 0;
-    background-image: var(--knot);
-    background-repeat: repeat-x;
-    background-position: center;
-    background-size: auto 16px;
-    opacity: 0.65;
-    /* Two masks intersected: the fade at both ends, and a hole for the stone.
-       The strands are broken either side of the garnet rather than running
-       under it — a cabochon sitting on an unbroken plait reads as a sticker.
-       Where mask-composite is unsupported the layers union instead and the
-       plait simply runs through, which is the older look, not a broken one. */
-    mask-image:
-      linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%),
-      radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px);
-    -webkit-mask-image:
-      linear-gradient(90deg, transparent 0, #000 16%, #000 84%, transparent 100%),
-      radial-gradient(circle at 50% 50%, transparent 0 7px, #000 8px);
+    inset: 0 7px;
+    background: var(--silver-dim);
+    -webkit-mask-image: var(--plait), radial-gradient(circle at 50% 50%, transparent 0 7px, #000 7.5px);
+    mask-image: var(--plait), radial-gradient(circle at 50% 50%, transparent 0 7px, #000 7.5px);
+    -webkit-mask-size: 48px 16px, 100% 100%;
+    mask-size: 48px 16px, 100% 100%;
+    -webkit-mask-repeat: round no-repeat, no-repeat;
+    mask-repeat: round no-repeat, no-repeat;
     mask-composite: intersect;
     -webkit-mask-composite: source-in;
   }
@@ -700,234 +1292,497 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 7px;
-    height: 7px;
-    margin: -3.5px 0 0 -3.5px;
-    border-radius: 9999px;
-    background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, #3a070c 100%);
-    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.7), 0 0 9px rgba(200, 50, 60, 0.5);
+    width: 11px;
+    height: 11px;
+    margin: -5.5px 0 0 -5.5px;
+    background: radial-gradient(circle at 50% 50%, var(--silver) 0 1.4px, transparent 1.7px 3.4px, var(--silver-dim) 3.6px 4.8px, transparent 5.2px);
   }
 
-  /* A cut garnet, used inline wherever a screen needs a single point of that
-     red. The offset highlight is the whole trick: it is what makes a dot read
-     as a domed stone instead of a status light. */
+  /* A CUT GARNET, used inline wherever a screen needs a single point of that red.
+     The offset highlight is what makes a dot read as a domed stone and not a
+     status light, and it stays. What goes is the glow: it was `0 0 8px` of garnet
+     round every stone, which is a heat source, and a gilt ring, which is gold.
+     The ring is a 1px silver collet now, a crisp line and not a blur. The stone's
+     two ends are mixed from the garnet token, so they follow it. Uses are for
+     the units to cut: cabochons belong on won-round pips, the Bretwalda mark and
+     one selected state (UI-PLAN 1.6 law 4). */
   .cabochon {
     display: inline-block;
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 9999px;
     flex-shrink: 0;
-    background: radial-gradient(circle at 34% 30%, #ffcfc4 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, #3a070c 100%);
-    box-shadow: 0 0 0 1px rgba(217, 164, 65, 0.55), 0 0 8px rgba(200, 50, 60, 0.45);
+    background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--garnet-lit) 30%, white) 0 14%, var(--garnet-lit) 15% 44%, var(--garnet) 45% 78%, color-mix(in srgb, var(--garnet) 40%, black) 100%);
+    box-shadow: 0 0 0 1px var(--silver-dim);
   }
 
-  /* ----------------------------------------------------------------- cards */
+    /* ==========================================================================
+       THE PLATE — F2, 29 Sep 2026 (UI-PLAN 1.1, 1.6 and D02)
 
-  /* A panel is a piece of dark bronze plate: lit along its top edge, shadowed
-     under it, sitting on its own shadow. The flat 1px box it used to be is
-     what made these screens read as a settings dialog with a warm border. */
-  .card {
+       Every panel, chip and control in the menus is one of three things: a NIELLO
+       plate (the default: dark ground, a hairline, type in the ink ramp), a SILVER
+       plate (the one hero a screen has: its primary action or its item plaque, ink
+       on tinned metal) or a TRACK that holds other plates. All three are built by
+       the one rule below, and what makes a class different from the next is the
+       dozen custom properties it sets, never a second recipe.
+
+       WHY IT IS BUILT THIS WAY, and not with a border-radius and a box-shadow:
+
+       1. THE SHAPE IS A CLIP-PATH, so the corners are cut, not rounded. clip-path
+          clips everything outside the polygon: an outline, a box-shadow and a
+          drop-shadow ON THE SAME ELEMENT. That decides the next three points.
+       2. THE EDGE IS DRAWN TWICE. The four straight sides are a real 1px border
+          (so a call site's own border colour, border-l-4 and divide-x keep working
+          and the box model is what it always was). The four diagonals are the
+          corner tiles at the head of the background: a 1px stripe on each
+          cut, in the colour of the edge it continues. The top edge and its two
+          diagonals are --rim-top, the edge the light catches; the rest is --rim.
+          Without the tiles a chamfered plate has an outline that simply stops at
+          each corner, and reads as a cropped rectangle rather than a cut plate.
+       3. THE INLAY IS A PSEUDO-ELEMENT. A ring 5px inside the edge, also chamfered
+          and parallel to the cut (its own chamfer is the outer one less 2.93px,
+          which is 0.586 of the 5px inset: that is what keeps the two diagonals the
+          same distance apart as the straight sides). The ring is a polygon with a
+          hole in it, wound the other way round, so it needs no mask and no image.
+          It sits at z-index -1 so it is above the plate's fill and below its
+          content: the plate is a stacking context already, because of the
+          clip-path. Inputs and selects are replaced elements and cannot have
+          pseudo-elements, so they get the corner tiles and no inlay; a chip is
+          too small to carry one.
+       4. LIFT IS NOT A SHADOW ON THE PLATE. A box-shadow or filter: drop-shadow on
+          the plate itself is cut off by its own clip-path. A hero plate that needs
+          lift takes it from a WRAPPER (`.plate-lift`, below), which is the plan's
+          rule and the only one that works.
+       5. FOCUS IS INSIDE THE CUT. The outline is drawn at offset -4px, in the
+          plate's own --focus-ring (silver-lit on niello, niello on silver), so it
+          is not clipped away. Its four corners are cut by the chamfer, and that is
+          the look: a ring that is broken at the corners the way the plate is.
+
+       WHAT A PLATE NEVER HAS: a border-radius, a backdrop-filter (it costs GPU on
+       a phone over a 60Hz canvas and reads as glass), a glow, a text-shadow, or
+       opacity to say disabled. backdrop-filter is switched off with !important
+       because three call sites still say `backdrop-blur` on a card (the toast, the
+       tour and the kill-feed panel) and a plate is not allowed one; the
+       important sits in a layer that outranks the utility.
+       `tools/platecheck.mjs` holds every one of these against the compiled sheet
+       and against rendered specimens of every state.
+       ========================================================================== */
+    .plate,
+    .plate-silver,
+    .plate-hud,
+    .card,
+    .mini-nav,
+    .warcode-frame,
+    .btn-primary,
+    .btn-ghost,
+    .btn-info,
+    .btn-danger,
+    .btn-step,
+    .btn-back,
+    .input-frame,
+    .select-frame,
+    .tab-strip,
+    .tab-item,
+    .seg,
+    .seg-item,
+    .badge-sky,
+    .badge-garnet,
+    .badge-stone {
+    --cut: var(--cut-lg);
+    --fill: var(--niello);
+    --fill-top: var(--niello-raised);
+    --grain: var(--grain-lit);
+    --rim: var(--niello-line);
+    --rim-top: var(--edge-lit);
+    --inlay: var(--niello-line);
+    --inlay-w: 1px;
+    --focus-ring: var(--silver-lit);
     position: relative;
-    background: linear-gradient(158deg, rgba(66, 55, 42, 0.74), rgba(28, 23, 18, 0.9));
-    border: 1px solid rgba(217, 164, 65, 0.26);
-    border-radius: 0.85rem;
-    backdrop-filter: blur(6px);
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.16),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.5),
-      0 3px 14px rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--rim);
+    border-top-color: var(--rim-top);
+    border-radius: 0;
+    clip-path: polygon(
+      var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+      calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background-color: var(--fill);
+    background-image:
+      linear-gradient(to bottom right, transparent calc(50% - 0.5px), var(--rim-top) calc(50% + 0.1px), var(--rim-top) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to bottom left, transparent calc(50% - 0.5px), var(--rim-top) calc(50% + 0.1px), var(--rim-top) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to top left, transparent calc(50% - 0.5px), var(--rim) calc(50% + 0.1px), var(--rim) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to top right, transparent calc(50% - 0.5px), var(--rim) calc(50% + 0.1px), var(--rim) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      var(--grain),
+      linear-gradient(180deg, var(--fill-top), transparent);
+    background-size: var(--cut) var(--cut), var(--cut) var(--cut), var(--cut) var(--cut), var(--cut) var(--cut), 160px 160px, 100% 100%;
+    background-position: 0 0, 100% 0, 100% 100%, 0 100%, 0 0, 0 0;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, no-repeat;
+    background-origin: border-box;
+    background-clip: border-box;
   }
 
-  .card-glow {
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.2),
-      0 0 34px rgba(217, 164, 65, 0.16),
-      0 3px 14px rgba(0, 0, 0, 0.45);
-  }
-
-  .card-glow-green {
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.14),
-      0 0 30px rgba(16, 150, 90, 0.14),
-      0 3px 14px rgba(0, 0, 0, 0.45);
-  }
-
-  /* The treatment for a screen's one hero panel — the landing controls, the
-     war code, your own warrior. A gilt inner rule inset from the border, with
-     a garnet set at each corner: the reference badge's ring, flattened onto a
-     rectangle. Deliberately rare. Four corners come off ONE pseudo element
-     with four background layers, because a stud per pseudo would only ever
-     give two. */
-  .card-noble::after {
+  /* The inlay: a chamfered line 5px inside the edge. See point 3 above for the
+     geometry; the polygon is the outer cut, a seam to the inner cut, and the inner
+     cut wound the other way so the middle is empty. */
+    .plate::after,
+    .plate-silver::after,
+    .card::after,
+    .mini-nav::after,
+    .warcode-frame::after,
+    .btn-primary::after,
+    .btn-ghost::after,
+    .btn-info::after,
+    .btn-danger::after,
+    .btn-step::after,
+    .btn-back::after {
     content: "";
     position: absolute;
-    inset: 6px;
-    border-radius: 0.6rem;
+    inset: 4px;
+    z-index: -1;
     pointer-events: none;
-    box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.34);
-    /* A garnet dome sitting in a gilt collet — the ring is the last stop of
-       the same gradient, since four studs already cost four layers. The
-       radius is explicit and the tile is larger than it: sized by percent the
-       circle runs to the FARTHEST CORNER of its tile, overflows, and is cut
-       into a square with a round face. */
+    --c: calc(var(--cut) - 2.93px);
+    --w: var(--inlay-w);
+    --k: calc(var(--w) * 0.414);
+    background: var(--inlay);
+    clip-path: polygon(
+      var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)),
+      calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c), var(--c) 0,
+      calc(var(--c) + var(--k)) var(--w),
+      var(--w) calc(var(--c) + var(--k)), var(--w) calc(100% - var(--c) - var(--k)),
+      calc(var(--c) + var(--k)) calc(100% - var(--w)), calc(100% - var(--c) - var(--k)) calc(100% - var(--w)),
+      calc(100% - var(--w)) calc(100% - var(--c) - var(--k)), calc(100% - var(--w)) calc(var(--c) + var(--k)),
+      calc(100% - var(--c) - var(--k)) var(--w), calc(var(--c) + var(--k)) var(--w));
+  }
+
+  /* Focus, inside the cut. */
+    .plate:focus-visible,
+    .plate-silver:focus-visible,
+    .plate-hud:focus-visible,
+    .card:focus-visible,
+    .mini-nav:focus-visible,
+    .btn-primary:focus-visible,
+    .btn-ghost:focus-visible,
+    .btn-info:focus-visible,
+    .btn-danger:focus-visible,
+    .btn-step:focus-visible,
+    .btn-back:focus-visible,
+    .input-frame:focus-visible,
+    .select-frame:focus-visible,
+    .tab-item:focus-visible,
+    .seg-item:focus-visible,
+    a.badge-garnet:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -4px;
+  }
+
+  /* Lift comes from a wrapper, because a shadow on the plate is clipped by the
+     plate. Wrap a hero plate (or a row of them, like `.action-bar-row`) in this. */
+  .plate-lift {
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
+  }
+
+  /* THE THREE PLATES */
+
+  /* Niello is the default, and the core rule above already IS niello. */
+
+  /* The hero: ink on tinned silver. One a screen. The ink ramp is turned over for
+     everything inside it (see the flip block below), so type that says
+     var(--ink-dim) is still a word here. */
+  .plate-silver {
+    --fill: var(--plate-silver-bot);
+    --fill-top: var(--plate-silver-top);
+    --grain: var(--grain-ink);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver-lit);
+    --inlay: var(--niello);
+    --inlay-w: 1.5px;
+    --focus-ring: var(--niello);
+    --label-ink: var(--onsilver-dim);
+    color: var(--niello);
+  }
+
+  /* A combat plate: smaller cut, a 1px silver line at .42, no inlay, no grain worth
+     the cost of drawing it over a 60Hz canvas. Unit H names its own on top of
+     this if it wants a different one; the geometry is the part that had to be
+     shared. */
+  .plate-hud {
+    --cut: var(--cut-hud);
+    --rim: color-mix(in srgb, var(--silver) 42%, transparent);
+    --rim-top: color-mix(in srgb, var(--silver) 42%, transparent);
+    --grain: none;
+  }
+
+  /* TYPE SET ON SILVER. Custom properties are inherited AND overridable per
+     element, so turning the ink ramp over here reaches every piece of markup
+     below that reads it (`text-[var(--ink-dim)]`, the .label-overline, an icon on
+     currentColor) without touching any of it. The three Tailwind ramps are turned
+     too, because `text-amber-300` resolves to var(--ramp-warm-300) and that is
+     read on the element that carries the class: without this a remapped hue
+     class on a silver plate is cream on silver at 1.5:1. The keycap and the
+     primary button are silver plates too. */
+  .plate-silver,
+  .btn-primary:not(:disabled):not([aria-disabled="true"]),
+  .kbd {
+    --ink-bright: var(--niello);
+    --ink: var(--niello);
+    --ink-soft: var(--onsilver-soft);
+    --ink-dim: var(--onsilver-dim);
+    --ink-faint: var(--onsilver-faint);
+    --ink-ghost: var(--silver-dim);
+    --ramp-warm-50: var(--niello);
+    --ramp-warm-100: var(--niello);
+    --ramp-warm-200: var(--niello);
+    --ramp-warm-300: var(--niello);
+    --ramp-warm-400: var(--onsilver-soft);
+    --ramp-warm-500: var(--onsilver-dim);
+    --ramp-warm-600: var(--onsilver-faint);
+    --ramp-cold-50: var(--niello);
+    --ramp-cold-100: var(--niello);
+    --ramp-cold-200: var(--niello);
+    --ramp-cold-300: var(--niello);
+    --ramp-cold-400: var(--onsilver-soft);
+    --ramp-cold-500: var(--onsilver-dim);
+    --ramp-cold-600: var(--onsilver-faint);
+    --ramp-blood-50: var(--garnet);
+    --ramp-blood-100: var(--garnet);
+    --ramp-blood-200: var(--garnet);
+    --ramp-blood-300: var(--garnet);
+    --ramp-blood-400: var(--garnet);
+    --ramp-blood-500: var(--garnet);
+    --label-ink: var(--onsilver-dim);
+  }
+
+  /* A PRIMARY INSIDE A SILVER PLATE would be silver on silver, a button that reads
+     as a dent in the panel. Inside the hero it is the plate turned over: niello
+     with silver type, the same metal read from its other face (DESIGN-SYSTEM
+     section 2). */
+  .plate-silver .btn-primary:not(:disabled):not([aria-disabled="true"]) {
+    --fill: var(--niello);
+    --fill-top: var(--niello-raised);
+    --grain: var(--grain-lit);
+    --rim: var(--niello);
+    --rim-top: var(--niello);
+    --inlay: var(--silver-dim);
+    --inlay-w: 1px;
+    --focus-ring: var(--silver-lit);
+    color: var(--silver-lit);
+  }
+
+  /* --------------------------------------------------------------- cards */
+
+  /* A panel is a niello plate: the core rule, plus the type a panel carries. What
+     it used to be was a rounded 158-degree brown gradient with a 6px blur behind
+     it and a 14px soft shadow, which UI-PLAN D02 read off every frame as a
+     settings dialog with a warm border. */
+  .card {
+    color: var(--ink);
+  }
+
+  /* `card-glow` promised a gilt halo round the hero panels. A halo is a heat
+     source and the palette's only heat is blood, so the class is kept (eight call
+     sites) and now means only "one step lighter in the face", which is what a
+     hero plate had to give up when its glow went. */
+  .card-glow {
+    --fill-top: var(--niello-line);
+  }
+
+  /* Kept as a name and nothing else: the emerald glow it drew is a hue the game
+     does not have. One call site (`page.tsx`, the join screen), owned by unit L,
+     which deletes the use and this line together. */
+  .card-glow-green {
+    --fill-top: var(--niello-line);
+  }
+
+  /* The hero panel's ornament: a ring-and-dot pellet at each corner, 9px in,
+     inside the inlay and outside the padding, so it never sits behind type. It
+     replaces four garnet studs with a specular dot and a glow (UI-PLAN 1.6 law 4:
+     "cabochons only on won-round pips, the Bretwalda mark and one selected
+     state"). The pellet is a boss seen from above: a dot of silver in a ring of
+     silver-dim with a gap of ground between. It is four background layers ahead
+     of the plate's own, so the plate's tiles, grain and fill keep their order. */
+  .card-noble {
+    --pellet: radial-gradient(circle at 50% 50%, var(--silver) 0 1.4px, transparent 1.7px 2.9px, var(--silver-dim) 3.1px 4px, transparent 4.4px);
     background-image:
-      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
-      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
-      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%),
-      radial-gradient(circle 5.5px at 45% 42%, #ffd9cd 0 12%, #d8474a 13% 38%, #8b1724 39% 66%, rgba(217, 164, 65, 0.95) 70% 92%, rgba(217, 164, 65, 0) 100%);
-    background-size: 14px 14px;
-    background-repeat: no-repeat;
-    /* Inside the corner radius, not on it: a stud in the corner itself is
-       clipped by the pseudo's own rounded corner and reads as half a stone. */
-    background-position: 2px 2px, calc(100% - 2px) 2px, 2px calc(100% - 2px), calc(100% - 2px) calc(100% - 2px);
+      var(--pellet), var(--pellet), var(--pellet), var(--pellet),
+      linear-gradient(to bottom right, transparent calc(50% - 0.5px), var(--rim-top) calc(50% + 0.1px), var(--rim-top) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to bottom left, transparent calc(50% - 0.5px), var(--rim-top) calc(50% + 0.1px), var(--rim-top) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to top left, transparent calc(50% - 0.5px), var(--rim) calc(50% + 0.1px), var(--rim) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      linear-gradient(to top right, transparent calc(50% - 0.5px), var(--rim) calc(50% + 0.1px), var(--rim) calc(50% + 1px), transparent calc(50% + 1.6px)),
+      var(--grain),
+      linear-gradient(180deg, var(--fill-top), transparent);
+    background-size:
+      9px 9px, 9px 9px, 9px 9px, 9px 9px,
+      var(--cut) var(--cut), var(--cut) var(--cut), var(--cut) var(--cut), var(--cut) var(--cut), 160px 160px, 100% 100%;
+    background-position:
+      9px 9px, right 9px top 9px, right 9px bottom 9px, left 9px bottom 9px,
+      0 0, 100% 0, 100% 100%, 0 100%, 0 0, 0 0;
+    background-repeat:
+      no-repeat, no-repeat, no-repeat, no-repeat,
+      no-repeat, no-repeat, no-repeat, no-repeat, repeat, no-repeat;
+  }
+
+  /* The hero panel of a screen: a niello plate one step lighter, a silver rule
+     for its edge and a pewter inlay. The war-code panel wears it. */
+  .warcode-frame {
+    --fill-top: var(--niello-line);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver);
+    --inlay: var(--pewter);
   }
 
   .card-interactive {
-    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .card-interactive:hover {
-    border-color: rgba(217, 164, 65, 0.6);
-    background: linear-gradient(158deg, rgba(80, 66, 50, 0.8), rgba(36, 30, 24, 0.94));
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.26),
-      0 6px 20px rgba(0, 0, 0, 0.45);
+  @media (hover: hover) and (pointer: fine) {
+    .card-interactive:hover {
+      --rim: var(--silver-dim);
+      --rim-top: var(--silver-dim);
+      --inlay: var(--pewter);
+      filter: brightness(1.08);
+    }
   }
   .card-interactive:active {
-    transform: translateY(0) scale(0.995);
+    transform: translateY(1px);
   }
 
-  /* Chosen kit is garnet-lined and gilt-edged — the same read as the selected
-     rung on the helm ladder, and the only place a red field appears outside a
-     warning. */
-  .card-selected {
-    border-color: rgba(217, 164, 65, 0.85) !important;
-    background: linear-gradient(158deg, rgba(124, 20, 32, 0.5), rgba(48, 22, 16, 0.9)) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.3),
-      0 0 0 1px rgba(217, 164, 65, 0.35),
-      0 0 30px rgba(160, 40, 40, 0.22) !important;
+  /* THE ONE SELECTED GRAMMAR (UI-PLAN D17): a 2px silver line inside the cut, on a
+     plate one step lighter. Luminance is the hierarchy, so there is no second
+     accent colour: the chosen kit used to be garnet-lined and gilt-edged, which
+     was the only red field outside a warning and a second orange beside the
+     primary. Two classes, for specificity: the hover rule above is (0,2,0). */
+  .card.card-selected {
+    --fill-top: var(--niello-line);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver);
+    --inlay: var(--silver);
+    --inlay-w: 2px;
   }
 
-  /* A struck disc: gilt rim, dark field, light from above. */
+  /* A struck disc: a roundel holding a glyph. Round is allowed here because it is
+     the mark roundel, DESIGN-SYSTEM section 7's carve-out, and it is a niello
+     boss with a silver-dim ring and an inlay ring inside it, not a gilt rim. */
   .medallion {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 9999px;
-    background: radial-gradient(circle at 50% 24%, rgba(96, 78, 54, 0.8), rgba(16, 12, 9, 0.92) 72%);
-    border: 1px solid rgba(217, 164, 65, 0.45);
+    background: radial-gradient(circle at 50% 30%, var(--niello-line), var(--niello) 75%);
+    border: 1px solid var(--silver-dim);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--gilt-lit);
+    color: var(--silver-lit);
     flex-shrink: 0;
-    box-shadow:
-      inset 0 1px 2px rgba(246, 221, 160, 0.22),
-      inset 0 -2px 5px rgba(0, 0, 0, 0.65),
-      0 1px 3px rgba(0, 0, 0, 0.5);
+    box-shadow: inset 0 0 0 3px var(--niello), inset 0 0 0 4px var(--niello-line);
   }
 
   /* --------------------------------------------------------------- buttons */
 
   .btn-primary,
-  .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.6rem;
-    min-height: 3.25rem;
-    padding: 0.9rem 1.5rem;
-    border-radius: 0.75rem;
-    font-weight: 800;
-    letter-spacing: 0.09em;
-    font-size: 0.95rem;
-    line-height: 1.15;
-    transition: all 0.15s ease;
-  }
-
-  /* Gilded bronze rather than orange plastic: a bright top edge, a dark
-     bottom, and the seam of light that any struck metal has just under its
-     rim. The gleam is a background layer, not a child, so every caller gets
-     it without changing markup. */
-  .btn-primary {
-    position: relative;
-    overflow: hidden;
-    background:
-      linear-gradient(180deg, rgba(255, 236, 190, 0.34), rgba(255, 236, 190, 0) 42%),
-      linear-gradient(180deg, #c9761d 0%, #a2540f 46%, #7c3c07 100%);
-    border: 1px solid rgba(246, 221, 160, 0.55);
-    color: #fff6e2;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 240, 200, 0.5),
-      inset 0 -2px 6px rgba(60, 20, 0, 0.55),
-      0 4px 18px rgba(0, 0, 0, 0.5);
-    text-shadow: 0 1px 2px rgba(70, 26, 0, 0.7);
-  }
-  .btn-primary:hover:not(:disabled) {
-    background:
-      linear-gradient(180deg, rgba(255, 240, 205, 0.42), rgba(255, 240, 205, 0) 44%),
-      linear-gradient(180deg, #e08a24 0%, #b45f11 46%, #8a4408 100%);
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 245, 215, 0.6),
-      0 6px 28px rgba(217, 164, 65, 0.35),
-      0 4px 18px rgba(0, 0, 0, 0.5);
-  }
-  .btn-primary:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-  .btn-primary:disabled {
-    opacity: 0.55;
-  }
-
-  /* The secondary is tinned silver to the primary's gilt — the two metals the
-     helm actually uses, so a pair of buttons reads as one object. */
-  .btn-ghost {
-    background:
-      linear-gradient(180deg, rgba(214, 226, 236, 0.16), rgba(214, 226, 236, 0) 44%),
-      linear-gradient(180deg, rgba(66, 62, 56, 0.92), rgba(30, 27, 23, 0.96));
-    border: 1px solid rgba(179, 190, 199, 0.34);
-    color: #eef1f3;
-    font-weight: 700;
-    box-shadow:
-      inset 0 1px 0 rgba(226, 236, 244, 0.24),
-      inset 0 -2px 5px rgba(0, 0, 0, 0.5),
-      0 3px 12px rgba(0, 0, 0, 0.4);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    border-color: rgba(196, 210, 220, 0.6);
-    background:
-      linear-gradient(180deg, rgba(220, 232, 242, 0.22), rgba(220, 232, 242, 0) 46%),
-      linear-gradient(180deg, rgba(84, 79, 71, 0.95), rgba(40, 36, 31, 0.98));
-    transform: translateY(-1px);
-  }
-  .btn-ghost:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-  .btn-ghost:disabled {
-    opacity: 0.55;
-  }
-
+  .btn-ghost,
   .btn-info {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    min-height: 3.25rem;
-    padding: 0.75rem 1.25rem;
-    background: linear-gradient(180deg, #0a5c8a, #0c4a6e);
-    border: 1px solid rgba(56, 189, 248, 0.4);
-    border-radius: 0.75rem;
-    color: #e0f2fe;
+    gap: 0.6rem;
+    min-height: 3.5rem;
+    padding: 0.75rem 1.6rem;
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
     font-weight: 700;
-    letter-spacing: 0.09em;
-    font-size: 0.95rem;
-    transition: all 0.15s ease;
-  }
-  .btn-info:hover {
-    background: linear-gradient(180deg, #0d74ad, #075985);
+    font-size: 1rem;
+    letter-spacing: 0.14em;
+    line-height: 1.15;
+    text-align: center;
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
 
+  /* THE PRIMARY IS THE SILVER HERO PLATE (UI-PLAN 1.1): ink #111013 on a two-stop
+     silver, 56px, Cinzel 700. WHAT THIS RULE USED TO BE, and what the comment
+     above it lied about, was an orange gradient (#c9761d to #7c3c07) with a white
+     gleam over it, under the words "Gilded bronze rather than orange plastic":
+     the only warm control on a palette whose one heat is blood, and a glossy pill
+     on a design system that forbids one (docs/PROCESS.md R7: a comment that
+     describes a value the code does not have is a defect). F1 corrected the
+     comment; this replaces the rule. */
+  .btn-primary {
+    font-size: 1.0625rem;
+    --fill: var(--plate-silver-bot);
+    --fill-top: var(--plate-silver-top);
+    --grain: var(--grain-ink);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver-lit);
+    --inlay: var(--niello);
+    --inlay-w: 1.5px;
+    --focus-ring: var(--niello);
+    color: var(--niello);
+  }
+
+  /* The secondary is a niello plate with a silver-dim line and type in silver-lit
+     (UI-PLAN 1.1). `.btn-info` was a sky-blue plate, a hue this game does not
+     have; it is the secondary now, one call site (SHARE INVITE). */
+  .btn-ghost,
+  .btn-info {
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver-dim);
+    color: var(--silver-lit);
+  }
+
+  /* Hover is the pointer's, and it is a lift in brightness and nothing else. Active
+     is a 1px press. Focus is the ring inside the cut, above. */
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+      filter: brightness(1.07);
+    }
+    .btn-ghost:hover:not(:disabled):not([aria-disabled="true"]),
+    .btn-info:hover:not(:disabled):not([aria-disabled="true"]) {
+      --rim: var(--silver);
+      --rim-top: var(--silver);
+      filter: brightness(1.12);
+    }
+  }
+  .btn-primary:active:not(:disabled):not([aria-disabled="true"]),
+  .btn-ghost:active:not(:disabled):not([aria-disabled="true"]),
+  .btn-info:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(1px);
+  }
+
+  /* DISABLED IS A DIFFERENT PLATE, NOT A FADED ONE. `opacity: .55` made a disabled
+     primary a translucent orange pill: half-visible, half the contrast, and it
+     dragged the words down with it (UI-PLAN D12: on the oath screen the disabled
+     primary read "The war rolls are not being kept" in grey-on-bronze, and the
+     disabled state WAS the error message). Now a niello plate with type at
+     --ink-faint, which clears 4.5:1, no lit edge, no grain, a not-allowed cursor.
+     `aria-disabled` is styled the same, because a control that has to stay
+     focusable so a screen reader can reach the reason it is unavailable
+     cannot use the disabled attribute. The reason itself is printed under the
+     plate by the call site, in `.plate-reason`. */
+  .btn-primary:disabled, .btn-primary[aria-disabled="true"],
+  .btn-ghost:disabled, .btn-ghost[aria-disabled="true"],
+  .btn-info:disabled, .btn-info[aria-disabled="true"],
+  .btn-danger:disabled, .btn-danger[aria-disabled="true"],
+  .btn-step:disabled, .btn-step[aria-disabled="true"] {
+    --fill: var(--niello);
+    --fill-top: var(--niello-raised);
+    --grain: var(--grain-lit);
+    --rim: var(--niello-line);
+    --rim-top: var(--niello-line);
+    --inlay: var(--niello-line);
+    --inlay-w: 1px;
+    --focus-ring: var(--silver-lit);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+    filter: none;
+    transform: none;
+  }
+  /* The printed reason a plate is unavailable: a line of 14px supporting type
+     under it (UI-PLAN 1.1). Never a tooltip and never colour alone. */
+  .plate-reason {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: var(--fs-support);
+    line-height: 1.4;
+    color: var(--ink-soft);
+    text-align: center;
+  }
   /* THE PADS. Geometry stays on the element (each pad is a different size
      and sits at its own offset); everything that is COLOUR lives here, so the
      palette is changed in one place and never in five JSX class strings. */
@@ -976,116 +1831,147 @@
     gap: 0.5rem;
     min-height: 3.25rem;
     padding: 0.75rem 1.1rem;
-    background:
-      linear-gradient(180deg, rgba(255, 190, 190, 0.14), rgba(255, 190, 190, 0) 44%),
-      linear-gradient(180deg, rgba(124, 20, 32, 0.85), rgba(48, 8, 12, 0.94));
-    border: 1px solid rgba(200, 50, 60, 0.5);
-    border-radius: 0.75rem;
-    color: #f3c9c4;
-    box-shadow: inset 0 1px 0 rgba(255, 210, 205, 0.2), 0 3px 12px rgba(0, 0, 0, 0.45);
-    transition: all 0.15s ease;
+    --fill: var(--madder);
+    --fill-top: color-mix(in srgb, var(--hp-critical) 28%, var(--madder));
+    --rim: var(--garnet);
+    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 30%, var(--garnet));
+    --inlay: color-mix(in srgb, var(--niello) 45%, var(--madder));
+    color: var(--ink-bright);
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .btn-danger:hover {
-    border-color: rgba(217, 164, 65, 0.55);
-    color: #ffe0d8;
+  @media (hover: hover) and (pointer: fine) {
+    .btn-danger:hover:not(:disabled):not([aria-disabled="true"]) {
+      filter: brightness(1.1);
+    }
+  }
+  .btn-danger:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(1px);
   }
 
-  /* A stepper's two halves are the most-missed targets on the whole site;
-     they get a square 48px each rather than icon-sized padding. */
+  /* A stepper's two halves are the most-missed targets on the whole site; they
+     get a square 48px each rather than icon-sized padding. A track-sized cut (6px)
+     because 8px on 48 leaves a diamond. */
   .btn-step {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 3rem;
     height: 3rem;
-    border-radius: 0.7rem;
-    background:
-      linear-gradient(180deg, rgba(214, 226, 236, 0.16), rgba(214, 226, 236, 0) 44%),
-      linear-gradient(180deg, rgba(66, 62, 56, 0.92), rgba(30, 27, 23, 0.96));
-    border: 1px solid rgba(179, 190, 199, 0.34);
-    color: #eef1f3;
-    box-shadow: inset 0 1px 0 rgba(226, 236, 244, 0.22), 0 2px 8px rgba(0, 0, 0, 0.4);
-    transition: all 0.15s ease;
+    --cut: var(--cut-md);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver-dim);
+    color: var(--silver-lit);
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .btn-step:hover:not(:disabled) {
-    border-color: rgba(217, 164, 65, 0.65);
-    color: var(--gilt-lit);
+  @media (hover: hover) and (pointer: fine) {
+    .btn-step:hover:not(:disabled):not([aria-disabled="true"]) {
+      --rim: var(--silver);
+      --rim-top: var(--silver);
+      filter: brightness(1.12);
+    }
   }
-  .btn-step:disabled {
-    opacity: 0.4;
+  .btn-step:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(1px);
   }
 
-  /* Back sits above every screen's masthead, so it needs to be tappable
-     without being loud. */
+  /* Back sits above every screen's masthead. One Back everywhere (UI-PLAN D12): a
+     niello plate with a silver arrow, quiet next to a primary because its line is
+     pewter and not silver-dim. The negative margin that used to pull the WORD
+     into line with the gutter is gone: a plate is aligned by its edge. */
   .btn-back {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
     align-self: flex-start;
-    min-height: var(--tap);
-    padding: 0.5rem 0.9rem 0.5rem 0.7rem;
-    margin-left: -0.7rem;
-    border-radius: 0.6rem;
-    color: #a89f8e;
-    font-size: 0.8rem;
+    min-height: 3rem;
+    padding: 0.5rem 1.1rem 0.5rem 0.9rem;
+    --cut: var(--cut-md);
+    --rim: var(--pewter);
+    --rim-top: var(--pewter);
+    color: var(--silver);
+    font-family: var(--font-display), "Cinzel", serif;
+    font-size: var(--fs-label);
     font-weight: 700;
-    letter-spacing: 0.14em;
-    transition: all 0.15s ease;
+    letter-spacing: var(--track-label);
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .btn-back:hover {
-    color: #fbbf24;
-    background: rgba(255, 255, 255, 0.045);
+  @media (hover: hover) and (pointer: fine) {
+    .btn-back:hover {
+      --rim: var(--silver-dim);
+      --rim-top: var(--silver-dim);
+      color: var(--silver-lit);
+      filter: brightness(1.12);
+    }
+  }
+  .btn-back:active {
+    transform: translateY(1px);
   }
 
   /* ---------------------------------------------------------------- inputs */
 
+  /* A FIELD IS SUNK, NOT RAISED. Its plate is niello with no lit top, a
+     silver-dim line for the edge the light catches (the lower lip of a recess)
+     and a pewter one for the edge in shadow, and a crisp 2px of black down the
+     inside of the top edge: a hard step, not a blur. The line is silver-dim and
+     not a hairline because a field's boundary has to clear 3:1 against the hall
+     (WCAG 1.4.11), and pewter does not. Inputs and selects cannot have
+     pseudo-elements, so a field gets the corner tiles and no inlay. */
   .input-frame {
     width: 100%;
     min-height: 3.5rem;
     padding: 1rem 1.25rem;
-    background: rgba(26, 20, 14, 0.88);
-    border: 1px solid rgba(170, 140, 100, 0.5);
-    border-radius: 0.75rem;
-    color: #fff9ec;
+    --fill-top: var(--niello);
+    --rim: var(--silver-dim);
+    --rim-top: var(--pewter);
+    color: var(--ink-bright);
     font-size: 1.05rem;
     letter-spacing: 0.02em;
-    transition: all 0.15s ease;
-    outline: none;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: filter 0.12s ease;
+    box-shadow: inset 0 2px 0 color-mix(in srgb, black 55%, transparent);
   }
   .input-frame::placeholder {
-    color: #6f6558;
+    color: var(--ink-faint);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .input-frame:hover:not(:focus) {
+      --rim: var(--silver);
+    }
   }
   .input-frame:focus {
-    border-color: rgba(217, 164, 65, 0.9);
-    box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.24), 0 0 28px rgba(217, 164, 65, 0.16), inset 0 2px 6px rgba(0, 0, 0, 0.3);
+    --rim: var(--silver-lit);
+    --rim-top: var(--silver-lit);
   }
-  /* The base layer's focus ring cannot reach these: `outline: none` above sits
-     in a LATER cascade layer, so it wins whatever its specificity. The lit
-     border and glow on `:focus` are a good affordance for a pointer and are
-     kept; this adds the ring a keyboard needs on top, and only for a keyboard. */
-  .input-frame:focus-visible {
-    outline: 2px solid var(--gilt-lit);
-    outline-offset: 2px;
+  /* A field that cannot be typed in is not a faded field: no lit lip, dim type,
+     the same not-allowed cursor a disabled plate has. */
+  .input-frame:disabled {
+    --rim: var(--niello-line);
+    --rim-top: var(--niello-line);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+    box-shadow: none;
   }
 
   .select-frame {
     min-height: var(--tap);
     padding: 0.55rem 0.85rem;
-    background: rgba(26, 20, 14, 0.9);
-    border: 1px solid rgba(150, 125, 95, 0.55);
-    border-radius: 0.6rem;
-    color: #ded5c3;
-    font-size: 0.8rem;
+    --cut: var(--cut-md);
+    --fill-top: var(--niello);
+    --rim: var(--silver-dim);
+    --rim-top: var(--pewter);
+    color: var(--ink);
+    color-scheme: dark;
+    font-size: var(--fs-support);
     font-weight: 600;
-    outline: none;
+    box-shadow: inset 0 2px 0 color-mix(in srgb, black 55%, transparent);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .select-frame:hover:not(:focus) {
+      --rim: var(--silver);
+    }
   }
   .select-frame:focus {
-    border-color: rgba(240, 169, 46, 0.85);
-  }
-  .select-frame:focus-visible {
-    outline: 2px solid var(--gilt-lit);
-    outline-offset: 2px;
+    --rim: var(--silver-lit);
+    --rim-top: var(--silver-lit);
   }
 
   /* ------------------------------------------------------------ navigation */
@@ -1098,35 +1984,38 @@
     gap: 0.3rem;
     min-height: 5.5rem;
     padding: 0.9rem 0.4rem;
-    background: linear-gradient(158deg, rgba(66, 55, 42, 0.76), rgba(28, 23, 18, 0.9));
-    border: 1px solid rgba(217, 164, 65, 0.24);
-    border-radius: 0.85rem;
-    color: #ede6d4;
+    color: var(--silver-lit);
+    /* THE BODY FACE, ON PURPOSE. Five of these share a 26rem row on a desktop, 75px
+       each, and "Training" in Cinzel at the 12px label step is about 80px wide
+       before its tracking: the first draft set the word in Cinzel and overflowed
+       every cell. Alegreya bold is what these were and what fits. */
     font-weight: 700;
-    font-size: 0.8rem;
-    transition: all 0.15s ease;
-    backdrop-filter: blur(5px);
-    box-shadow: inset 0 1px 0 rgba(246, 221, 160, 0.16), 0 3px 12px rgba(0, 0, 0, 0.4);
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .mini-nav:hover {
-    border-color: rgba(217, 164, 65, 0.6);
-    transform: translateY(-1px);
-    box-shadow: inset 0 1px 0 rgba(246, 221, 160, 0.26), 0 6px 18px rgba(0, 0, 0, 0.4);
+  @media (hover: hover) and (pointer: fine) {
+    .mini-nav:hover {
+      --rim: var(--silver-dim);
+      --rim-top: var(--silver-dim);
+      --inlay: var(--pewter);
+      filter: brightness(1.1);
+    }
   }
   .mini-nav:active {
-    transform: translateY(0);
+    transform: translateY(1px);
   }
 
-  /* The mask is the only cue that there is more to the right: the strip has
-     no visible scrollbar and on a phone the last tab is always cut. */
+  /* The mask is the only cue that there is more to the right: the strip has no
+     visible scrollbar and on a phone the last tab is always cut. A track is a
+     niello plate that holds other plates; its cut is the middle one, 6px. */
   .tab-strip {
     display: flex;
     gap: 4px;
     overflow-x: auto;
     padding: 4px;
-    background: rgba(22, 17, 12, 0.75);
-    border: 1px solid rgba(150, 125, 95, 0.35);
-    border-radius: 0.75rem;
+    --cut: var(--cut-md);
+    --fill-top: var(--niello);
     scrollbar-width: none;
     mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 2.25rem), transparent 100%);
   }
@@ -1156,29 +2045,50 @@
     }
   }
 
+  /* A TAB IS A PLATE WITH NOTHING ON IT until it is chosen: transparent fill, no
+     line, no grain, and it takes a 4px cut so that the chosen one, which is silver,
+     is a cut piece and not a rectangle. SELECTED IS LUMINANCE, NOT A SECOND ORANGE
+     (UI-PLAN 1.1): a silver-dim fill with ink #111013 on it, 5.65:1. The active
+     tab used to be the primary's orange, which made "you are here" and "press
+     this" the same colour. */
   .tab-item {
     display: inline-flex;
     align-items: center;
     min-height: var(--tap);
     padding: 0.6rem 1.05rem;
-    border-radius: 0.55rem;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
+    --cut: var(--cut-sm);
+    --fill: transparent;
+    --fill-top: transparent;
+    --grain: none;
+    --rim: transparent;
+    --rim-top: transparent;
+    font-family: var(--font-display), "Cinzel", serif;
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: 0.14em;
     white-space: nowrap;
-    color: #a39a8a;
-    transition: all 0.15s ease;
+    color: var(--ink-dim);
+    transition: filter 0.12s ease, transform 0.12s ease;
     flex-shrink: 0;
   }
-  .tab-item:hover {
-    color: #e8e0cf;
+  @media (hover: hover) and (pointer: fine) {
+    .tab-item:hover:not(.tab-item-active) {
+      color: var(--silver-lit);
+      --rim: var(--pewter);
+      --rim-top: var(--pewter);
+    }
+  }
+  .tab-item:active:not(.tab-item-active) {
+    transform: translateY(1px);
   }
   .tab-item-active {
-    background:
-      linear-gradient(180deg, rgba(255, 236, 190, 0.3), rgba(255, 236, 190, 0) 45%),
-      linear-gradient(180deg, #c9761d, #8a4408);
-    color: #fff6e2;
-    box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.45), 0 2px 8px rgba(0, 0, 0, 0.45);
+    --fill: var(--silver-dim);
+    --fill-top: color-mix(in srgb, var(--silver) 40%, var(--silver-dim));
+    --grain: var(--grain-ink);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver);
+    --focus-ring: var(--niello);
+    color: var(--niello);
   }
 
   /* The sticky action bar every long screen ends with. The fade is what keeps
@@ -1211,32 +2121,47 @@
 
   /* --------------------------------------------------------------- badges */
 
-  .badge-sky {
+  /* A CHIP IS A PLATE THE SIZE OF A WORD: a 4px cut, 12px Cinzel (the plan's
+     label size, it was 9px), and a fill that says what kind of thing it is by
+     LUMINANCE and never by hue. Sky-blue was the YOU chip and the war-link chip,
+     a colour the game does not have; it is niello-raised with a silver line now.
+     garnet is madder, the team dye's own red, for the war layer's outcome chips;
+     stone is the quiet one. Call sites still set their own size with a
+     `!text-[10px]`, which is why the base is the floor and not a wish. */
+  .badge-sky,
+  .badge-garnet,
+  .badge-stone {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    font-size: 9px;
-    font-weight: 800;
+    font-family: var(--font-display), "Cinzel", serif;
+    font-size: var(--fs-label);
+    font-weight: 700;
     letter-spacing: 0.12em;
-    color: #a5dcfc;
-    background: rgba(2, 132, 199, 0.2);
-    border: 1px solid rgba(2, 132, 199, 0.5);
-    border-radius: 4px;
-    padding: 2px 6px;
+    line-height: 1.2;
+    padding: 3px 8px;
+    --cut: var(--cut-sm);
   }
-
+  .badge-sky {
+    --fill: var(--niello-raised);
+    --fill-top: var(--niello-line);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver-dim);
+    color: var(--silver-lit);
+  }
   .badge-garnet {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    color: #f0cfc6;
-    background: rgba(124, 20, 32, 0.42);
-    border: 1px solid rgba(217, 164, 65, 0.45);
-    border-radius: 4px;
-    padding: 2px 6px;
+    --fill: var(--madder);
+    --fill-top: color-mix(in srgb, var(--hp-critical) 28%, var(--madder));
+    --rim: var(--garnet);
+    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 30%, var(--garnet));
+    color: var(--ink-bright);
+  }
+  .badge-stone {
+    --fill: var(--niello-raised);
+    --fill-top: var(--niello-line);
+    --rim: var(--pewter);
+    --rim-top: var(--pewter);
+    color: var(--ink-soft);
   }
 
   /* A BADGE THAT IS A LINK IS A CONTROL, and only then.
@@ -1254,57 +2179,39 @@
     justify-content: center;
   }
 
-  .badge-stone {
-    display: inline-flex;
-    align-items: center;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    color: #d6d3d1;
-    background: rgba(87, 83, 78, 0.3);
-    border: 1px solid rgba(120, 113, 108, 0.5);
-    border-radius: 4px;
-    padding: 2px 6px;
-  }
-
   /* ------------------------------------------------------------ war code */
 
   /* The invite block is the reason the lobby exists — a second player only
      arrives through it — so it is the one thing on the screen allowed to
      shout. The code sizes off the viewport because it must stay on one line
-     at 390px without being timid at 1440px. */
+     at 390px without being timid at 1440px. Alegreya 700 in lining tabular
+     figures (F1, D22: no system monospace, and the string a player reads aloud
+     to a friend is set in the game's own face). NO GLOW: it was gold with 26px of
+     gold light round it and a second shadow under that. It is silver-lit on the
+     hero plate, and ink #111013 the day the plate is silver: `.plate-silver
+     .warcode`, below. */
   .warcode {
     display: block;
     width: 100%;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-family: var(--font-body), "Alegreya", Georgia, serif;
+    font-variant-numeric: lining-nums tabular-nums;
     font-weight: 700;
-    font-size: clamp(1.9rem, 9vw, 3rem);
+    font-size: clamp(2rem, 9vw, 3.25rem);
     line-height: 1.1;
-    letter-spacing: 0.16em;
-    text-indent: 0.16em;
-    color: #ffd257;
-    text-shadow: 0 0 26px rgba(255, 190, 70, 0.55), 0 2px 4px rgba(0, 0, 0, 0.8);
+    letter-spacing: 0.14em;
+    text-indent: 0.14em;
+    color: var(--silver-lit);
     overflow-wrap: anywhere;
   }
-
-  .warcode-frame {
-    position: relative;
-    border-radius: 0.9rem;
-    border: 1px solid rgba(217, 164, 65, 0.5);
-    background:
-      radial-gradient(120% 100% at 50% 0%, rgba(146, 82, 14, 0.42), transparent 70%),
-      linear-gradient(180deg, rgba(48, 34, 18, 0.9), rgba(20, 15, 10, 0.95));
-    box-shadow:
-      inset 0 1px 0 rgba(246, 221, 160, 0.22),
-      inset 0 0 0 1px rgba(0, 0, 0, 0.4),
-      0 0 44px rgba(217, 164, 65, 0.16),
-      0 6px 22px rgba(0, 0, 0, 0.5);
+  .plate-silver .warcode {
+    color: var(--niello);
   }
 
   .link-preview {
-    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-    font-size: 10px;
-    color: #8b8172;
+    font-family: var(--font-body), "Alegreya", Georgia, serif;
+    font-variant-numeric: lining-nums;
+    font-size: var(--fs-label);
+    color: var(--ink-dim);
     overflow-wrap: anywhere;
     line-height: 1.5;
   }
@@ -1320,9 +2227,15 @@
     padding-block: 0.55rem;
   }
   .ctrl-row + .ctrl-row {
-    border-top: 1px solid rgba(150, 125, 95, 0.16);
+    border-top: 1px solid var(--niello-line);
   }
 
+  /* A KEYCAP IS A SILVER CAP WITH NIELLO LETTERS (UI-PLAN D22): Cinzel 700, 12px,
+     radius 2px, which is the one radius the plan allows on a small silver piece.
+     It was Cinzel in a warm gold on brown. The depth is a crisp 2px step of pewter
+     under the cap (a key standing proud of the board) and not a soft shadow. The
+     ink ramp is turned over inside it, above, so the two call sites that
+     still set `text-[var(--ink-dim)]` on a cap read as dark on silver. */
   .kbd {
     display: inline-flex;
     align-items: center;
@@ -1331,32 +2244,33 @@
     max-width: 46%;
     min-width: 3.5rem;
     padding: 0.34rem 0.6rem;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-    font-size: 10.5px;
+    font-family: var(--font-display), "Cinzel", "Times New Roman", serif;
+    font-size: var(--fs-label);
     font-weight: 700;
     letter-spacing: 0.05em;
     text-align: center;
-    color: #ffd89a;
-    background: linear-gradient(180deg, rgba(60, 48, 34, 0.95), rgba(32, 25, 17, 0.95));
-    border: 1px solid rgba(150, 120, 80, 0.5);
-    border-radius: 6px;
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 215, 150, 0.12);
+    color: var(--niello);
+    background: var(--grain-ink), linear-gradient(180deg, var(--plate-silver-top), var(--plate-silver-bot));
+    background-size: 160px 160px, 100% 100%;
+    border: 1px solid var(--silver-dim);
+    border-radius: 2px;
+    box-shadow: 0 2px 0 var(--pewter);
   }
 
   .tip-row {
     font-size: 0.78rem;
     line-height: 1.6;
-    color: rgba(226, 219, 203, 0.88);
+    color: var(--ink);
     padding: 0.35rem 0 0.35rem 0.85rem;
-    border-left: 2px solid rgba(180, 100, 15, 0.75);
+    border-left: 2px solid var(--silver-dim);
   }
 
   /* ------------------------------------------------------- rounds & score */
 
   /* The best-of picker, and the same shape reused anywhere a screen offers
-     two or three exclusive choices. Sunk track, raised chosen segment: the
-     chosen one has to look pressed IN rather than merely coloured, because
-     on a phone this control is read at a glance in a lobby. */
+     two or three exclusive choices. A SUNK track and one RAISED silver segment:
+     the chosen one has to look different by luminance and not merely by colour,
+     because on a phone this control is read at a glance in a lobby. */
   .seg {
     display: flex;
     gap: 4px;
@@ -1366,10 +2280,8 @@
     width: 100%;
     max-width: 26rem;
     margin-inline: auto;
-    border-radius: 0.75rem;
-    background: rgba(14, 10, 7, 0.8);
-    border: 1px solid rgba(217, 164, 65, 0.22);
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+    --cut: var(--cut-md);
+    --fill-top: var(--niello);
   }
   .seg-item {
     flex: 1 1 0;
@@ -1380,25 +2292,37 @@
     justify-content: center;
     gap: 0.4rem;
     padding: 0.5rem 0.5rem;
-    border-radius: 0.55rem;
+    --cut: var(--cut-sm);
+    --fill: transparent;
+    --fill-top: transparent;
+    --grain: none;
+    --rim: transparent;
+    --rim-top: transparent;
     font-family: var(--font-display), "Cinzel", serif;
     font-size: 0.9rem;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: 0.08em;
-    color: #a99f8d;
-    transition: all 0.15s ease;
+    color: var(--ink-dim);
+    transition: filter 0.12s ease, transform 0.12s ease;
   }
-  .seg-item:hover:not(.seg-item-active) {
-    color: #e8e0cf;
-    background: rgba(255, 255, 255, 0.04);
+  @media (hover: hover) and (pointer: fine) {
+    .seg-item:hover:not(.seg-item-active) {
+      color: var(--silver-lit);
+      --rim: var(--pewter);
+      --rim-top: var(--pewter);
+    }
+  }
+  .seg-item:active:not(.seg-item-active) {
+    transform: translateY(1px);
   }
   .seg-item-active {
-    background:
-      linear-gradient(180deg, rgba(255, 236, 190, 0.3), rgba(255, 236, 190, 0) 45%),
-      linear-gradient(180deg, #c9761d, #8a4408);
-    color: #fff6e2;
-    box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
-    text-shadow: 0 1px 2px rgba(60, 24, 0, 0.6);
+    --fill: var(--silver-dim);
+    --fill-top: color-mix(in srgb, var(--silver) 40%, var(--silver-dim));
+    --grain: var(--grain-ink);
+    --rim: var(--silver-dim);
+    --rim-top: var(--silver);
+    --focus-ring: var(--niello);
+    color: var(--niello);
   }
 
   /* One round, won or not yet. Unwon is an empty gilt setting; won is the
@@ -1447,26 +2371,34 @@
 
   /* --------------------------------------------------------------- misc */
 
+  /* A compartmented hairline for inside a plate: the same cells as the section
+     rule, one pixel tall and in pewter, so a plate's divider is a run of cut
+     pieces and never a line to both edges. */
   .divider {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.35), transparent);
+    background-image: var(--rule-cells-dim);
+    background-size: 48px 1px;
+    background-repeat: round no-repeat;
   }
 
   .rule-label {
     display: flex;
     align-items: center;
     gap: 0.9rem;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.28em;
-    color: #9c8f78;
+    font-family: var(--font-display), "Cinzel", serif;
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    color: var(--label-ink);
   }
   .rule-label::before,
   .rule-label::after {
     content: "";
     flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.38), transparent);
+    height: 2px;
+    background-image: var(--rule-cells);
+    background-size: 48px 2px;
+    background-repeat: round no-repeat;
   }
 
   /* ---------------------------------------------------------- faction map */
@@ -1740,6 +2672,47 @@
     color: #7d7364;
     letter-spacing: 0.03em;
   }
+
+  /* ==========================================================================
+     UNIT-OWNED BLOCKS
+
+     One fence per unit of the UI overhaul (`src/app/ui/shared.ts` lists the unit
+     letters). A unit adds its NEW rules between its own BEGIN and END markers and
+     nowhere else; a rule that already existed is edited where it stands by the
+     unit that owns the component it styles.
+
+     The fences sit INSIDE `@layer components` on purpose. See LAYERS at the top:
+     an unlayered rule outranks every Tailwind utility, so a rule added below the
+     layer's closing brace would silently beat p-*, gap-* and text-*.
+
+     Each fence is set apart by a blank line and a heading comment so that two
+     units appending in neighbouring fences never produce hunks that touch, which
+     is what turns a clean git merge into a conflict.
+     ========================================================================== */
+
+  /* T — title screen, join and the menu shell */
+  /* ==== UNIT:T BEGIN */
+  /* ==== UNIT:T END */
+
+  /* L — lobby, create, training, muster and the class cards */
+  /* ==== UNIT:L BEGIN */
+  /* ==== UNIT:L END */
+
+  /* A — the armoury shop */
+  /* ==== UNIT:A BEGIN */
+  /* ==== UNIT:A END */
+
+  /* W — the war layer: map, oath and hearth */
+  /* ==== UNIT:W BEGIN */
+  /* ==== UNIT:W END */
+
+  /* S — the Saga screen, the marks and the glyph library */
+  /* ==== UNIT:S BEGIN */
+  /* ==== UNIT:S END */
+
+  /* H — the combat HUD, the round break and the match summary */
+  /* ==== UNIT:H BEGIN */
+  /* ==== UNIT:H END */
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1767,5 +2740,153 @@
   .fm-field,
   .fm-watling {
     transition: none;
+  }
+  /* The plates' brightness and 1px press are transitions, not motion, but a
+     reduced-motion player gets none of them: the state changes, instantly. */
+  .card-interactive,
+  .btn-primary,
+  .btn-ghost,
+  .btn-info,
+  .btn-danger,
+  .btn-step,
+  .btn-back,
+  .mini-nav,
+  .tab-item,
+  .seg-item,
+  .input-frame {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   FORCED COLOURS AND MORE CONTRAST — F1, 29 Sep 2026 (UI-PLAN D36)
+
+   Windows High Contrast (and any browser's forced-colors mode) throws away
+   background images, box shadows and every authored colour, and repaints text,
+   borders and backgrounds from a handful of system colours. That is right for
+   the player who asked for it and it breaks this interface in four specific
+   ways, all of them silent:
+
+   1. A panel is a gradient and a shadow. With both discarded a `.card` is text
+      floating on the page. So every panel gets a real 1px border, which
+      forced-colors keeps and recolours.
+   2. A selected state is a background and a border COLOUR (`.card-selected`,
+      the active tab and segment, a won pip, a lit pad). Flattened, the chosen
+      option looks exactly like the others. Each gets a system-colour outline or
+      fill, which survives.
+   3. Gradient-clipped headings (`.title-hero`, `.screen-head h1`) fill their
+      glyphs with `transparent` over a `background-clip: text` gradient. The
+      gradient is what is discarded, so the WORDMARK VANISHES. They are given a
+      solid text fill and no clip.
+   4. The four peoples on the war map are four COLOURS, and forcing them to one
+      is not accessibility, it is deleting the map; the thumb pads' hues are
+      wayfinding for a hand that is not looking. Both opt out and carry their
+      own contrast.
+
+   Not verified by a browser gate: the suites do not run forced-colors, so this
+   block is checked by looking (`UISHOTS_FORCED=1 node tools/uishots.mjs` renders
+   the sweep in it) and is exactly as tested as that. The first look found three
+   faults in the first draft (a selected label drawn white on white, the stat bars
+   erased, the map legend flattened) and they are fixed below. STILL OPEN, and not
+   this file's to fix: inline-styled colour chips (the armoury's hair and cloak
+   swatches, the Hearth's swatch) have no class to select and are flattened.
+   That emulation is Playwright's light scheme, not a Windows theme, so it shows
+   which things are lost and not how a real High Contrast palette will look.
+   ========================================================================== */
+@media (forced-colors: active) {
+  .card,
+  .card-noble,
+  .mini-nav,
+  .seg,
+  .tab-strip,
+  .input-frame,
+  .select-frame,
+  .warcode-frame,
+  .faction-map-plate,
+  .round-hud,
+  .medallion,
+  .kbd,
+  .badge-sky,
+  .badge-garnet,
+  .badge-stone {
+    border: 1px solid CanvasText;
+  }
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger,
+  .btn-info,
+  .btn-step {
+    border: 1px solid ButtonText;
+  }
+  .btn-primary:disabled,
+  .btn-ghost:disabled,
+  .btn-step:disabled {
+    color: GrayText;
+    border-color: GrayText;
+    opacity: 1;
+  }
+  /* THE SELECTED STATE IS AN OUTLINE, NOT A FILL. The first draft filled the active
+     tab and segment with `Highlight` and set the text to `HighlightText`, and the
+     forced-colors frames showed the label GONE: the browser lays a Canvas-coloured
+     backplate under any text drawn over a background image (the page's backdrop is
+     one), so HighlightText landed on a white plate on a navy button and read as a
+     white block. An outline survives, keeps the text CanvasText on its own plate,
+     and is thick enough to see. */
+  .card-selected,
+  .tab-item-active,
+  .seg-item-active,
+  .pad-on,
+  .pad-run-on {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+  /* The four peoples' swatches are the legend for a map whose fields keep their
+     colours (below): a swatch flattened to Canvas is a checkbox, not a key. */
+  .fm-swatch {
+    forced-color-adjust: none;
+  }
+  /* The class card's stat bars are two backgrounds and nothing else, so forced
+     colours erased them: a track and a fill both painted Canvas, four cards of HP,
+     SPD, DMG and DEF with no bars. The hook is the `role="img"` track StatBar
+     already carries. UNIT L REPLACES StatBar (UI-PLAN D05) and should keep the
+     role, or take this rule with it. */
+  button[data-cls] [role="img"] {
+    border: 1px solid CanvasText;
+  }
+  button[data-cls] [role="img"] > div {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .pip {
+    border: 1px solid CanvasText;
+  }
+  .pip-won,
+  .pip-won-blue {
+    background: CanvasText;
+  }
+  .title-hero,
+  .screen-head h1 {
+    background: none;
+    -webkit-text-fill-color: CanvasText;
+    filter: none;
+  }
+  .faction-map-svg,
+  .pad {
+    forced-color-adjust: none;
+  }
+}
+
+/* `prefers-contrast: more` asks for what the ink ramp already mostly gives, and
+   for the two things it does not: the quiet steps brought up to a step that is
+   comfortable, and the hairlines that separate things made visible. Only tokens
+   move, so every site that reads them follows, including the ~300 remapped
+   framework hues, which read the same ramp. */
+@media (prefers-contrast: more) {
+  :root {
+    --ink-dim: var(--ink-soft);
+    --ink-faint: var(--ink-soft);
+    --ink-ghost: var(--pewter);
+    --niello-line: var(--pewter);
+    --pewter: var(--silver-dim);
   }
 }

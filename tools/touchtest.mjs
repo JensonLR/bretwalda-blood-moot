@@ -510,6 +510,92 @@ function makeHand(cdp) {
 }
 
 /**
+ * A PINCH: two fingers that start close and move apart, in steps, over CDP like
+ * everything else here. Ids 8 and 9 are outside the range the scheme uses (1-4)
+ * so it can never collide with a thumb a test has left down.
+ */
+async function pinch(hand, cx, cy, { from = 25, to = 105, steps = 6 } = {}) {
+  const A = 8, B = 9;
+  await hand.press(A, cx - from, cy);
+  await hand.press(B, cx + from, cy);
+  for (let i = 1; i <= steps; i++) {
+    const d = from + ((to - from) * i) / steps;
+    await hand.move(A, cx - d, cy);
+    await hand.move(B, cx + d, cy);
+  }
+  await hand.liftAll();
+}
+
+/** The page's zoom, as the browser reports it. 1 is "not zoomed". */
+const pageScale = (page) => page.evaluate(() => (window.visualViewport ? window.visualViewport.scale : 1));
+
+/**
+ * WHICH ELEMENTS IN THE FIGHT WOULD LET A PINCH THROUGH.
+ *
+ * `touch-action` is not inherited, but the value that governs a touch is the
+ * intersection of the element's own and every ancestor's, so an element allows
+ * pinch-zoom only if nothing between it and the root has said no. This walks
+ * every element under `.fight-root` that can take a touch at all (pointer-events
+ * other than none, laid out, visible) and reports the ones that would still zoom.
+ *
+ * Why this and not just a pinch: the canvas and every pad carry `touch-action:
+ * none` of their own today, so a pinch over them cannot zoom whether or not the
+ * root guard exists, and a gate made only of pinches would stay green with the
+ * guard deleted. What the root guard is FOR is the element somebody adds next
+ * month, and this is the only reading that can see that one.
+ */
+const zoomAudit = (page) => page.evaluate(() => {
+  const root = document.querySelector(".fight-root");
+  if (!root) return { root: false, live: 0, open: [] };
+  const blocks = (t) => t === "none" || (t !== "auto" && t !== "manipulation" && !/pinch-zoom/.test(t));
+  const allowsPinch = (el) => {
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) if (blocks(getComputedStyle(e).touchAction)) return false;
+    return true;
+  };
+  // The guard must actually CONTAIN the fight: the canvas, and a control from the combat cluster. A class moved onto the
+  // canvas alone (or onto some wrapper that holds neither) would leave the HUD outside the walk below, and every reading
+  // after this one would be true about a subtree that is not the fight.
+  const holdsCanvas = !!document.querySelector("canvas.touch-none") && root.contains(document.querySelector("canvas.touch-none"));
+  const slash = document.querySelector('button[aria-label="Slash"]');
+  const holdsHud = !!slash && root.contains(slash);
+  const live = [root, ...root.querySelectorAll("*")].filter((e) => {
+    const cs = getComputedStyle(e);
+    const r = e.getBoundingClientRect();
+    return cs.pointerEvents !== "none" && cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
+  });
+  const open = live.filter(allowsPinch).map((e) => `${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ""}${e.className && typeof e.className === "string" ? `.${e.className.trim().split(/\s+/).slice(0, 2).join(".")}` : ""}`);
+  return { root: true, live: live.length, open, holdsCanvas, holdsHud };
+});
+
+/**
+ * THE MENUS MUST ZOOM. This is the control for the fight's "must not", and it is
+ * a claim in its own right (UI-PLAN D10): a player with low vision has to be able
+ * to pinch a menu bigger, and until F1 `maximum-scale=1, user-scalable=no` stopped
+ * him. It is also what makes the fight assertion mean anything. A pinch that
+ * cannot zoom ANYTHING (a viewport that still forbids it, an emulation that does
+ * not implement it) leaves the fight's scale at 1 for the wrong reason, so the
+ * fight claim is only counted as evidence when this one shows the instrument CAN
+ * zoom. The landing page, cold, no fight.
+ */
+async function zoomControl(browser, url, check) {
+  const ctx = await browser.newContext({ viewport: SCREEN, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(90000);
+  await page.goto(`${url}/?quality=low`, { waitUntil: "domcontentloaded" });
+  await page.getByText("Training", { exact: false }).first().waitFor({ state: "visible" });
+  const cdp = await ctx.newCDPSession(page);
+  const hand = makeHand(cdp);
+  const before = await pageScale(page);
+  await pinch(hand, SCREEN.width / 2, SCREEN.height * 0.5);
+  await page.waitForTimeout(400);
+  const after = await pageScale(page);
+  check("a menu can be pinched bigger (the control: the instrument can zoom, and the viewport no longer forbids it)",
+    after > before * 1.2,
+    `visualViewport.scale ${before.toFixed(2)} -> ${after.toFixed(2)} after a two-finger spread on the title screen`);
+  await ctx.close();
+}
+
+/**
  * Whether the built bundle is older than the source it was built from. When
  * there is a build, that is what gets served — so an edit to input.ts that has
  * not been rebuilt is graded as the code it replaced, and a control scheme that
@@ -2136,10 +2222,61 @@ async function main() {
       `yaw moved ${lookYaw.toFixed(3)} rad (${(lookYaw * 57.3).toFixed(1)}°), travelled ${lookDrift.toFixed(3)} units`);
   }
 
+  // ===================================================================
+  // THE FIGHT DOES NOT ZOOM. F1 removed `maximum-scale=1, user-scalable=no`
+  // from the viewport so a menu can be pinched; `.fight-root` is what keeps the
+  // fight from being pinched too. Three readings, and the second and third are
+  // the ones that would still be red with the guard deleted:
+  //   1. a real two-finger spread over the ring leaves the zoom at 1;
+  //   2. no element under the root that can take a touch would let one through;
+  //   3. THE ANALYSER'S OWN PROOF: with the root guard lifted and a bare element
+  //      added, the audit must find it, and with the guard restored it must not.
+  //      Without this the audit is a claim about a walk nobody has seen fail.
+  // ===================================================================
+  {
+    const cx = SCREEN.width * 0.5, cy = SCREEN.height * 0.3;
+    const before = await pageScale(page);
+    await pinch(hand, cx, cy);
+    await wait(400);
+    const after = await pageScale(page);
+    check("a two-finger pinch in the fight does not zoom the page",
+      Math.abs(after - before) < 0.001 && Math.abs(after - 1) < 0.001,
+      `visualViewport.scale ${before.toFixed(3)} -> ${after.toFixed(3)} (the menu control below shows the same gesture DOES zoom a menu)`);
+
+    const audit = await zoomAudit(page);
+    check("no element in the fight lets a pinch through (every touchable element sits under .fight-root)",
+      audit.root && audit.holdsCanvas && audit.holdsHud && audit.live >= 4 && audit.open.length === 0,
+      !audit.root ? "there is no .fight-root — GameCanvas lost its guard"
+        : !audit.holdsCanvas || !audit.holdsHud ? `.fight-root exists but does not hold the ${!audit.holdsCanvas ? "canvas" : "combat cluster"} — the walk would be of the wrong subtree`
+        : audit.open.length ? `${audit.open.length} of ${audit.live} can zoom: ${audit.open.slice(0, 5).join(", ")}`
+          : `${audit.live} touchable elements walked, none can zoom`);
+
+    // The analyser's proof. Lift the guard, add an element nobody protected, look, then put both back.
+    const proof = await page.evaluate(async () => {
+      const root = document.querySelector(".fight-root");
+      const bare = document.createElement("div");
+      bare.id = "__zoomprobe";
+      bare.style.cssText = "position:absolute;left:0;top:0;width:40px;height:40px;pointer-events:auto";
+      root.appendChild(bare);
+      const guarded = getComputedStyle(root).touchAction;
+      root.style.touchAction = "auto";
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      return { guarded };
+    });
+    const lifted = await zoomAudit(page);
+    await page.evaluate(() => { document.querySelector(".fight-root").style.touchAction = ""; });
+    const restored = await zoomAudit(page);
+    await page.evaluate(() => document.getElementById("__zoomprobe")?.remove());
+    check("the zoom audit can tell: lifting the guard exposes an unprotected element, restoring it covers that element",
+      proof.guarded === "none" && lifted.open.some((o) => o.includes("__zoomprobe")) && !restored.open.some((o) => o.includes("__zoomprobe")),
+      `root touch-action was "${proof.guarded}"; lifted, the audit found ${lifted.open.length} open (probe among them: ${lifted.open.some((o) => o.includes("__zoomprobe"))}); restored, ${restored.open.length}`);
+  }
+
   const end = await me();
   console.log(`\n[touchtest] act one: warrior finished on ${end.hp.toFixed(0)} hp, state=${end.state}`);
   await ctx.close();
 
+  await zoomControl(browser, `http://127.0.0.1:${PORT}`, check);
   await lockAct(browser, `http://127.0.0.1:${PORT}`, check);
   await browser.close();
 

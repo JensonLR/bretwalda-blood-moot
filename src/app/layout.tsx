@@ -91,8 +91,20 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // NO `maximumScale` AND NO `userScalable: false` — F1, UI-PLAN D10.
+  //
+  // Both used to be here, which stopped a player with low vision from pinching
+  // any menu bigger. WCAG 1.4.4 ("resize text") and every mobile accessibility
+  // review treat that as a defect, and the lock was buying almost nothing:
+  // Safari has ignored `user-scalable=no` since iOS 10, so the only people it
+  // ever stopped were the ones who needed to zoom on Android.
+  //
+  // What the lock did protect, on the platforms that honour it, was the FIGHT:
+  // two thumbs on the pads must never become a pinch. That is now done where it
+  // belongs, on the fight itself: `.fight-root` (globals.css) sets
+  // `touch-action: none` on the element that holds the canvas and the HUD, and
+  // `tools/touchtest.mjs` pinches in a fight and requires `visualViewport.scale`
+  // to stay at 1 while a menu, pinched the same way, does zoom.
   viewportFit: "cover",
   // The installed shell's chrome, in the game's own stone.
   themeColor: "#1c1712",

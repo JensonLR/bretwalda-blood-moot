@@ -66,6 +66,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { pageSource } from "./lib/pagesrc.mjs";
 import { makeEngine, WARRIOR_STATS, WEAPON_REACH, SWING_ARC } from "../src/game/engine.mjs";
 import { AXES, AXIS_LABEL, cardBars, strengthsOf, valuesOn } from "../src/game/statshape.mjs";
 
@@ -700,7 +701,9 @@ function shapesAreDistinct() {
  * The other half of this round's refutation, and it is the half nobody had
  * looked at. `shapesAreDistinct` above certifies that each warrior is high on
  * exactly two of four axes — and the ONLY place a player ever meets that claim
- * is the class-select card in `src/app/page.tsx`. That card drew its four bars
+ * is the class-select card (`ClassGrid` and `StatBar`, which lived in `src/app/page.tsx` when
+ * this was written and have been in `src/app/ui/lobbyParts.tsx` since the F0 carve, so this
+ * gate reads the page AND the modules carved out of it — see `tools/lib/pagesrc.mjs`). That card drew its four bars
  * against maxima typed in beside the roster (`HP max={150}`,
  * `SPD value={moveSpeed * 20} max={100}`) and clamped the overflow with
  * `Math.min(100, ...)`. After the rework the huscarl's 158 health clamped at
@@ -712,7 +715,7 @@ function shapesAreDistinct() {
  *
  * Three things are checked, and each is a thing that can be false:
  *
- *  1. NO CEILING IS WRITTEN DOWN. `page.tsx` may not carry a numeric `max=` on
+ *  1. NO CEILING IS WRITTEN DOWN. The page's source may not carry a numeric `max=` on
  *     a stat bar and may not clamp one. A typed-in maximum is a mirrored
  *     definition — this repository's third named failure mode, five recorded
  *     instances — and the clamp is what let the stale one go unnoticed.
@@ -746,25 +749,27 @@ function shapesAreDistinct() {
  * A gate whose two halves watch two files, only one of which has ever been
  * shown red, is half a gate. Both halves have been seen red on this roster.
  */
-const CARD_SRC_PATH = new URL("../src/app/page.tsx", import.meta.url);
 function cardIsLegible() {
   const problems = [];
-  const src = readFileSync(CARD_SRC_PATH, "utf8");
+  // The page and every module carved out of it (`src/app/ui/*`): `StatBar` is not in `page.tsx`
+  // any more, and a gate that kept reading only that file would report "no StatBar" — or, worse
+  // for the two checks that say "this must NOT appear", find nothing and pass.
+  const src = pageSource();
 
   const hardMax = [...src.matchAll(/<StatBar[^/]*?\bmax=\{\s*[\d.]+\s*\}/g)].map((m) => m[0].trim());
-  for (const h of hardMax) problems.push(`page.tsx still types a maximum into a stat bar: \`${h}\` — derive it from the roster`);
+  for (const h of hardMax) problems.push(`the page's source (page.tsx or src/app/ui/*) still types a maximum into a stat bar: \`${h}\` — derive it from the roster`);
   // Scoped to `StatBar`'s own body, and deliberately: the XP bar a few hundred
   // lines up clamps too and SHOULD — experience really can run past the next
   // level's threshold, so there the clamp is the truth rather than a cover for
   // one. A check that failed the whole file on the string would have been a
   // check somebody deleted the first time it cried wolf.
   const bodyOf = /function StatBar\([\s\S]*?\n\}/.exec(src);
-  if (!bodyOf) problems.push("page.tsx has no StatBar function any more — this gate is reading a screen that has moved");
+  if (!bodyOf) problems.push("neither page.tsx nor src/app/ui/* has a StatBar function any more — this gate is reading a screen that has moved");
   else if (/Math\.min\(\s*100\s*,/.test(bodyOf[0])) {
     problems.push("StatBar still clamps with Math.min(100, ...) — a bar that cannot overflow needs no clamp, and the clamp is how the stale ceiling stayed invisible for a release");
   }
   if (!/cardBars\(/.test(src) || !/statshape\.mjs/.test(src)) {
-    problems.push("page.tsx does not build its bars from statshape.mjs — the card and this gate are reading two different rosters again");
+    problems.push("the page (page.tsx or src/app/ui/*) does not build its bars from statshape.mjs — the card and this gate are reading two different rosters again");
   }
 
   // What the card actually draws, computed by the card's own function.

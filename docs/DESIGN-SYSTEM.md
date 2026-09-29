@@ -333,6 +333,9 @@ or down while `--ink-dim` can.
 
 145 sites converted, values unchanged, so nothing moved on screen.
 
+*(The three lowest steps above were re-based on 29 Sep 2026 because the bottom
+one was under the contrast floor. Current values, and why, are in section 11.)*
+
 ### Two things worth keeping
 
 **Verify tokens in the compiled sheet, not the source.** Eleven of the
@@ -379,3 +382,146 @@ place a player learns he is still un-strikeable.
 `postfx.setPressure` closes the frame in over the last 35% of health as a ramp,
 which is the read `hud3d.ts` describes as one "you get pre-attentively without
 decoding a colour code". What went is a redundant second colour language.
+
+---
+
+## 11. The cold palette is built — F1, 29 September 2026
+
+Section 1 adopted Trewhiddle as the thesis and `grep niello src/` found nothing.
+The overhaul's first landing that touches the stylesheet (`UI-PLAN.md` section 3,
+F1) is the missing vocabulary and the one mechanism that moves about 300 call
+sites onto it without editing them. What it is, and what it deliberately is not.
+
+**Tokens.** `niello`, `niello-raised`, `niello-line`; `silver`, `silver-lit`,
+`silver-dim`; `pewter` (non-text only); `--hall` for the page ground; `blood`,
+`madder`, `woad-team`; the four peoples' fields and their `-lit` text steps
+(declared for the war layer, read by nothing yet); the type scale and its
+`.t-*` classes; `.nums` for figures. **Gilt is declared reserved** (the helm's
+crown, the Bretwalda title, a won-season plate, the season leader's coast) and
+none of the existing sites was moved, because they belong to the units that own
+the components.
+
+**The ink ramp was re-based.** `--ink-faint` was `#7d7057`, which is 2.78:1 on
+the lit top of a card, 3.60:1 on niello-raised and 3.90:1 on the page. 44 sites
+set words in it. The steps are now `#c6b999` / `#b5a788` / `#a39679` (9.0, 7.4
+and 6.0:1 on niello-raised; 6.9, 5.7 and 4.6:1 on the card top), chosen so that
+soft, dim and faint stay three steps and do not collapse into one. `--ink-ghost`
+is for rules, never for words.
+
+**The remap.** Tailwind's amber, yellow, orange, purple, emerald, sky, cyan and
+red, every shade 50 to 950, resolve through three ramps declared on `:root`
+(`--ramp-warm-*`, `--ramp-cold-*`, `--ramp-blood-*`), each entry another palette
+token. It is a top-level `@theme inline`. Three things about it are not obvious:
+
+* A shade left undefined does not fall back, it makes the utility vanish, so all
+  88 are defined rather than resetting the namespace.
+* The ramps are ordered by lightness like the scales they replace, so `hover:`
+  and `/40` mean what they meant. Chroma is what is lost, on purpose.
+* Purple is not "removed": the plan said so, and a removed hue silently makes
+  `text-purple-300` inherit whatever is around it. It maps to the warm ramp, which
+  is where its one use (the ability name) will end up in any case.
+
+**What it costs, said plainly.** Two of the class card's four stat bars
+(`bg-emerald-500`, `bg-sky-400`) are now near-neutral silver. `tools/cardgate.mjs`
+and `classmatrix` read those bars as runs of SATURATED pixels against a neutral
+track, so they will see fewer bars than they used to. That is unit L's to fix
+(`UI-PLAN` D05: "land `cardgate` first"); F1 does not fix it and says so here.
+
+**Hover and zoom.** Hand-written `:hover` rules and `hover:` utilities are behind
+`(hover: hover) and (pointer: fine)`. `maximum-scale=1, user-scalable=no` are
+gone, `.shell` no longer forbids pinch, and the fight carries `.fight-root`
+(`touch-action: none`) so a pinch cannot fire mid-fight. `forced-colors` and
+`prefers-contrast: more` have blocks.
+
+**And it is held by a gate, not by this paragraph.** `palettecheck`,
+`csscheck` checks 7-13 and `numeralprobe` are in `docs/GATES.md`; the one lesson
+worth repeating here is that the first draft of the hover override compiled
+cleanly and deleted every `hover:` utility in the app, and only a gate that reads
+the **compiled** sheet noticed.
+
+---
+
+## 12. The plate is built: F2, 29 September 2026
+
+Section 11 built the cold palette and left the material. Every panel, chip and
+control was still a rounded brown gradient with a 6px blur behind it and a glow
+on it (`UI-PLAN` D02: "a settings dialog with a warm border"), the primary was
+an orange gradient under a comment that said "gilded bronze", and a disabled
+button was the same orange at `opacity: .55`. F2 replaces the recipe. What it is,
+what it is not, and what the other units get.
+
+**Two faces of one metal, and a track.** A NIELLO plate (dark ground, a hairline,
+type in the ink ramp) is the default for every panel, chip and control. A SILVER
+plate (ink `#111013` on `#d5d6d3` to `#b9bab6`, a 6% sheet and not a bevel) is the
+one hero a screen has: its primary action, or its item plaque. A TRACK is a
+niello plate that holds others (the tab strip, the segmented control). Silver is
+`.plate-silver` and `.btn-primary`; niello is `.plate` and every other class in
+the table below. A screen that wants to say "this one" says it with luminance,
+because there is no second accent.
+
+**Cut, not rounded.** The shape is a `clip-path` polygon with the four corners
+taken off at 45 degrees: 8px for a panel, button and field; 6px for a track; 4px
+for a chip; 5px for a combat plate (`.plate-hud`). There is no `border-radius` on
+a plate. Round survives only where this document already allowed it: a thumb pad,
+the mark roundel (`.medallion`), a pip, and a keycap's 2px.
+
+**How it is drawn**, because a clip-path forces the whole recipe. It clips
+everything outside the polygon, including an outline and a shadow on the same
+element, so: the four straight edges are a real 1px `border` (a call site's
+own border colour, `border-l-4` and `divide-x` keep working); the four diagonals
+are corner tiles at the head of the `background`, a 1px stripe on each cut in the
+colour of the edge it continues (the top edge and its two diagonals catch the
+light, `--edge-lit`); the inlay is a chamfered ring 5px inside the edge, a polygon
+with a hole in it on `::after` at `z-index: -1`, its own cut 2.93px smaller than
+the outer so that all four diagonals stay parallel and equidistant; the grain is a
+160px inline-SVG tile of `feTurbulence` at about 7% alpha (white on niello, black
+on silver), zero requests. Inputs and selects cannot have pseudo-elements, so a
+field gets the corner tiles and no inlay. Focus is an outline at offset -4px in the
+plate's own `--focus-ring`, inside the cut, so it is not clipped away; its four
+corners are cut by the chamfer, which is the look. Lift is a `drop-shadow` on a
+WRAPPER (`.plate-lift`), because a shadow on the plate is clipped by the plate.
+
+**What a plate never has:** a radius, a `backdrop-filter` (switched off with
+`!important` so that a call site's `backdrop-blur` cannot put glass back), a glow,
+a `text-shadow`, or `opacity` to say disabled.
+
+**Disabled is a different plate.** Niello, type at `--ink-faint` (6:1), no lit
+edge, no grain, a not-allowed cursor; `[aria-disabled="true"]` draws the same
+plate, because a control that must stay focusable so a screen reader can reach
+the reason it is unavailable cannot use the attribute. The reason is printed under
+it in `.plate-reason` (14px, `--ink-soft`). Never a tooltip, never colour alone.
+
+**Selected is luminance.** A selected tab or segment is a `--silver-dim` fill with
+ink on it (5.65:1); a selected card is a 2px silver inlay on a plate one step
+lighter. The second orange is gone.
+
+**Type on silver.** Custom properties inherit and can be overridden per element,
+so `.plate-silver`, an enabled `.btn-primary` and `.kbd` turn the ink ramp, and the
+three Tailwind ramps that `@theme` remapped, over: `text-[var(--ink-dim)]`,
+`text-amber-300` and an icon on `currentColor` all come out as dark ink on the
+metal without a call site changing. A primary inside a silver plate would be silver
+on silver, so inside one it is the plate turned over (niello, silver type).
+
+**Ornament.** Compartmented and dark on metal (UI-PLAN 1.6). Rules are runs of 42px
+cells with 6px between them (`--rule-cells`), never a line to the edge of a panel:
+`.section-title::after`, `.rule-label`, `.divider`. `.ornament-line` is one cell
+between two solid end caps. `.knot-band` is a plait between end caps with a
+ring-and-dot pellet in the middle, and the plait now has its gap: the strand that
+goes under is cut where it meets the one that goes over (4.15px of arc each side,
+computed from the crossing angle, not judged by eye), which is the whole difference
+between a plait and a chain. `.card-noble` wears four ring-and-dot pellets in place
+of the four garnet studs. `.cabochon` keeps its domed highlight and loses its glow.
+`.label-overline` is 12px at .22em in silver-dim (it was 10px at .42em in gilt with
+a shadow). `.section-title` is 1.5rem (it was 11px).
+
+**What each unit gets.** Every class name still works. New: `.plate`, `.plate-silver`,
+`.plate-hud`, `.plate-lift`, `.plate-reason`. `.warcode-frame` stays niello for now:
+its contents are light type on dark and turning the frame silver would strand them,
+so unit L opts in with `plate-silver` when it re-marks that block (the flip above
+makes the change safe). `.card-glow` and `.card-glow-green` are kept as names for
+their call sites and mean only "one step lighter in the face"; L deletes the
+uses.
+
+**Held by** `tools/platecheck.mjs` (the compiled sheet, then every control rendered
+and driven through every state) and the plate census in `tools/uishots.mjs` (the
+same computed-style audit over every real screen). See `docs/GATES.md`.

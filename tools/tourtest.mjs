@@ -7,7 +7,7 @@
 // which doors there are, who is owed the walk and what happens when a door is
 // not on the glass; this proves it without a browser.
 import { createTour, tourIsDue, TOUR_STOPS, TOUR_KEY } from "../src/game/tour.mjs";
-import { readFileSync } from "node:fs";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 let passed = 0, failed = 0;
 const check = (name, ok, detail = "") => {
@@ -89,7 +89,9 @@ check("no door is listed twice",
 // the half that says the source actually calls it. A tour whose targets match
 // nothing in the tree is five stops that all silently skip.
 {
-  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  // The page and the modules carved out of it: `TourGuide` (createTour, TOUR_KEY) lives in
+  // src/app/ui/shell.tsx now, the `data-tour` doors and `tourIsDue` are still in page.tsx.
+  const page = pageSource();
   const missing = TOUR_STOPS.filter((s) => !page.includes(`data-tour="${s.target}"`));
   check("every door in the list is a control on the landing screen",
     missing.length === 0,

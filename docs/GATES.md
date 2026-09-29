@@ -232,9 +232,12 @@ replaces read `page.tsx` for typed maxima; an adversary changed the drawn geomet
 and the scan never moved. So this one:
 
 * takes a real screenshot, decodes it, and measures each bar as a **run of
-  saturated pixels** from the left end of its track — the rect is used only to
-  find the bar, and claim 2 gates rect against pixels so that a clip or a
-  transform between the two is a finding rather than a silence;
+  pixels that change when the fill is hidden** from the left end of its track
+  (the clip is shot twice, the second time with every fill `visibility:hidden`)
+  — the rect is used only to find the bar, and claim 2 gates rect against pixels
+  so that a clip or a transform between the two is a finding rather than a
+  silence. It read "saturated pixels" until F1 remapped the emerald and sky bars
+  onto silver, which are not saturated, and two of four bars read as zero;
 * injects a stylesheet that pins every fill to 100% and **requires its own
   discrimination claim to go from 0 faults to 24**, while printing that the source
   scan's verdict is unchanged, because it cannot see pixels;
@@ -383,6 +386,99 @@ way round, a face that is skin-coloured and wrong, and a skin-coloured thing in 
 test alone can also be passed WITHOUT fixing the head: the net's own fallback is a headed procedural man, so with the
 defect present the frame passes 1 and 2 and only the third ("the net passed him") is red. That is why all three are asked
 and why `--allow-refused` exists: the run that proves the net fires is the one run that turns that check off.
+
+## Gates that read the page as text go through `tools/lib/pagesrc.mjs`
+
+Several gates assert something about the menu screens by reading source (a stat
+bar carries no typed ceiling, the tour's targets exist, the round hold is derived
+from the replay, the hex-literal ratchet). `src/app/page.tsx` stopped being one
+file when the F0 scaffold carved its components into `src/app/ui/*`, and it will
+keep changing shape as the units land, so **a gate must not open `page.tsx` by
+name**: `pageSources()` (per file, for a report that names `file:line`) and
+`pageSource()` (one string, for "is it anywhere") return the page and everything
+carved out of it.
+
+The failure this prevents is silent, which is why it is a rule and not a tidy-up.
+The day the carve landed, `csscheck`'s ratchet read **7 raw hex literals against a
+ceiling of 15**: eight had moved next door, so eight new ones would have been let
+in, and every assertion of the form "this must not be there" (`classmatrix`'s
+typed `max=`, `marktest`'s removed `title=`) would have kept passing while looking
+at a file that no longer held the text. A gate that is green because the case is
+absent is not a gate.
+
+## The palette gates — `palettecheck`, `csscheck` 7-13, `numeralprobe`
+
+Added 29 Sep 2026 with F1 of the UI overhaul. The palette is a **stylesheet**
+concern, so all of it is arithmetic and none of it needs a frame, except the one
+thing a frame cannot be replaced for (`numeralprobe`, below).
+
+| ruler | costs | answers |
+|---|---|---|
+| `npm run palettecheck` | ~1 s, no browser | is the ink ramp 4.5:1 on niello-raised, the hall and the lit card top; does every Tailwind hue class the source uses still exist in the **compiled** sheet and resolve to a palette token; is every `hover:` rule behind `(hover:hover) and (pointer:fine)`; are the three `--hp-*` bases the same hexes as `hud3d.ts` |
+| `npm run csscheck` (checks 7-13) | ~1 s | ratchets, each **measured on the tree it landed on** and only allowed to fall: arbitrary text sizes under the floor, Tailwind hue classes per hue, system monospace, literal font-family names outside `layout.tsx`/`globals.css`, text set in `--ink-ghost`, raw `rgba(238,226,204)`, `:hover` inside TSX strings |
+| `npm run numeralprobe` | ~1 min, one browser | does `lining-nums` / `tabular-nums` reach Alegreya's figures in the font **as served**, after Google's subsetter and `next/font` |
+| `touchtest` (new claims) | with the suite | a pinch zooms a menu and does not zoom the fight; no touchable element in the fight can let one through |
+
+**They read the built sheet because the source cannot say.** The first draft of
+the hover override was `@custom-variant hover (@media (...) { &:hover })`. It
+reads like the documented shorthand and is not, and Tailwind does not object: it
+defines a variant that matches nothing, and **every `hover:` utility in the app
+disappeared**. `tsc`, `next build` and `csscheck` all passed. The compiled sheet
+had zero `.hover\:` rules where the old one had twenty, and only `palettecheck`
+looked. That is `DESIGN-SYSTEM.md` section 10's lesson ("verify tokens in the
+compiled sheet, not the source") turned into a gate, and it found three more
+things while it was being written, each of them in the gate itself: it read the
+`prefers-contrast` overrides as the page's tokens; a class with a variant prefix
+(`hover\:bg-amber-700`) was invisible to it; and the `.shell` container's
+`touch-action: pan-y` meant that removing the viewport's zoom lock changed
+nothing on any menu (found by writing `touchtest`'s zoom control, which pinches
+the title screen and requires the page to grow).
+
+**Each of them was shown failing first**, on the tree before F1 or by pulling a
+lever: `palettecheck` 11 FAILED on the F0 tree (faint ink 2.78:1, 19 of 29
+tokens absent, 85 compiled hue rules carrying Tailwind's raw oklch); the hover
+check red on the broken draft; the text-legibility check red when one ramp step
+was pointed at `--pewter`; the hp mirror red when one side of it was edited; each
+`csscheck` ratchet red when one violation was added in a scratch copy.
+
+**What they cannot see, said here because the verdict line will not.** A ratchet
+on a COUNT cannot see a 9px becoming an 8px (both are "under the floor"); the
+ceiling falls when a site is removed, not when one is made worse. `palettecheck`
+grades text steps `50`-`500` on niello-raised and the hall and only REPORTS the
+legacy card top for blood text (`text-red-500`, #d4634a, is 5.1:1 on niello and 3.6:1 on
+the old brown); the ink ramp itself IS gated on all three. `forced-colors` has no
+gate: `UISHOTS_FORCED=1 node tools/uishots.mjs` renders the sweep in it, and the
+block is exactly as tested as that.
+
+## The plate gate — `platecheck`, and the plate census in `uishots`
+
+Added 29 Sep 2026 with F2 of the UI overhaul. UI-PLAN 1.1 makes laws about the
+material the menus are made of (no radius, no backdrop-filter, no opacity for
+disabled, no glow, a focus ring inside the cut, and "every control shows hover,
+active, focus and disabled") and before F2 the stylesheet broke every one and
+nothing said so.
+
+| ruler | costs | answers |
+|---|---|---|
+| `node tools/platecheck.mjs --no-browser` | ~1 s | the COMPILED sheet, parsed and not grepped: does every plate class carry a clip-path polygon and radius 0; is there a radius, a `backdrop-filter`, an `opacity` on a disabled rule, a blurred `box-shadow` or a `text-shadow` on anything F2 owns; does each focusable plate draw its ring at `outline-offset: -4px`; do the thirteen type-on-metal token pairs clear their floor |
+| `node tools/platecheck.mjs --compile` (under the lock) | ~1 min, one browser | the same, plus a specimen of every control rendered with the real fonts and driven through hover, active (mouse down), focus-visible (a real Tab first) and disabled: **do the pixels of each state differ from rest**; **is every piece of type legible on the plate behind it** (the specimen is shot a second time with every glyph transparent, and each piece of text is graded against the median plate colour behind it, top half and bottom half); is it still cut, square, unblurred and opaque **in that state**; is it 44px. Writes `art/ui/plates/{controls,plates,corners}.png` |
+| `uishots`, the plate census | rides the sweep | the same computed-style questions asked of every plate on every real screen, because a call site can beat `@layer components` with a utility (`rounded-2xl`, `backdrop-blur`) and a specimen has no call sites. `UISHOTS_SCREENS=landing,lobby` narrows a sweep to two minutes |
+
+**Why it reads the render and not only the CSS.** A state rule can be written
+and beaten (a call-site `!important`, a `filter` on a clipped element, a colour
+set in the wrong layer) and change nothing on glass; the diff of the pixels is
+the only thing that sees that. And a contrast ratio computed from two tokens is
+a claim about the tokens: the ratio that matters is between the glyph colour and
+the pixels that are actually behind it, and a plate is a gradient with grain
+laid over it.
+
+**What it cannot see, said here because the verdict line will not.** A real
+Windows forced-colors theme (the plate's four diagonals are background images
+and forced-colors discards them, so the corners are cut with no line along the
+cut). A field's value is graded but the browser's own drop-down list is not. A
+state that needs a server (a toast, a busy button). And `opacity` is read up the
+chain in the census, so a faded parent that is not a plate at all still fails a
+plate under it.
 
 ## What this does not mean
 
