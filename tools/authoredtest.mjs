@@ -43,6 +43,8 @@ const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/r
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
 
 let pass = 0, fail = 0;
+/** Things this file knows it does not close, printed on the verdict line (PROCESS R4). */
+const deferrals = [];
 const check = (name, ok, detail = "") => {
   if (ok) { pass++; console.log(`  PASS  ${name}${detail ? ` — ${detail}` : ""}`); }
   else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`); }
@@ -791,7 +793,7 @@ for (const cls of CLASSES) {
     }
   }
   const nameOf = (a) => (a.surface ? `${a.surface}:${a.color.toString(16).padStart(6, "0")}` : `m_${a.color.toString(16).padStart(6, "0")}`);
-  const unresolved = [], byRole = new Map();
+  const unresolved = [], byRole = new Map(), byGen = { current: new Set(), shipped: new Set() };
   if (haveTable) {
     const others = new Set(LV.OTHER_HANDLERS ?? []);
     for (const [k, files] of names) {
@@ -799,7 +801,11 @@ for (const cls of CLASSES) {
       const ask = readSurfaceName(raw);
       if (!ask) continue;                                        // a named special (`runeGlow_carved`): the author's, left alone, asserted above
       const role = LV.roleOf(cls, ask);
-      if (role) { const r = byRole.get(role) ?? new Set(); r.add(`${cls}:${nameOf(ask)}`); byRole.set(role, r); continue; }
+      if (role) {
+        const r = byRole.get(role) ?? new Set(); r.add(`${cls}:${nameOf(ask)}`); byRole.set(role, r);
+        byGen[LV.bakedRoles(cls).generation.get(nameOf(ask))]?.add(`${cls}:${nameOf(ask)}`);
+        continue;
+      }
       if (LV.EXCEPTIONS.includes(nameOf(ask)) || others.has(nameOf(ask))) continue;
       unresolved.push(`${cls} ${nameOf(ask)} (${[...files].slice(0, 2).join(", ")}${files.size > 2 ? `, +${files.size - 2}` : ""})`);
     }
@@ -807,6 +813,11 @@ for (const cls of CLASSES) {
   check(`every material name in every export (${names.size} class x name pairs over ${readdirSync(ART).filter((x) => x.endsWith(".glb")).length} files) is a role, an exception or another handler's`,
     haveTable && unresolved.length === 0,
     !haveTable ? "no table to ask" : unresolved.length ? `${unresolved.length} unowned: ${unresolved.slice(0, 5).join("; ")}${unresolved.length > 5 ? "; ..." : ""}` : `${[...byRole].map(([r, v]) => `${r} x${v.size}`).join(" ")}`);
+
+  // WHICH GENERATION OF THE DEFAULT KIT THE EXPORTS ARE. The table knows the kit as the builder would bake him today
+  // and the kit the checked-in files were baked with (`SHIPPED`, frozen). A name that only the second one knows is a
+  // file older than the palette; the day this reads 0 the integration re-bake has landed and `SHIPPED` can be deleted.
+  if (haveTable) console.log(`        role names by generation: ${byGen.current.size} are the current default kit's, ${byGen.shipped.size} match ONLY the frozen SHIPPED kit (delete SHIPPED when that reads 0 after the re-bake)`);
 
   // The reasons: an exception without a reason is a colour somebody stopped thinking about.
   {
@@ -925,6 +936,49 @@ for (const cls of CLASSES) {
         a && c ? `ribbon vertexColors ${a.vertexColors} side ${a.side} metal ${a.metalness}; cap metal ${c.metalness}` : "no material");
     }
   }
+  // ---- 5. THE AUTHORED MAN'S CLOAK: the CUT is baked, one per class - REPORTED, NOT GATED ----
+  //
+  // A baked mesh cannot change shape at runtime, so the livery recolours the class-default cloak and does nothing to
+  // its length, hem, flare, fold or pin (`docs/OPEN-DEFECTS.md`, "THE AUTHORED MAN'S CLOAK"). This prints what the
+  // exports actually carry, in the bind pose and in metres, so the number in that entry can be asked for again, and
+  // counts the purchases whose cut the shop did not sell. It is not a claim: nothing here can be fixed by this
+  // stream (the fix is a cloak prop family, CHAR-PLAN D4 / U8), and a bar on it would be red on the day it was
+  // written. The verdict line carries the deferral.
+  let cloakCutRows = 0, cloakCutMismatch = 0, cloakCutOf = 0;
+  if (CHM && typeof CHM.defaultAppearance === "function" && Array.isArray(CHM.ARMOURY)) {
+    const THREEC = await import("three");
+    const bought = (CHM.ARMOURY.find((sl) => sl.slot === "cloak")?.options ?? []).map((o) => o.value).filter((v) => v && v !== "none");
+    console.log("");
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      g.scene.updateMatrixWorld(true);
+      const cloakBox = new THREEC.Box3(), bodyBox = new THREEC.Box3(), v = new THREEC.Vector3();
+      g.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        o.skeleton?.update?.();
+        const pos = o.geometry.getAttribute("position");
+        const box = /^cloak_\d+$/.test(o.name) ? cloakBox : bodyBox;
+        for (let i = 0; i < pos.count; i++) {
+          if (o.isSkinnedMesh) o.getVertexPosition(i, v); else v.fromBufferAttribute(pos, i);
+          v.applyMatrix4(o.matrixWorld);
+          box.expandByPoint(v);
+        }
+      });
+      if (cloakBox.isEmpty()) continue;
+      const own = CHM.defaultAppearance(cls).cloak;
+      const H = bodyBox.max.y - bodyBox.min.y;
+      cloakCutRows++;
+      cloakCutOf = bought.length;
+      cloakCutMismatch += bought.filter((c) => c !== own).length;
+      console.log(`        ${cls.padEnd(10)} bakes the '${own}' cut: shoulder ${cloakBox.max.y.toFixed(2)} m, hem ${cloakBox.min.y.toFixed(2)} m, drop ${(cloakBox.max.y - cloakBox.min.y).toFixed(2)} m, hem at ${Math.round((100 * (cloakBox.min.y - bodyBox.min.y)) / H)}% of his ${H.toFixed(2)} m`);
+    }
+    if (cloakCutRows) {
+      console.log(`        REPORTED, NOT GATED: of ${cloakCutRows * cloakCutOf} cloak purchases (${cloakCutRows} classes x ${cloakCutOf} cloaks) ${cloakCutMismatch} put the bought COLOUR on a CUT the shop did not sell: the class's own default is the only cut the authored man draws.`);
+      deferrals.push(`the cloak's CUT is baked per class: ${cloakCutMismatch} of ${cloakCutRows * cloakCutOf} cloak purchases show the class's own cut in the bought colour (docs/OPEN-DEFECTS.md, THE AUTHORED MAN'S CLOAK)`);
+    }
+  }
   if (work) { const { rmSync } = await import("node:fs"); rmSync(work, { recursive: true, force: true }); }
 }
 
@@ -975,5 +1029,5 @@ for (const cls of CLASSES) {
   }
 }
 
-console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
+console.log(`\n[authoredtest] ${pass} passed, ${fail} failed${deferrals.length ? ` — WITH ${deferrals.length} deferral(s): ${deferrals.join("; ")}` : ""}`);
 process.exit(fail ? 1 : 0);

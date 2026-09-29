@@ -153,6 +153,89 @@ makes the difference easy to see.
 
 ---
 
+## OPEN 29 Sep 2026 — THE LIVERY UNIT (U6 / L1): THE AUTHORED MAN'S CLOAK, THE PEOPLES' VATS, AND WHERE THE BRIEF AND THE TREE DISAGREED
+
+`authoredLivery.ts` and `authoredHair.ts` dress the default (GLB) man in what he bought, what he swore to, the
+side he stands on and his own hair. The rulers are `tools/authoredtest.mjs` (the `roletable`, hair and shaved
+claims), `tools/teamread.mjs --authored`, `tools/chromabudget.mjs` and `tools/hairmap.mjs --authored`, and each was
+shown red on the tree that did not have the fix (see `docs/GATES.md`, "The authored man's colour"). What that work
+found and did NOT close:
+
+**1. THE AUTHORED MAN'S CLOAK: the cut is baked, one per class, and the shop's copy promises a cut.** A baked mesh
+cannot change shape at runtime, so the livery keeps the class-default cloak and RECOLOURS it: the flat colour
+`cloakFor` returns goes on the baked `cloak_N` parts, and "No Cloak" hides them (`roleIsWorn`). That is the decision,
+and this is the evidence for it (`node tools/authoredtest.mjs`, the last block of the role-table section, the bind
+pose, metres):
+
+| class | bakes the cut of | shoulder | hem | drop | hem at |
+|---|---|---|---|---|---|
+| huscarl | Blood Red (90 g) | 1.55 | 0.56 | 0.99 | 27% of his 2.07 m |
+| warden | Blood Red | 1.55 | 0.45 | 1.10 | 22% of 2.05 m |
+| runekeeper | Sea-Wolf (90 g) | 1.48 | -0.25 | 1.73 | below the sole plane in the bind pose |
+| berserker | Traveller's (30 g) | 1.66 | 1.06 | 0.60 | 50% of 2.13 m |
+
+So 12 of the 16 class x cloak purchases put the bought COLOUR on a cut the shop did not sell; only a class's own
+default (huscarl and warden in Blood Red, runekeeper in Sea-Wolf, berserker in Traveller's) draws the cut its
+description names. **What the shop must not promise for the authored man is a length, a hem, a tail, a train or a
+pin.** `ARMOURY`'s four descriptions do: "A short cape off one shoulder, pinned with a bone pin", "Full length to
+the knee, hung from the shield shoulder on a disc brooch", "Long and narrow, cut to a tail at the back, on a
+ring-and-pin", "A trained war cloak on a bossed gilt disc. It sweeps behind him." It can promise the colour, and
+that a cloak is worn or is not. Not changed here: the copy and the prices are the shop's, and the PROCEDURAL man
+(thumbnails, `?authored=0`) does draw every cut. Closing it is a cloak prop family (CHAR-PLAN D4 and U8: four cuts,
+four classes, the drape's seven bones bound to each) or a re-export per cut, and neither is a runtime livery job.
+`authoredtest` prints the four rows and the count, and carries the deferral on its verdict line.
+
+**2. THE PEOPLES' VATS WORK FROM THE DYE LOT, NOT FROM WHAT A MAN WEARS.** `FINISH_LOT` in `characters.ts` is the
+seven finish rows as they stood before the as-worn re-grade, frozen, and it is the input of `factionKit`; `FINISH_KIT`
+is what a man wears when he has sworn to nobody. Why, measured through the shipped resolver over the full
+1680-reading roster (a scratch copy of `factionread` §1.3 that counted the readings and their angles): a vat adds
+dyestuff to what is there and snaps the sum onto the field's hue, so the chroma that comes out is the chroma that went
+in, and the re-graded wraps (L* 44-50, C* 14 or under, which the plan and the brief both demand) starved it. Fed the
+re-graded rows, §1.3 went from 2 readings more than 5 degrees off the field to 32 (the Norse huscarl 11 and warden 5,
+the Pict berserker 16; in Bretwalda Gold, Blackened Steel and Bronze Scales), and 11 of them, every one the sworn Pict
+berserker in Bretwalda Gold (who wears no tunic and no mail, so the wraps carried his chroma), were more than 100
+degrees off. Fed the lot it reads 2 again, the same two as the tree before. The brief asked two things that cannot both
+hold: wraps at L* 44-50, and `factionread` no worse. The unsworn man got the wraps and the sworn man kept the colours
+he was tuned on. **What that leaves open is the FACTION dye rows' own as-worn re-grade**: `node tools/chromabudget.mjs`
+reports 63 of 180 vat cells over C* 35 (worst C* 71.2, the Saxon's Bretwalda Gold wrap) and 984 of 3360 cells on the
+man, REPORTED and not gated, with the deferral on its verdict line. The brightness envelope the vats keep is read off
+the lot and off the gold cloak as it stood (`KIT` and `CLOAK_CEIL_REFERENCE`), because on the re-graded tables the
+kit's brightest channel is 168 where the lot's is 210 and the dearest cloak's went from 168 to 178.
+
+`factionread`'s CPU part (sections 0-5) on this tree against the tree before: the same four checks red with the same
+numbers (1.2 worst dC 7.45, 1.3 worst -119.64 degrees, 5.1b 36 surface-pairs under a JND, 5.2b 17 paid surfaces on the
+free one), 1.1's worst 2.39 to 3.03, 2.2's worst dC 17.58 to 16.35 (the bar is 10, still green). **The lit sections 6
+and 7 were NOT run** (about 110 minutes of browser): nothing here says the re-graded unsworn man does not clip a channel
+or sit in the rose band under the fire, and the lit frames the unit shot are not that measurement. A team's vat
+re-dyes from the worn row (it keeps a surface's lightness and forces its own chroma), so a war band is the
+re-graded man's colours and `teamread` (procedural, and `--authored`) reads it.
+
+**3. R10 — where the brief, the plan and the tree disagreed, each settled by reading the tree.**
+(a) CHAR-PLAN's "four rows over C* 35 (45, 51, 47, 38)" are NINE gated cells on the tree before: seven in `FINISH_KIT`
+(Bretwalda Gold's mail 46.7, Madder and Brass's mail 38.0, Crimson's tunic 41.4, Gold's tunic 40.2, Gold's buff 43.1,
+Gold's wraps 35.6, Bronze's buff 36.5) and two cloaks (the Gilded War Cloak 51.3 and the Blood Red 45.0); `chromabudget`
+walks every table and there are none now. (b) The plan's gold cloak `#b5a05e` is C* 37.1, over the bar the plan sets;
+the tree has `#b29e62` (C* 34.0). (c) The recon said the hair props' colour is in `COLOR_0`. Measured on the shipped
+files it is not: every one of the 630,576 ribbon vertices in the 28 hair and beard props has `COLOR_0` (1, 1, 1),
+the strand colour is in `COLOR_1`, which no glTF material reads, and that is why the beard was white (`adoptStrandColours`,
+`authoredProps.ts`, moves it where a renderer reads it; a file that already carries it in `COLOR_0` is left alone).
+(d) The brief's "wraps to L* 44-50" against its "do not make `factionread` worse": item 2. (e) The plan gives the
+fittings roughness 0.52 and metalness 0.70; the tree's brass is 0.46 and 0.78 and the authored fittings now read the
+same two constants the procedural man does (`BRASS_ROUGHNESS`, `BRASS_METALNESS`): the authored man's untextured
+`m_bfa25c` reached the library as `standard(colour)` at 0.8 and 0, matte plastic. (f) `EXCEPTIONS` in
+`authoredLivery.ts` is one material NAME per line with a `//` reason of eight characters or more; `roletable` fails
+on a name in any export that is neither in the table nor there, and on a line with no reason.
+
+**4. The shipped exports' names are two generations, and one of them has to die.** The role table is the default kit
+as the builder would bake him today PLUS `SHIPPED`, the hexes the checked-in files were baked with, frozen (24 of the
+role names in the exports are the current kit's and 15 match only the shipped one: `node tools/authoredtest.mjs`
+prints it). At the integration re-bake the default kit hexes in the names change, `SHIPPED` matches nothing, and it is
+deleted; the count reads 0 that day. `tools/blender/strands.py` was not changed and no GLB was re-baked or committed:
+the runtime fixes make the exporter's `COLOR_1` harmless, and whether the exporter can be made to write `COLOR_0` is a
+question for a run of Blender that this unit did not make.
+
+---
+
 ## CLOSED 9 Sep 2026 — THE BLADE IS NOW MEASURED AGAINST THE RANGE THAT TAKES HEALTH OFF, and it is a REACH question and not a timing one
 
 Carried here as: *"Nothing samples a warrior mid-stroke on the client and checks

@@ -212,6 +212,39 @@ is the least chromatic of the four fields. Both corrections are strictly
 tighter, both print the old quantity beside the new one, and neither is a bar
 that moved.
 
+## The authored man's colour — `chromabudget`, the role-table claims, `teamread --authored`, `hairmap --authored`
+
+Every colour gate above rasterises `buildCharacter`, the PROCEDURAL man, and none of them opens a GLB; the default
+build draws the GLB man (`RENDER-PATHS` A). Until `authoredLivery.ts` landed his material names (`mail:5f6b7a`, the hex
+IS the colour) ignored `armorColor`, `people`, `team`, the cloak and the hair, and every one of those gates was green
+about a man nobody was looking at. These four are the ones that can see him, and each was run against the tree
+without the fix first (PROCESS R2), and does not pass unless the fix is there:
+
+| ruler | costs | answers | red without the fix |
+|---|---|---|---|
+| `node tools/chromabudget.mjs` | ~15 s, no browser | is every WORN colour the shop sells inside the as-worn budget (LORE 7.0: cloth, leather and mail C* 35, cast metal 50, TEAM_FIELD exempt): `FINISH_KIT`, `CLOAK_COLORS`, `CLASS_TUNIC`, `tunicDye` over every finish x class, and the whole chain on the man (672 class x finish x cloak cells). `--budget=` moves the bar (R1: 348 cells over at C* 20, none at 35) | the finish rows fail (7 cells over, worst Gold's mail 46.7) and so do the cloaks (2 over, the Gilded 51.3) |
+| `node tools/authoredtest.mjs` (`roletable`, hair and shaved claims) | seconds | every material name in every one of the 68 exports is a role, an `EXCEPTIONS` line with a reason, or another handler's (a stale export goes red); no name is two roles; **the authored man and the procedural man are dressed in the same colours** over every finish, cloak, people and side (2172 name resolutions); the hair ribbons' colour is readable and follows `hairColor` and `beardColor`; a bought Shaved shaves | with no table 7 claims fail; with a table that dresses nothing, "700 name resolutions ... 540 differ" |
+| `node tools/teamread.mjs --authored` | ~20 s | the same 6/6 as `teamread`, on the shipped GLB man dressed by the real resolver chain and rasterised through the same lens. `--authored --off` is the control and **must fail** | 4/6: both sides ΔE 0.0, the team read is absent on the man the player is served |
+| `node tools/hairmap.mjs --authored` | ~5 s | the ribbons as resolved: effective diffuse p95 L* at most 65 (now 21.6), the under-cap L* at least 14 (17.1), tip 1.5x the light of the root (1.71x), every strand its own value, no metal, drawn on both sides, and the man's `hairColor` moves them (R1: 4.7 < 16.3 < 52.2). `--authored --off` is the control and **must fail** | 6 checks fail: p95 L* 91.7 (the white `COLOR_0` x 0.8, #e7e7e7), the cap black (metallic 1, roughness 1), one value, 28 metallic meshes |
+
+**What they still cannot see, and the verdict lines say so.** `chromabudget` is ALBEDO: no light, no grade, and
+the four peoples' vat outputs are REPORTED and not gated (63 of 180 vat cells are over C* 35, worst 71.2: their
+re-grade is the FACTION rows' own and is deferred, see `docs/OPEN-DEFECTS.md`, "THE PEOPLES' VATS WORK FROM THE DYE
+LOT"). `teamread --authored` rasterises the GLB at bind pose with his BAKED helm, hair and beard and without the shield
+board. `authoredtest` prints the cloak's CUT as REPORTED and not gated (12 of 16 purchases draw a cut the shop did
+not sell): the fix is a cloak prop family, not a runtime livery. And **the lit sections of `factionread` (§6, §7),
+`roselook` and `vatprobe` read the procedural man or need frames**; nothing in the CPU rulers above says the
+re-graded man does not clip a channel under the fire, and `factionread`'s CPU part was run on this tree and reads the
+same four red checks with the same numbers as the tree before.
+
+**Two rules these four wrote down.** (1) A ruler that walks a table it does not own must say how many cells it
+walked: `chromabudget` fails if the walk reached fewer tables than it claims (7 finishes x 7 columns, 4 cloaks, 4
+accents), because an empty walk is a pass. (2) When a fix moves an input that a tuned stage consumes, ask the stage,
+not the input: the wraps were re-graded to the plan's L* 44-50 and `factionread` §1.3 went from 2 readings past 5
+degrees to 32 in one edit, because the four vats snap what they are given onto a field and the chroma that comes out
+is the chroma that went in. The unsworn man wears the re-graded rows; the vats take the dye lot they were tuned on
+(`FINISH_LOT`); and the count went back to 2.
+
 ## Two gates that carry their own proof — `classmatrix` and `gorestat`
 
 Added 2026-08-13, because two existing rulers were caught not discriminating and
