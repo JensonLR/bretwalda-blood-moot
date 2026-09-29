@@ -5,6 +5,8 @@
 //   node tools/uishots.mjs
 //   node tools/uishots.mjs --dev          # ignore any production build
 //   node tools/uishots.mjs --port 3410
+//   UISHOTS_SCREENS=landing,lobby node tools/uishots.mjs   # only these sections (landing, training,
+//                                          armoury, saga, war, lobby); the default is all of them
 //
 // Separate from `shoot.mjs` on purpose: that tool photographs the
 // 3D scene through /shot, this one drives the real menu flow so
@@ -23,6 +25,9 @@ const OUT = resolve(ROOT, "art/ui");
 const argv = process.argv.slice(2);
 const has = (n) => argv.includes(`--${n}`);
 const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
+/** UISHOTS_SCREENS narrows the sweep to some sections, so a gate that rides it can be shown red in two minutes and not ten. */
+const ONLY = process.env.UISHOTS_SCREENS ? new Set(process.env.UISHOTS_SCREENS.split(",").map((x) => x.trim())) : null;
+const want = (section) => !ONLY || ONLY.has(section);
 // Derived from the pid, and no longer from an ambient `PORT`. Honouring the
 // environment meant that anywhere PORT is already set — a shell with a dev
 // server up, a hosting runtime — this tool spawned onto an occupied port,
@@ -39,6 +44,42 @@ const TAP_FLOOR = 44;
 const tapFails = [];
 /** Which screens wear the Trewhiddle ornament — backlog 5.9. Counted, not judged. */
 const ornCensus = [];
+/** Every plate this sweep found that is not cut, square, unblurred and opaque — UI-PLAN 1.1, F2. See `plateAudit`. */
+const plateFails = [];
+let plateTotal = 0;
+
+/**
+ * THE PLATE LAW, ON THE REAL SCREENS. `tools/platecheck.mjs` holds the stylesheet and a specimen of every
+ * control to UI-PLAN 1.1 (no radius, no backdrop-filter, a clip-path chamfer, no opacity, no glow). What a
+ * specimen cannot have is a CALL SITE: `card ... rounded-2xl` or `card ... backdrop-blur` beats the rule
+ * in `@layer components` with a utility, and the stylesheet is innocent while the screen is not. So the same
+ * questions are asked of every plate element on every screen this sweep visits, off the computed style.
+ * Runs in the page, so it takes no arguments and closes over nothing.
+ */
+const plateAudit = () => {
+  const SEL = ".plate,.plate-silver,.plate-hud,.card,.mini-nav,.warcode-frame,.btn-primary,.btn-ghost,.btn-info,.btn-danger,.btn-step,.btn-back,.input-frame,.select-frame,.tab-strip,.tab-item,.seg,.seg-item,.badge-sky,.badge-garnet,.badge-stone";
+  const bad = [];
+  let n = 0;
+  for (const e of document.querySelectorAll(SEL)) {
+    const cs = getComputedStyle(e);
+    const r = e.getBoundingClientRect();
+    if (cs.display === "none" || cs.visibility === "hidden" || r.width <= 0 || r.height <= 0) continue;
+    n++;
+    const who = `${e.tagName.toLowerCase()}.${[...e.classList].filter((c) => /^(plate|card|btn|mini|input|select|tab|seg|badge|warcode)/.test(c)).join(".")}`;
+    const why = [];
+    if (![cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].every((v) => v === "0px")) why.push(`radius ${cs.borderTopLeftRadius}`);
+    if (!cs.clipPath.startsWith("polygon(")) why.push("no chamfer");
+    if ((cs.backdropFilter || "none") !== "none") why.push(`backdrop-filter ${cs.backdropFilter}`);
+    if (cs.textShadow !== "none") why.push("text-shadow");
+    if ((cs.boxShadow || "none").split(/,(?![^(]*\))/).some((l) => { const q = l.replace(/rgba?\([^)]*\)/g, " ").replace(/\binset\b/, " ").trim().split(/\s+/).map(parseFloat).filter((x) => !Number.isNaN(x)); return q.length >= 3 && q[2] > 0; })) why.push("blurred box-shadow");
+    // opacity is read up the chain, because a faded parent fades a plate as surely as a faded plate
+    let o = 1;
+    for (let a = e; a && a !== document.body; a = a.parentElement) o *= parseFloat(getComputedStyle(a).opacity);
+    if (o < 0.99) why.push(`opacity ${o.toFixed(2)}`);
+    if (why.length) bad.push(`${who}: ${why.join(", ")}`);
+  }
+  return { n, bad };
+};
 // See the same constant in shoot.mjs for why this is not 127.0.0.1: Next 16
 // blocks dev resources from the loopback literal, the HMR socket dies, and the
 // dev client reload-loops the page — which for this tool means every shot is of
@@ -269,6 +310,10 @@ async function main() {
         rules: document.querySelectorAll(".ornament-line").length,
       }));
       ornCensus.push(`${name}-${vp.tag}: ${orn.bands} band(s), ${orn.rules} rule(s)`);
+      const pl = await page.evaluate(plateAudit);
+      plateTotal += pl.n;
+      if (pl.bad.length) plateFails.push(`${name}-${vp.tag}: ${[...new Set(pl.bad)].slice(0, 6).join(" | ")}${new Set(pl.bad).size > 6 ? " ..." : ""}`);
+      console.log(`[ui] ${name}-${vp.tag} plates ${pl.n}, faults ${pl.bad.length}`);
       if (rows.svgThin.length) {
         console.log(`[ui] ${name}-${vp.tag} map targets under a ${TAP_FLOOR}px press (reported): ${rows.svgThin.join(", ")}`);
       }
@@ -286,252 +331,271 @@ async function main() {
       console.log(`[ui] ${name}-${vp.tag}`);
     };
 
-    await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1200);
-    await shot("landing", false);
-    await shot("landing-full");
+    if (want("landing")) {
+      await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(1200);
+      await shot("landing", false);
+      await shot("landing-full");
 
-    // training grounds
-    await page.getByRole("button", { name: /Training/ }).first().click();
-    await shot("training");
-
-    // training setup (muster)
-    await page.getByRole("button", { name: /MUSTER THE TESTGROUNDS/ }).click();
-    await page.waitForTimeout(1500);
-    await shot("training-setup");
-
-    // armoury, reached from the landing screen. The wait is long because the
-    // shop now renders with the GAME's renderer — a texture library, a PMREM
-    // bake and a warrior — and a shot taken before that lands photographs an
-    // empty frame and files it as a regression.
-    await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(900);
-    await page.getByRole("button", { name: /Armoury/ }).first().click();
-    await page.waitForTimeout(7000);
-    await shot("armoury");
-
-    // The cheap end of the ladder, against the expensive end below. 30 gold
-    // and 2400 gold have to be different pictures or the shop is not a ladder.
-    const cheap = page.getByRole("button", { name: /Iron Spangenhelm/ }).first();
-    if (await cheap.count()) {
-      await cheap.click();
-      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
-      await page.waitForTimeout(2500);
-      await shot("armoury-cheap");
     }
 
-    // The cloak tab: a different slot takes a different lens (a cloak is a
-    // whole figure, a helm is a portrait), so this is the frame that shows
-    // the crop is per slot rather than one framing for everything.
-    const cloakTab = page.getByRole("button", { name: /^CLOAKS$/ }).first();
-    if (await cloakTab.count()) {
-      await cloakTab.click();
-      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
-      await page.waitForTimeout(3500);
-      await shot("armoury-cloaks");
+    if (want("training")) {
+      // training grounds (reached from the landing screen; a filtered run that skipped it has to go there itself)
+      if (!want("landing")) { await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" }); await page.waitForTimeout(1200); }
+      await page.getByRole("button", { name: /Training/ }).first().click();
+      await shot("training");
+
+      // training setup (muster)
+      await page.getByRole("button", { name: /MUSTER THE TESTGROUNDS/ }).click();
+      await page.waitForTimeout(1500);
+      await shot("training-setup");
+
     }
 
-    // AT FIGHT DISTANCE. The audit's decisive finding is that seven helmets
-    // are the same 20 px grey dome at the range the game is played at; this
-    // is the control that lets a player see that before he spends.
-    const fight = page.getByRole("button", { name: /FIGHT RANGE/ }).first();
-    if (await fight.count()) {
-      await fight.click();
-      await page.waitForTimeout(2500);
-      await shot("armoury-fight");
-    }
+    if (want("armoury")) {
+      // armoury, reached from the landing screen. The wait is long because the
+      // shop now renders with the GAME's renderer — a texture library, a PMREM
+      // bake and a warrior — and a shot taken before that lands photographs an
+      // empty frame and files it as a regression.
+      await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(900);
+      await page.getByRole("button", { name: /Armoury/ }).first().click();
+      await page.waitForTimeout(7000);
+      await shot("armoury");
 
-    // ...and with a locked helm on the mannequin, which is the only state that
-    // shows the price and the buy button the server now answers for.
-    const helmTab = page.getByRole("button", { name: /^HELMETS$/ }).first();
-    if (await helmTab.count()) { await helmTab.click(); await page.waitForTimeout(1500); }
-    const helm = page.getByRole("button", { name: /Sutton Hoo/ }).first();
-    if (await helm.count()) {
-      await helm.click();
-      // Back to the top: the mannequin and the price it is asking for are what
-      // this shot is of, and tapping an item leaves the list scrolled to it.
-      await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
-      await page.waitForTimeout(3000);
-      await shot("armoury-staged");
-
-      // Ask to buy 2400 gold of helmet with nothing in the purse. The server
-      // is the one that says no, and the screen has to repeat it rather than
-      // clearing the mannequin and looking like it worked.
-      await page.getByRole("button", { name: /EQUIP & BUY/ }).click();
-      await page.waitForTimeout(2000);
-      await shot("armoury-refused");
-      const refusal = await page.evaluate(() => document.querySelector('[role="status"]')?.textContent?.trim() ?? null);
-      const stillStaged = await page.evaluate(() => !!document.body.textContent.includes("COST TO UNLOCK"));
-      console.log(`[ui] ${vp.tag} refused purchase says: ${JSON.stringify(refusal)} · try-on kept=${stillStaged}`);
-    }
-
-    // saga: the profile screen, and the only surface the whole profile
-    // feature has. The wait is for the silent sign-in to land.
-    await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2500);
-    await page.getByRole("button", { name: /Saga/ }).first().click();
-    await page.waitForTimeout(900);
-    await shot("saga");
-    // The shell scrolls, not the document, so fullPage stops at the fold and
-    // the recovery panel is below it on a phone. Scroll the shell instead.
-    await page.evaluate(() => {
-      const shell = document.querySelector(".shell");
-      if (shell) shell.scrollTop = shell.scrollHeight;
-    });
-    await shot("saga-foot");
-    const words = await page.evaluate(() => {
-      const chips = [...document.querySelectorAll("section .font-display")];
-      return chips.map((e) => e.textContent.trim()).filter((t) => /^[a-z]+$/.test(t)).join(" ");
-    });
-    console.log(`[ui] ${vp.tag} recovery words: ${words || "(none — local mode)"}`);
-    const restore = page.getByRole("button", { name: /I HAVE FOUR WORDS/ });
-    if (await restore.count()) {
-      await restore.click();
-      await page.waitForTimeout(500);
-      await shot("saga-restore");
-    }
-
-    // THE OATH, and its livery mirror — backlog 8.3, the owner's screenshot:
-    // the caption said "In the colours of the Anglo-Saxons" over a warrior in
-    // plain issued steel. The mirror is the ONE surface in the game whose whole
-    // job is to show a colour, and this sweep had never photographed it: the
-    // factions page is its own route and the loop above only ever walked the
-    // screens reachable from the landing hall.
-    //
-    // Two frames, and the pair is the claim: the mirror before a kingdom is
-    // touched, and after. If the second is not visibly a different man from the
-    // first, the caption is lying.
-    await page.goto(`${BASE()}/factions`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(4500);
-    // The oath is far down a long page and the map is above it. Scroll to the
-    // section itself — the first cut of this photographed the map, twice, and
-    // filed it as the mirror.
-    const oathAt = async () => {
-      await page.evaluate(() => {
-        document.querySelector(".war-oath")?.scrollIntoView({ block: "center" });
-      });
-      await page.waitForTimeout(700);
-    };
-    // THE MAP ITSELF, IN VIEW. The oath is below it and this sweep scrolls
-    // there, so every earlier cut of the tap audit skipped the map entirely and
-    // reported a clean sheet — green because the case was absent, which is the
-    // one thing this project does not accept. Photographed and audited at the
-    // top of the page first.
-    await shot("warmap");
-    // THE THREE TIGHT TERRITORIES MUST BE PRESSABLE, and this claim exists so
-    // that closing them cannot close the ROW by absence. Kent, Kernow and
-    // Sudreyjar used to appear on the reported line above as targets a 44 px
-    // press slips off; they are DOM buttons now, and the paths they cover were
-    // demoted to `aria-hidden` with no role — which means the reported line
-    // goes quiet whether the buttons work or whether somebody deletes them.
-    // So: they are found BY NAME, measured, and pressed.
-    {
-      // SCROLLED INTO VIEW FIRST, BECAUSE THAT IS WHAT A USER DOES. Measured
-      // without it, Kent and Kernow failed on the phone with "something covers
-      // it" — and the thing covering them is the sticky SWEAR bar at the foot
-      // of the screen, which this file's own map comment already warns about
-      // ("`.action-bar` is position: sticky; bottom: 0 ... anything at the foot
-      // of the plate is under the SWEAR button"). A target under a sticky bar
-      // at one scroll offset is not an unreachable target; it is a target you
-      // scroll to. What must be true is that ONCE IT IS ON SCREEN a 44 px press
-      // lands on it, and that is what is asked.
-      await page.evaluate(() => {
-        const el = document.querySelector("button.wm-tight");
-        if (el) el.scrollIntoView({ block: "center" });
-      });
-      await page.waitForTimeout(400);
-      const tight = await page.evaluate((floor) => {
-        const want = ["Kent", "Kernow", "Sudreyjar", "Gwynedd"];
-        const out = [];
-        for (const name of want) {
-          const el = [...document.querySelectorAll("button.wm-tight")]
-            .find((b) => (b.getAttribute("aria-label") || "").startsWith(name + ","));
-          if (!el) { out.push({ name, why: "no DOM target rendered" }); continue; }
-          const r = el.getBoundingClientRect();
-          if (Math.min(r.width, r.height) < floor) {
-            out.push({ name, why: `${Math.round(r.width)}x${Math.round(r.height)}, under the floor` });
-            continue;
-          }
-          // Each one in turn: the three are far apart on the island and one
-          // scroll cannot put all of them in the clear.
-          el.scrollIntoView({ block: "center" });
-          const rr = el.getBoundingClientRect();
-          if (rr.top < 0 || rr.left < 0 || rr.bottom > window.innerHeight || rr.right > window.innerWidth) continue;
-          const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
-          const h = floor / 2 - 1;
-          const on = (dx, dy) => { const t = document.elementFromPoint(cx + dx, cy + dy); return t === el || el.contains(t); };
-          if (!(on(0, 0) && on(-h, 0) && on(h, 0) && on(0, -h) && on(0, h))) {
-            out.push({ name, why: "something covers it — a press does not reach the button" });
-          }
-        }
-        return out;
-      }, TAP_FLOOR);
-      if (tight.length) {
-        tapFails.push(`warmap-${vp.tag}: ${tight.map((t) => `"${t.name}" ${t.why}`).join(", ")}`);
+      // The cheap end of the ladder, against the expensive end below. 30 gold
+      // and 2400 gold have to be different pictures or the shop is not a ladder.
+      const cheap = page.getByRole("button", { name: /Iron Spangenhelm/ }).first();
+      if (await cheap.count()) {
+        await cheap.click();
+        await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+        await page.waitForTimeout(2500);
+        await shot("armoury-cheap");
       }
-      console.log(`[ui] warmap-${vp.tag} tight territories: ${tight.length ? tight.map((t) => t.name).join("/") + " FAILED" : "every named tight territory takes a 44px press"}`);
+
+      // The cloak tab: a different slot takes a different lens (a cloak is a
+      // whole figure, a helm is a portrait), so this is the frame that shows
+      // the crop is per slot rather than one framing for everything.
+      const cloakTab = page.getByRole("button", { name: /^CLOAKS$/ }).first();
+      if (await cloakTab.count()) {
+        await cloakTab.click();
+        await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+        await page.waitForTimeout(3500);
+        await shot("armoury-cloaks");
+      }
+
+      // AT FIGHT DISTANCE. The audit's decisive finding is that seven helmets
+      // are the same 20 px grey dome at the range the game is played at; this
+      // is the control that lets a player see that before he spends.
+      const fight = page.getByRole("button", { name: /FIGHT RANGE/ }).first();
+      if (await fight.count()) {
+        await fight.click();
+        await page.waitForTimeout(2500);
+        await shot("armoury-fight");
+      }
+
+      // ...and with a locked helm on the mannequin, which is the only state that
+      // shows the price and the buy button the server now answers for.
+      const helmTab = page.getByRole("button", { name: /^HELMETS$/ }).first();
+      if (await helmTab.count()) { await helmTab.click(); await page.waitForTimeout(1500); }
+      const helm = page.getByRole("button", { name: /Sutton Hoo/ }).first();
+      if (await helm.count()) {
+        await helm.click();
+        // Back to the top: the mannequin and the price it is asking for are what
+        // this shot is of, and tapping an item leaves the list scrolled to it.
+        await page.evaluate(() => { const s = document.querySelector(".shell"); if (s) s.scrollTop = 0; });
+        await page.waitForTimeout(3000);
+        await shot("armoury-staged");
+
+        // Ask to buy 2400 gold of helmet with nothing in the purse. The server
+        // is the one that says no, and the screen has to repeat it rather than
+        // clearing the mannequin and looking like it worked.
+        await page.getByRole("button", { name: /EQUIP & BUY/ }).click();
+        await page.waitForTimeout(2000);
+        await shot("armoury-refused");
+        const refusal = await page.evaluate(() => document.querySelector('[role="status"]')?.textContent?.trim() ?? null);
+        const stillStaged = await page.evaluate(() => !!document.body.textContent.includes("COST TO UNLOCK"));
+        console.log(`[ui] ${vp.tag} refused purchase says: ${JSON.stringify(refusal)} · try-on kept=${stillStaged}`);
+      }
+
     }
-    await oathAt();
-    await shot("oath");
-    // `.war-people-row` is the kingdom list's own class. By role/name the map's
-    // territories answer first, which is what went wrong.
-    const rows = page.locator(".war-people-row");
-    const n = await rows.count();
-    if (n >= 2) {
-      await rows.nth(0).click();
-      await oathAt();
-      await shot("oath-first");
-      await rows.nth(1).click();
-      await oathAt();
-      await shot("oath-second");
-      const said = await page.evaluate(() =>
-        document.querySelector(".war-mirror-note")?.textContent?.trim() ?? "(no mirror note)");
-      console.log(`[ui] oath mirror says: ${said}`);
-    } else {
-      console.log(`[ui] WARNING: ${n} kingdom rows on /factions — the oath mirror was not exercised`);
-    }
 
-    // lobby: name -> create battle -> create room
-    await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(900);
-    await page.getByPlaceholder("Enter warrior name...").fill("Aelfric");
-    await page.getByRole("button", { name: /CREATE BATTLE/ }).click();
-    await page.waitForTimeout(400);
-    await page.getByRole("button", { name: /CREATE ROOM/ }).click();
-    await page.waitForTimeout(3500);
-    await shot("lobby");
-    await shot("lobby-viewport", false);
-
-    // The lobby's own tap-target audit used to live here, on this ONE screen,
-    // printing and never failing. `tapAudit` rides every `shot()` now and gates
-    // the lot — see its note.
-
-    // deep link: a fresh guest opening the bare invite URL
-    const code = await page.evaluate(() => {
-      const el = document.querySelector(".warcode");
-      return el ? el.textContent.trim() : null;
-    });
-    console.log(`[ui] ${vp.tag} war code: ${code}`);
-    if (code) {
-      const guestCtx = await browser.newContext({
-        viewport: { width: vp.width, height: vp.height }, isMobile: vp.touch, hasTouch: vp.touch,
+    if (want("saga")) {
+      // saga: the profile screen, and the only surface the whole profile
+      // feature has. The wait is for the silent sign-in to land.
+      await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(2500);
+      await page.getByRole("button", { name: /Saga/ }).first().click();
+      await page.waitForTimeout(900);
+      await shot("saga");
+      // The shell scrolls, not the document, so fullPage stops at the fold and
+      // the recovery panel is below it on a phone. Scroll the shell instead.
+      await page.evaluate(() => {
+        const shell = document.querySelector(".shell");
+        if (shell) shell.scrollTop = shell.scrollHeight;
       });
-      const guest = await guestCtx.newPage();
-      await guest.goto(`${BASE()}/?code=${code}`, { waitUntil: "domcontentloaded" });
-      await waitForStyles(guest);
-      await guest.waitForTimeout(1500);
-      await guest.screenshot({ path: resolve(OUT, `deeplink-join-${vp.tag}.png`), fullPage: true });
-      await guest.getByPlaceholder("Enter warrior name...").fill("Guest");
-      await guest.getByRole("button", { name: /^JOIN$/ }).click();
-      await guest.waitForTimeout(3500);
-      const inLobby = await guest.evaluate(() => !!document.querySelector(".warcode"));
-      const guestCode = await guest.evaluate(() => document.querySelector(".warcode")?.textContent?.trim() ?? null);
-      await guest.screenshot({ path: resolve(OUT, `deeplink-lobby-${vp.tag}.png`), fullPage: true });
-      console.log(`[ui] ${vp.tag} DEEPLINK: reached lobby=${inLobby} code=${guestCode} matches=${guestCode === code}`);
-      await page.waitForTimeout(800);
-      await page.screenshot({ path: resolve(OUT, `lobby-two-${vp.tag}.png`), fullPage: true });
-      await guestCtx.close();
+      await shot("saga-foot");
+      const words = await page.evaluate(() => {
+        const chips = [...document.querySelectorAll("section .font-display")];
+        return chips.map((e) => e.textContent.trim()).filter((t) => /^[a-z]+$/.test(t)).join(" ");
+      });
+      console.log(`[ui] ${vp.tag} recovery words: ${words || "(none — local mode)"}`);
+      const restore = page.getByRole("button", { name: /I HAVE FOUR WORDS/ });
+      if (await restore.count()) {
+        await restore.click();
+        await page.waitForTimeout(500);
+        await shot("saga-restore");
+      }
+
     }
+
+    if (want("war")) {
+      // THE OATH, and its livery mirror — backlog 8.3, the owner's screenshot:
+      // the caption said "In the colours of the Anglo-Saxons" over a warrior in
+      // plain issued steel. The mirror is the ONE surface in the game whose whole
+      // job is to show a colour, and this sweep had never photographed it: the
+      // factions page is its own route and the loop above only ever walked the
+      // screens reachable from the landing hall.
+      //
+      // Two frames, and the pair is the claim: the mirror before a kingdom is
+      // touched, and after. If the second is not visibly a different man from the
+      // first, the caption is lying.
+      await page.goto(`${BASE()}/factions`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(4500);
+      // The oath is far down a long page and the map is above it. Scroll to the
+      // section itself — the first cut of this photographed the map, twice, and
+      // filed it as the mirror.
+      const oathAt = async () => {
+        await page.evaluate(() => {
+          document.querySelector(".war-oath")?.scrollIntoView({ block: "center" });
+        });
+        await page.waitForTimeout(700);
+      };
+      // THE MAP ITSELF, IN VIEW. The oath is below it and this sweep scrolls
+      // there, so every earlier cut of the tap audit skipped the map entirely and
+      // reported a clean sheet — green because the case was absent, which is the
+      // one thing this project does not accept. Photographed and audited at the
+      // top of the page first.
+      await shot("warmap");
+      // THE THREE TIGHT TERRITORIES MUST BE PRESSABLE, and this claim exists so
+      // that closing them cannot close the ROW by absence. Kent, Kernow and
+      // Sudreyjar used to appear on the reported line above as targets a 44 px
+      // press slips off; they are DOM buttons now, and the paths they cover were
+      // demoted to `aria-hidden` with no role — which means the reported line
+      // goes quiet whether the buttons work or whether somebody deletes them.
+      // So: they are found BY NAME, measured, and pressed.
+      {
+        // SCROLLED INTO VIEW FIRST, BECAUSE THAT IS WHAT A USER DOES. Measured
+        // without it, Kent and Kernow failed on the phone with "something covers
+        // it" — and the thing covering them is the sticky SWEAR bar at the foot
+        // of the screen, which this file's own map comment already warns about
+        // ("`.action-bar` is position: sticky; bottom: 0 ... anything at the foot
+        // of the plate is under the SWEAR button"). A target under a sticky bar
+        // at one scroll offset is not an unreachable target; it is a target you
+        // scroll to. What must be true is that ONCE IT IS ON SCREEN a 44 px press
+        // lands on it, and that is what is asked.
+        await page.evaluate(() => {
+          const el = document.querySelector("button.wm-tight");
+          if (el) el.scrollIntoView({ block: "center" });
+        });
+        await page.waitForTimeout(400);
+        const tight = await page.evaluate((floor) => {
+          const want = ["Kent", "Kernow", "Sudreyjar", "Gwynedd"];
+          const out = [];
+          for (const name of want) {
+            const el = [...document.querySelectorAll("button.wm-tight")]
+              .find((b) => (b.getAttribute("aria-label") || "").startsWith(name + ","));
+            if (!el) { out.push({ name, why: "no DOM target rendered" }); continue; }
+            const r = el.getBoundingClientRect();
+            if (Math.min(r.width, r.height) < floor) {
+              out.push({ name, why: `${Math.round(r.width)}x${Math.round(r.height)}, under the floor` });
+              continue;
+            }
+            // Each one in turn: the three are far apart on the island and one
+            // scroll cannot put all of them in the clear.
+            el.scrollIntoView({ block: "center" });
+            const rr = el.getBoundingClientRect();
+            if (rr.top < 0 || rr.left < 0 || rr.bottom > window.innerHeight || rr.right > window.innerWidth) continue;
+            const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+            const h = floor / 2 - 1;
+            const on = (dx, dy) => { const t = document.elementFromPoint(cx + dx, cy + dy); return t === el || el.contains(t); };
+            if (!(on(0, 0) && on(-h, 0) && on(h, 0) && on(0, -h) && on(0, h))) {
+              out.push({ name, why: "something covers it — a press does not reach the button" });
+            }
+          }
+          return out;
+        }, TAP_FLOOR);
+        if (tight.length) {
+          tapFails.push(`warmap-${vp.tag}: ${tight.map((t) => `"${t.name}" ${t.why}`).join(", ")}`);
+        }
+        console.log(`[ui] warmap-${vp.tag} tight territories: ${tight.length ? tight.map((t) => t.name).join("/") + " FAILED" : "every named tight territory takes a 44px press"}`);
+      }
+      await oathAt();
+      await shot("oath");
+      // `.war-people-row` is the kingdom list's own class. By role/name the map's
+      // territories answer first, which is what went wrong.
+      const rows = page.locator(".war-people-row");
+      const n = await rows.count();
+      if (n >= 2) {
+        await rows.nth(0).click();
+        await oathAt();
+        await shot("oath-first");
+        await rows.nth(1).click();
+        await oathAt();
+        await shot("oath-second");
+        const said = await page.evaluate(() =>
+          document.querySelector(".war-mirror-note")?.textContent?.trim() ?? "(no mirror note)");
+        console.log(`[ui] oath mirror says: ${said}`);
+      } else {
+        console.log(`[ui] WARNING: ${n} kingdom rows on /factions — the oath mirror was not exercised`);
+      }
+
+    }
+
+    if (want("lobby")) {
+      // lobby: name -> create battle -> create room
+      await page.goto(`${BASE()}/`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(900);
+      await page.getByPlaceholder("Enter warrior name...").fill("Aelfric");
+      await page.getByRole("button", { name: /CREATE BATTLE/ }).click();
+      await page.waitForTimeout(400);
+      await page.getByRole("button", { name: /CREATE ROOM/ }).click();
+      await page.waitForTimeout(3500);
+      await shot("lobby");
+      await shot("lobby-viewport", false);
+
+      // The lobby's own tap-target audit used to live here, on this ONE screen,
+      // printing and never failing. `tapAudit` rides every `shot()` now and gates
+      // the lot — see its note.
+
+      // deep link: a fresh guest opening the bare invite URL
+      const code = await page.evaluate(() => {
+        const el = document.querySelector(".warcode");
+        return el ? el.textContent.trim() : null;
+      });
+      console.log(`[ui] ${vp.tag} war code: ${code}`);
+      if (code) {
+        const guestCtx = await browser.newContext({
+          viewport: { width: vp.width, height: vp.height }, isMobile: vp.touch, hasTouch: vp.touch,
+        });
+        const guest = await guestCtx.newPage();
+        await guest.goto(`${BASE()}/?code=${code}`, { waitUntil: "domcontentloaded" });
+        await waitForStyles(guest);
+        await guest.waitForTimeout(1500);
+        await guest.screenshot({ path: resolve(OUT, `deeplink-join-${vp.tag}.png`), fullPage: true });
+        await guest.getByPlaceholder("Enter warrior name...").fill("Guest");
+        await guest.getByRole("button", { name: /^JOIN$/ }).click();
+        await guest.waitForTimeout(3500);
+        const inLobby = await guest.evaluate(() => !!document.querySelector(".warcode"));
+        const guestCode = await guest.evaluate(() => document.querySelector(".warcode")?.textContent?.trim() ?? null);
+        await guest.screenshot({ path: resolve(OUT, `deeplink-lobby-${vp.tag}.png`), fullPage: true });
+        console.log(`[ui] ${vp.tag} DEEPLINK: reached lobby=${inLobby} code=${guestCode} matches=${guestCode === code}`);
+        await page.waitForTimeout(800);
+        await page.screenshot({ path: resolve(OUT, `lobby-two-${vp.tag}.png`), fullPage: true });
+        await guestCtx.close();
+      }
+    }
+
     await ctx.close();
   }
 
@@ -546,11 +610,18 @@ async function main() {
   }
   console.log(`[ui] ${tapFails.length ? "FAIL" : "PASS"}: the ${TAP_FLOOR}px floor, on every screen this sweep walks, at both widths`);
   console.log("");
+  // THE PLATE LAW, on the real screens (UI-PLAN 1.1, F2). See `plateAudit`.
+  if (plateFails.length) {
+    console.log("[ui] PLATES THAT ARE NOT CUT, SQUARE, UNBLURRED AND OPAQUE — a call site beat the stylesheet:");
+    for (const f of plateFails) console.log(`[ui]   ${f}`);
+  }
+  console.log(`[ui] ${plateFails.length ? "FAIL" : "PASS"}: the plate law, ${plateTotal} plate(s) across every screen this sweep walks${ONLY ? ` (FILTERED to ${[...ONLY].join(", ")}: not the whole sweep)` : ""}`);
+  console.log("");
   const bare = ornCensus.filter((l) => l.includes("0 band(s), 0 rule(s)"));
   console.log(`[ui] TREWHIDDLE (5.9): ${ornCensus.length - bare.length} of ${ornCensus.length} rendered screens wear the ornament.`);
   for (const l of bare) console.log(`[ui]   bare: ${l.split(":")[0]}`);
   if (server && !server.killed) server.kill("SIGTERM");
-  process.exit(tapFails.length ? 1 : 0);
+  process.exit(tapFails.length || plateFails.length ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); if (server && !server.killed) server.kill("SIGTERM"); process.exit(1); });

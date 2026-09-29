@@ -375,8 +375,10 @@ while (i < css.length) {
     for (const g of ["page", "hud", "rest"]) {
       report(hits[g].length <= CEILING[g], `type floor, ${NAME[g]}: ${hits[g].length}, ceiling ${CEILING[g]}${hits[g].length > CEILING[g] ? " — a size under the floor was added; use the scale (.t-label is 12px) or raise the ceiling with the reason" : ""}`, hits[g].slice(-8));
     }
-    // and the stylesheet's own sizes
-    const CSS_CEILING = 10;
+    // and the stylesheet's own sizes. 10 at F1; F2 re-sized `.label-overline`, `.section-title`, `.tab-item`, the three badges, `.rule-label` and
+    // `.mini-nav` onto the 12px label step, which took seven of the ten out. Three remain and each belongs to a unit that has not landed:
+    // `.round-hud` (9.5px, unit H), `.fm-row-seat` (10px) and `.fm-credit` (.7rem), both unit W's.
+    const CSS_CEILING = 3;
     const small = [];
     for (const m of stripped.matchAll(/font-size:\s*(\d*\.?\d+)(px|rem)\b/g)) {
       const px = m[2] === "rem" ? parseFloat(m[1]) * 16 : parseFloat(m[1]);

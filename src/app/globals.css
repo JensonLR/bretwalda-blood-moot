@@ -1755,6 +1755,7 @@
   .btn-primary:disabled, .btn-primary[aria-disabled="true"],
   .btn-ghost:disabled, .btn-ghost[aria-disabled="true"],
   .btn-info:disabled, .btn-info[aria-disabled="true"],
+  .btn-danger:disabled, .btn-danger[aria-disabled="true"],
   .btn-step:disabled, .btn-step[aria-disabled="true"] {
     --fill: var(--niello);
     --fill-top: var(--niello-raised);
@@ -1936,6 +1937,15 @@
   .input-frame:focus {
     --rim: var(--silver-lit);
     --rim-top: var(--silver-lit);
+  }
+  /* A field that cannot be typed in is not a faded field: no lit lip, dim type,
+     the same not-allowed cursor a disabled plate has. */
+  .input-frame:disabled {
+    --rim: var(--niello-line);
+    --rim-top: var(--niello-line);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+    box-shadow: none;
   }
 
   .select-frame {
