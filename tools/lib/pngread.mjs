@@ -14,7 +14,7 @@
 // zeros would be the harness that measured the wrong quantity (PROCESS 1.1).
 // ============================================================
 import { readFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
+import { inflateSync, deflateSync } from "node:zlib";
 
 const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -111,4 +111,32 @@ export function labPlanes(img) {
     L[i] = lab[0]; A[i] = lab[1]; B[i] = lab[2];
   }
   return { w: img.w, h: img.h, L, A, B };
+}
+
+// ---- a writer, for the picture a ruler leaves behind so a person can LOOK at where it looked (PROCESS R5) ----
+const CRC = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
+function chunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  let crc = -1;
+  for (let i = 0; i < td.length; i++) crc = (crc >>> 8) ^ CRC[(crc ^ td[i]) & 0xff];
+  const cb = Buffer.alloc(4); cb.writeUInt32BE((crc ^ -1) >>> 0);
+  return Buffer.concat([len, td, cb]);
+}
+
+/** 8-bit RGB (or RGBA, dropped to RGB) image -> PNG bytes. */
+export function encodePng(img) {
+  const { w, h, ch, data } = img;
+  const raw = Buffer.alloc(h * (w * 3 + 1));
+  let o = 0;
+  for (let y = 0; y < h; y++) {
+    raw[o++] = 0;
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * ch;
+      raw[o++] = data[i]; raw[o++] = ch >= 3 ? data[i + 1] : data[i]; raw[o++] = ch >= 3 ? data[i + 2] : data[i];
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 6 })), chunk("IEND", Buffer.alloc(0))]);
 }

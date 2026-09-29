@@ -2860,7 +2860,16 @@ function buildSkin(g: Gen): void {
     // ridge field low made a jigsaw; the whole read lives in the high octave.
     const netA = smoothstep(0.5, 0.92, sampleField(bank.ridge, u * 8, v * 8));
     const netB = smoothstep(0.62, 1, sampleField(bank.ridge, u * 16, v * 16));
-    const wrinkle = clamp01(netA * 0.7 + netB * 0.6);
+    // netB was 0.6 and the blush below took 0.55 of `wrinkle`, which printed the crease net in RED:
+    // dashes, in rows, across the face at the 35 mm tile the authored skin is baked at. Now 0.25 and 0.12
+    // (CHAR-PLAN 1.5: "redness from the low-frequency flush field only"). R1, measured by pulling both to
+    // ZERO on the albedo tile read at the portrait lens (`tools/skinlattice.mjs`): the lattice's peak did NOT
+    // move (0.912 -> 0.931) and its texture rms fell 1.81 -> 1.66 L*; what moved it to nothing (rms 0.53 L*,
+    // smooth) was the `flush` blotch below, which repeats at HALF a tile (`u * 2`, a 21 px pitch at the
+    // portrait lens, exactly the pitch the frame's autocorrelation reads). So this change makes the dashes
+    // less red and does NOT remove the lattice; the lattice is removed where the head is dressed
+    // (`render/authoredSkin.ts`, the head's own tile) and remains on the body's skin, where it is the flush.
+    const wrinkle = clamp01(netA * 0.7 + netB * 0.25);
     const flush = sampleField(bank.soft, u * 2, v * 2);
     const mottle = sampleField(bank.grain, u * 6, v * 6);
     const speck = sampleCellId(bank.micro, u * 4, v * 4);
@@ -2870,7 +2879,7 @@ function buildSkin(g: Gen): void {
     set(c, i, mid);
     // Blood sits close under the surface, so the creases and the low-frequency
     // blotching both go red. Flat skin colour is what reads as a mannequin.
-    toward(c, i, blush, clamp01(smoothstep(0.4, 0.85, flush) * 0.8 + wrinkle * 0.55 + (mottle - 0.5) * 0.5));
+    toward(c, i, blush, clamp01(smoothstep(0.4, 0.85, flush) * 0.8 + wrinkle * 0.12 + (mottle - 0.5) * 0.5));
     toward(c, i, pale, clamp01((height - 0.66) * 4) * 0.5);
     toward(c, i, freckle, speck > 0.94 ? pore * 0.6 : 0);
     gain(c, i, 0.94 + (mottle - 0.5) * 0.14);
@@ -3015,7 +3024,7 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   mud:     { detail: "prop", tint: 0x4c3e2d, roughness: 0.61, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.3, cavity: 1.1, repeat: 6, build: buildMud },
   grass:   { detail: "prop", tint: 0x51672f, roughness: 0.81, metalness: 0, normalScale: 1.15, aoIntensity: 1.15, bump: 2.3, cavity: 1.15, repeat: 4, build: buildGrass },
 
-  skin:    { detail: "hero", tint: 0xd9a97e, roughness: 0.6,  metalness: 0, normalScale: 0.7,  aoIntensity: 0.8,  bump: 1.2, cavity: 0.8, repeat: 1, build: buildSkin },
+  skin:    { detail: "hero", tint: 0xd9a97e, roughness: 0.6,  metalness: 0, normalScale: 0.45, aoIntensity: 0.8,  bump: 0.8, cavity: 0.8, repeat: 1, build: buildSkin },
   bone:    { detail: "prop", tint: 0xcfc2a6, roughness: 0.62, metalness: 0, normalScale: 0.9,  aoIntensity: 0.95, bump: 1.6, cavity: 1,   repeat: 2, build: buildBone },
   blood:   { detail: "prop", tint: 0x4a0a08, roughness: 0.2,  metalness: 0, normalScale: 0.8,  aoIntensity: 0.7,  bump: 1.4, cavity: 0.7, repeat: 1, cutout: true, build: buildBlood },
 };

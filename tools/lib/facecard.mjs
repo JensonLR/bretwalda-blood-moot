@@ -50,7 +50,7 @@ export function parseCardName(file) {
 }
 
 /** Compile `characters.ts` once and hand back its module. */
-export async function loadCharacters(work = ".faceprobe") {
+export async function loadCharacters(work = ".faceprobe/chars") {
   globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1,
     matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
   globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
@@ -130,7 +130,16 @@ export function landmarksOnCard(CH, lens, cls, turn, reg = { dx: 0, dy: 0, k: 1 
   const L = CH.faceLandmarks(cls, 0);
   const raw = (p) => cam.project(p);
   const mid = (() => { const a = raw(L.eyes[0].iris), b = raw(L.eyes[1].iris); return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; })();
-  const px = (p) => { const r = raw(p); return { x: mid.x + (r.x - mid.x) * reg.k + reg.dx, y: mid.y + (r.y - mid.y) * reg.k + reg.dy, depth: r.depth }; };
+  const centre = [0, L.headY, 0];
+  // how squarely the surface at a point faces the lens, taking the surface normal as the direction out of the
+  // head's centre (a skull is round enough for that to be a filter, which is all it is used as)
+  const facingAt = (p) => {
+    const r = raw(p);
+    const d = [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
+    const w = cam.dir(d);
+    return w[0] * r.toEye[0] + w[1] * r.toEye[1] + w[2] * r.toEye[2];
+  };
+  const px = (p) => { const r = raw(p); return { x: mid.x + (r.x - mid.x) * reg.k + reg.dx, y: mid.y + (r.y - mid.y) * reg.k + reg.dy, depth: r.depth, facing: facingAt(p) }; };
   const pxs = (a) => a.map(px);
   return {
     cam, L, reg,
@@ -175,18 +184,18 @@ export function facing(CH, cam, cls, point, normalBody) {
  */
 export function register(CH, lens, lab, cls, turn, opts = {}) {
   const span = opts.span ?? 40;
+  const KMIN = opts.kmin ?? 0.96, KMAX = opts.kmax ?? 1.06;
   const at = (reg) => landmarksOnCard(CH, lens, cls, turn, reg);
   const base = at({ dx: 0, dy: 0, k: 1 });
   // Which features to look for. An eye is dark against its ring only where the lens sees it, and
   // the far eye at -35 and both at -90 are not that; the near-facing test is the projected IPD.
   const feats = [];
-  const ipd = Math.hypot(base.eyes[0].iris.x - base.eyes[1].iris.x, base.eyes[0].iris.y - base.eyes[1].iris.y);
-  const cosYaw = Math.min(1, ipd / (0.074 * base.cam.pxPerMetre));
-  for (const e of base.eyes) feats.push({ p: e.iris, r: 3.2, w: 3 });
-  for (const b of base.brows) for (const i of [2, 4, 6]) feats.push({ p: b.points[i], r: 2, w: 0.7 });
-  for (const n of base.nostrils) feats.push({ p: n, r: 2, w: 1 });
-  feats.push({ p: base.mouth.stomion, r: 2, w: 1.2 });
-  void cosYaw;
+  const FACE_MIN = 0.35;   // a feature on the far side of the head is not a feature the card can be asked about
+  const add = (p, r, w) => { if (p.facing >= FACE_MIN) feats.push({ p, r, w }); };
+  for (const e of base.eyes) add(e.iris, 3.2, 3);
+  for (const b of base.brows) for (const i of [2, 4, 6]) add(b.points[i], 2, 0.7);
+  for (const n of base.nostrils) add(n, 2, 1);
+  add(base.mouth.stomion, 2, 1.2);
   const rel = base.eyes.map((e) => e.iris);
   const mid = { x: (rel[0].x + rel[1].x) / 2, y: (rel[0].y + rel[1].y) / 2 };
   // Contrast against the WEAKEST point of the ring: a dark blob that is dark against every side of
@@ -208,9 +217,9 @@ export function register(CH, lens, lab, cls, turn, opts = {}) {
     return wsum ? sc / wsum : -1e9;
   };
   let best = { dx: 0, dy: 0, k: 1, score: -1e9 };
-  for (let k = 0.90; k <= 1.101; k += 0.02)
+  for (let k = KMIN; k <= KMAX + 1e-9; k += 0.01)
     for (let dy = -span; dy <= span; dy += 2)
-      for (let dx = -span * 1.6; dx <= span * 1.6; dx += 2) {
+      for (let dx = -span * 1.2; dx <= span * 1.2; dx += 2) {
         const sc = scoreOf(dx, dy, k);
         if (sc > best.score) best = { dx, dy, k, score: sc };
       }

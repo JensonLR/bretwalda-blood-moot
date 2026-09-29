@@ -56,7 +56,7 @@ globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight:
   matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
 globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
 globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
-const { byName } = await emitClient(ROOT, ["src/game/client/render/faceMap.ts"], ".faceprobe");
+const { byName } = await emitClient(ROOT, ["src/game/client/render/faceMap.ts"], ".faceprobe/facemap");
 const FM = await byName("faceMap.js");
 const CH = await byName("characters.js");
 if (!FM || !CH) throw new Error("tsc emitted no faceMap.js / characters.js");
