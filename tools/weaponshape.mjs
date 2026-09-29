@@ -322,6 +322,36 @@ const gripCheck = (label, tris, fist) => {
   check(`[${label}] the grip at the hand mount is what the baked fist closes on (${mm(fist)} radius: -2.5/+4 mm)`, half >= fist - 0.0025 && half <= fist + 0.004, `${mm(half)}`);
 };
 
+/**
+ * CH-24: steel is not a mirror. A metalness of 1 has no diffuse term, so a blade at 0.9-1.0 shows the
+ * sky and nothing else, and the sky is darker than the turf (the kit card read the sword at luma 35
+ * against a ground of 88). So: no steel-surface material anywhere on a weapon above 0.90 or glassier
+ * than roughness 0.25 (the silvered and gilt mounts run at 0.85: nearly a full metal, and small), and
+ * the AREA-WEIGHTED mean of the weapon's steel at 0.80 or under, which is the blade's bands at 0.70
+ * with the mounts riding on top. Read off the materials the builders hand the meshes, so a substance
+ * path is read as the builders wrote it.
+ *
+ * WHAT IT CANNOT SEE, on the verdict line where R4 wants it: the headless library (RAW) gives
+ * `weldsteel` and `serpentsteel` the metalness its own default does (0.25-0.55), not the recipe's 1,
+ * so a pattern-finish material that forgot to pass the palette's metalness would read fine here and
+ * be a mirror in the game (the old whole-blade path was exactly that, and is gone). The palette
+ * passes it explicitly now; the frame is what proves it. On HEAD this fails for the issued, blued,
+ * gilt and bronze finishes (mean 0.85, roughness 0.18-0.26) and cannot fail for the two pattern ones.
+ */
+const mirrorCheck = (label, tris) => {
+  const steel = tris.filter((t) => STEELS.has(t.mi.surface));
+  const total = steel.reduce((q, t) => q + t.area, 0) || 1;
+  const mean = steel.reduce((q, t) => q + t.area * (t.mi.metalness ?? 1), 0) / total;
+  let hi = { metal: -1, name: "-" }, lo = { rough: 9, name: "-" };
+  for (const t of steel) {
+    if ((t.mi.metalness ?? 1) > hi.metal) hi = { metal: t.mi.metalness ?? 1, name: t.mi.name };
+    if ((t.mi.roughness ?? 0) < lo.rough) lo = { rough: t.mi.roughness ?? 0, name: t.mi.name };
+  }
+  check(`[${label}] no steel is a mirror (metalness <= 0.90 and roughness >= 0.25 everywhere, the area-weighted mean metalness <= 0.80)`,
+    steel.length > 0 && hi.metal <= 0.90 && lo.rough >= 0.25 && mean <= 0.80,
+    `mean ${mean.toFixed(2)}; highest ${hi.metal.toFixed(2)} (${hi.name}), glassiest roughness ${lo.rough.toFixed(2)} (${lo.name})`);
+};
+
 // ============================================================
 // MUTANTS - deliberately wrong weapons, to show a check is not vacuous (R3)
 // ============================================================
@@ -370,6 +400,7 @@ function swordChecks(styleId) {
 
   check(`[${label}] reach lock: the tip is where anim.ts reads it (rig.reach = 1.055)`, Math.abs(bb.hi[1] - 1.055) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("huscarl").main);
+  mirrorCheck(label, tris);
   check(`[${label}] no emissive anywhere (no magic: LORE 5.5)`, !tris.some((t) => t.mi.emissive), "");
 
   // ---- the grip: the anchor every hilt reading is taken against ----
@@ -525,6 +556,7 @@ function seaxChecks(styleId) {
   console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 0.5`, Math.abs(bb.hi[1] - 0.5) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("runekeeper").main);
+  mirrorCheck(label, tris);
   check(`[${label}] no emissive anywhere (the runes are cut and wire-inlaid, not lit: LORE 5.5, CH-09)`, !tris.some((t) => t.mi.emissive), "");
 
   const blade = tris.filter((t) => isBladeMetal(t.mi) && (t.a[1] + t.b[1] + t.c[1]) / 3 > 0.09);
@@ -650,6 +682,7 @@ function axeChecks(form, styleId) {
   console.log(`\n  -- ${label}  ${tris.length} triangles, top y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: the head's top is where anim.ts reads rig.reach (${lock})`, Math.abs(bb.hi[1] - lock) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, form === "hand" ? CH.gripsFor("berserker", "hand_axes").main : CH.gripsFor("berserker").main);
+  mirrorCheck(label, tris);
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
 
   // the head: every y where something stands more than 42 mm off the haft axis
@@ -707,6 +740,7 @@ function spearChecks(styleId) {
   console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 1.44`, Math.abs(bb.hi[1] - 1.44) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("warden").main);
+  mirrorCheck(label, tris);
   check(`[${label}] overall length 2.06 m (gar: 1.8-2.3 m)`, Math.abs((bb.hi[1] - bb.lo[1]) - 2.06) < 0.006, mm(bb.hi[1] - bb.lo[1]));
   check(`[${label}] no emissive anywhere`, !tris.some((t) => t.mi.emissive), "");
   const width = (y) => { const s = slice(tris, 1, y); const [lo, hi] = spanOf(s, 0); return s.length ? hi - lo : 0; };

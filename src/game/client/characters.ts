@@ -1848,9 +1848,8 @@ export interface WeaponStyle {
    * fault in a different slot. It used to dress the whole blade, and that is what
    * LORE 5.1 says the finds do NOT show: the pattern lives in the fuller channel
    * and the edges are plain bright. `fuller` is the colour of the inlay in this
-   * finish; absent, the builder's own dark. A weapon that has no fuller yet (the
-   * axe and the spear until they are reworked) still wears the substance on its
-   * blade, which is the old behaviour and is removed with them.
+   * finish; absent, the builder's own dark. A weapon with no fuller wears no
+   * substance at all.
    */
   blade: {
     tint: readonly [number, number, number];
@@ -1995,10 +1994,10 @@ export const WEAPON_STEEL = {
  * A builder's substances under a style. Each builder passes ITS OWN base
  * values, so the treatment rides on top of the weapon's identity.
  *
- * A blade is now three steels (`steel` the flat, `edge` the bevel, `fuller` the
- * dark inlay) instead of one, and the style's `substance` dresses the fuller only.
- * A base that names no `fuller` is a weapon not yet reworked, and its `steel` still
- * wears the substance whole, exactly as before.
+ * A blade is three steels (`steel` the flat, `edge` the bevel, `fuller` the dark
+ * inlay) instead of one, and the style's `substance` dresses the fuller only. A
+ * weapon with no fuller (the axe, the spear) has no pattern to show, and that is
+ * right: LORE 5.1 puts the watering in the channel and nowhere else.
  */
 function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
   steel: readonly [number, number];
@@ -2027,12 +2026,9 @@ function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
     : M.blade(hex, r));
   const keep = style.blade.edgeKeep ?? 0;
   const edgeTint = t.map((v) => v + (1 - v) * keep) as unknown as readonly [number, number, number];
-  const whole = !base.fuller && style.blade.substance;
   const fullerHex = style.blade.fuller ?? base.fuller?.[0];
   return {
-    steel: whole
-      ? M.tinted(style.blade.substance!, tintHex(base.steel[0], t), { roughness: rough(base.steel[1]) })
-      : steelAt(tintHex(base.steel[0], t), base.steel[1]),
+    steel: steelAt(tintHex(base.steel[0], t), base.steel[1]),
     edge: base.edge ? steelAt(tintHex(base.edge[0], edgeTint), base.edge[1]) : undefined,
     fuller: base.fuller && fullerHex !== undefined
       ? M.tinted(style.blade.substance ?? "steel", fullerHex, { roughness: rough(base.fuller[1]), metalness: base.metal })
@@ -2049,7 +2045,8 @@ function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
     niello: base.niello !== undefined
       ? M.tinted("interlace", base.niello, { tile: 0.011, roughness: 0.45, metalness: 0.6 })
       : undefined,
-    wire: base.wire !== undefined ? M.tinted("steel", base.wire, { roughness: 0.25, metalness: 0.9 }) : undefined,
+    // Brass wire is a partial metal too: at 0.9 and 0.25 it reflects the dark sky and the runes vanish into the fuller they are meant to light.
+    wire: base.wire !== undefined ? M.tinted("steel", base.wire, { roughness: 0.35, metalness: 0.75 }) : undefined,
     grip: style.grip
       ? (style.grip.substance
         ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
