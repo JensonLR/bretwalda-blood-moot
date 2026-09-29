@@ -738,5 +738,149 @@ for (const cls of CLASSES) {
   }
 }
 
+// ---- THE ROLE TABLE: every colour in every export is somebody's, and the man wears the colours he was dressed in ----
+//
+// THE DEFECT (CHAR-PLAN CH-06, RENDER-PATHS section B): the exports ship `<surface>:<hex>` and the hex IS the
+// colour, so a man who bought a finish, swore to a people, stood on a team or chose a cloak wore the DEFAULT
+// kit anyway. `armorColor`, `people`, `team` and the cloak were read nowhere in the authored path, and every gate
+// that could have said so (`teamread`, `factionread`, `cosmetictest`) rasterises `buildCharacter` and never
+// opens a GLB. `authoredLivery.ts` is the answer: a table from the baked name to the role it dresses
+// (`mail`, `tunic`, `wrap`, `fitting`, `cloak`...), resolved through `kitFor` / `cloakFor` at the swap.
+//
+// THE THREE CLAIMS, and each is a way the table can be wrong that the others cannot see:
+//   1. COVERAGE. Every material name in every export - the 4 warriors AND the 64 props - is a role, an
+//      EXCEPTION with a reason (fixed steel, timber, bone...), or another handler's (skin, eyes, hair). A name
+//      that is none of those is a colour nobody owns and it wears the default whatever he bought. This is what
+//      a STALE export goes red on: bake the default kit again with one hex moved and its names stop resolving.
+//   2. NO TWO ROLES ONE NAME. `wool:504a3e` cannot be both the trousers and something else, or one of them is
+//      dressed as the other. Checked over the union of the current and the shipped default kit.
+//   3. HE WEARS THE PROCEDURAL MAN'S COLOURS. The exports were made FROM the procedural build, so every baked
+//      name has a procedural twin; dress the authored man through the real chain for a purchase and the names
+//      that come out must be names the procedural build of the same man carries. Both are built here, over every
+//      finish, cloak, people and side, with the headless library so a name IS a colour.
+{
+  console.log("");
+  const { emitClient } = await import("./lib/clientmodule.mjs");
+  let LV = null, DR = null, CHM = null, ANIMM = null, why = "";
+  let work = null;
+  try {
+    globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
+    globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
+    globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
+    const em = await emitClient(ROOT, ["src/game/client/render/authoredLivery.ts", "src/game/client/render/authoredDress.ts", "src/game/client/render/anim.ts"], ".authoredtest");
+    work = em.work;
+    [LV, DR, CHM, ANIMM] = await Promise.all([em.byName("authoredLivery.js"), em.byName("authoredDress.js"), em.byName("characters.js"), em.byName("anim.js")]);
+  } catch (e) { why = String(e?.message ?? e).split("\n")[0].slice(0, 200); }
+  const haveTable = !!LV && typeof LV.roleOf === "function" && Array.isArray(LV.EXCEPTIONS) && typeof LV.bakedRoles === "function";
+  check("the role table is exported (roleOf, bakedRoles, EXCEPTIONS) by authoredLivery.ts", haveTable,
+    haveTable ? "" : (why || `authoredLivery.ts exports ${LV ? Object.keys(LV).join(", ") || "nothing" : "nothing"}`));
+
+  // ---- 1. COVERAGE, over every name in every export ----
+  const { readdirSync } = await import("node:fs");
+  const names = new Map();   // "cls|name" -> files
+  for (const f of readdirSync(ART).filter((x) => x.endsWith(".glb"))) {
+    const cls = f.startsWith("warrior-") ? f.slice(8, -4) : f.split("-")[1];
+    if (!CLASSES.includes(cls)) continue;
+    const b = readFileSync(resolve(ART, f));
+    const json = JSON.parse(b.slice(20, 20 + b.readUInt32LE(12)).toString("utf8"));
+    for (const m of json.materials ?? []) {
+      if (!m.name) continue;
+      const k = `${cls}|${m.name}`;
+      if (!names.has(k)) names.set(k, new Set());
+      names.get(k).add(f.replace(".glb", ""));
+    }
+  }
+  const nameOf = (a) => (a.surface ? `${a.surface}:${a.color.toString(16).padStart(6, "0")}` : `m_${a.color.toString(16).padStart(6, "0")}`);
+  const unresolved = [], byRole = new Map();
+  if (haveTable) {
+    const others = new Set(LV.OTHER_HANDLERS ?? []);
+    for (const [k, files] of names) {
+      const [cls, raw] = k.split("|");
+      const ask = readSurfaceName(raw);
+      if (!ask) continue;                                        // a named special (`runeGlow_carved`): the author's, left alone, asserted above
+      const role = LV.roleOf(cls, ask);
+      if (role) { const r = byRole.get(role) ?? new Set(); r.add(`${cls}:${nameOf(ask)}`); byRole.set(role, r); continue; }
+      if (LV.EXCEPTIONS.includes(nameOf(ask)) || others.has(nameOf(ask))) continue;
+      unresolved.push(`${cls} ${nameOf(ask)} (${[...files].slice(0, 2).join(", ")}${files.size > 2 ? `, +${files.size - 2}` : ""})`);
+    }
+  }
+  check(`every material name in every export (${names.size} class x name pairs over ${readdirSync(ART).filter((x) => x.endsWith(".glb")).length} files) is a role, an exception or another handler's`,
+    haveTable && unresolved.length === 0,
+    !haveTable ? "no table to ask" : unresolved.length ? `${unresolved.length} unowned: ${unresolved.slice(0, 5).join("; ")}${unresolved.length > 5 ? "; ..." : ""}` : `${[...byRole].map(([r, v]) => `${r} x${v.size}`).join(" ")}`);
+
+  // The reasons: an exception without a reason is a colour somebody stopped thinking about.
+  {
+    const src = readFileSync(resolve(ROOT, "src/game/client/render/authoredLivery.ts"), "utf8");
+    const body = /export const EXCEPTIONS[^=]*=\s*\[([\s\S]*?)\n\];/.exec(src)?.[1] ?? "";
+    const lines = body.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//"));
+    const bare = lines.filter((l) => !/\/\/\s*\S.{7,}/.test(l));
+    check("every EXCEPTIONS line carries a reason (a comment of eight characters or more)", lines.length > 0 && bare.length === 0,
+      lines.length === 0 ? "the list is empty" : bare.length ? `${bare.length} without: ${bare.slice(0, 3).join(" | ")}` : `${lines.length} entries, all with a reason`);
+  }
+
+  // A stale export goes red: the same table, asked about a name one hex-digit off.
+  if (haveTable) {
+    const stale = readSurfaceName("wool:8b7c5d");
+    const ok = LV.roleOf("huscarl", stale) === null && !LV.EXCEPTIONS.includes(nameOf(stale));
+    check("a STALE export goes red: `wool:8b7c5d` (the leg wrap, one digit off) resolves to no role and is no exception", ok);
+  }
+
+  // ---- 2. NO TWO ROLES ONE NAME ----
+  if (haveTable) {
+    const clash = [];
+    for (const cls of CLASSES) for (const c of LV.bakedRoles(cls).collisions) clash.push(`${cls} ${c}`);
+    check("no baked name is two roles in one class (current and shipped default kit together)", clash.length === 0, clash.length ? clash.slice(0, 4).join("; ") : "0 collisions over 4 classes");
+  }
+
+  // ---- 3. THE AUTHORED MAN WEARS THE PROCEDURAL MAN'S COLOURS ----
+  if (haveTable && DR && CHM && ANIMM) {
+    const { RAW, ARMOURY, defaultAppearance, PEOPLE_IDS } = CHM;
+    const CLASS_TUNIC = ANIMM.CLASS_TUNIC;
+    const options = (slot) => ARMOURY.find((sl) => sl.slot === slot).options.map((o) => o.value);
+    const norm = (n) => n.replace(/^plain:/, "m_").replace(/^m_/, "m_");
+    const procNames = (group) => {
+      const seen = new Set();
+      group.traverse((o) => { if (o.isMesh && o.material?.name) seen.add(norm(o.material.name)); });
+      return seen;
+    };
+    let compared = 0, wrong = [];
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      const baked = new Set();
+      g.scene.traverse((o) => { if (o.isMesh && o.material?.name) baked.add(o.material.name); });
+      const base = defaultAppearance(cls);
+      const variants = [
+        ...options("armor").map((v) => ({ label: `finish ${v.toString(16)}`, ap: { ...base, armorColor: v }, team: "none" })),
+        ...options("cloak").map((v) => ({ label: `cloak ${v}`, ap: { ...base, cloak: v }, team: "none" })),
+        ...PEOPLE_IDS.map((p) => ({ label: `people ${p}`, ap: { ...base, people: p }, team: "none" })),
+        ...["red", "blue"].map((t) => ({ label: `team ${t}`, ap: base, team: t })),
+        { label: "team red in the gold finish and the gold cloak", ap: { ...base, armorColor: options("armor").at(-1), cloak: "gold" }, team: "red" },
+        { label: "norse in the crimson finish, the gold cloak", ap: { ...base, armorColor: options("armor")[4], cloak: "gold", people: "norse" }, team: "none" },
+      ];
+      for (const v of variants) {
+        const proc = procNames(CHM.buildCharacter(cls, v.ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", 13, v.team).group);
+        const ctx = DR.authoredDressContext({ cls, appearance: v.ap, team: v.team, faceSeed: 13, materials: RAW });
+        for (const raw of baked) {
+          const ask = readSurfaceName(raw);
+          if (!ask) continue;
+          const role = LV.roleOf(cls, ask);
+          if (!role) continue;                                    // an exception or another handler's: not this claim's
+          const got = DR.resolveAuthoredMaterial(ask, { name: "part_x", dominantBone: null, isHead: false }, ctx);
+          compared++;
+          if (!got || !proc.has(norm(got.name))) wrong.push(`${cls} ${v.label}: ${raw} (${role}) -> ${got?.name ?? "null"}`);
+        }
+      }
+    }
+    check(`the authored man is dressed in colours the procedural man of the same kit wears (${compared} name resolutions over every finish, cloak, people and side)`,
+      compared > 0 && wrong.length === 0,
+      wrong.length ? `${wrong.length} differ; first: ${wrong.slice(0, 3).join(" | ")}` : `${compared} of ${compared}`);
+  } else {
+    check("the authored man is dressed in colours the procedural man of the same kit wears", false, haveTable ? "the dress chain did not compile" : "no table to ask");
+  }
+  if (work) { const { rmSync } = await import("node:fs"); rmSync(work, { recursive: true, force: true }); }
+}
+
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

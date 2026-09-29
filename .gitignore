@@ -240,3 +240,8 @@ tools/blender/**/__pycache__/
 .eyeclip/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
+
+# tools/authoredtest.mjs compiles the livery table here (the roletable claim) and deletes it again
+.authoredtest/
+# tools/chromabudget.mjs likewise
+.chromabudget/

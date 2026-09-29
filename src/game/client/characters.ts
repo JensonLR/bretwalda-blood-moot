@@ -331,7 +331,7 @@ export interface FinishKit {
  * The seven, keyed by the hex the option already stores so no id, cost or saved
  * profile has to move. Each row is a dye lot and a metal, chosen together.
  */
-const FINISH_KIT: Record<number, FinishKit> = {
+export const FINISH_KIT: Record<number, FinishKit> = {
   // Rough Iron — what a man is issued. Undyed wool in the fleece's own colours,
   // oiled harness leather, cast bronze. This row is the old constants, so the
   // free finish looks exactly as it did and the ladder starts where it started.
@@ -400,7 +400,7 @@ export function finishKit(armorColor: number): FinishKit {
  * sends a red accent over an orange dye through the entire spectrum to get
  * there, which is how a warrior ends up green in a bronze finish.
  */
-function tunicDye(lot: number, accent: number): number {
+export function tunicDye(lot: number, accent: number): number {
   const a = { h: 0, s: 0, l: 0 };
   const b = { h: 0, s: 0, l: 0 };
   new THREE.Color(lot).getHSL(a);
@@ -2545,7 +2545,7 @@ const SKIN_TONES: SkinTone[] = [
 // ==== CLOAK COLOURS (owner: U6) ====
 
 
-const CLOAK_COLORS: Record<string, number> = {
+export const CLOAK_COLORS: Record<string, number> = {
   brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
 };
 
