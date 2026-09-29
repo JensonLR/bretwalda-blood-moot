@@ -313,6 +313,17 @@ They share `tools/lib/authoredrig.mjs`, which builds the same man twice — once
 shipped warrior GLB — and poses both with one id (two ids are two men breathing
 out of step: `createMotion` seeds the idle sway from it).
 
+**The picture step (R5) has its own two ways of lying, both now closed in the tools.**
+A capture taken before the async swap lands is a picture of the PROCEDURAL man, who has a
+head: `armourycard --classes/--lenses` waits on `window.__authored` and prints whether the
+swap LANDED, and `shoot.mjs` now waits on `window.__authoredHeads` (one row per man the
+arena has swapped and dressed), prints `authored men drawn N (cls:props)` on every preset,
+records it in `report.json`, and treats zero for a no-war-paint single-man card as an error.
+And a capture that lands but is framed on the wrong thing: `armourycard`'s first desktop run
+logged 0 errors and LANDED eight times while every frame was of the helmet cards with the
+mannequin scrolled off the top; it scrolls back before it shoots. Neither was visible in a
+log. Both were visible in one PNG.
+
 **Why nothing else could see this.** The head census (`GameCanvas.tsx`,
 `armouryStage.ts`) counts meshes whose BIND bounding box reaches y >= 1.6 and are
 `visible`; a skull drawn 0.34 m inside the chest passes it. `head.det` looks for
