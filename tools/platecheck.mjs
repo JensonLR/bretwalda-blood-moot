@@ -151,13 +151,15 @@ console.log("THE SHEET");
 {
   const missing = [];
   for (const c of PLATES) {
-    const shaped = rules.filter((r) => r.sel.some((s) => new RegExp(`(^|[^\\w-])\\.${c}$`).test(s) || s === `.${c}`) && dv(r, "clip-path").some((v) => v.startsWith("polygon(")));
+    // EIGHT vertices, because a rectangle is a polygon too and `polygon(0 0, 100% 0, 100% 100%, 0 100%)` would pass a test that asked only for one.
+    const eight = (v) => v.startsWith("polygon(") && v.slice(8, -1).split(/,(?![^(]*\))/).length >= 8;
+    const shaped = rules.filter((r) => r.sel.some((s) => s === `.${c}`) && dv(r, "clip-path").some(eight));
     const round0 = rules.filter((r) => r.sel.some((s) => s === `.${c}`) && dv(r, "border-radius").some((v) => /^0(px)?$/.test(v)));
-    if (!shaped.length) missing.push(`.${c} has no rule with a clip-path polygon`);
+    if (!shaped.length) missing.push(`.${c} has no rule with an eight-vertex clip-path polygon`);
     else if (!round0.length) missing.push(`.${c} never sets border-radius: 0`);
   }
   if (missing.length) { fail(`${missing.length} of ${PLATES.length} plate classes are not a cut plate`); missing.slice(0, 8).forEach(note); }
-  else pass(`all ${PLATES.length} plate classes are cut (a clip-path polygon) and square (border-radius 0)`);
+  else pass(`all ${PLATES.length} plate classes are cut (an eight-vertex clip-path polygon) and square (border-radius 0)`);
 }
 
 // 2. no radius on anything F2 owns, except the three named carve-outs.
@@ -348,6 +350,14 @@ const probesFn = (root) => {
     if (r.width < 1 || r.height < 1) continue;
     out.push({ text: n.nodeValue.trim().slice(0, 24), color: cs.color, size: parseFloat(cs.fontSize), weight: parseInt(cs.fontWeight, 10), x: r.x + scrollX, y: r.y + scrollY, w: r.width, h: r.height });
   }
+  // A field's own value (or its placeholder) is text the walker cannot see: it is drawn by the control, not by a text node.
+  for (const el of root.querySelectorAll("input:not([type=checkbox]):not([type=radio]), select")) {
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    const empty = el.tagName === "INPUT" && !el.value;
+    const colour = empty ? getComputedStyle(el, "::placeholder").color : cs.color;
+    out.push({ text: empty ? `placeholder (${el.placeholder || ""})`.slice(0, 24) : "value", color: colour, size: parseFloat(cs.fontSize), weight: parseInt(cs.fontWeight, 10), x: r.x + scrollX + 12, y: r.y + scrollY + r.height * 0.3, w: Math.max(4, r.width - 40), h: r.height * 0.4 });
+  }
   return out;
 };
 const boxFn = (e) => { const r = e.getBoundingClientRect(); return { x: r.x + scrollX, y: r.y + scrollY, w: r.width, h: r.height }; };
@@ -424,7 +434,7 @@ const shapeProblems = (f, label, allow = {}) => {
   const out = [];
   if (!allow.radius && !f.radii.every((v) => v === "0px")) out.push(`${label}: border-radius ${f.radii.join(" ")}`);
   if (allow.radius && !f.radii.every((v) => v === allow.radius)) out.push(`${label}: border-radius ${f.radii.join(" ")}, allowed ${allow.radius}`);
-  if (!allow.noClip && !f.clip.startsWith("polygon(")) out.push(`${label}: no clip-path polygon (${f.clip.slice(0, 30)})`);
+  if (!allow.noClip && !(f.clip.startsWith("polygon(") && f.clip.slice(8, -1).split(/,(?![^(]*\))/).length >= 8)) out.push(`${label}: no eight-vertex clip-path polygon (${f.clip.slice(0, 30)})`);
   if (f.backdrop !== "none") out.push(`${label}: backdrop-filter ${f.backdrop}`);
   if (f.opacity !== "1") out.push(`${label}: opacity ${f.opacity}`);
   if (f.textShadow !== "none") out.push(`${label}: text-shadow ${f.textShadow.slice(0, 40)}`);
@@ -458,7 +468,9 @@ for (const [id, , states] of CONTROLS) {
     let ok = true;
     if (st === "hover") { await subject.hover(); await page.waitForTimeout(260); }
     else if (st === "active") { await subject.hover(); await page.mouse.down(); await page.waitForTimeout(260); }
-    else if (st === "focus") { await subject.focus(); await page.waitForTimeout(260); }
+    // A Tab first: after a pointer has been used, a script focus() no longer matches :focus-visible, and the ring is
+    // what this state is for. A key press puts the page back in keyboard modality.
+    else if (st === "focus") { await page.keyboard.press("Tab"); await subject.focus(); await page.waitForTimeout(260); }
     else if (st === "disabled") { await subject.evaluate((e) => { e.disabled = true; }); await page.waitForTimeout(260); }
     const f = await subject.evaluate(factsFn);
     if (st === "focus" && !f.focusVisible) { stateIssues.push(`${id}/focus: the harness could not raise :focus-visible, so this state was not measured`); ok = false; }

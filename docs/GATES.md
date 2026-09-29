@@ -359,6 +359,36 @@ the old brown); the ink ramp itself IS gated on all three. `forced-colors` has n
 gate: `UISHOTS_FORCED=1 node tools/uishots.mjs` renders the sweep in it, and the
 block is exactly as tested as that.
 
+## The plate gate — `platecheck`, and the plate census in `uishots`
+
+Added 29 Sep 2026 with F2 of the UI overhaul. UI-PLAN 1.1 makes laws about the
+material the menus are made of (no radius, no backdrop-filter, no opacity for
+disabled, no glow, a focus ring inside the cut, and "every control shows hover,
+active, focus and disabled") and before F2 the stylesheet broke every one and
+nothing said so.
+
+| ruler | costs | answers |
+|---|---|---|
+| `node tools/platecheck.mjs --no-browser` | ~1 s | the COMPILED sheet, parsed and not grepped: does every plate class carry a clip-path polygon and radius 0; is there a radius, a `backdrop-filter`, an `opacity` on a disabled rule, a blurred `box-shadow` or a `text-shadow` on anything F2 owns; does each focusable plate draw its ring at `outline-offset: -4px`; do the thirteen type-on-metal token pairs clear their floor |
+| `node tools/platecheck.mjs --compile` (under the lock) | ~1 min, one browser | the same, plus a specimen of every control rendered with the real fonts and driven through hover, active (mouse down), focus-visible (a real Tab first) and disabled: **do the pixels of each state differ from rest**; **is every piece of type legible on the plate behind it** (the specimen is shot a second time with every glyph transparent, and each piece of text is graded against the median plate colour behind it, top half and bottom half); is it still cut, square, unblurred and opaque **in that state**; is it 44px. Writes `art/ui/plates/{controls,plates,corners}.png` |
+| `uishots`, the plate census | rides the sweep | the same computed-style questions asked of every plate on every real screen, because a call site can beat `@layer components` with a utility (`rounded-2xl`, `backdrop-blur`) and a specimen has no call sites. `UISHOTS_SCREENS=landing,lobby` narrows a sweep to two minutes |
+
+**Why it reads the render and not only the CSS.** A state rule can be written
+and beaten (a call-site `!important`, a `filter` on a clipped element, a colour
+set in the wrong layer) and change nothing on glass; the diff of the pixels is
+the only thing that sees that. And a contrast ratio computed from two tokens is
+a claim about the tokens: the ratio that matters is between the glyph colour and
+the pixels that are actually behind it, and a plate is a gradient with grain
+laid over it.
+
+**What it cannot see, said here because the verdict line will not.** A real
+Windows forced-colors theme (the plate's four diagonals are background images
+and forced-colors discards them, so the corners are cut with no line along the
+cut). A field's value is graded but the browser's own drop-down list is not. A
+state that needs a server (a toast, a busy button). And `opacity` is read up the
+chain in the census, so a faded parent that is not a plate at all still fails a
+plate under it.
+
 ## What this does not mean
 
 It does not mean lowering the bar. `docs/VISUAL-BAR.md` still says 8+ on every
