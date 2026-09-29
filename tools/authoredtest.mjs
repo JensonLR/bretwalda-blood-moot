@@ -26,7 +26,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ART = resolve(ROOT, "art/blender");
+// THE SET UNDER TEST. `art/blender` is gitignored and exists only where somebody has run the exporters (the
+// owner's Mac; a Linux box after `npm run authored:rebuild`), so on a fresh clone or in CI this gate used to FAIL
+// on a precondition and say nothing about the assets. `public/authored` is the tracked, shipped set and is what a
+// player downloads, so it is the honest fallback: a rebuilt set in `art/blender` still wins when it is there.
+const ART = existsSync(resolve(ROOT, "art/blender/warrior-huscarl.glb")) ? resolve(ROOT, "art/blender") : resolve(ROOT, "public/authored");
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 const {

@@ -42,7 +42,13 @@ import { fileURLToPath } from "node:url";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ART = resolve(ROOT, "art/blender");
+// THE SET UNDER TEST. `art/blender` is gitignored and exists only where somebody has run the exporters (the
+// owner's Mac; a Linux box after `npm run authored:rebuild`), so on a fresh clone or in CI this gate used to FAIL
+// on a precondition and say nothing about the assets. `public/authored` is the tracked, shipped set and is what a
+// player downloads, so it is the honest fallback: a rebuilt set in `art/blender` still wins when it is there.
+const SHIPPED_DIR = resolve(ROOT, "public/authored");
+const ART = existsSync(resolve(ROOT, "art/blender/warrior-huscarl.glb")) ? resolve(ROOT, "art/blender") : SHIPPED_DIR;
+let sidecarSkipped = 0;
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 /** The four the wire can ask for by name. `attackDir` rides every swing. */
@@ -123,6 +129,11 @@ for (const cls of CLASSES) {
     const bones = JSON.parse(readFileSync(rig, "utf8")).bones ?? [];
     check(`${cls}: the rig sidecar names its bones`, bones.length >= 20,
       `${bones.length} bones, e.g. ${bones.slice(0, 4).map((b) => b.name).join(", ")}`);
+  } else if (ART === SHIPPED_DIR) {
+    // The rig json is an exporter INTERMEDIATE and is not shipped, so against the shipped set its absence is
+    // the design and not a fault. Said out loud and counted (PROCESS R4): a claim that quietly vanished
+    // would read as a clean sheet.
+    sidecarSkipped++;
   } else check(`${cls}: the rig sidecar is beside the glb`, false, `no ${rig}`);
 }
 
@@ -204,5 +215,6 @@ if (survey.length) {
   console.log(`    what a phone should take of that is the streaming decision, not a bar.`);
 }
 
-console.log(`\n[gltftest] ${pass} passed, ${fail} failed`);
+console.log(`\n[gltftest] ${pass} passed, ${fail} failed`
+  + (sidecarSkipped ? ` — WITH ${sidecarSkipped} rig-sidecar claim(s) NOT RUN: this ran against the shipped set (public/authored), which does not carry the exporter's .rig.json intermediates` : ""));
 process.exit(fail ? 1 : 0);
