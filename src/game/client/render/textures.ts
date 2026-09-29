@@ -113,6 +113,8 @@ export type SurfaceName =
   | "rope"      // three-strand twisted hemp
   // timber and roof
   | "oak"       // flat-sawn cathedral figure with knots
+  | "ash"       // a spear shaft, an axe haft: pale, straight, quiet grain, no ray fleck
+  | "lime"      // a shield board: pale, near-featureless fine grain under the paint
   | "plank"     // the same board, weathered grey and split
   | "thatch"    // bundled straw in courses
   // ground
@@ -1089,24 +1091,40 @@ function buildIron(g: Gen): void {
   });
 }
 
-// ---- polished, pattern-welded steel ------------------------------------
-// The chevrons are the point: Anglo-Saxon blades were pattern-welded, and a
-// blade with a herringbone in it reads as forged rather than as chrome.
+// ---- the weapons' substances: steel, ash, lime (owner: U7) ----------------
 //
-// `weld` scales how loudly the watering speaks. 1 is the issued steel —
-// "a whisper, not a flag", the rule two comments down. `weldsteel` builds
-// the same map at 3: the Pattern-Welded finish is 240 gold FOR the watering,
-// and a paid pattern you cannot see at the armoury lens is the Shadow-Hood
-// fault in a different slot. The strength rides the colour mix, the
-// roughness band and (past 1) a shallow height groove, so the bands catch
-// the key as relief and not only as paint.
-function buildSteel(g: Gen, weld = 1): void {
+// `texturesWeapons.ts` was reserved for these (CHAR-PLAN 3.0: a unit's builders go in its own file so
+// the shared one stays a line or two of edits), and they are HERE instead, on purpose. `textures.ts` is
+// compiled and imported STANDALONE by tools that cannot follow a relative value import: `hairmap` runs
+// tsc on this one file and imports the emit with Node's own resolver, and `authoredtest` imports the
+// source through Node's type stripping and swallows a failure into `SURFACES: null`. Either would have
+// read a file that imports a sibling as a file with no surfaces.
+//
+// ---- ground steel, and the watering in it -----------------------------------
+//
+// `weld` scales how loudly the watering speaks: 0 is plain honed steel (the
+// issued blade's flats and edges), 3 the Pattern-Welded rung's fuller, 6 the
+// Serpent-Marked rung's etched one. The strength rides the colour mix, the
+// roughness band and (past 1) a shallow height groove, so the bands catch the
+// key as relief and not only as paint.
+//
+// NEUTRAL, and that is the change worth a paragraph. The body, the bright hone
+// streak and the weld tone were all a step of blue (0xb3bcc7 ... 0x878f9a).
+// materials.ts divides a map's own mean out of the colour asked for, so the
+// AVERAGE came out right whatever the map's hue — but the variation around the
+// average did not: a cool herringbone on a neutral blade reads as a blue-black
+// blade with a purple sheen, which is what the kit cards showed. The value
+// structure (a bright bevel, a mid flat, a dark inlay) is laid by the GEOMETRY
+// and the per-band tints in `characters.ts`; this map's job is only to be
+// steel — hone lines, a few nicks, a whisper of tooth — around whatever it is
+// told to average to.
+function buildSteel(g: Gen, weld: number): void {
   const { size, h, r, m, c, bank } = g;
   const LANES = 260;
-  const body = col(0xb3bcc7);
-  const bright = col(0xe4ebf3);
-  const weldTone = col(0x878f9a);
-  const nickCol = col(0x5b636c);
+  const body = col(0xb8bbbf);
+  const bright = col(0xe8eaec);
+  const weldTone = col(0x8c8f93);
+  const nickCol = col(0x5d6064);
 
   forEachTexel(size, (i, u, v) => {
     const lane = v * LANES;
@@ -1117,9 +1135,7 @@ function buildSteel(g: Gen, weld = 1): void {
     const scratch = cut * (1 - smoothstep(0.1, 0.7, across)) * (0.35 + 0.65 * sampleField(bank.fine, u * 3 + seed, v * 40));
 
     // Chevron banding: a stripe field phase-shifted by a triangle wave in v,
-    // then warped so it never reads as a printed zigzag. Pattern welding is a
-    // whisper in the steel, not a flag — anything you can see across the arena
-    // is too strong.
+    // then warped so it never reads as a printed zigzag.
     const chev = tri(u * 13 + tri(v * 4) * 2.4 + sampleField(bank.grain, u * 2, v * 2) * 0.7);
     const weldT = smoothstep(0.25, 0.8, chev);
 
@@ -1127,19 +1143,11 @@ function buildSteel(g: Gen, weld = 1): void {
     const nick = sampleCellId(bank.micro, u * 2, v * 2) > 0.88 ? smoothstep(0.18, 0, nickD) : 0;
     const tooth = sampleField(bank.grain, u * 8, v * 8);
 
-    // A scratch is not geometry at this texel density and must not pretend to be.
-    // 260 lanes on a 512² map is 1.97 texels a lane, and the `fine` tap inside it
-    // runs at forty — so the scratch field was writing a per-texel coin flip into
-    // the *height*, `deriveNormal` was turning it into per-texel random tilt, and
-    // `bandLimit` could only attenuate content that is aliased across the whole
-    // spectrum rather than remove it. The visible bill came due one level down:
-    // steel's normals disagreed with their own neighbours everywhere, `ormMips`
-    // read that disagreement as relief and sanded the polish off every blade and
-    // helm in the frame — the pale, matte bowl in the middle panel of the head A/B.
-    // At 0.02 the lanes still catch the light as *shading*, and where a scratch
-    // physically belongs is where it still is: in the albedo, as a bright streak,
-    // and in the roughness, as scatter. Nicks stay — a nick is a cell field at ×2,
-    // 128 texels across, and it is real geometry that deserves a real normal.
+    // A scratch is not geometry at this texel density and must not pretend to be
+    // (260 lanes on a 512 map is 1.97 texels a lane; see the note this replaced
+    // in textures.ts): at 0.02 the lanes still catch the light as shading, and the
+    // scratch lives in the albedo as a bright streak and in the roughness as
+    // scatter. Nicks stay: a nick is a cell field at x2, 128 texels across.
     h[i] = clamp01(0.78 - scratch * 0.02 - nick * 0.36 + (tooth - 0.5) * 0.03
       - weldT * 0.012 * Math.max(0, weld - 1));
     mix(c, i, body, weldTone, Math.min(0.55, weldT * 0.16 * weld));
@@ -1147,6 +1155,64 @@ function buildSteel(g: Gen, weld = 1): void {
     toward(c, i, nickCol, nick * 0.8);
     r[i] = clamp01(0.1 + weldT * 0.05 * weld + scratch * 0.32 + nick * 0.45 + (tooth - 0.5) * 0.05);
     m[i] = 1 - nick * 0.12;
+  });
+}
+
+// ---- ash: a spear shaft and an axe haft -------------------------------------
+//
+// Straight, quiet, pale. Ash is ring-porous, so a faint darker latewood line
+// marks each year, but on a rived and shaved shaft those lines are long, close
+// and nearly parallel, and there are NO rays: the medullary fleck that makes
+// oak unmistakable (textures.ts `wood`, ray) is exactly what this is not.
+//
+// Every tap is stretched along v because every shaft in the game runs along v
+// (a `shell` sweeps u round it and v down it): u at three across a lattice that
+// peaks at six cycles a field is 18 lines round a 100 mm shaft, and v at one is
+// a streak a fifth of the shaft long. Anisotropy 1:50 and no knots — a pole is
+// cut from clear stock, and a knot on a spear shaft is a broken spear.
+function buildAsh(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const early = col(0xc2a97f);
+  const late = col(0xa1865c);
+  const dry = col(0xcdb790);
+  forEachTexel(size, (i, u, v) => {
+    // a slow sideways drift of the whole figure with v, so the lines wander a little
+    const wu = u + (sampleField(bank.warp, u * 1, v * 1) - 0.5) * 0.05;
+    const ring = sampleField(bank.grain, wu * 3, v * 1);
+    const band = smoothstep(0.46, 0.7, ring);
+    const fibre = sampleField(bank.fine, wu * 2, v * 1);
+    const drift = sampleField(bank.soft, u * 1, v * 1);
+    h[i] = clamp01(0.55 + (fibre - 0.5) * 0.06 - band * 0.05);
+    mix(c, i, early, late, band * 0.5);
+    toward(c, i, dry, smoothstep(0.55, 0.9, drift) * 0.25);
+    gain(c, i, 0.93 + (drift - 0.5) * 0.1 + (fibre - 0.5) * 0.08);
+    r[i] = clamp01(0.7 + (fibre - 0.5) * 0.06 + band * 0.05);
+    m[i] = 0;
+  });
+}
+
+// ---- lime: the shield board -------------------------------------------------
+//
+// Linden is the soft, pale, fine-grained wood a shield board is cut from
+// because it does not split and it is light: L* 70-80 under paint, C* 12-16,
+// and almost no figure. What survives here is a very faint fine grain along v
+// and a slow tonal drift, so a painted field on it reads as paint on a board
+// and not as a flat fill. Oak's fleck and cathedral figure are gone (the tell
+// of the wrong tree, LORE 5.6 and 10 trap 6).
+function buildLime(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const base = col(0xcdbb96);
+  const shade = col(0xb8a37a);
+  forEachTexel(size, (i, u, v) => {
+    const fibre = sampleField(bank.grain, u * 3, v * 1);
+    const fine = sampleField(bank.fine, u * 2, v * 1);
+    const drift = sampleField(bank.soft, u * 1, v * 1);
+    const line = smoothstep(0.5, 0.8, fibre);
+    h[i] = clamp01(0.55 + (fine - 0.5) * 0.05 - line * 0.03);
+    mix(c, i, base, shade, line * 0.35);
+    gain(c, i, 0.95 + (drift - 0.5) * 0.08 + (fine - 0.5) * 0.05);
+    r[i] = clamp01(0.75 + (fine - 0.5) * 0.05);
+    m[i] = 0;
   });
 }
 
@@ -2945,19 +3011,22 @@ type BaseSurface = Exclude<SurfaceName, "ground" | "wood" | "stone" | "cloth">;
 const RECIPES: Record<BaseSurface, Recipe> = {
   mail:    { detail: "hero", tint: 0x4a5568, roughness: 0.45, metalness: 0.85, normalScale: 1.15, aoIntensity: 1.1, bump: 2.6, cavity: 1.15, repeat: 3, build: buildMail },
   iron:    { detail: "prop", tint: 0x2f343b, roughness: 0.55, metalness: 0.9,  normalScale: 0.9,  aoIntensity: 0.9, bump: 1.6, cavity: 0.9,  repeat: 2, build: buildIron },
-  steel:   { detail: "hero", tint: 0xb8c0ca, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: buildSteel },
+  // The blades' metal. Neutral (0xb8bbbf, from the bluish 0xb8c0ca) and, at the issued
+  // weld of 0, plain: see `buildSteel`. The scalars are the row's fallbacks for
+  // the low tier and the value `materials.ts` divides its measured means out of; the
+  // weapons ask for their own roughness and a partial metalness explicitly (a blade at
+  // metalness 1 has nothing to show but the sky, and the sky is dark: CH-24).
+  steel:   { detail: "hero", tint: 0xb8bbbf, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: (g) => buildSteel(g, 0) },
   // The Pattern-Welded finish's own steel: the same forge at weld 3, so the
-  // watering reads at the armoury lens instead of whispering. Tint a step
-  // greyer than the issued steel — an oiled weld is honestly darker — and the
-  // rest of the row is steel's, because it IS steel.
-  weldsteel: { detail: "hero", tint: 0xaab3bf, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
-  // The Serpent-Marked finish: the same forge at weld 6, where `buildSteel`'s
-  // own 0.55 mix cap becomes the ceiling — the watering as dark as the recipe
-  // allows, which is what an ETCHED weld is against a polished one. The name
-  // is the period's: Beowulf calls the sword wyrm-fah, serpent-marked, and
-  // the serpentine core is what the poem is looking at. Tint another step
-  // down from weldsteel — acid-darkened steel, not oiled.
-  serpentsteel: { detail: "hero", tint: 0x99a2af, roughness: 0.22, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 6) },
+  // watering reads at the armoury lens instead of whispering. It is laid in the
+  // sword's FULLER only; the flats and the bevels are `steel`.
+  weldsteel: { detail: "hero", tint: 0xaeb1b5, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
+  // The Serpent-Marked finish: the same forge at weld 6, where the recipe's own 0.55
+  // mix cap becomes the ceiling — the watering as dark as the recipe allows, which is
+  // what an ETCHED weld is against a polished one. The name is the period's: Beowulf
+  // calls the sword wyrm-fah, serpent-marked, and the serpentine core is what the poem
+  // is looking at.
+  serpentsteel: { detail: "hero", tint: 0x9ea1a6, roughness: 0.22, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 6) },
   // Roughness and metalness here are the recipe's own measured means, because
   // materials.ts divides a caller's request by them. `normalScale` is under
   // steel's: a stamped foil stands about a third of a millimetre proud and the
@@ -2994,6 +3063,9 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   rope:    { detail: "prop", tint: 0x9a8455, roughness: 0.95, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.4, cavity: 1.1,  repeat: 4, build: buildRope },
 
   oak:     { detail: "prop", tint: 0x8d6a44, roughness: 0.88, metalness: 0, normalScale: 0.85, aoIntensity: 0.9,  bump: 1.5, cavity: 0.9, repeat: 2, build: buildOak },
+  // A shaft's wood is not the palisade's: pale, straight, quiet, no ray fleck (LORE 5.4, 10 trap 6).
+  ash:     { detail: "prop", tint: 0xb59a72, roughness: 0.7,  metalness: 0, normalScale: 0.6,  aoIntensity: 0.7,  bump: 1.0, cavity: 0.6, repeat: 2, build: buildAsh },
+  lime:    { detail: "prop", tint: 0xc9b48c, roughness: 0.75, metalness: 0, normalScale: 0.5,  aoIntensity: 0.6,  bump: 0.8, cavity: 0.5, repeat: 2, build: buildLime },
   plank:   { detail: "prop", tint: 0x776d5f, roughness: 0.95, metalness: 0, normalScale: 1.1,  aoIntensity: 1,    bump: 2,   cavity: 1,   repeat: 2, build: buildPlank },
   thatch:  { detail: "prop", tint: 0x8d7a52, roughness: 0.98, metalness: 0, normalScale: 1.3,  aoIntensity: 1.25, bump: 2.6, cavity: 1.3, repeat: 3, build: buildThatch },
 

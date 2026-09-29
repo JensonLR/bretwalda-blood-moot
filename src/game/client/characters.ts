@@ -1839,13 +1839,32 @@ export function cloakFor(hex: number, team: TeamSide, people: Allegiance): numbe
 // ------------------------------------------------------------
 export interface WeaponStyle {
   /**
-   * Channelwise multipliers on the blade steel, and a roughness shift.
-   * `substance` swaps the MAP under the tint — the Pattern-Welded rung rides
-   * `weldsteel`, the same forge with the watering turned up, because a paid
-   * pattern the armoury lens cannot see is the Shadow-Hood fault in a
-   * different slot. Absent, the builder's own steel map stands.
+   * Channelwise multipliers on the blade steel (the flats and the bevels), and a
+   * roughness shift.
+   *
+   * `substance` swaps the MAP under the FULLER, and only the fuller — the
+   * Pattern-Welded rung rides `weldsteel`, the same forge with the watering turned
+   * up, because a paid pattern the armoury lens cannot see is the Shadow-Hood
+   * fault in a different slot. It used to dress the whole blade, and that is what
+   * LORE 5.1 says the finds do NOT show: the pattern lives in the fuller channel
+   * and the edges are plain bright. `fuller` is the colour of the inlay in this
+   * finish; absent, the builder's own dark. A weapon that has no fuller yet (the
+   * axe and the spear until they are reworked) still wears the substance on its
+   * blade, which is the old behaviour and is removed with them.
    */
-  blade: { tint: readonly [number, number, number]; dRough: number; substance?: "weldsteel" | "serpentsteel" };
+  blade: {
+    tint: readonly [number, number, number];
+    dRough: number;
+    substance?: "weldsteel" | "serpentsteel";
+    fuller?: number;
+    /**
+     * How much of the untinted steel the honed bevels keep, 0 (they wear the whole tint) to 1
+     * (they wear none). An oiled blade is dark on its flats and bright on the two lines a
+     * whetstone has been at; without this the dark finishes lose the bright edge that makes a
+     * blade read as a blade, on every weapon that has one.
+     */
+    edgeKeep?: number;
+  };
   /** Multiplier on the dark iron (fullers, guards, axe cheeks). */
   iron: { tint: readonly [number, number, number] };
   /** Replacement for the fitting metal, or null to keep the builder's own. */
@@ -1871,23 +1890,28 @@ const STYLE_ID: WeaponStyle = {
 
 export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
   weapon_issued: STYLE_ID,
-  // Watered steel: the weld pattern already lives in the blade map; what a
-  // polished pattern-weld reads as at arm's length is a slightly greyer,
-  // softer-lit blade over an oiled grip.
+  // Watered steel: the pattern is laid in the FULLER, in `weldsteel`, and the flats and
+  // the bevels keep plain bright steel under a slightly cooler, oiled tint — LORE 5.1:
+  // "confine the pattern to the fuller channel and let the edge be bright". The rung is
+  // what a pattern-weld looks like at arm's length: a dark channel with the herringbone
+  // in it, over an oiled grip.
   weapon_welded: {
-    // [0.78, 0.82, 0.9], not the first cut's [0.88, 0.9, 0.94]: the colour
-    // ladder read that at ΔE 8.9 against the issued steel — a dull rung by
-    // the shop's own 10 bar — and an oiled pattern-weld is honestly darker.
-    // The substance carries the watering itself — see `weldsteel`'s recipe.
-    blade: { tint: [0.78, 0.82, 0.9], dRough: 0.14, substance: "weldsteel" },
+    // The flats' tint is only a step cooler than the issued steel now (the colour
+    // ladder reads it at ΔE ~8, well clear of the 2.3 that makes two rungs one
+    // colour): the rung is carried by the fuller, which is where the substance and
+    // its colour are, and the bar the shop holds is on the ADJACENT rung (bronze).
+    blade: { tint: [0.86, 0.9, 0.98], dRough: 0.06, substance: "weldsteel", fuller: 0x565a62 },
     iron: { tint: [0.9, 0.9, 0.92] },
     fitting: null,
     grip: { hex: 0x1d1410 },
     shaft: { tint: [0.85, 0.82, 0.8] },
   },
-  // Fire-blued: the blade tempered to blue-black, mounts silvered against it.
+  // Oil-blackened (the id stays `weapon_blued`: it is a stored purchase). It was
+  // "Fire-Blued" and LORE 5.8 says why that is wrong: bluing is a heat colour, not a
+  // period finish — blades were polished bright or oiled dark. The blade is oiled to a
+  // dark iron, the fuller a shade darker still, and the mounts silvered against it.
   weapon_blued: {
-    blade: { tint: [0.42, 0.48, 0.66], dRough: 0.06 },
+    blade: { tint: [0.44, 0.46, 0.5], dRough: 0.06, fuller: 0x18191c, edgeKeep: 0.6 },
     iron: { tint: [0.55, 0.58, 0.7] },
     fitting: { hex: 0xc9ced8, rough: 0.3 },
     grip: { hex: 0x15161c },
@@ -1928,7 +1952,7 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     // under the key light exactly like the issued steel and the etch was
     // invisible — an acid-darkened blade is matte enough to KEEP its own
     // colour in the sun, and that matteness is what lets the watering show.
-    blade: { tint: [0.55, 0.6, 0.7], dRough: 0.16, substance: "serpentsteel" },
+    blade: { tint: [0.55, 0.6, 0.7], dRough: 0.16, substance: "serpentsteel", fuller: 0x2b2f35 },
     iron: { tint: [0.62, 0.62, 0.66] },
     fitting: { hex: 0x3a3d45, rough: 0.5 },
     grip: { hex: 0x16120e },
@@ -1947,34 +1971,93 @@ const tintHex = (hex: number, t: readonly [number, number, number]): number => {
 };
 
 /**
+ * THE STEELS OF A BLADE, ONCE. A blade is three values, and they are geometry's job
+ * to lay side by side (`forgedBlade`, in the WEAPON FORMS section below): a bright ground bevel that
+ * catches the key, a mid flat, and a dark fuller. The shop's colour ladder reads
+ * the flat's hex for its swatches, so the hex is exported and read there instead of
+ * being typed twice (PROCESS R7: a mirrored constant was 0xc4ccd6 in five places).
+ *
+ * `metal` is 0.70, not the substance's 1.0, and that is CH-24. A metalness of 1 has
+ * no diffuse term at all: the blade shows the environment and nothing else, and the
+ * environment here is a dusk sky darker than the turf — the sword's median luma on
+ * the kit card was 35 against a ground of 88, the spear head's 18. At 0.70 the blade
+ * keeps 30% of its albedo as a lit diffuse, which is what the key and the hemisphere
+ * can actually show, and `tools/bladevalue.mjs` reads it back off the frame.
+ */
+export const WEAPON_STEEL = {
+  flat: 0x9ea2a6,
+  edge: 0xd0d3d6,
+  fuller: 0x2a2b2d,
+  metal: 0.70,
+} as const;
+
+/**
  * A builder's substances under a style. Each builder passes ITS OWN base
  * values, so the treatment rides on top of the weapon's identity.
+ *
+ * A blade is now three steels (`steel` the flat, `edge` the bevel, `fuller` the
+ * dark inlay) instead of one, and the style's `substance` dresses the fuller only.
+ * A base that names no `fuller` is a weapon not yet reworked, and its `steel` still
+ * wears the substance whole, exactly as before.
  */
 function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
   steel: readonly [number, number];
+  /** A blade's steels are partial metals. Absent: the substance's own metalness, which is the mirror. */
+  metal?: number;
+  edge?: readonly [number, number];
+  fuller?: readonly [number, number];
   iron?: readonly [number, number];
   fitting?: readonly [number, number];
+  /** Silvered and gilt mounts are nearly full metals but not quite; with `metal` set, this is theirs. */
+  fitMetal?: number;
+  niello?: number;
+  wire?: number;
   grip?: number;
+  /** A horn or antler grip, instead of `grip`'s leather, until the style says otherwise. */
+  horn?: number;
   shaft?: number;
 }) {
-  const bladeHex = tintHex(base.steel[0], style.blade.tint);
-  const bladeRough = Math.max(0.05, Math.min(0.95, base.steel[1] + style.blade.dRough));
+  const rough = (r: number) => Math.max(0.05, Math.min(0.95, r + style.blade.dRough));
+  const t = style.blade.tint;
+  const steelAt = (hex: number, r: number) => (base.metal !== undefined
+    ? M.tinted("steel", hex, { roughness: rough(r), metalness: base.metal })
+    : M.blade(hex, rough(r)));
+  const fittingAt = (hex: number, r: number) => (base.metal !== undefined
+    ? M.tinted("steel", hex, { roughness: r, metalness: base.fitMetal ?? 0.85 })
+    : M.blade(hex, r));
+  const keep = style.blade.edgeKeep ?? 0;
+  const edgeTint = t.map((v) => v + (1 - v) * keep) as unknown as readonly [number, number, number];
+  const whole = !base.fuller && style.blade.substance;
+  const fullerHex = style.blade.fuller ?? base.fuller?.[0];
   return {
-    steel: style.blade.substance
-      ? M.tinted(style.blade.substance, bladeHex, { roughness: bladeRough })
-      : M.blade(bladeHex, bladeRough),
+    steel: whole
+      ? M.tinted(style.blade.substance!, tintHex(base.steel[0], t), { roughness: rough(base.steel[1]) })
+      : steelAt(tintHex(base.steel[0], t), base.steel[1]),
+    edge: base.edge ? steelAt(tintHex(base.edge[0], edgeTint), base.edge[1]) : undefined,
+    fuller: base.fuller && fullerHex !== undefined
+      ? M.tinted(style.blade.substance ?? "steel", fullerHex, { roughness: rough(base.fuller[1]), metalness: base.metal })
+      : undefined,
     iron: base.iron
       ? M.tinted("iron", tintHex(base.iron[0], style.iron.tint), { roughness: base.iron[1] })
       : undefined,
     fitting: base.fitting
-      ? (style.fitting ? M.blade(style.fitting.hex, style.fitting.rough) : M.blade(base.fitting[0], base.fitting[1]))
+      ? (style.fitting ? fittingAt(style.fitting.hex, style.fitting.rough) : fittingAt(base.fitting[0], base.fitting[1]))
       : undefined,
-    grip: base.grip !== undefined
-      ? (style.grip?.substance
+    // Niello: the black in a silver mount's ground. A dark interlace at an 11 mm world tile, so a
+    // panel 80 mm across carries about seven plaits and the pattern is there at the weapon card's
+    // 0.5 mm a pixel and a value at the kit card's 2.4.
+    niello: base.niello !== undefined
+      ? M.tinted("interlace", base.niello, { tile: 0.011, roughness: 0.45, metalness: 0.6 })
+      : undefined,
+    wire: base.wire !== undefined ? M.tinted("steel", base.wire, { roughness: 0.25, metalness: 0.9 }) : undefined,
+    grip: style.grip
+      ? (style.grip.substance
         ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
-        : M.hide(style.grip ? style.grip.hex : base.grip))
-      : undefined,
-    shaft: base.shaft !== undefined ? M.timber(tintHex(base.shaft, style.shaft.tint)) : undefined,
+        : M.hide(style.grip.hex))
+      : base.horn !== undefined
+        ? M.tinted("bone", base.horn)
+        : base.grip !== undefined ? M.hide(base.grip) : undefined,
+    shaft: base.shaft !== undefined ? M.tinted("ash", tintHex(base.shaft, style.shaft.tint), { repeat: 2 }) : undefined,
   };
 }
 
@@ -2314,17 +2397,18 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // COMPUTED from the style table so it cannot drift from the render —
       // the sword's blade under the style's own tint, or the replaced gilt
       // fitting. docs/PROCESS.md failure mode 3 is a mirrored constant.
-      { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: 0xc4ccd6 },
+      { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: WEAPON_STEEL.flat },
       { id: "weapon_bronze", label: "Horn and Bronze", cost: 60, slot: "weapon", value: "weapon_bronze",
         swatch: WEAPON_STYLES.weapon_bronze.fitting!.hex },
       { id: "weapon_welded", label: "Pattern-Welded", cost: 90, slot: "weapon", value: "weapon_welded",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_welded.blade.tint) },
-      { id: "weapon_blued", label: "Fire-Blued", cost: 130, slot: "weapon", value: "weapon_blued",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_blued.blade.tint) },
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_welded.blade.tint) },
+      // Oil-Blackened, once Fire-Blued (LORE 5.8: bluing is a heat colour, not a period finish).
+      { id: "weapon_blued", label: "Oil-Blackened", cost: 130, slot: "weapon", value: "weapon_blued",
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_blued.blade.tint) },
       { id: "weapon_gilt", label: "Gold-Wired Hilt", cost: 160, slot: "weapon", value: "weapon_gilt",
         swatch: WEAPON_STYLES.weapon_gilt.fitting!.hex },
       { id: "weapon_serpent", label: "Serpent-Marked", cost: 190, slot: "weapon", value: "weapon_serpent",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_serpent.blade.tint) },
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_serpent.blade.tint) },
     ],
   },
 ];
@@ -2439,7 +2523,7 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 export type CharacterSurface =
   | "mail" | "iron" | "steel" | "weldsteel" | "serpentsteel" | "bronze" | "interlace"
   | "wool" | "hair" | "linen" | "leather" | "rope"
-  | "oak" | "bone" | "skin";
+  | "oak" | "ash" | "lime" | "bone" | "skin";
 
 export interface CharacterTint {
   roughness?: number;
@@ -2860,7 +2944,8 @@ interface ShellOptions {
    * At phase 0.5 the two vertices nearest the edge straddle it instead, leaving a
    * land a few tenths of a millimetre deep — invisible as width, and the
    * difference between an edge that holds still and one that crawls. The blade's
-   * width has to be scaled back up to compensate; `bladeSection` does that.
+   * width has to be scaled back up to compensate (`bladeSection` did, and is gone: every blade is
+ * `forgedBlade` now, which carries a quarter-millimetre edge land of its own).
    */
   phase?: number;
   /**
@@ -11086,102 +11171,590 @@ export function gazeProbe(cls: WarriorClass, seed: number): GazeFit {
  */
 export const GRIP_PITCH = 1.28;
 
-/**
- * A lenticular blade with an edge that survives a pixel.
- *
- * The section is still a rhombus — that is what a pattern-welded blade grinds
- * to — but it is sampled half a step round so the edge lands *between* two
- * vertices rather than on one. That leaves a land about a quarter of the
- * section's thickness wide: on a sword's mid-blade, half a millimetre of
- * geometry where there used to be a mathematical point. `grow` puts back the
- * width the phase shift takes off, so the blade is exactly as wide as its
- * stations say. See `ShellOptions.phase` for what this is fixing.
- */
-function bladeSection(stations: Station[], seg = 8): THREE.BufferGeometry {
-  const grow = 1 / Math.pow(Math.cos(Math.PI / seg), 2);
-  return shell(
-    stations.map((st) => ({ ...st, hw: st.hw * grow })),
-    seg,
-    { power: 1, phase: 0.5, capTop: true, capBottom: true },
-  );
-}
+// ============================================================
+// WEAPON FORMS — the shapes a smith makes and a swept ellipse cannot
+// ============================================================
+//
+// `characters.ts` builds a blade out of `shell()`, a superellipse swept along y.
+// That is right for a haft and a grip and wrong for a blade, and it is why the
+// sword read as a rhombus and the seax as a leaf. A blade is not a rounded thing
+// with a groove painted on it. It is a FLAT bar with a fuller ground into the
+// middle of each face and two bevels ground toward the edges, and every one of
+// those is a facet with a hard crease against its neighbour and, above all, a
+// value of its own: the bevel catches light the flat does not, the fuller is a
+// dark inlay, and the difference between them is the stripe that says "forged
+// object" at fifty metres (CH-25, LORE 5.1, and `tools/bladevalue.mjs` measures
+// it in the frame).
+//
+// So the primitive here is a SWEPT POLYGON WITH BANDS. A blade is a closed
+// polygon in (x, z) — the section — at each of a few stations along y. Every side
+// of that polygon belongs to a band (flat, edge bevel, fuller), and the sweep
+// emits one geometry PER BAND, with unshared vertices per quad. That buys three
+// things at once:
+//
+//   1. hard creases for free: a band's quads share no vertex with the next band's,
+//      so the normals cannot average across the bevel shoulder or the fuller wall;
+//   2. a material per band: the bright bevel, the mid-grey flat and the dark
+//      fuller are three surfaces of one blade, and they are three draws only
+//      until `Part.merge` folds them into their materials' slots;
+//   3. an honest measurement: `tools/weaponshape.mjs` slices the emitted
+//      triangles and reads the section back, so nothing here can claim a
+//      property the geometry does not have.
+//
+// Everything is built along +y with the blade's flat faces on ±z, the same
+// convention every weapon in `characters.ts` uses, so the hand mount's pitch and
+// `anim.ts`'s reach solve (`geometry.boundingBox.max.y`) are untouched.
+//
+// WINDING. A sweep that comes out inside out is culled to nothing, silently. The
+// section's polygon runs so that, seen from +y, it goes from +x through +z; the
+// triangles are emitted so the normal points out of the polygon, and
+// `wfSignedVolume` is exported so a probe can prove it (positive = outward).
+// ============================================================
+type WfPt = readonly [number, number];
 
-/** Cord-wrapped grip: a core plus a helix of bindings, merged into the core. */
-function boundGrip(
-  part: Part,
-  mat: THREE.Material,
-  cordMat: THREE.Material,
-  y0: number,
-  y1: number,
-  r0: number,
-  r1: number,
-  turns: number,
-  trim: boolean,
-): void {
-  part.add(shell([{ y: y1, hw: r1, hd: r1 * 0.82 }, { y: (y0 + y1) / 2, hw: (r0 + r1) * 0.47, hd: (r0 + r1) * 0.4 }, { y: y0, hw: r0, hd: r0 * 0.82 }], 8, { capTop: true, capBottom: true }), mat);
-  if (!trim) return;
-  const n = Math.max(3, Math.round(turns));
-  for (let i = 0; i < n; i++) {
-    const t = (i + 0.5) / n;
-    const y = mix(y0, y1, t);
-    const r = mix(r0, r1, t) + 0.0022;
-    part.add(ring(r, 0.0028, 4, 10), cordMat, xf(0, y, 0, Math.PI / 2, 0, 0.16, 1, 1, 0.85));
+/** A station of a swept polygon: the section's points, all at one y. */
+interface WfSample { y: number; pts: readonly WfPt[] }
+
+const wfLerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const wfStep = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b - a || 1e-9)); return t * t * (3 - 2 * t); };
+
+/** Positive when the triangles of `g` wind outward (divergence theorem); a probe's proof of the note above. */
+export function wfSignedVolume(g: THREE.BufferGeometry): number {
+  const p = g.getAttribute("position") as THREE.BufferAttribute;
+  const idx = g.index;
+  const n = idx ? idx.count : p.count;
+  let v = 0;
+  for (let t = 0; t < n; t += 3) {
+    const a = idx ? idx.getX(t) : t, b = idx ? idx.getX(t + 1) : t + 1, c = idx ? idx.getX(t + 2) : t + 2;
+    const ax = p.getX(a), ay = p.getY(a), az = p.getZ(a);
+    const bx = p.getX(b), by = p.getY(b), bz = p.getZ(b);
+    const cx = p.getX(c), cy = p.getY(c), cz = p.getZ(c);
+    v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
   }
+  return v;
 }
 
+/**
+ * A non-indexed triangle soup, given an identity index. `Part.merge` folds the
+ * geometries that wear one material into one, and three's `mergeGeometries` refuses
+ * a list that mixes indexed and non-indexed ones (it returns null and the part falls
+ * back to a draw call per piece), and every `shell()` in `characters.ts` is indexed.
+ */
+function wfBuild(pos: number[], uv: number[]): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+function wfIndexed(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const n = g.getAttribute("position").count;
+  const idx = new Uint32Array(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+}
+
+/**
+ * Sweeps a closed polygon along y, one geometry per band.
+ *
+ * `bandOf[k]` names the band of the side from point k to point k+1 (wrapping).
+ * Every quad has its own four vertices, so a band's normals are its own: a flat
+ * band is flat to the last vertex, and a crease between bands is a crease.
+ * `capBand` is the band the two end caps are put in.
+ */
+function wfSweepBands(samples: readonly WfSample[], bandOf: readonly number[], bands: number, capBand: number, caps = true): THREE.BufferGeometry[] {
+  const pos: number[][] = Array.from({ length: bands }, () => []);
+  const uv: number[][] = Array.from({ length: bands }, () => []);
+  const n = samples[0].pts.length;
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i], b = samples[i + 1];
+    if (b.y - a.y < 1e-9) continue;
+    for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n;
+      const band = bandOf[k];
+      const A = [a.pts[k][0], a.y, a.pts[k][1]];
+      const B = [a.pts[k2][0], a.y, a.pts[k2][1]];
+      const C = [b.pts[k2][0], b.y, b.pts[k2][1]];
+      const D = [b.pts[k][0], b.y, b.pts[k][1]];
+      // A quad whose two edges have both collapsed (a fuller that has faded to nothing) is no surface.
+      const collapsed = Math.hypot(A[0] - B[0], A[2] - B[2]) < 1e-7 && Math.hypot(D[0] - C[0], D[2] - C[2]) < 1e-7;
+      if (collapsed) continue;
+      // outward: (A, D, C) and (A, C, B) for a polygon that runs +x -> +z as seen from +y
+      const p = pos[band], u = uv[band];
+      for (const V of [A, D, C, A, C, B]) p.push(V[0], V[1], V[2]);
+      const v0 = a.y, v1 = b.y;
+      u.push(k / n, v0, k / n, v1, k2 / n, v1, k / n, v0, k2 / n, v1, k2 / n, v0);
+    }
+  }
+  if (caps) {
+    const cap = (s: WfSample, up: boolean) => {
+      const m = s.pts.length;
+      let cx = 0, cz = 0;
+      for (const [x, z] of s.pts) { cx += x; cz += z; }
+      cx /= m; cz /= m;
+      const p = pos[capBand], u = uv[capBand];
+      for (let k = 0; k < m; k++) {
+        const P = s.pts[k], Q = s.pts[(k + 1) % m];
+        const tri = up ? [[cx, s.y, cz], [Q[0], s.y, Q[1]], [P[0], s.y, P[1]]] : [[cx, s.y, cz], [P[0], s.y, P[1]], [Q[0], s.y, Q[1]]];
+        for (const V of tri) { p.push(V[0], V[1], V[2]); u.push(0.5, 0.5); }
+      }
+    };
+    cap(samples[samples.length - 1], true);
+    cap(samples[0], false);
+  }
+  return pos.map((p, i) => wfBuild(p, uv[i]));
+}
+
+// ------------------------------------------------------------
+// THE BLADE
+// ------------------------------------------------------------
+
+interface BladeStation { y: number; hw: number; hd: number }
+interface FullerSpec {
+  /** Where the fuller starts and stops along the blade. */
+  y0: number; y1: number;
+  /** Half-width of the trough (or of the rib, when `depth` is negative). */
+  hw: number;
+  /** How far the floor sits below the flat. Negative = a raised midrib, which is what a spear leaf carries. */
+  depth: number;
+  /** Length over which the fuller fades in and out at each end. */
+  ramp: number;
+  /** Horizontal width of the wall between flat and floor. */
+  wall?: number;
+}
+interface ForgedBladeSpec {
+  /** Planform and thickness, ascending in y from the root. Linear between stations. */
+  stations: readonly BladeStation[];
+  fuller: FullerSpec;
+  /** The share of the half-width that is ground into the edge bevel. */
+  bevel: number;
+  /** Half thickness of the land at the edge. Half a millimetre keeps an edge from crawling (see `ShellOptions.phase`). */
+  edge?: number;
+}
+interface ForgedBlade {
+  /** The flat shoulders between fuller and bevel, and both end caps. */
+  flat: THREE.BufferGeometry;
+  /** The ground bevels and the land at each edge: the brightest facets on the weapon. */
+  edge: THREE.BufferGeometry;
+  /** The fuller floor and its walls: a dark inlay, or the watering in a pattern-welded blade. */
+  fuller: THREE.BufferGeometry;
+}
+
+const WF_BLADE_BANDS = [0, 1, 2, 2, 2, 1, 0, 0, 0, 1, 2, 2, 2, 1, 0, 0]; // edge=0 flat=1 fuller=2, per side of the 16-point section
+
+/**
+ * A flat-ground blade: a bar with two bevels and a fuller.
+ *
+ * The section, seen from +y, is sixteen points: the edge land, the shoulder where
+ * the bevel meets the flat, the two walls and the floor of the fuller, on each
+ * face. Its half-width is the station's `hw`, its half thickness `hd` (the height
+ * of the flat above the midline), and the fuller fades in and out over `ramp` at
+ * each end so it is ground INTO the blade and does not start with a step.
+ */
+function forgedBlade(spec: ForgedBladeSpec): ForgedBlade {
+  const st = spec.stations;
+  const at = (y: number) => {
+    if (y <= st[0].y) return { hw: st[0].hw, hd: st[0].hd };
+    for (let i = 0; i < st.length - 1; i++) {
+      if (y <= st[i + 1].y) {
+        const t = (y - st[i].y) / (st[i + 1].y - st[i].y);
+        return { hw: wfLerp(st[i].hw, st[i + 1].hw, t), hd: wfLerp(st[i].hd, st[i + 1].hd, t) };
+      }
+    }
+    const l = st[st.length - 1];
+    return { hw: l.hw, hd: l.hd };
+  };
+  const F = spec.fuller;
+  const ys = new Set<number>(st.map((s) => s.y));
+  for (const k of [0, 0.25, 0.5, 0.75, 1]) { ys.add(F.y0 + F.ramp * k); ys.add(F.y1 - F.ramp * k); }
+  const e = spec.edge ?? 0.00025;
+  const wall = F.wall ?? 0.0006;
+  const samples: WfSample[] = [...ys].sort((a, b) => a - b).map((y) => {
+    const { hw: W, hd: T } = at(y);
+    const t = y <= F.y0 || y >= F.y1 ? 0 : wfStep(F.y0, F.y0 + F.ramp, y) * wfStep(F.y1, F.y1 - F.ramp, y);
+    const f = F.hw * t, d = F.depth * t;
+    const b = W * spec.bevel;
+    // The wall has no width where the fuller has faded to nothing (t = 0), or a dark hairline runs the whole blade.
+    const inner = Math.min(W - b - 0.0004, f + wall * Math.min(1, t * 6));
+    const pts: WfPt[] = [
+      [W, e], [W - b, T], [inner, T], [f, T - d], [-f, T - d], [-inner, T], [-(W - b), T], [-W, e],
+      [-W, -e], [-(W - b), -T], [-inner, -T], [-f, -(T - d)], [f, -(T - d)], [inner, -T], [W - b, -T], [W, -e],
+    ];
+    return { y, pts };
+  });
+  const g = wfSweepBands(samples, WF_BLADE_BANDS, 3, 1);
+  return { edge: g[0], flat: g[1], fuller: g[2] };
+}
+
+// ------------------------------------------------------------
+// THE SEAX: one edge, one spine, and a corner in the spine
+// ------------------------------------------------------------
+
+interface SeaxSpec {
+  /** Where the blade starts (the bolster) and where it ends. */
+  yHeel: number; yTip: number;
+  /** The corner in the back, as a y between them. The spine is straight below it and falls to the point above it. */
+  yBreak: number;
+  /** The edge line's x at the heel, and at the tip (which is ON the edge line, give or take the blunt point). */
+  edgeX: number; edgeBow: number;
+  /** Width heel to spine, and the tip's own half width. */
+  width: number; tipWidth: number;
+  /** Half thickness of the back (6-8 mm thick in the finds) and of the land at the edge. */
+  back: number; edgeLand?: number;
+  /** The fuller, as fractions of the width from the edge, and how far it is sunk. */
+  fuller: { u0: number; u1: number; depth: number; y0: number; y1: number; ramp: number };
+}
+interface Seax {
+  flat: THREE.BufferGeometry;
+  edge: THREE.BufferGeometry;
+  fuller: THREE.BufferGeometry;
+  /** The floor's centre and half width at a y, for laying wire in it. */
+  floor(y: number, side: 1 | -1): { x: number; z: number; halfW: number; dxdy: number };
+  planform(y: number): { edge: number; spine: number };
+}
+
+/**
+ * The broken-back seax blade, as a spine polyline and an edge polyline (the way
+ * `axeBlade` is built) with a section that is thick at the back and thins to the
+ * edge. A `Station` cannot say this — it is symmetric about x — which is why the
+ * old seax was a double-edged leaf with a 6 mm kink (CH-26, CHARMAP-B 3.1 #16).
+ *
+ * +x is the spine and -x the edge. The two faces carry a fuller near the back, a
+ * flat shoulder and a wide bevel that runs to the edge.
+ */
+function seaxBlade(spec: SeaxSpec): Seax {
+  const { yHeel: y0, yTip: y1, yBreak: yb } = spec;
+  const edgeAt = (y: number) => spec.edgeX - spec.edgeBow * Math.sin(Math.PI * clamp01((y - y0) / (y1 - y0)));
+  const tipSpine = edgeAt(y1) + spec.tipWidth;
+  const spineAt = (y: number) => {
+    const top = spec.edgeX + spec.width;
+    if (y <= yb) return top;
+    return wfLerp(top, tipSpine, clamp01((y - yb) / (y1 - yb)));
+  };
+  const F = spec.fuller;
+  const land = spec.edgeLand ?? 0.00025;
+  const T = spec.back;
+  const ysSet = new Set<number>([y0, yb, y1]);
+  for (const k of [0.0, 0.2, 0.5, 0.8, 1.0]) { ysSet.add(F.y0 + F.ramp * k); ysSet.add(F.y1 - F.ramp * k); }
+  for (const y of [0.16, 0.22, 0.28, 0.42, 0.46, 0.48]) if (y > y0 && y < y1) ysSet.add(y);
+  const taper = (y: number) => (y <= F.y0 || y >= F.y1 ? 0 : wfStep(F.y0, F.y0 + F.ramp, y) * wfStep(F.y1, F.y1 - F.ramp, y));
+  const section = (y: number): WfPt[] => {
+    const xe = edgeAt(y), xs = spineAt(y);
+    const Wd = Math.max(xs - xe, 1e-4);
+    const X = (u: number) => xe + Wd * u;
+    // the tip closes on the edge line: the thick part of the section thins with the blade
+    const thin = clamp01(Wd / 0.02);
+    const Tt = wfLerp(0.0009, T, thin);
+    const t = taper(y);
+    const d = F.depth * t;
+    const mid = 0.5 * (F.u0 + F.u1);
+    const u0 = wfLerp(mid, F.u0, t), u1 = wfLerp(mid, F.u1, t);
+    const wall = 0.012 * Math.min(1, t * 6); // no wall where the fuller has faded to nothing
+    // The upper face from the edge to the spine: the edge land, the bevel's shoulder, the fuller's near wall and
+    // floor and far wall, the back's flat, and the back's rounded corner. The polygon then runs spine -> edge
+    // across the +z face, over the edge land, and edge -> spine across the -z face, like the symmetric blade.
+    const up: WfPt[] = [
+      [X(0), land], [X(0.5), Tt], [X(u0), Tt], [X(u0 + wall), Tt - d], [X(u1 - wall), Tt - d], [X(u1), Tt], [X(0.965), Tt], [X(1), Tt * 0.62],
+    ];
+    const down: WfPt[] = up.map(([x, z]) => [x, -z] as WfPt);
+    return [...up.slice().reverse(), ...down];
+  };
+  const samples: WfSample[] = [...ysSet].sort((a, b) => a - b).map((y) => ({ y, pts: section(y) }));
+  // sides, point k -> k+1: 0 spine corner, 1 back flat, 2-4 fuller (wall, floor, wall), 5 flat, 6 bevel, 7 edge land,
+  // then the lower face the same in reverse
+  const BANDS = [1, 1, 2, 2, 2, 1, 0, 0, 0, 1, 2, 2, 2, 1, 1, 1];
+  const g = wfSweepBands(samples, BANDS, 3, 1);
+  const planform = (y: number) => ({ edge: edgeAt(y), spine: spineAt(y) });
+  const floor = (y: number, side: 1 | -1) => {
+    const { edge: xe, spine: xs } = planform(y);
+    const Wd = xs - xe;
+    const t = taper(y);
+    const Tt = wfLerp(0.0009, T, clamp01(Wd / 0.02));
+    const u = 0.5 * (F.u0 + F.u1);
+    const halfW = 0.5 * (F.u1 - F.u0) * Wd * t;
+    const h = 0.002;
+    const de = (planform(y + h).edge - planform(y - h).edge) / (2 * h);
+    const ds = (planform(y + h).spine - planform(y - h).spine) / (2 * h);
+    return { x: xe + Wd * u, z: side * (Tt - F.depth * t), halfW, dxdy: (1 - u) * de + u * ds };
+  };
+  return { edge: g[0], flat: g[1], fuller: g[2], floor, planform };
+}
+
+// ------------------------------------------------------------
+// PILLOWS AND PLATES: a cast pommel, a wing, a niello panel
+// ------------------------------------------------------------
+
+/**
+ * An outline (x, y) given a puffed section: rings scaled about the outline's
+ * centroid at depths -h..+h, capped by fans at both faces, all vertices shared so
+ * the normals round off. A cast pommel is this; so is a thin plate (`rings` of
+ * two scales close to 1 and a thickness of a millimetre or two).
+ *
+ * The outline must run counter-clockwise seen from +z and be star-shaped about
+ * its centroid — three lobes on a bar are.
+ */
+function wfPillow(outline: readonly WfPt[], halfDepth: number, rings: ReadonlyArray<readonly [number, number]>): THREE.BufferGeometry {
+  const n = outline.length;
+  let cx = 0, cy = 0;
+  for (const [x, y] of outline) { cx += x; cy += y; }
+  cx /= n; cy /= n;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const R = rings.length;
+  for (const [zf, s] of rings) {
+    for (const [x, y] of outline) { pos.push(cx + (x - cx) * s, cy + (y - cy) * s, zf * halfDepth); uv.push(x, y); }
+  }
+  const capA = pos.length / 3; pos.push(cx, cy, rings[0][0] * halfDepth); uv.push(0, 0);
+  const capB = pos.length / 3; pos.push(cx, cy, rings[R - 1][0] * halfDepth); uv.push(0, 0);
+  for (let r = 0; r < R - 1; r++) {
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const a = r * n + i, b = r * n + j, c = (r + 1) * n + j, d = (r + 1) * n + i;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    idx.push(capB, (R - 1) * n + i, (R - 1) * n + j); // +z face
+    idx.push(capA, j, i);                               // -z face
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  // the caller's outline may wind the other way; make the volume positive
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
+/** A rounded rectangle outline, counter-clockwise, `n` points a corner. */
+function wfRoundedRect(hw: number, hh: number, r: number, n = 4): WfPt[] {
+  const out: WfPt[] = [];
+  const corners: Array<[number, number, number]> = [[hw - r, hh - r, 0], [-(hw - r), hh - r, 0.5], [-(hw - r), -(hh - r), 1], [hw - r, -(hh - r), 1.5]];
+  for (const [cx, cy, q] of corners) {
+    for (let i = 0; i <= n; i++) {
+      const a = (q + i / n * 0.5) * Math.PI;
+      out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The tri-lobed pommel: ONE cast shell with three lobes along its butt, on a flat
+ * top that sits against the upper guard (Petersen H and K, Insular mounts: LORE
+ * 5.1). It is not a cap with three balls set on it — that is four objects, and
+ * `tools/weaponshape.mjs` counts islands and reads the butt line's minima to tell
+ * the two apart.
+ *
+ * Built along the sword's own axes: x across the flats, y toward the blade, so the
+ * lobes hang toward -y and the flat top is at y = 0.
+ */
+function lobedPommel(o: { hw: number; lobeR: number; drop: number; depth: number }): THREE.BufferGeometry {
+  const { hw, lobeR: r, drop, depth } = o;
+  const pitch = hw - r;                 // outer lobe centres sit at +-pitch, the middle one at 0
+  const yc = -(drop - r);               // circle centres: the butt of each lobe is `drop` below the top
+  const centres = [-pitch, 0, pitch];
+  const low = (x: number) => {
+    let y = Infinity;
+    for (const c of centres) { const d = x - c; if (Math.abs(d) <= r) y = Math.min(y, yc - Math.sqrt(Math.max(0, r * r - d * d))); }
+    return y;
+  };
+  const pts: WfPt[] = [];
+  const step = 0.00075;
+  // counter-clockwise seen from +z: along the butt from left to right, then back along the top
+  for (let x = -hw; x <= hw + 1e-9; x += step) {
+    const xx = Math.min(hw, x);
+    const y = low(xx);
+    pts.push([xx, Number.isFinite(y) ? y : yc]);
+  }
+  pts.push([hw, 0], [hw * 0.5, 0.0006], [0, 0.0009], [-hw * 0.5, 0.0006], [-hw, 0]);
+  return wfPillow(pts, depth / 2, [[-1, 0.66], [-0.62, 0.93], [0, 1], [0.62, 0.93], [1, 0.66]]);
+}
+
+/**
+ * A guard bar with drooping arms and a waist: the lower guard of a Petersen H
+ * sword, a flat-ended bar 12-14 mm tall. Built as one pillow so the ends round
+ * off and a niello panel can lie on either face.
+ */
+function guardBar(o: { hw: number; hh: number; depth: number; droop?: number }): THREE.BufferGeometry {
+  const { hw, hh, depth } = o;
+  const droop = o.droop ?? 0.0025;
+  const pts: WfPt[] = [];
+  const n = 26;
+  // upper edge (right to left), an arch; lower edge (left to right), drooping at the tips
+  for (let i = 0; i <= n; i++) { const x = hw - (2 * hw * i) / n; pts.push([x, hh - droop * Math.pow(x / hw, 2) + 0.0015 * (1 - Math.pow(x / hw, 2))]); }
+  for (let i = 0; i <= n; i++) { const x = -hw + (2 * hw * i) / n; pts.push([x, -hh - droop * Math.pow(x / hw, 2)]); }
+  // the tips are squared off with a little bevel
+  return wfPillow(pts, depth / 2, [[-1, 0.78], [-0.55, 0.96], [0, 1], [0.55, 0.96], [1, 0.78]]);
+}
+
+/**
+ * A plate lying on a face: a wing, a niello panel. `thickness` is the whole
+ * thickness; the faces are inset a little so the rim catches a line.
+ */
+function wfPlate(outline: readonly WfPt[], thickness: number, inset = 0.94): THREE.BufferGeometry {
+  return wfPillow(outline, thickness / 2, [[-1, inset], [0, 1], [1, inset]]);
+}
+
+/** A short open ring of wire or a ferrule: `r` the radius to the centre of the band, `h` its height, `t` its thickness. */
+function wfFerrule(r: number, hd: number, h: number, t: number, seg = 14): THREE.BufferGeometry {
+  // an oval tube, outer wall and inner wall and both rims, so it is a band with an edge and not a paper cylinder
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const profile: Array<[number, number]> = [[-h / 2, r + t], [h / 2, r + t], [h / 2, r], [-h / 2, r]]; // (y, radius) around the band's section
+  const m = profile.length;
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (const [y, rad] of profile) { pos.push(rad * ca, y, rad * sa * (hd / r)); uv.push(i / seg, y); }
+  }
+  for (let i = 0; i < seg; i++) {
+    for (let k = 0; k < m; k++) {
+      const k2 = (k + 1) % m;
+      const a = i * m + k, b = (i + 1) * m + k, c = (i + 1) * m + k2, d = i * m + k2;
+      idx.push(a, c, b, a, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
+/** Thin flat wire strokes, on +z or -z, as one geometry of quads: a rune, a lozenge, a line. `proud` above `z`. */
+function wireStrokes(strokes: ReadonlyArray<{ x0: number; y0: number; x1: number; y1: number; w: number; z: number; z1?: number }>, face: 1 | -1): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [];
+  for (const s of strokes) {
+    const dx = s.x1 - s.x0, dy = s.y1 - s.y0;
+    const len = Math.hypot(dx, dy) || 1e-9;
+    const nx = (-dy / len) * (s.w / 2), ny = (dx / len) * (s.w / 2);
+    const z1 = s.z1 ?? s.z; // a stroke laid on a sloping floor has a height at each end
+    const A = [s.x0 - nx, s.y0 - ny, s.z], B = [s.x0 + nx, s.y0 + ny, s.z], C = [s.x1 + nx, s.y1 + ny, z1], D = [s.x1 - nx, s.y1 - ny, z1];
+    // A, B, C, D run clockwise seen from +z (right of the start, left of the start, left of the end, right of the end)
+    const tri = face === 1 ? [A, C, B, A, D, C] : [A, B, C, A, C, D];
+    for (const V of tri) { pos.push(V[0], V[1], V[2]); uv.push(0, 0); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+/** Flat convex polygons lying on +z or -z: a lozenge of wire, filled. Points counter-clockwise seen from +z. */
+function wirePolys(polys: ReadonlyArray<{ pts: ReadonlyArray<WfPt>; z: number }>, face: 1 | -1): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [];
+  for (const { pts, z } of polys) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      const tri = face === 1 ? [pts[0], pts[i], pts[i + 1]] : [pts[0], pts[i + 1], pts[i]];
+      for (const [x, y] of tri) { pos.push(x, y, z); uv.push(0, 0); }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+/**
+ * THE SWORD (Petersen H/K family with Insular mounts; LORE 5.1, CH-25).
+ *
+ * The blade is 0.892 m and stays exactly where `rig.reach` reads it (the tip is at
+ * y 1.055: `tools/weaponshape.mjs` locks it). What changed is everything a smith
+ * would name:
+ *
+ *   THE BLADE is a flat-ground bar, not a rhombus. It was `power 1` — a true
+ *   diamond, so one facet of every face was lit and its neighbour black — with a
+ *   "fuller" that stood 0.1 mm proud of it. `forgedBlade` builds the section the way
+ *   the finds are ground: flat shoulders, a bevel toward each edge, and a fuller
+ *   24 mm across with a floor 0.9 mm below the flat, tapering out at both ends. The
+ *   bevels are the brightest facets on the weapon, the flats a step under them, and
+ *   the fuller a dark inlay (the pattern, in the finishes that pay for one): three
+ *   values side by side is the stripe `tools/bladevalue.mjs` reads off the frame.
+ *   The point is rounded off an ogive, not a needle.
+ *
+ *   THE HILT is 124 mm across at the guard (LORE: the finds' lower guards run 80-110
+ *   mm; the game wants 120-140 to read at the fight lens; it was 212, a knight's
+ *   cross), with a 66 mm upper guard and ONE cast three-lobed pommel 70 mm across
+ *   (it was a cap with three loose balls set on it), a grip with two ferrules where
+ *   seven brass hoops used to float, and silvered mounts each carrying a niello
+ *   panel — the Trewhiddle-style Insular mounts of the Abingdon and Witham swords.
+ *   The grip's radii are the ones the baked fists close on and did not move.
+ */
 export function buildSword(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xc4ccd6, 0.2], iron: [0x4c525b, 0.5], fitting: [0xb9a25a, 0.34], grip: 0x2a1c10,
+    steel: [WEAPON_STEEL.flat, 0.32], edge: [WEAPON_STEEL.edge, 0.28], fuller: [WEAPON_STEEL.fuller, 0.5],
+    metal: WEAPON_STEEL.metal, fitting: [0xb9b4a6, 0.4], niello: 0x1b1a1c, grip: 0x2a1c10,
   });
-  const steel = P.steel;
-  const dark = P.iron!;
+  const silver = P.fitting!;
+  const niello = P.niello!;
   const leather = P.grip!;
-  const brass = P.fitting!;
 
-  // Blade: rhombic section, distal taper, 0.9 m of it. The pattern-weld comes
-  // from the steel map rather than from geometry — that is what the map is for.
-  part.add(bladeSection([
-    { y: 1.055, hw: 0.006, hd: 0.0012 },
-    { y: 0.99, hw: 0.018, hd: 0.0021 },
-    { y: 0.86, hw: 0.024, hd: 0.0027 },
-    { y: 0.55, hw: 0.028, hd: 0.0035 },
-    { y: 0.163, hw: 0.031, hd: 0.0042 },
-  ]), steel);
-  // Fuller — a dark line down the centre of both faces, and it has to be a
-  // *swept* one. As a box it was 8.6 mm deep on a blade that is 5.4 mm thick at
-  // the forte and 4.2 at the foible, so the groove stood up to 1.6 mm proud of
-  // the steel either side of it: seen from the edge the sword's silhouette was
-  // the fuller and not the blade. Following the blade's own `hd` keeps it inside
-  // a tenth of a millimetre of the surface, which is under a pixel at any range
-  // and cannot break the section.
+  // Blade: 0.892 m, near-parallel edges (hw 29 mm at the forte to 25.5 mm at the
+  // foible), 6 mm thick at the forte thinning to 4 mm, and an ogive point from y 0.96.
+  const TIP = 1.055;
+  const OGIVE = 0.96;
+  const stations: BladeStation[] = [
+    { y: 0.163, hw: 0.0290, hd: 0.0030 },
+    { y: 0.300, hw: 0.0284, hd: 0.0028 },
+    { y: 0.550, hw: 0.0270, hd: 0.0026 },
+    { y: 0.860, hw: 0.0255, hd: 0.0022 },
+    ...[0, 0.25, 0.5, 0.7, 0.85, 0.94, 0.985].map((t) => ({
+      y: OGIVE + (TIP - OGIVE) * t,
+      hw: Math.max(0.0035, 0.0250 * Math.sqrt(1 - t * t)),
+      hd: 0.0020 - 0.0008 * t,
+    })),
+    { y: TIP, hw: 0.0035, hd: 0.0012 },
+  ];
+  const blade = forgedBlade({
+    stations,
+    fuller: { y0: 0.20, y1: 0.90, hw: 0.012, depth: 0.0009, ramp: 0.035 },
+    bevel: 0.28,
+  });
+  part.add(blade.flat, P.steel);
+  part.add(blade.edge, P.edge!);
+  part.add(blade.fuller, P.fuller!);
+
+  // Lower guard: a bar 124 mm across and 22 mm deep, its arms drooping a little, with a
+  // niello panel let into each face.
+  const GUARD_Y = 0.155;
+  part.add(guardBar({ hw: 0.062, hh: 0.0085, depth: 0.022 }), silver, xf(0, GUARD_Y, 0));
+  for (const s of [-1, 1]) {
+    part.add(wfPlate(wfRoundedRect(0.043, 0.0038, 0.0025), 0.0006), niello, xf(0, GUARD_Y, s * 0.0113));
+  }
+
+  // Grip: the oval the fists close on (radii unchanged), a ferrule at each end.
   part.add(shell([
-    { y: 0.885, hw: 0.0062, hd: 0.0027 },
-    { y: 0.55, hw: 0.008, hd: 0.0036 },
-    { y: 0.19, hw: 0.0085, hd: 0.0043 },
-  ], 6, { power: 2.6, capTop: true, capBottom: true }), dark);
-  // Lower guard, grip, upper guard, lobed pommel.
-  part.add(shell([
-    { y: 0.028, hw: 0.096, hd: 0.019 },
-    { y: 0.012, hw: 0.106, hd: 0.021 },
-    { y: -0.004, hw: 0.09, hd: 0.018 },
-  ], 10, { power: 2.6, capTop: true, capBottom: true }), dark, xf(0, 0.15, 0));
-  boundGrip(part, leather, brass, -0.075, 0.146, 0.0175, 0.0155, 7, true);
-  part.add(shell([
-    { y: 0.014, hw: 0.052, hd: 0.016 },
-    { y: 0, hw: 0.058, hd: 0.018 },
-    { y: -0.014, hw: 0.048, hd: 0.015 },
-  ], 10, { power: 2.6, capTop: true, capBottom: true }), dark, xf(0, -0.082, 0));
-  // Tea-cosy pommel: three lobes on a bar, the Anglo-Saxon signature.
-  part.add(shell([
-    { y: 0.052, hw: 0.03, hd: 0.014 },
-    { y: 0.02, hw: 0.06, hd: 0.02 },
-    { y: -0.012, hw: 0.062, hd: 0.021 },
-  ], 12, { power: 2.2, capTop: true, capBottom: true }), brass, xf(0, -0.105, 0));
-  for (const lx of [-0.038, 0, 0.038]) {
-    part.add(ball(0.016, 8), brass, xf(lx, -0.062, 0, 0, 0, 0, 1, 0.8, 0.62));
+    { y: 0.146, hw: 0.0155, hd: 0.0127 },
+    { y: 0.035, hw: 0.0157, hd: 0.0129 },
+    { y: -0.075, hw: 0.0175, hd: 0.0144 },
+  ], 10, { capTop: true, capBottom: true }), leather);
+  part.add(wfFerrule(0.0157, 0.0129, 0.004, 0.0014), silver, xf(0, 0.1445, 0));
+  part.add(wfFerrule(0.0177, 0.0146, 0.004, 0.0014), silver, xf(0, -0.073, 0));
+
+  // Upper guard and the pommel: one flat bar under the grip and ONE cast shell with three
+  // lobes on its butt, a niello panel on each face of it.
+  part.add(guardBar({ hw: 0.033, hh: 0.0065, depth: 0.024, droop: 0.0006 }), silver, xf(0, -0.0835, 0));
+  part.add(lobedPommel({ hw: 0.035, lobeR: 0.0125, drop: 0.0285, depth: 0.026 }), silver, xf(0, -0.0895, 0));
+  for (const s of [-1, 1]) {
+    part.add(wfPlate(wfRoundedRect(0.016, 0.0072, 0.004), 0.0006), niello, xf(0, -0.104, s * 0.0133));
   }
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
@@ -11189,40 +11762,130 @@ export function buildSword(materials?: CharacterMaterials, styleId?: string): TH
 }
 
 /**
- * The runekeeper's seax: single-edged with the broken-back spine that makes an
- * Anglo-Saxon knife unmistakable at a glance, and rune-etched down the flat.
+ * The seax of the Runekeeper (Beagnoth, Repton's two knives; LORE 5.2, CH-26).
+ *
+ * A seax is single-edged, and its back is BROKEN: straight from the hilt for two
+ * thirds of the blade, then falling in a line to a point that lies on the edge. The
+ * old one was a symmetric double-edged leaf with a 6 mm kink, because a `Station`
+ * is symmetric about x and cannot say "this side is thick and that side is not".
+ * `seaxBlade` builds it as an edge polyline and a spine polyline (the way `axeBlade`
+ * is built): the back is 6.6 mm thick with a rounded corner, a flat and a fuller run
+ * beside it, and a wide bevel thins the rest of the way to the edge. The corner is at
+ * 65% of the blade from the heel and turns the back 17 degrees.
+ *
+ * THE RUNES ARE WIRE, NOT LIGHT. It carried a `runeGlow` box down the flat, "the
+ * class's whole identity in one glowing line", which is the game's one fantasy-magic
+ * trap (LORE 5.5, CH-09: the Runekeeper is a man with carved staves, not a wizard).
+ * Beagnoth's are copper, brass and silver wire hammered into grooves, and so are
+ * these: two lines and a row of futhorc staves, with lozenges between them, laid in
+ * the fuller as thin brass quads 0.3 mm proud of its floor. The wire is the
+ * brightest line INSIDE the dark fuller and the edge bevel the brightest line
+ * outside it; nothing emits.
+ *
+ * The hilt is a horn grip, a silver bolster (no cup guard: a seax has none) and a
+ * small pommel cap. The loose cord rings its grip used to carry went with the sword's hoops.
+ *
+ * The blade sits 3 mm toward its edge of the hilt's axis (the edge at -27 mm, the back at
+ * +21). That is how a single-edged blade is hafted: the tang runs down the BACK of the
+ * handle, so the back of the blade and the back of the grip are nearly one line and the
+ * edge hangs off the other side. It is also what keeps `wearmeasure` 6b honest about a weapon
+ * that is one-sided and shows its flat to the camera on purpose: centred on the blade's
+ * width, the vertex mean of this blade sat 3.7 mm to the back and read 0.148 against the
+ * gate's 0.15 - not "symmetric", a number a merge could tip over - and with the hilt on the
+ * back's side it reads 0.03. (The seax is deliberately not rolled to lead with its edge as the
+ * axe is: the camera is in front of the man and this is the blade the runes are on.)
  */
 export function buildDagger(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xb8c4d2, 0.24], fitting: [0x9a8a56, 0.4], grip: 0x24303f,
+    steel: [WEAPON_STEEL.flat, 0.34], edge: [WEAPON_STEEL.edge, 0.30], fuller: [WEAPON_STEEL.fuller, 0.5],
+    metal: WEAPON_STEEL.metal, fitting: [0xb9b4a6, 0.4], wire: 0xd7c88a, horn: 0x4a3a2a,
   });
-  const steel = P.steel;
-  const leather = P.grip!;
-  const brass = P.fitting!;
+  const silver = P.fitting!;
+  const horn = P.grip!;
+  const wire = P.wire!;
 
-  // Asymmetric section: the spine is thick and flat, the edge thins away. Built
-  // as a swept box whose cross-section slides forward as the back breaks down.
+  const HEEL = 0.072;
+  const seax = seaxBlade({
+    yHeel: HEEL, yTip: 0.5, yBreak: 0.351, edgeX: -0.027, edgeBow: 0.0012,
+    width: 0.048, tipWidth: 0.003, back: 0.0033,
+    fuller: { u0: 0.60, u1: 0.90, depth: 0.0008, y0: 0.12, y1: 0.46, ramp: 0.03 },
+  });
+  part.add(seax.flat, P.steel);
+  part.add(seax.edge, P.edge!);
+  part.add(seax.fuller, P.fuller!);
+
+  // ---- the wire, on both faces, on the floor of the fuller ----
+  //
+  // Six futhorc staves' worth of glyphs (each a few strokes of a unit box), six lozenges of wire
+  // and two lines the length of the inlay, from where the fuller reaches its full depth (0.155). Everything follows `seax.floor`, which knows where the
+  // floor is and how wide, so the inlay narrows with the fuller after the corner in the back.
+  const GLYPHS: ReadonlyArray<ReadonlyArray<readonly [number, number, number, number]>> = [
+    [[0, 0, 0, 1], [0, 0.68, 0.9, 1.0], [0, 0.38, 0.9, 0.7]],
+    [[-0.7, 0, -0.7, 1], [-0.7, 1, 0.6, 0.62], [0.6, 0.62, 0.6, 0]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 0.8, 0.7, 0.5], [0.7, 0.5, -0.5, 0.2]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 1.0, 0.8, 0.72], [-0.5, 0.66, 0.8, 0.38]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 1, 0.7, 0.78], [0.7, 0.78, -0.5, 0.52], [-0.5, 0.52, 0.7, 0]],
+    [[0.6, 1, -0.5, 0.5], [-0.5, 0.5, 0.6, 0]],
+  ];
+  const GH = 0.0075, GW = 0.0045, SW = 0.0009, PROUD = 0.0003;
+  for (const face of [1, -1] as const) {
+    const strokes: Array<{ x0: number; y0: number; x1: number; y1: number; w: number; z: number; z1?: number }> = [];
+    const lozenges: Array<{ pts: Array<[number, number]>; z: number }> = [];
+    const at = (y: number) => seax.floor(y, face);
+    // two wire lines the length of the inlay
+    for (const k of [-1, 1]) {
+      for (let y = 0.155; y < 0.43; y += 0.012) {
+        const a = at(y), b = at(y + 0.012);
+        strokes.push({
+          x0: a.x + k * a.halfW * 0.74, y0: y, x1: b.x + k * b.halfW * 0.74, y1: y + 0.012, w: 0.0013,
+          z: a.z + face * PROUD, z1: b.z + face * PROUD,
+        });
+      }
+    }
+    // the row: lozenge, three glyphs, lozenge, ... five lozenges and twelve glyphs
+    let y = 0.158, gi = 0;
+    const lozenge = (yc: number, half: number) => {
+      const a = at(yc);
+      lozenges.push({ pts: [[a.x, yc - half], [a.x + half * 0.62, yc], [a.x, yc + half], [a.x - half * 0.62, yc]], z: a.z + face * PROUD });
+    };
+    for (let L = 0; L < 5; L++) {
+      lozenge(y + 0.0045, 0.0045);
+      y += 0.009 + 0.0025;
+      if (L === 4) break;
+      for (let k = 0; k < 3; k++) {
+        const a = at(y);
+        for (const [x0, y0, x1, y1] of GLYPHS[gi % GLYPHS.length]) {
+          strokes.push({ x0: a.x + x0 * GW / 2, y0: y + y0 * GH * 0.62 + 0.0008, x1: a.x + x1 * GW / 2, y1: y + y1 * GH * 0.62 + 0.0008, w: SW, z: a.z + face * PROUD });
+        }
+        gi++;
+        y += 0.0113;
+      }
+      y += 0.0015;
+    }
+    lozenge(0.385, 0.0034);
+    part.add(wireStrokes(strokes, face), wire);
+    part.add(wirePolys(lozenges, face), wire);
+  }
+
+  // ---- the hilt: a silver bolster, a horn grip, a small pommel cap ----
   part.add(shell([
-    { y: 0.5, hw: 0.008, hd: 0.0018, z: 0.006 },
-    { y: 0.44, hw: 0.019, hd: 0.0028, z: 0.004 },
-    { y: 0.33, hw: 0.026, hd: 0.0036, z: 0.0 },
-    { y: 0.14, hw: 0.026, hd: 0.004, z: 0.0 },
-    { y: 0.075, hw: 0.024, hd: 0.0038, z: 0.0 },
-  ], 6, { power: 1.35, capTop: true, capBottom: true }), steel);
+    { y: 0.074, hw: 0.0205, hd: 0.0105 },
+    { y: 0.062, hw: 0.0195, hd: 0.0100 },
+  ], 12, { power: 2.8, capTop: true, capBottom: true }), silver);
   part.add(shell([
-    { y: 0.07, hw: 0.034, hd: 0.011 },
-    { y: 0.056, hw: 0.03, hd: 0.01 },
-  ], 8, { power: 2.4, capTop: true, capBottom: true }), brass);
-  boundGrip(part, leather, brass, -0.075, 0.056, 0.016, 0.0145, 5, true);
+    { y: 0.062, hw: 0.0145, hd: 0.0119 },
+    { y: -0.007, hw: 0.0145, hd: 0.0122 },
+    { y: -0.075, hw: 0.0160, hd: 0.0131 },
+  ], 10, { capTop: true, capBottom: true }), horn);
+  part.add(wfFerrule(0.0148, 0.0121, 0.0035, 0.0012), silver, xf(0, -0.0725, 0));
   part.add(shell([
-    { y: 0.016, hw: 0.024, hd: 0.014 },
-    { y: -0.012, hw: 0.03, hd: 0.017 },
-  ], 8, { power: 2.2, capTop: true, capBottom: true }), brass, xf(0, -0.082, 0));
-  // Rune channel down the flat — the class's whole identity in one glowing line.
-  part.add(box(0.0055, 0.26, 0.0092), M.get("runeGlow"), xf(0.004, 0.28, 0));
+    { y: -0.075, hw: 0.0165, hd: 0.0135 },
+    { y: -0.084, hw: 0.0195, hd: 0.0160 },
+    { y: -0.097, hw: 0.0140, hd: 0.0115 },
+  ], 10, { power: 2.4, capTop: true, capBottom: true }), silver);
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
   return g;
@@ -11245,11 +11908,13 @@ export function buildDagger(materials?: CharacterMaterials, styleId?: string): T
  * the edge**. That gives, in one surface and for free:
  *
  *   - a *land* at the edge rather than a mathematical point (`SECTION[0]`), for
- *     the same reason `bladeSection` carries `phase: 0.5` — a zero-width edge
+ *     the same reason `forgedBlade` carries a 0.25 mm edge land — a zero-width edge
  *     alternates between covering and missing pixel centres and crawls;
- *   - a **bevel break** at `s = 0.12`, ~19 mm back, at 21° included. That normal
- *     discontinuity is the line of light that runs the whole crescent and it is
- *     the single feature that says "axe" at fifty metres;
+ *   - a **bevel break** at `s = 0.12` of the way back, about 20 mm on the Dane axe
+ *     and 10 on the hand axe, at roughly 15 degrees included (the half angle is
+ *     atan(0.14 x 0.019 / 0.0203); this note used to say 21, and was not the code's).
+ *     That normal discontinuity is the line of light that runs the whole crescent
+ *     and it is the single feature that says "axe" at fifty metres;
  *   - a blade that swells out of the eye and thins to the edge, so the head has a
  *     lit top plane and a dark underside from every bearing, not just square on;
  *   - horns and beard that are thin where they are thin on a real head, because
@@ -11257,11 +11922,18 @@ export function buildDagger(materials?: CharacterMaterials, styleId?: string): T
  *     edge, so the metal is still full thickness where it meets the socket.
  *
  * Both polylines must be the same length; `t` is their shared index.
+ *
+ * `r0` and `r1` pick the rows of `SECTION` to build, so the head can be cut in two
+ * at the bevel break: rows 0-2 are the ground bevel (the bright steel BIT welded
+ * into the edge, which is what a real head is: a steel strip in an iron body) and
+ * rows 3-5 the cheeks (dark iron). One surface, one crease, two materials.
  */
 function axeBlade(
   edge: Array<[number, number]>,
   root: Array<[number, number]>,
   eyeHalf: number,
+  r0 = 0,
+  r1 = 6,
 ): THREE.BufferGeometry {
   // Distance from the edge, and the half-thickness there as a fraction of the
   // eye. Front-loaded: an axe is a long thin wedge for most of its width and
@@ -11275,7 +11947,7 @@ function axeBlade(
   // the grid with different indices; the quad between them has no area and so
   // contributes no normal, and the faces above and below it end up with normals
   // of their own. That is a hard crease for the cost of one row of vertices, and
-  // there are two of them: one at the land, one at the bevel shoulder 21 mm back.
+  // there are two of them: one at the land, one at the bevel shoulder.
   const SECTION: Array<[number, number]> = [
     [0, 0.030], [0, 0.030], [0.12, 0.17], [0.12, 0.17], [0.34, 0.27], [0.62, 0.40], [1, 1],
   ];
@@ -11284,7 +11956,7 @@ function axeBlade(
   const at = (t: number, s: number, sign: number, out: THREE.Vector3) => {
     const ti = Math.min(n - 1, Math.floor(t * n));
     const tf = t * n - ti;
-    const si = Math.min(rows - 1, Math.floor(s * rows));
+    const si = Math.min(rows - 1, Math.floor(s * rows + 1e-9));
     const sf = s * rows - si;
     const ex = mix(edge[ti][0], edge[ti + 1][0], tf);
     const ey = mix(edge[ti][1], edge[ti + 1][1], tf);
@@ -11303,89 +11975,122 @@ function axeBlade(
   // collinear vertices. Curvature is bought by authoring points, not by nu.
   // `u` runs backwards so ∂u × ∂v comes out along +z and the outer grid faces
   // out; taken forwards the whole head renders inside out and disappears.
+  const sAt = (v: number) => (r0 + v * (r1 - r0)) / rows;
   return patch({
-    nu: n, nv: rows,
-    outer: (u, v, out) => at(1 - u, v, 1, out),
-    inner: (u, v, out) => at(1 - u, v, -1, out),
+    nu: n, nv: r1 - r0,
+    outer: (u, v, out) => at(1 - u, sAt(v), 1, out),
+    inner: (u, v, out) => at(1 - u, sAt(v), -1, out),
   });
 }
 
 /**
- * The berserker's Dane axe: bearded crescent, langets down the haft, 1.44 m.
+ * THE HEADS OF THE AXES. Two tables, because a hand axe is not a small Dane axe.
+ *
+ * Each is an edge polyline (top horn round to the beard tip) and the root line where
+ * the blade dies into the eye, index for index. x is out from the haft, y along it,
+ * both metres from the eye's centre. The last four stations of each edge are the
+ * BEARD, and they are the reason these are tables and not arcs: the edge hooks down and
+ * *back* toward the haft while the root runs under the socket to x < 0, so the two
+ * curves open a concave throat beneath the eye — the one piece of an axe's outline no
+ * other weapon in the game has, and it survives being 30 px tall.
+ *
+ * DANE (the Long Bearded Axe, `skeggox`; Petersen types C-E scale, the game's best
+ * silhouette and kept): 272 mm of edge along the haft, from a horn 92 mm above the
+ * eye to a beard 180 mm below it, 196 mm out. It was 307 mm (horn 137, beard 170, 204
+ * out): LORE 5.3 asks for 10-15% less and for the beard hook kept, and the top horn
+ * took the larger share (-35%), so the head is bottom-heavy the way the finds are.
+ *
+ * HAND (the one-hand bearded axe of `hand_axes` and `twin_beards`): 147 mm of edge, a
+ * head 100 mm out, its beard hooked back to 25 mm from the haft. It was the Dane axe at
+ * 0.74 (227 mm of edge, LORE says under 180), the same curve at two sizes, and its
+ * beard was as open as the big one's. It has its own table now, so the hook that reads
+ * at 30 px is drawn and not scaled.
+ */
+const DANE_EDGE: Array<[number, number]> = [
+  [0.156, 0.092], [0.174, 0.079], [0.184, 0.064], [0.191, 0.049], [0.195, 0.032], [0.196, 0.016], [0.195, -0.011], [0.192, -0.039],
+  [0.186, -0.065], [0.179, -0.090], [0.169, -0.115], [0.155, -0.138], [0.137, -0.157], [0.117, -0.172], [0.094, -0.180],
+];
+const DANE_ROOT: Array<[number, number]> = [
+  [0.008, 0.047], [0.015, 0.042], [0.020, 0.036], [0.024, 0.029], [0.027, 0.020], [0.028, 0.008], [0.028, -0.007], [0.027, -0.022],
+  [0.025, -0.036], [0.021, -0.049], [0.016, -0.063], [0.009, -0.077], [0.000, -0.092], [-0.013, -0.106], [-0.026, -0.119],
+];
+const HAND_EDGE: Array<[number, number]> = [
+  [0.070, 0.056], [0.082, 0.047], [0.090, 0.036], [0.096, 0.024], [0.099, 0.011], [0.100, -0.002], [0.099, -0.015], [0.096, -0.028],
+  [0.090, -0.041], [0.082, -0.054], [0.072, -0.066], [0.060, -0.076], [0.047, -0.084], [0.035, -0.089], [0.025, -0.091],
+];
+const HAND_ROOT: Array<[number, number]> = [
+  [0.006, 0.026], [0.010, 0.020], [0.014, 0.013], [0.016, 0.006], [0.017, -0.001], [0.017, -0.008], [0.016, -0.015], [0.014, -0.022],
+  [0.011, -0.029], [0.007, -0.036], [0.002, -0.043], [-0.004, -0.050], [-0.010, -0.057], [-0.016, -0.063], [-0.021, -0.069],
+];
+
+/**
+ * The Long Bearded Axe (`skeggox`; the game's "Dane axe") and its one-hand cousin
+ * (LORE 5.3, CH-42): bearded crescent, langets down the haft, an ash haft 1.5 m
+ * long (0.6 m for the hand axe).
+ *
+ * The head is TWO MATERIALS because a real head is: a strip of hard steel welded into
+ * the edge of a soft iron body. The bright bevel (rows 0-2 of the section, about 20 mm
+ * on the Dane axe) is steel, the cheeks are dark iron, and the weld line is the crease
+ * at the bevel break — a free T2 read, a light line against a dark face, on the one
+ * silhouette in the game that needed no help.
+ *
+ * NOTHING ABOUT ITS REACH MOVED. `rig.reach` in anim.ts is `boundingBox.max.y`, and
+ * the top horn came down 45 mm (137 to 92 above the eye), so the head is seated 45 mm
+ * higher on the haft: the tip of the horn is at exactly the height it was (0.997 for
+ * the Dane axe, 0.401 for the hand axe), which is what `tools/weaponshape.mjs` locks.
+ * What that costs is a haft that runs 45 mm further up past the eye.
  *
  * Rebalanced about the grip, and the reason is a defect one panel read as a broken
- * *helmet*. The head used to sit 1.12 m up the haft from a grip at 0.90 m, and at
- * the shouldered carry that put a 256 mm steel crescent at y = 1.89 — the middle
- * of the skull. In `art/shots/v3/lineup.png` it overlaps the helm's silhouette and
- * reads as a second, detached bowl, and its polished face — 0.22 roughness against
- * a bright sky env map — blows to 250 luma and becomes the "white blob beside the
- * helm". Nothing was wrong with the berserker's head assembly at all.
- *
- * So the mass came 260 mm down the haft and the butt grew by the same, which
- * leaves the weapon's overall length and its head-to-butt reach where they were
- * and moves the crescent to shoulder height at rest. That overshot in the other
- * direction — at `STANCE.berserker.rest` of -1.78 the head sat *behind* the
- * deltoid and pauldron with only 16% of it visible, so the fix for one defect
- * created another and no amount of blade modelling could show through it. The
- * carry angle is -1.35 now, which is the other half of the same fix and lives in
- * anim.ts. Geometry could not reach it: sweeping `headY` up far enough to clear
- * the shoulder puts the head back on the helm.
- *
- * `rig.reach` in anim.ts is measured off this geometry's bounding box, so the
- * blade trail follows it without being told.
+ * *helmet*: the head used to sit 1.12 m up the haft from a grip at 0.90 m, and at the
+ * shouldered carry that put a 256 mm steel crescent in the middle of the skull, where
+ * it overlapped the helm's silhouette and read as a second, detached bowl. The mass
+ * came 260 mm down the haft and the butt grew by the same, which leaves the weapon's
+ * overall length where it was; the carry angle is -1.35 in anim.ts, which is the other
+ * half of the same fix. `rig.reach` follows the geometry without being told.
  */
 export function buildAxe(materials?: CharacterMaterials, styleId?: string, form: "dane" | "hand" = "dane"): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
-  // 0.34 rather than 0.22, and a darker albedo. A 220 mm mirror is the largest
-  // specular in the game and it was clipping; a Dane axe is a forged, ground,
-  // hard-used tool, not a bezel.
+  // Steel for the bit at a 0.38 roughness and iron for the cheeks at 0.55: a 220 mm mirror is
+  // the largest specular in the game and it was clipping; a Dane axe is a forged, ground,
+  // hard-used tool, not a bezel. The `fitting` is the dark of the iron until a finish puts a
+  // mount there (CH-41: the axe and the spear had no fitting slot at all).
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xa9b2bd, 0.34], iron: [0x5c636d, 0.52], grip: 0x33241a, shaft: 0x6a4c2c,
+    steel: [WEAPON_STEEL.flat, 0.42], edge: [WEAPON_STEEL.edge, 0.38], metal: WEAPON_STEEL.metal,
+    iron: [0x4a4f57, 0.55], fitting: [0x3c4148, 0.5], grip: 0x33241a, shaft: 0xa78c66,
   });
-  const steel = P.steel;
+  const bit = P.edge!;
   const iron = P.iron!;
+  const mount = P.fitting!;
   const ash = P.shaft!;
   const leather = P.grip!;
+  // The eye collar: calmer than the cheeks, on a large tile (one facet to the 60 mm of a
+  // collar, not four), because a collar is a plain forged ring and the loud one drew the
+  // eye to the one place the axe is not the point.
+  const style = weaponStyleOf(styleId);
+  const collarMat = M.tinted("iron", tintHex(0x4a4f57, style.iron.tint), { roughness: 0.6, tile: 1.1 });
 
-  // THE HAND FORM (7.7b): the one-hand bearded axe the arms table calls
-  // "hand_axes"/"twin_beards" — the same forge as the Dane axe (same edge
-  // curve family, same eye, same langets) at a hand axe's real proportions:
-  // ~0.55 m of haft against 1.5, and a head 0.74 the size, which keeps the
-  // beard's concave throat readable at 30 px. The `dane` branch keeps every
-  // literal it always had, byte for byte — the shipped silhouette is a
-  // measured baseline and moves for nobody.
   const hand = form === "hand";
-  const K = hand ? 0.74 : 1;
-  const headY = hand ? 0.30 : 0.86;
+  // The eye's centre up the haft. The Dane head is seated 45 mm higher than it was so the
+  // horn's tip stays at the height `rig.reach` reads; the hand head 0.345 for the same reason.
+  const headY = hand ? 0.345 : 0.905;
+  const Kc = hand ? 0.72 : 1; // the collar, langets and eye scale with the head
 
-  // Haft with an oval section — and the oval's long axis runs **along the cut**,
-  // which is the way round a real haft is shaped so the hand knows where the edge
-  // is without looking. It was the other way round, and the section disagreed
-  // with the head it carries.
+  // Haft with an oval section — and the oval's long axis runs **along the cut**, which is the
+  // way round a real haft is shaped so the hand knows where the edge is without looking.
   //
-  // THE SECOND HALF OF THAT NOTE IS NO LONGER TRUE AND IS RECORDED HERE RATHER
-  // THAN DELETED. It used to add "the haft presented its narrow face to a camera
-  // that is nearly always in front of the warrior", and that was an argument
-  // about an ABSOLUTE bearing, made while the whole head was pointing out of the
-  // man's side. The `roll` group at the end of this function turns the entire
-  // axe, haft and head together, so the relationship this paragraph is actually
-  // about — long axis along the cut — is untouched, while the bearing that
-  // sentence appealed to is now 90° round: a camera in front sees the 32 mm face
-  // of a 41 x 32 mm haft rather than the 41 mm one. Nine millimetres on a stick,
-  // against a 204 mm head that was cutting sideways. Worth saying out loud
-  // because the next reader will otherwise find two comments disagreeing and
-  // trust the wrong one.
+  // (An older note here argued the haft presented its narrow face to a camera in front of the
+  // warrior. That was an argument about an ABSOLUTE bearing, made while the head pointed out of
+  // the man's side; the `roll` group at the end turns haft and head together, so the
+  // relationship that matters — long axis along the cut — is untouched, and the camera in front
+  // now sees the 32 mm face of a 41 x 32 mm haft. Recorded rather than deleted so the next
+  // reader does not find two comments disagreeing and trust the wrong one.)
   //
-  // Waisted where the hand closes, and that is the other half of the grip
-  // defect. Over the binding the haft measured **64 mm across** at the fist —
-  // wider than the span between a closed thumb and forefinger — so the fingers
-  // were modelled inside the wood and what showed outside it was the back of a
-  // hand lying against a post. A Dane axe haft is ~35 mm at the grip and swells
-  // again at the butt for the lower hand to pull against, which is the shape
-  // below: full section under the head where the langets ride, 41 mm at the
-  // grip, 56 mm at the butt.
+  // Waisted where the hand closes: a Dane axe haft is ~35 mm at the grip and swells again at
+  // the butt for the lower hand to pull against, which is the shape below: full section under
+  // the head where the langets ride, 41 mm at the grip, 56 mm at the butt. The binding over it
+  // is `HAND_GRIP`'s radius and nothing else: the fist is baked to it.
   part.add(shell(hand ? [
     { y: headY + 0.05, hw: 0.021, hd: 0.017 },
     { y: 0.16, hw: 0.019, hd: 0.0155 },
@@ -11400,82 +12105,54 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
     { y: -0.34, hw: 0.024, hd: 0.0195 },
     { y: -0.56, hw: 0.028, hd: 0.023 },
   ], 8, { capTop: true, capBottom: true }), ash);
+  // The butt cap: the dark of the iron on the issued axe, the finish's mount on a bought one.
   part.add(shell(hand ? [
     { y: -0.185, hw: 0.025, hd: 0.021 },
     { y: -0.215, hw: 0.021, hd: 0.018 },
   ] : [
     { y: -0.54, hw: 0.034, hd: 0.030 },
     { y: -0.58, hw: 0.030, hd: 0.026 },
-  ], 8, { capTop: true, capBottom: true }), iron);
+  ], 8, { capTop: true, capBottom: true }), mount);
 
-  // The cutting edge, top horn round to the beard tip, and the line where the
-  // blade dies into the eye. 295 mm of edge on 176 mm of blade beyond the socket,
-  // which is a large but unremarkable Petersen type M — the reach off the haft is
-  // 204 mm, i.e. exactly what the old plate had. The head is bigger in silhouette
-  // and no longer in reach, and that is the trade this pass wanted: what was
-  // missing was never length, it was *form*.
-  //
-  // The last four stations of both curves are the beard, and they are the reason
-  // this is a table rather than an arc. The edge hooks down and *back* toward the
-  // haft while the root runs under the socket to x = -20 mm, so the two curves
-  // open a concave throat beneath the eye. That notch is the one piece of an axe's
-  // outline no other weapon in the game has, and it survives being 30 px tall.
-  const edge: Array<[number, number]> = [
-    [0.163, 0.137], [0.181, 0.116], [0.192, 0.093], [0.199, 0.068],
-    [0.203, 0.042], [0.204, 0.016], [0.203, -0.010], [0.200, -0.036],
-    [0.194, -0.061], [0.186, -0.085], [0.176, -0.108], [0.161, -0.130],
-    [0.143, -0.148], [0.122, -0.162], [0.098, -0.170],
-  ];
-  const root: Array<[number, number]> = [
-    [0.008, 0.066], [0.015, 0.058], [0.020, 0.048], [0.024, 0.036],
-    [0.027, 0.022], [0.028, 0.008], [0.028, -0.006], [0.027, -0.020],
-    [0.025, -0.033], [0.021, -0.046], [0.016, -0.059], [0.009, -0.072],
-    [0.000, -0.086], [-0.013, -0.100], [-0.026, -0.112],
-  ];
-  // The root line sits inside the socket's own waist, so the blade's inboard rim
-  // is buried in it rather than ending in a lit 38 mm plate.
-  // The hand form scales the whole blade table by K — same curve family,
-  // same beard throat, a head a one-hand swing can carry.
-  const scaled = (pts: Array<[number, number]>): Array<[number, number]> =>
-    K === 1 ? pts : pts.map(([x, y]) => [x * K, y * K] as [number, number]);
-  part.add(axeBlade(scaled(edge), scaled(root), 0.019 * K), steel, xf(0, headY, 0));
+  // THE HEAD, cut at the bevel break into bright steel bit and dark iron cheeks.
+  const edge = hand ? HAND_EDGE : DANE_EDGE;
+  const root = hand ? HAND_ROOT : DANE_ROOT;
+  const eyeHalf = 0.019 * Kc;
+  part.add(axeBlade(edge, root, eyeHalf, 0, 3), bit, xf(0, headY, 0));
+  part.add(axeBlade(edge, root, eyeHalf, 3, 6), iron, xf(0, headY, 0));
 
-  // The eye: a forged collar round the haft with a lip at each end and a waist
-  // between them. The lips are the point — they are two hard horizontal edges at
-  // the one place on the weapon where the light is not raking, and without them
-  // the socket was a 96 mm-deep lozenge that read as a fist round the haft and
-  // stood proud of the blade it is supposed to carry.
+  // The eye: a forged collar round the haft with a lip at each end and a waist between them.
+  // The lips are the point — two hard horizontal edges at the one place on the weapon where the
+  // light is not raking; without them the socket was a 96 mm-deep lozenge that read as a fist
+  // round the haft. It stops at the horn's own height so it never lifts `rig.reach`, and its lower
+  // lip runs down far enough to bury the end of the root line (the beard's inner edge starts there).
+  const collarTop = hand ? 0.050 : 0.085;
+  const waist = hand ? 0.030 : 0.058; // where the waist between the two lips begins
   part.add(shell(([
-    { y: 0.092, hw: 0.030, hd: 0.020 },
-    { y: 0.079, hw: 0.036, hd: 0.025 },
-    { y: 0.058, hw: 0.032, hd: 0.022 },
-    { y: -0.058, hw: 0.032, hd: 0.022 },
-    { y: -0.079, hw: 0.036, hd: 0.025 },
-    { y: -0.092, hw: 0.030, hd: 0.020 },
-  ]).map((s) => (K === 1 ? s : { y: s.y * 0.8, hw: s.hw * 0.85, hd: s.hd * 0.85 })), 10, { power: 2.5 }), iron, xf(0, headY, 0));
+    { y: collarTop, hw: 0.030, hd: 0.020 },
+    { y: collarTop - 0.013, hw: 0.036, hd: 0.025 },
+    { y: waist, hw: 0.032, hd: 0.022 },
+    { y: -0.070, hw: 0.032, hd: 0.022 },
+    { y: -0.100, hw: 0.036, hd: 0.025 },
+    { y: -0.113, hw: 0.030, hd: 0.020 },
+  ]).map((st) => (Kc === 1 ? st : { y: st.y > 0 ? st.y : st.y * 0.64, hw: st.hw * 0.85, hd: st.hd * 0.85 })), 10, { power: 2.5 }), collarMat, xf(0, headY, 0));
 
-  // Langets: two straps down the faces the blade lies in, tapering to a point,
-  // riveted through. They used to be a pair of 50 mm-deep boxes standing 5 mm
-  // clear of the haft on either side of it — at gameplay distance that is a fork,
-  // not a binding, and it was most of what made the visible half of this weapon
-  // read as a stick. Built as prisms in their own plane and turned onto the haft,
-  // so each lies *on* the wood with a rounded back.
+  // Langets: two straps down the faces the blade lies in, tapering to a point, riveted through.
+  // Built as prisms in their own plane and turned onto the haft, so each lies *on* the wood with
+  // a rounded back (they used to be a pair of boxes standing 5 mm clear of it: a fork, not a binding).
   const langet: Array<[number, number]> = [
     [-0.014, 0.020], [0.014, 0.020], [0.012, -0.052], [0.007, -0.108],
     [0.0, -0.145], [-0.007, -0.108], [-0.012, -0.052],
   ];
-  for (const s of [-1, 1]) {
-    part.add(lensPrism(K === 1 ? langet : langet.map(([x, y]) => [x * 0.8, y * 0.8] as [number, number]),
-      0.007, 0.3), iron, xf(s * 0.024 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8), 0, 0, s * Math.PI / 2, 0));
-    for (const ry of (K === 1 ? [-0.01, -0.09] : [-0.008, -0.07])) {
-      part.add(ball(0.005, 6), iron, xf(s * 0.029 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8) + ry, 0, 0, 0, 0, 0.6, 1, 1));
+  for (const sd of [-1, 1]) {
+    part.add(lensPrism(Kc === 1 ? langet : langet.map(([x, y]) => [x * 0.8, y * 0.8] as [number, number]),
+      0.007, 0.3), iron, xf(sd * 0.024 * (Kc === 1 ? 1 : 0.85), headY - 0.10 * (Kc === 1 ? 1 : 0.8), 0, 0, sd * Math.PI / 2, 0));
+    for (const ry of (Kc === 1 ? [-0.01, -0.09] : [-0.008, -0.07])) {
+      part.add(ball(0.005, 6), mount, xf(sd * 0.029 * (Kc === 1 ? 1 : 0.85), headY - 0.10 * (Kc === 1 ? 1 : 0.8) + ry, 0, 0, 0, 0, 0.6, 1, 1));
     }
   }
-  // Grip binding: 3 mm of hide over the waisted wood, not 8. It used to stand
-  // proud enough to be a collar rather than a wrap, and it is the surface the
-  // fist is fitted to — `HAND_GRIP.berserker` is this radius and nothing else.
-  // The hand form's binding sits at the haft's own waist, y = 0 on a weapon
-  // whose whole haft is 0.55 m.
+  // Grip binding: 3 mm of hide over the waisted wood, not 8 — it stood proud enough to be a collar
+  // rather than a wrap, and it is the surface the fist is fitted to (`HAND_GRIP.berserker`).
   part.add(shell(hand ? [
     { y: 0.07, hw: 0.0195, hd: 0.0160 },
     { y: -0.07, hw: 0.0200, hd: 0.0165 },
@@ -11484,31 +12161,21 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
     { y: -0.09, hw: 0.0240, hd: 0.0195 },
   ], 8, { wall: 0.004 }), leather, xf(0, hand ? 0 : 0.02, 0));
 
-  // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90°
-  // anticlockwise too."
+  // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90 degrees anticlockwise too."
   //
-  // Every weapon in this file draws its blade in local XY with the flat on local
-  // Z, and the hand mount's only rotation is `Rx(GRIP_PITCH)` — and Rx leaves X
-  // alone. So local +X lands on the body's LATERAL axis, and a blade whose
-  // cutting direction is +X cuts sideways. The sword, the spear and the seax are
-  // symmetric about the haft, so on them the fault has nothing to show; the Dane
-  // axe's head is 204 mm of steel on ONE side, and measured on the posed rig it
-  // pointed 0.96 along the man's lateral axis against 0.26 along his forward. A
-  // man carrying it was carrying a flag on a pole, and the swing cut with the
-  // flat of the blade.
+  // Every weapon in this file draws its blade in local XY with the flat on local Z, and the hand
+  // mount's only rotation is `Rx(GRIP_PITCH)` — and Rx leaves X alone. So local +X lands on the
+  // body's LATERAL axis, and a blade whose cutting direction is +X cuts sideways. The sword, the
+  // spear and the seax are symmetric about the haft, so on them the fault has nothing to show; the
+  // axe's head is 196 mm of steel on ONE side. Ry(-pi/2) takes local +X onto local +Z, which is
+  // the way the man faces, so the edge leads the arc instead of crossing it. It goes on an inner
+  // group and NOT on the returned one, because `anim.ts` does
+  // `rig.weapon.rotation.set(wrist, 0, P.wz)` every frame and hard-zeroes Y, so a roll written on
+  // the group this function returns survives exactly until the first pose. `rig.reach` is safe
+  // either way: a turn about Y cannot move a bound in Y.
   //
-  // Ry(-π/2) takes local +X onto local +Z, which is the way the man faces, so the
-  // edge leads the arc instead of crossing it. It goes on an inner group and NOT
-  // on the returned one, because `anim.ts` does
-  // `rig.weapon.rotation.set(wrist, 0, P.wz)` every frame — it writes all three
-  // Euler channels and hard-zeroes Y, so a roll written on the group this
-  // function returns survives exactly until the first pose. `rig.reach` is safe
-  // either way: it reads `geometry.boundingBox.max.y`, and a turn about Y cannot
-  // move a bound in Y. Measured before and after: 997 mm, unchanged.
-  //
-  // ONLY the axe. Rolling the sword would turn its 62 mm face away from a camera
-  // that is nearly always in front of the warrior and present the 8 mm edge
-  // instead, which trades a real silhouette for a symmetry that costs nothing.
+  // ONLY the axe. Rolling the sword would turn its face away from a camera that is nearly always
+  // in front of the warrior and present the edge instead.
   const roll = new THREE.Group();
   roll.rotation.y = -Math.PI / 2;
   for (const { geo, mat } of part.merge()) roll.add(new THREE.Mesh(geo, mat));
@@ -11517,53 +12184,104 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
 }
 
 /**
- * The warden's spear. Not a stylistic flourish — it is the only weapon in the
- * roster whose silhouette can be read from across the arena, which is what the
- * class needed to stop being "the huscarl without a shield".
+ * THE WARDEN'S SPEAR (gar; LORE 5.4, CH-27) — a winged head of Petersen's type E on a slim ash shaft.
+ *
+ * Not a stylistic flourish: it is the only weapon in the roster whose silhouette can be read from
+ * across the arena, which is what the class needed to stop being "the huscarl without a shield".
+ * The silhouette is why the head is what it is now. It was a fat leaf on a 38 mm broomstick with
+ * a socket like a cup, which reads as a garden fork's cousin at fifty metres; the finds are a
+ * long slim leaf (it stays 310 mm, tip at y 1.44, where `rig.reach` reads it) on a socket with
+ * two LUGS, the wings, that turn a thrust that would slide down the shaft and give the head its
+ * cross at the fight lens: 116 mm across the wings against 86 mm across the leaf.
+ *
+ *   THE LEAF is `forgedBlade` with its fuller run backwards: a raised MIDRIB, a wide bevel to each
+ *   edge and a rounded ogive point, in bright steel with brighter bevels. The head is bright where
+ *   it cuts and dark where it is only iron:
+ *   THE SOCKET AND THE WINGS are dark iron (`P.iron`), the wings two flat plates lying in the
+ *   blade's own plane, and a silvered COLLAR ring at the socket's foot hides the joint with the
+ *   shaft. Two silvered rivets hold the head, one on each face, as the finds' rivet holes say.
+ *   That dark-below-bright pair is the stripe `tools/bladevalue.mjs` reads off the frame.
+ *   THE SHAFT is ash (LORE 5.4), 27-31 mm, where 25-30 is what a spear's is and the oak
+ *   broomstick was 38. The leather hand-hold is the radius the baked fists close on and did not
+ *   move, and the iron shoe is the same cone it was.
  */
 export function buildSpear(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xc2cad4, 0.22], iron: [0x585f68, 0.55], grip: 0x2f2117, shaft: 0x7a5e38,
+    steel: [WEAPON_STEEL.flat, 0.34], edge: [WEAPON_STEEL.edge, 0.30], metal: WEAPON_STEEL.metal,
+    iron: [0x383c42, 0.55], fitting: [0xb9b4a6, 0.4], grip: 0x2f2117, shaft: 0xb59a72,
   });
-  const steel = P.steel;
   const iron = P.iron!;
+  const silver = P.fitting!;
   const ash = P.shaft!;
   const leather = P.grip!;
 
+  // The shaft: 27 mm at the head, 31 at the hand, 27 at the shoe.
   part.add(shell([
-    { y: 1.02, hw: 0.016, hd: 0.016 },
-    { y: 0.4, hw: 0.019, hd: 0.019 },
-    { y: -0.2, hw: 0.019, hd: 0.019 },
-    { y: -0.55, hw: 0.016, hd: 0.016 },
-  ], 8, { capTop: true, capBottom: true }), ash);
-  // Socket, then a leaf blade with a raised midrib.
+    { y: 1.02, hw: 0.0135, hd: 0.0135 },
+    { y: 0.4, hw: 0.0150, hd: 0.0150 },
+    { y: -0.2, hw: 0.0155, hd: 0.0155 },
+    { y: -0.55, hw: 0.0135, hd: 0.0135 },
+  ], 10, { capTop: true, capBottom: true }), ash);
+
+  // The leaf: 310 mm from the socket's mouth to the point, 86 mm across at the belly (y 1.25), an
+  // ogive from y 1.36. Wide bevels (62% of the half width) and a thin flat, so the section is a
+  // lozenge with a midrib standing 2.8 mm proud of it and not a slab.
+  const TIP = 1.44;
+  const OGIVE = 1.36;
+  const leaf: BladeStation[] = [
+    { y: 1.10, hw: 0.0150, hd: 0.0034 },
+    { y: 1.15, hw: 0.0255, hd: 0.0040 },
+    { y: 1.20, hw: 0.0380, hd: 0.0044 },
+    { y: 1.25, hw: 0.0430, hd: 0.0046 },
+    { y: 1.30, hw: 0.0420, hd: 0.0046 },
+    ...[0, 0.25, 0.5, 0.7, 0.85, 0.94, 0.985].map((t) => ({
+      y: OGIVE + (TIP - OGIVE) * t,
+      hw: Math.max(0.0030, 0.0385 * Math.sqrt(1 - t * t)),
+      hd: 0.0044 - 0.0030 * t,
+    })),
+    { y: TIP, hw: 0.0028, hd: 0.0012 },
+  ];
+  const head = forgedBlade({
+    stations: leaf,
+    fuller: { y0: 1.12, y1: 1.415, hw: 0.0030, depth: -0.0028, ramp: 0.03, wall: 0.0022 },
+    bevel: 0.62,
+  });
+  part.add(head.flat, P.steel);
+  part.add(head.edge, P.edge!);
+  part.add(head.fuller, P.edge!);
+
+  // The socket: a cone that grows out of the collar, swells to a mouth and shoulders in round the
+  // leaf's root. Dark iron. The shaft's top runs up inside it.
   part.add(shell([
-    { y: 1.13, hw: 0.02, hd: 0.02 },
-    { y: 1.05, hw: 0.028, hd: 0.028 },
-    { y: 0.99, hw: 0.024, hd: 0.024 },
-  ], 8, { power: 2.2 }), iron);
-  part.add(bladeSection([
-    { y: 1.44, hw: 0.005, hd: 0.0014 },
-    { y: 1.4, hw: 0.02, hd: 0.0038 },
-    { y: 1.31, hw: 0.036, hd: 0.0062 },
-    { y: 1.22, hw: 0.038, hd: 0.0068 },
-    { y: 1.13, hw: 0.022, hd: 0.005 },
-  ]), steel);
-  // The midrib, and it is meant to stand proud — but as a 300 mm box it ran past
-  // the blade at both ends and ended in a square face 10 mm short of the point,
-  // which renders as a fin sticking out of the leaf. Swept, it dies into the
-  // blade at the tip and again at the socket, standing ~1.2 mm off the faces
-  // where a rib actually stands and nowhere else.
-  part.add(shell([
-    { y: 1.405, hw: 0.0034, hd: 0.0044 },
-    { y: 1.30, hw: 0.006, hd: 0.0075 },
-    { y: 1.22, hw: 0.0062, hd: 0.008 },
-    { y: 1.14, hw: 0.005, hd: 0.0062 },
-  ], 6, { power: 2.2, capTop: true, capBottom: true }), iron);
-  // Ferrule at the butt and a bound hand-hold.
+    { y: 0.985, hw: 0.0185, hd: 0.0185 },
+    { y: 1.005, hw: 0.0200, hd: 0.0200 },
+    { y: 1.06, hw: 0.0212, hd: 0.0212 },
+    { y: 1.122, hw: 0.0232, hd: 0.0232 },
+    { y: 1.134, hw: 0.0208, hd: 0.0208 },
+    { y: 1.142, hw: 0.0140, hd: 0.0140 },
+  ], 12, { capTop: true }), iron);
+  // The collar ring at the socket's foot, and a rivet on each face.
+  part.add(wfFerrule(0.0195, 0.0195, 0.010, 0.0028, 16), silver, xf(0, 0.994, 0));
+  const RIVET = wfRoundedRect(0.0030, 0.0030, 0.0028, 3);
+  for (const s of [-1, 1]) for (const y of [1.056, 1.094]) {
+    part.add(wfPlate(RIVET, 0.0026, 0.78), silver, xf(0, y, s * (0.0209 + (y - 1.056) * 0.0005)));
+  }
+
+  // The wings: two lugs in the blade's own plane, springing from the socket's sides at y 1.04 and
+  // turning up toward the leaf's root, 117 mm across in all. Flat plates 3.6 mm thick, dark iron.
+  const WING: Array<[number, number]> = [
+    [0.0205, 1.046], [0.0330, 1.040], [0.0470, 1.050], [0.0570, 1.070], [0.0585, 1.092],
+    [0.0540, 1.116], [0.0450, 1.134], [0.0340, 1.146], [0.0240, 1.146], [0.0205, 1.100],
+  ];
+  for (const s of [-1, 1]) {
+    const outline: Array<[number, number]> = s === 1 ? WING : WING.map(([x, y]) => [-x, y] as [number, number]).reverse();
+    part.add(wfPlate(outline, 0.0036, 0.92), iron);
+  }
+
+  // The iron shoe at the butt, and the bound hand-hold: radii unchanged, the fists close on them.
   part.add(shell([
     { y: -0.52, hw: 0.021, hd: 0.021 },
     { y: -0.62, hw: 0.014, hd: 0.014 },

@@ -219,9 +219,14 @@ const CATALOG: Record<MaterialName, Spec> = {
   bannerRed:       { color: 0x8a2530, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
   bannerBlue:      { color: 0x2c4a8a, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
 
-  spearShaft:      { color: 0x5a3c22, roughness: 0.85, metalness: 0, surface: "oak", repeat: [1, 8] },
-  spearTip:        { color: 0xb8bfc8, roughness: 0.2, metalness: 0.9, surface: "steel", repeat: [1, 1] },
-  debrisBlade:     { color: 0xaab2bc, roughness: 0.3, metalness: 0.8, surface: "steel", repeat: [1, 3] },
+  // A spear shaft is ash (LORE 5.4): pale, straight, no ray fleck. It was oak, dark, the
+  // tree of the palisade next to it, and the warden's own spear is ash now, so the racks
+  // in the world and the man's shaft are one wood. The tips and the dropped blades are
+  // partial metals for the reason `characters.ts` `WEAPON_STEEL` gives: a metalness of
+  // 0.8-0.9 with nothing to reflect but a dusk sky is a black blade or a white blob.
+  spearShaft:      { color: 0x9b8461, roughness: 0.75, metalness: 0, surface: "ash", repeat: [1, 8] },
+  spearTip:        { color: 0xb4b7ba, roughness: 0.32, metalness: 0.7, surface: "steel", repeat: [1, 1] },
+  debrisBlade:     { color: 0xa5a8ab, roughness: 0.34, metalness: 0.7, surface: "steel", repeat: [1, 3] },
   debrisHilt:      { color: 0x3a2a18, roughness: 0.9, metalness: 0, surface: "leather", repeat: [1, 1] },
 
   runestone:       { color: 0x7a7d84, roughness: 0.92, metalness: 0, surface: "granite", repeat: [1, 3] },
