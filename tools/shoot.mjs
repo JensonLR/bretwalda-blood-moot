@@ -883,6 +883,36 @@ async function main() {
       }
     }
 
+    // WHICH MAN WAS PHOTOGRAPHED. The arena builds the procedural man first and
+    // swaps the authored one in when a 1.6 MB GLB lands (and hangs his helm, hair
+    // and beard when three more do), and nothing here waited on either: a frame
+    // taken before the swap is a picture of the man the default player does not
+    // see, and he has a head — which is how a defect in the authored one gets
+    // certified (docs/PROCESS.md R5, and the reason `armourycard` learned to wait).
+    // `GameCanvas` pushes one row per man it has swapped AND dressed onto
+    // `window.__authoredHeads`; the tool waits until that has stopped growing (at
+    // least one man, six quiet polls) and PRINTS how many authored men it drew.
+    // A single-man card of a man with no war paint that drew none is an error: it
+    // is a picture of the wrong man. War-paint men are procedural by ruling, so a
+    // crowd of them is a note, not an error.
+    const authoredMen = await (async () => {
+      const t0 = Date.now();
+      let last = -1, quiet = 0;
+      while (Date.now() - t0 < 90000) {
+        const n = await page.evaluate(() => (window.__authoredHeads ?? []).length);
+        quiet = n === last ? quiet + 1 : 0;
+        last = n;
+        if (n > 0 && quiet >= 6) break;
+        await page.waitForTimeout(500);
+      }
+      return page.evaluate(() => (window.__authoredHeads ?? []).map((h) => ({ cls: h.cls, props: h.props, missing: h.missing })));
+    })();
+    if (authoredMen.length === 0 && staged.subject && staged.subject.warPaint === "none") {
+      errors.push("no AUTHORED man was drawn (window.__authoredHeads is empty after 90 s): this frame is a picture of the PROCEDURAL man");
+    }
+    console.log(`[shoot] ${key}: authored men drawn ${authoredMen.length}` +
+      `${authoredMen.length ? ` (${authoredMen.map((m) => `${m.cls}:${(m.props || []).join("+") || "bare"}${m.missing?.length ? `!missing ${m.missing.join("+")}` : ""}`).join(", ")})` : ""}`);
+
     // How long the settle actually took. A gore preset names an instant in a
     // death in frames and converts at the renderer's 0.05 s dt cap; if a frame
     // here is faster than that, the shot is of an earlier instant than the
@@ -931,7 +961,7 @@ async function main() {
     // `subject` in the report, not only in the check: the report is the audit's
     // index, and a row that names every slot the warrior was wearing is what lets
     // a finding be traced back to an option rather than to a filename.
-    const row = { preset: key, file, ready, blank, subject: staged.subject ?? undefined, ...clock, ...stats, errors: errors.slice(0, 8) };
+    const row = { preset: key, file, ready, blank, subject: staged.subject ?? undefined, authoredMen, ...clock, ...stats, errors: errors.slice(0, 8) };
     report.push(row);
     console.log(
       `[shoot] ${key}: ${blank ? "BLANK FRAME" : "ok"} ` +

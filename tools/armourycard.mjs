@@ -214,6 +214,18 @@ async function main() {
             if (f - f0 >= 8) break;
             await page.waitForTimeout(500);
           }
+          // BACK TO THE TOP, and then the mannequin has to have drawn there. Clicking a
+          // class or a lens scrolls its button into view, and at desktop width that left
+          // the page ~380 px down: every one of the eight desktop frames a first run
+          // took was of the helmet cards with the man cut off above them (found by
+          // opening the PNGs, PROCESS R5 — the log said 0 errors and LANDED eight times).
+          await page.evaluate(() => { const sh = document.querySelector(".shell"); if (sh) sh.scrollTop = 0; window.scrollTo(0, 0); });
+          const f1 = (await page.evaluate(() => window.__armouryStats?.frames ?? 0));
+          for (let i = 0; i < 40; i++) {
+            const f = await page.evaluate(() => window.__armouryStats?.frames ?? 0);
+            if (f - f1 >= 3) break;
+            await page.waitForTimeout(500);
+          }
           const out = `${NAME}-${cls ?? "class"}-${slug(lens ?? "lens")}-${vp.tag}`;
           await page.screenshot({ path: resolve(OUT, `${out}.png`) });
           console.log(`[card] ${out}`);
