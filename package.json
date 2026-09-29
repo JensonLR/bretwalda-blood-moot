@@ -11,6 +11,8 @@
     "start": "node custom-server.mjs",
     "lint": "eslint .",
     "csscheck": "node tools/csscheck.mjs",
+    "palettecheck": "node tools/palettecheck.mjs",
+    "numeralprobe": "node tools/numeralprobe.mjs",
     "locktest": "node tools/locktest.mjs",
     "facecover": "node tools/facecover.mjs",
     "beardvolume": "node tools/beardvolume.mjs",

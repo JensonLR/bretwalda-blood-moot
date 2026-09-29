@@ -372,19 +372,23 @@
     --ramp-cold-950: var(--niello-raised);
 
     /* Blood's light end is a TINT of its own text colour toward bone, because a
-       pale step that was a different hue would be a fifth accent. 300 is the
-       lightest that still says "danger" and 400 is the plan's #d4634a. */
+       pale step that was a different hue would be a fifth accent. 500 is the
+       plan's #d4634a, the darkest step that is still a WORD (4.7:1 on
+       niello-raised); 600 is the UI's critical FILL (#b04430, 3.1:1, so not a
+       word) and everything darker is an edge or a tint. The first draft put the
+       fill at 500, which made `text-red-500` a 3.1:1 word; palettecheck found it
+       by resolving the step through the compiled sheet. */
     --ramp-blood-50: color-mix(in oklab, var(--hp-critical-lit) 15%, var(--ink-bright));
     --ramp-blood-100: color-mix(in oklab, var(--hp-critical-lit) 25%, var(--ink-bright));
     --ramp-blood-200: color-mix(in oklab, var(--hp-critical-lit) 40%, var(--ink-bright));
     --ramp-blood-300: color-mix(in oklab, var(--hp-critical-lit) 65%, var(--ink-bright));
-    --ramp-blood-400: var(--hp-critical-lit);
-    --ramp-blood-500: var(--hp-critical);
-    --ramp-blood-600: var(--blood);
-    --ramp-blood-700: var(--madder);
-    --ramp-blood-800: var(--garnet);
-    --ramp-blood-900: color-mix(in oklab, var(--garnet) 55%, var(--niello));
-    --ramp-blood-950: color-mix(in oklab, var(--garnet) 22%, var(--niello));
+    --ramp-blood-400: color-mix(in oklab, var(--hp-critical-lit) 85%, var(--ink-bright));
+    --ramp-blood-500: var(--hp-critical-lit);
+    --ramp-blood-600: var(--hp-critical);
+    --ramp-blood-700: var(--blood);
+    --ramp-blood-800: var(--madder);
+    --ramp-blood-900: var(--garnet);
+    --ramp-blood-950: color-mix(in oklab, var(--garnet) 30%, var(--niello));
 
     /* THE TYPE RAMP — six steps of limewashed bone, and the reason the design
        system reads as ignored.
