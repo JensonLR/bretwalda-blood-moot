@@ -1022,7 +1022,10 @@
      file the player is served still HAS those OpenType features, after Google's
      subsetter and `next/font` have both had a go at it, is a question no
      stylesheet can answer, and `tools/numeralprobe.mjs` answers it by drawing
-     the glyph.
+     the glyph. ANSWERED 29 Sep 2026: they survived. At 160px Alegreya 700's "1"
+     is 85px tall by default (x-height, so the default IS old-style) and 98px under
+     `lining-nums`, and `tabular-nums` gives "1" and "0" one 72.0 advance where
+     proportional gives 57.3 and 80.5. Cinzel ignores both, which is the control.
 
        .nums          every timer, code, count and price: Alegreya 700, lining
                       and tabular, so a ticking clock does not shiver
@@ -2364,7 +2367,13 @@
 
    Not verified by a browser gate: the suites do not run forced-colors, so this
    block is checked by looking (`UISHOTS_FORCED=1 node tools/uishots.mjs` renders
-   the sweep in it) and is exactly as tested as that.
+   the sweep in it) and is exactly as tested as that. The first look found three
+   faults in the first draft (a selected label drawn white on white, the stat bars
+   erased, the map legend flattened) and they are fixed below. STILL OPEN, and not
+   this file's to fix: inline-styled colour chips (the armoury's hair and cloak
+   swatches, the Hearth's swatch) have no class to select and are flattened.
+   That emulation is Playwright's light scheme, not a Windows theme, so it shows
+   which things are lost and not how a real High Contrast palette will look.
    ========================================================================== */
 @media (forced-colors: active) {
   .card,
@@ -2398,18 +2407,37 @@
     border-color: GrayText;
     opacity: 1;
   }
+  /* THE SELECTED STATE IS AN OUTLINE, NOT A FILL. The first draft filled the active
+     tab and segment with `Highlight` and set the text to `HighlightText`, and the
+     forced-colors frames showed the label GONE: the browser lays a Canvas-coloured
+     backplate under any text drawn over a background image (the page's backdrop is
+     one), so HighlightText landed on a white plate on a navy button and read as a
+     white block. An outline survives, keeps the text CanvasText on its own plate,
+     and is thick enough to see. */
   .card-selected,
   .tab-item-active,
   .seg-item-active,
   .pad-on,
   .pad-run-on {
-    outline: 2px solid Highlight;
+    outline: 3px solid Highlight;
     outline-offset: -3px;
   }
-  .tab-item-active,
-  .seg-item-active {
+  /* The four peoples' swatches are the legend for a map whose fields keep their
+     colours (below): a swatch flattened to Canvas is a checkbox, not a key. */
+  .fm-swatch {
+    forced-color-adjust: none;
+  }
+  /* The class card's stat bars are two backgrounds and nothing else, so forced
+     colours erased them: a track and a fill both painted Canvas, four cards of HP,
+     SPD, DMG and DEF with no bars. The hook is the `role="img"` track StatBar
+     already carries. UNIT L REPLACES StatBar (UI-PLAN D05) and should keep the
+     role, or take this rule with it. */
+  button[data-cls] [role="img"] {
+    border: 1px solid CanvasText;
+  }
+  button[data-cls] [role="img"] > div {
+    forced-color-adjust: none;
     background: Highlight;
-    color: HighlightText;
   }
   .pip {
     border: 1px solid CanvasText;
