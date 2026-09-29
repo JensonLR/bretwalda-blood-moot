@@ -2541,6 +2541,10 @@ const SKIN_TONES: SkinTone[] = [
   { base: 0x8d6444, shade: 0x65472e, warm: 0x7c4936, sclera: 0x655d50 },
 ];
 
+
+// ==== CLOAK COLOURS (owner: U6) ====
+
+
 const CLOAK_COLORS: Record<string, number> = {
   brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
 };
@@ -2731,6 +2735,10 @@ function clothRepeat(girth: number): number {
   const want = girth / (CLOTH_BLOTCH * 4);
   return want < 10 ? 8 : want < 15 ? 12 : want < 21 ? 18 : 24;
 }
+
+
+// ==== IRIS COLOURS (owner: U5) ====
+
 
 // Iris colours. Dark eyes are the honest majority, but an eye only reads at all
 // because the iris is *darker than the sclera around it* — so the pale two exist
@@ -7319,6 +7327,10 @@ function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
   return g;
 }
 
+
+// ==== HELM FORM (owner: U8) ====
+
+
 /**
  * The spec of one worn shell, in the form `headWear` is asked for it.
  *
@@ -7614,6 +7626,10 @@ function helmWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
     inner: (t, s, out) => surf(t, s, opts.lift(mix(opts.u0, opts.u1, t), s) - opts.thick, out),
   });
 }
+
+
+// ==== EYES AND MOUTH (owner: U5) ====
+
 
 // ============================================================
 // Eyes and mouth
@@ -8542,6 +8558,10 @@ function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMate
     lift: () => -0.0006, thick: 0.0006,
   }), M.dark, place.clone());
 }
+
+
+// ==== HANGING MASS, PLAIT AND BEARD CUT (owner: U8) ====
+
 
 /**
  * A plait — strands wound about a common path — and the reason it is a function
@@ -14282,6 +14302,10 @@ export function buildCharacter(
   // band and quietly stop working.
   const ramp = spine[0].y + 0.004;
 
+
+  // ==== SHOULDER STACK (owner: U3) ====
+
+
   /**
    * THE OUTERMOST THING THIS CLASS WEARS ACROSS ITS SHOULDERS, declared once
    * so that the aventail hanging onto it and the hair coming out from under
@@ -14297,6 +14321,11 @@ export function buildCharacter(
   const shoulderStack: Station[] | null = heavy
     ? layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018])
     : null;
+
+
+  // ==== HEAVY MAIL STACK (owner: U3) ====
+
+
   /**
    * The hauberk under it, hoisted for the same reason and needed for the same
    * reach. The mantle is a CAPE — it stops at the chest — and a plait hangs
@@ -14305,6 +14334,19 @@ export function buildCharacter(
    * back inside the mail the moment the cape ran out, which is the same defect
    * one station lower down.
    */
+  const heavyMailStack: Station[] | null = heavy
+    ? layer(
+      [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
+        (S.hemY - 0.03) + 0.05, S.hemY - 0.03],
+      0.036,
+      [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
+    )
+    : null;
+
+
+  // ==== WARDEN BYRNIE STATIONS (owner: U3) ====
+
+
   // Only where it is actually SWEPT. The warden wears a short byrnie from its
   // own station list and the berserker wears no mail at all, so reporting this
   // one for them would be `shoulderOut` describing a garment that is not on the
@@ -14330,24 +14372,36 @@ export function buildCharacter(
       [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
     )
     : null;
-  const trunkStack: Station[] | null = bare ? null
-    : wallman ? wardenByrnieStations
-    : layer(
+
+
+  // ==== RUNE STACK (owner: U4) ====
+
+
+  // The runekeeper's over-jerkin in buff, swept from the same station rows as the huscarl's hauberk and hemmed 260 mm
+  // above his robe hem. It is its own const so the runekeeper's cut can move without touching the huscarl's mail: they were
+  // one `layer(...)` with a `heavy ? ... : ...` ternary in the hem rows, so editing either man edited both.
+  const runeStack: Station[] | null = robed
+    ? layer(
       [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
-        (heavy ? S.hemY - 0.03 : S.hemY + 0.26) + 0.05, heavy ? S.hemY - 0.03 : S.hemY + 0.26],
+        (S.hemY + 0.26) + 0.05, S.hemY + 0.26],
       0.036,
       [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
-    );
-  /**
-   * That stack's own half-breadths at a BODY height — the surface anything worn
-   * over the shoulders is lying ON. The caller adds its own clearance, so this
-   * reports the garment and nothing else.
-   *
-   * Clamped to the stack's own span: above its collar and below its lowest
-   * station it reports nothing, because a garment that stops at the chest is
-   * not what a thing 200 mm below it is lying on. That is the same rule
-   * `outer()` applies to a seated fitting, for the same reason.
-   */
+    )
+    : null;
+
+
+  // ==== TRUNK STACK (owner: SEAM) ====
+
+
+  // The name the hair ride (`shoulderOut`) and the metal blocks below have always read. It is now only a selector over the
+  // per-class stacks above and is not edited by any class: the berserker's is null (he wears no mail; his ruff and jerkin
+  // register in `worn`), the warden's is his byrnie, the runekeeper's is `runeStack`, and the huscarl's is `heavyMailStack`.
+  const trunkStack: Station[] | null = bare ? null
+    : wallman ? wardenByrnieStations
+    : robed ? runeStack
+    : heavyMailStack;
+
+
   /**
    * THE WORN REGISTRY, hoisted out of the torso emit so the fittings that run
    * AFTER the torso is built — the hair's ride, the beard's seat — read the
@@ -14361,6 +14415,16 @@ export function buildCharacter(
     worn.push({ sts, power });
     return sts;
   };
+  /**
+   * The registry's own half-breadths at a BODY height — the surface anything worn
+   * over the shoulders is lying ON. The caller adds its own clearance, so this
+   * reports the garment and nothing else.
+   *
+   * Clamped to each layer's own span: above its collar and below its lowest
+   * station it reports nothing, because a garment that stops at the chest is
+   * not what a thing 200 mm below it is lying on. That is the same rule
+   * `outer()` applies to a seated fitting, for the same reason.
+   */
   const shoulderOut = (y: number): { hw: number; hd: number; power: number } | null => {
     let out: { hw: number; hd: number; power: number } | null = null;
     // THE POWER TRAVELS WITH THE HALF-BREADTHS. `shell` sweeps a SUPERELLIPSE —
@@ -14475,6 +14539,10 @@ export function buildCharacter(
       return { st: (yy: number) => stationAlong(b.sts, yy), power: b.power };
     };
 
+
+    // ==== BREECHES (owner: U4) ====
+
+
     // Breeches over the seat, for every class. Without this the pelvis stops at
     // the last spine station and the crotch is a hole; with it, the two thigh
     // shells rise into one continuous mass and the figure has a fork instead of a
@@ -14485,6 +14553,10 @@ export function buildCharacter(
       { y: S.hipY + 0.06, hw: S.hipHW * 0.98, hd: S.hipHD * 0.99, z: -0.006 },
       ...seat,
     ], seg, { power: 2.3, capBottom: true }), trouser);
+
+
+    // ==== BARE TORSO (owner: U4) ====
+
 
     if (bare) {
       p.add(shell(spine, seg, { power: 2.4, capTop: true, capBottom: true }), skin);
@@ -14498,7 +14570,13 @@ export function buildCharacter(
           p.add(ball(0.034 * B.bulk, 8), skin, xf(s * 0.042, S.chestY - 0.09 - i * 0.062, S.waistHD * 0.86, 0, 0, 0, 1, 0.85, 0.42));
         }
       }
-    } else {
+    }
+
+
+    // ==== SHIRT (owner: U3) ====
+
+
+    if (!bare) {
       // Linen shirt: the first layer, and the one that shows at the collar and
       // the cuff. Its whole job is to be visible for 15 mm at each opening.
       // The +6 mm flare at the neckline is not cosmetic: this shell is capped, so
@@ -14517,6 +14595,26 @@ export function buildCharacter(
     // horizontal are four silhouettes nobody can tell apart, which is what
     // `art/shots/v6/lineup.png` shows. See `BuildTrait.hem`.
     const tunicHem = S.hemY;
+
+
+    // ==== RUNEKEEPER TUNIC (owner: U4) ====
+
+
+    if (robed) {
+      p.add(shell(
+        wear(layer(
+          [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
+          0.021,
+          [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
+        ), 2.3),
+        seg, { power: 2.3, wall: 0.014 },
+      ), cloakMat);
+    }
+
+
+    // ==== SLIT TUNIC (owner: U3) ====
+
+
     // THE HEM THAT READ AS A KILT. `docs/COSMETICS-AUDIT.md` §1: "a straight
     // horizontal flare at mid-thigh over legs that read bare". Both halves of that
     // are true and this is the first of them — the garment was one closed cone
@@ -14536,68 +14634,63 @@ export function buildCharacter(
     // fighting man's tunic — he is a wisdom figure in a long robe, and an unslit
     // hem is the cheapest true thing that says so. Coverage and cut, not invented
     // armour: three slit tunics at three lengths and one closed robe.
-    const slitY = mix(S.hipY, tunicHem, 0.16);
-    if (!bare) {
-      if (robed) {
-        p.add(shell(
-          wear(layer(
-            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
-            0.021,
-            [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
-          ), 2.3),
-          seg, { power: 2.3, wall: 0.014 },
-        ), cloakMat);
-      } else {
-        // Closed from the collar to where the slits start, just below the hip.
-        p.add(shell(
-          wear(layer(
-            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
-            0.021,
-            [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
-          ), 2.3),
-          seg, { power: 2.3, wall: 0.014 },
-        ), wool);
-        // Then two panels, one over each leg, lapping 14 mm over the closed part
-        // and half a millimetre proud of it so the join is a lap and not a
-        // z-fight. They hang 20 mm lower than the old single hem and flare wider,
-        // so the outline gains a swing it never had.
-        //
-        // `gap` is the half-angle of each slit. 0.115 rad either side of centre
-        // front and centre back opens roughly 35 mm at the hem, which is wide
-        // enough to survive the 390 px column and narrow enough that the man is
-        // not wearing two aprons.
-        const gap = 0.22;
-        const panelSeg = Math.max(5, Math.round(seg / 2));
-        const panelBottom = tunicHem - 0.02;
-        const panel = layer(
-          [slitY + 0.014, mix(slitY, panelBottom, 0.45), panelBottom + 0.055, panelBottom],
+    if (!bare && !robed) {
+      const slitY = mix(S.hipY, tunicHem, 0.16);
+      // Closed from the collar to where the slits start, just below the hip.
+      p.add(shell(
+        wear(layer(
+          [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
           0.021,
-          [0.0225, 0.036, 0.056, 0.072],
-        );
-        for (const startAngle of [-Math.PI / 2 + gap, Math.PI / 2 + gap]) {
-          p.add(shell(panel, panelSeg, {
-            power: 2.3, wall: 0.014, arc: Math.PI - gap * 2, start: startAngle,
-          }), wool);
-          if (lod.trim) {
-            // Tablet-woven braid at the hem. This is the period's own way of
-            // finishing an edge and it is the cheapest flare in the file: a 16 mm
-            // band in the finish's second wool, on the one horizontal the eye
-            // already goes to. It also does structural work — the panel's lower
-            // rim used to be the only thing marking the hem, and a rim strip two
-            // pixels wide is this file's most reliable source of crawl.
-            const [a, b] = [panel[2], panel[3]];
-            const bandTop = (t: number) => ({
-              y: mix(a.y, b.y, t),
-              hw: mix(a.hw, b.hw, t) + 0.0022,
-              hd: mix(a.hd, b.hd, t) + 0.0022,
-            });
-            p.add(shell([bandTop(0.71), bandTop(1)], panelSeg, {
-              power: 2.3, wall: 0.006, arc: Math.PI - gap * 2, start: startAngle,
-            }), tablet);
-          }
+          [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
+        ), 2.3),
+        seg, { power: 2.3, wall: 0.014 },
+      ), wool);
+      // Then two panels, one over each leg, lapping 14 mm over the closed part
+      // and half a millimetre proud of it so the join is a lap and not a
+      // z-fight. They hang 20 mm lower than the old single hem and flare wider,
+      // so the outline gains a swing it never had.
+      //
+      // `gap` is the half-angle of each slit. 0.115 rad either side of centre
+      // front and centre back opens roughly 35 mm at the hem, which is wide
+      // enough to survive the 390 px column and narrow enough that the man is
+      // not wearing two aprons.
+      const gap = 0.22;
+      const panelSeg = Math.max(5, Math.round(seg / 2));
+      const panelBottom = tunicHem - 0.02;
+      const panel = layer(
+        [slitY + 0.014, mix(slitY, panelBottom, 0.45), panelBottom + 0.055, panelBottom],
+        0.021,
+        [0.0225, 0.036, 0.056, 0.072],
+      );
+      for (const startAngle of [-Math.PI / 2 + gap, Math.PI / 2 + gap]) {
+        p.add(shell(panel, panelSeg, {
+          power: 2.3, wall: 0.014, arc: Math.PI - gap * 2, start: startAngle,
+        }), wool);
+        if (lod.trim) {
+          // Tablet-woven braid at the hem. This is the period's own way of
+          // finishing an edge and it is the cheapest flare in the file: a 16 mm
+          // band in the finish's second wool, on the one horizontal the eye
+          // already goes to. It also does structural work — the panel's lower
+          // rim used to be the only thing marking the hem, and a rim strip two
+          // pixels wide is this file's most reliable source of crawl.
+          const [a, b] = [panel[2], panel[3]];
+          const bandTop = (t: number) => ({
+            y: mix(a.y, b.y, t),
+            hw: mix(a.hw, b.hw, t) + 0.0022,
+            hd: mix(a.hd, b.hd, t) + 0.0022,
+          });
+          p.add(shell([bandTop(0.71), bandTop(1)], panelSeg, {
+            power: 2.3, wall: 0.006, arc: Math.PI - gap * 2, start: startAngle,
+          }), tablet);
         }
       }
-    } else {
+    }
+
+
+    // ==== JERKIN (owner: U4) ====
+
+
+    if (bare) {
       // A sleeveless hide jerkin, open at the chest, cut off at the hip — the
       // berserker's hem is the highest on the roster and the reason he reads as
       // all limb.
@@ -14652,6 +14745,10 @@ export function buildCharacter(
       }
     }
 
+
+    // ==== WARDEN METAL (owner: U3) ====
+
+
     // THE METAL LAYER, AND THE WARDEN'S IS NOT WHAT IT WAS.
     //
     // What stood here was six rigid courses, each overhanging the one below, with
@@ -14678,8 +14775,9 @@ export function buildCharacter(
     if (wallman) {
       // The byrnie. Short — it ends at the hip, which is the cut a man wants when
       // he is braced shoulder to shoulder and needs his legs.
-      // The station list is `wardenByrnieStations`, hoisted beside `trunkStack`
-      // so the hair's ride and this shell cannot drift — see the note there.
+      // The station list is `wardenByrnieStations`, hoisted above beside the
+      // other class stacks so the hair's ride and this shell cannot drift — see
+      // the note there.
       p.add(shell(
         wear(wardenByrnieStations!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
@@ -14737,32 +14835,54 @@ export function buildCharacter(
         wear(layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]), 2.3),
         seg, { power: 2.3, wall: 0.013 },
       ), mail);
-    } else if (!bare) {
+    }
+
+
+    // ==== RUNEKEEPER METAL (owner: U4) ====
+
+
+    if (robed) {
+      // The runekeeper's over-jerkin is buff, not mail: he is a rune-carver, not a
+      // fighting man in a hauberk. Swept off `runeStack`, hoisted above so the
+      // hair falling over it reads the same array the leather is drawn from.
+      p.add(shell(
+        wear(runeStack!, 2.3),
+        seg, { power: 2.3, wall: 0.016 },
+      ), buff);
+    }
+
+
+    // ==== HUSCARL METAL (owner: U3) ====
+
+
+    if (heavy) {
       // The huscarl's hauberk hangs 30 mm below his tunic — a mail hem is the
       // outermost line on him and it wants to be the one you see. Everyone else
       // wears a shirt of mail that stops well short of the garment under it, so
       // both edges read as edges.
-      // Swept off `trunkStack`, hoisted above so the hair falling over it reads
-      // the same array the mail is drawn from.
+      // Swept off `heavyMailStack`, hoisted above so the hair falling over it
+      // reads the same array the mail is drawn from.
       p.add(shell(
-        wear(trunkStack!, 2.3),
+        wear(heavyMailStack!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
-      ), robed ? buff : mail);
-      if (heavy) {
-        // Bishop's mantle: a second cape of mail over the shoulders. This is the
-        // huscarl's silhouette — heavy, round-shouldered, immovable. Swept off
-        // `shoulderStack`, which is the same array the aventail and the mane
-        // above are cut to clear — see the note on it.
-        p.add(shell(
-          wear(shoulderStack!, 2.2),
-          seg, { power: 2.2, wall: 0.014 },
-        ), mail);
-      }
+      ), mail);
+      // Bishop's mantle: a second cape of mail over the shoulders. This is the
+      // huscarl's silhouette — heavy, round-shouldered, immovable. Swept off
+      // `shoulderStack`, which is the same array the aventail and the mane
+      // above are cut to clear — see the note on it.
+      p.add(shell(
+        wear(shoulderStack!, 2.2),
+        seg, { power: 2.2, wall: 0.014 },
+      ), mail);
     }
 
     // Every layer this class actually wears, handed to `backCarryProbe` so the
     // cloak can be measured against the stack instead of against a guess.
     if (_wornSpy) _wornSpy.layers = worn;
+
+
+    // ==== BELT (owner: U3) ====
+
 
     // Belt, buckle, strap-end. Everything below the waist hangs off this.
     const beltR = (bare ? 0.03 : 0.05);
@@ -14805,6 +14925,10 @@ export function buildCharacter(
         fitAdd(p, "belt-stud", beltC, box(0.016, 0.022, 0.008), brass, seatXf(beltC, S.beltY, az, 0.004));
       }
     }
+
+
+    // ==== BALDRIC (owner: U3) ====
+
 
     // Baldric across the chest, and a scabbard hung off it on the left.
     //
@@ -14947,6 +15071,11 @@ export function buildCharacter(
           seatXf(strap, bossY, azAtX(strap, bossY, -0.125), 0.0090, 0, 1, 1, 0.55));
       }
     }
+
+
+    // ==== SCABBARD (owner: U3) ====
+
+
     if (cls === "huscarl" || cls === "warden") {
       // The sword's scabbard, on the left hip. It hung at z -0.03 — inside
       // the skirt's own depth — so the mail hem swallowed its throat and the
@@ -14968,6 +15097,10 @@ export function buildCharacter(
         { y: -0.5, hw: 0.008, hd: 0.005 },
       ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.085, S.beltY - 0.008, -0.072, 0.38, 0, 0.30));
     }
+
+
+    // ==== BERSERKER KIT (owner: U4) ====
+
 
     // Class ornament that hangs on the body rather than on a limb.
     if (bare) {
@@ -15105,6 +15238,11 @@ export function buildCharacter(
           xf(-S.shoulderX - 0.006, S.shoulderY - 0.10 - i * 0.028, 0, Math.PI / 2, 0, 0, 1, 1, 1.04));
       }
     }
+
+
+    // ==== RUNEKEEPER KIT (owner: U4) ====
+
+
     if (robed) {
       // LAYERED WOOL, which is the audit's own word for this class and the thing
       // he did not have. He was one robe and a belt: a single garment from collar
@@ -15184,6 +15322,11 @@ export function buildCharacter(
           slate.clone().multiply(xf(-0.019 + i * 0.019, 0.012, -0.0055, 0, 0, 0.08 - i * 0.08)));
       }
     }
+
+
+    // ==== MANTLE BOSSES (owner: U3) ====
+
+
     if (heavy && lod.trim) {
       const bossY = S.chestY + 0.012;
       const mantle = outer(bossY);
@@ -15192,12 +15335,10 @@ export function buildCharacter(
           seatXf(mantle, bossY, Math.PI / 2 - (-0.7 + i * 0.35), 0.009));
       }
     }
-    if (wallman) {
-      // The cuirass lace is gone with the cuirass. Two iron loops and a thong
-      // explaining how the front of a plate stays shut have nothing to hold shut
-      // on a byrnie, and leaving them would be the same class of error as the
-      // plate itself — a fitting for armour the man is not wearing.
-    }
+
+
+    // ==== SEAX (owner: U3) ====
+
 
     // ---- THE SEAX, ON EVERY FREE MAN ----
     //
@@ -15258,6 +15399,10 @@ export function buildCharacter(
           seaxAt.clone().multiply(xf(0.004, -0.062, 0.008, 0, 0, 0.34)));
       }
     }
+
+
+    // ==== CLASP (owner: U3) ====
+
 
     // Cloak clasp. Built here rather than on the cloak pivot because a brooch is
     // pinned to the shoulder and does not swing with the hem — and because a
@@ -15374,6 +15519,10 @@ export function buildCharacter(
       const p = new Part();
       const sleeve = bare ? skin : wool;
 
+
+      // ==== BARE LIMB SHELLS (owner: U2) ====
+
+
       // Upper arm with a deltoid cap and a bicep belly; forearm with the flare
       // at the elbow and the narrow at the wrist. Real taper, both segments.
       // The three sleeve tops below all start under the shoulder cap's dome, and
@@ -15398,6 +15547,10 @@ export function buildCharacter(
         { y: wrist + 0.055, hw: rWr * 1.25, hd: rWr * 1.2 },
         { y: wrist, hw: rWr, hd: rWr * 1.1 },
       ], lod.limb, { capBottom: true }), skin);
+
+
+      // ==== SLEEVES (owner: U3) ====
+
 
       if (!bare) {
         // Linen shirt sleeve, then the wool over it, cuffed short so both edges
@@ -15424,6 +15577,10 @@ export function buildCharacter(
             xf(0, elbow + 0.112, 0, Math.PI / 2, 0, 0, 1, 1, 1.02));
         }
       }
+
+
+      // ==== PAULDRON (owner: U3) ====
+
 
       // The metal on the shoulder, and mail down to the elbow where the class
       // wears it. Cap sits outboard of the torso so it reads as a separate
@@ -15509,6 +15666,11 @@ export function buildCharacter(
               seatXf(capC, 0.022, Math.PI / 2 - a, 0.003));
           }
         }
+
+
+        // ==== MAIL SLEEVE (owner: U3) ====
+
+
         if (heavy || wallman) {
           p.add(shell([
             { y: -0.035, hw: rSh * 1.3, hd: rSh * 1.32 },
@@ -15516,13 +15678,24 @@ export function buildCharacter(
             { y: elbow + 0.04, hw: rEl * 1.42, hd: rEl * 1.44 },
           ], lod.limb, { wall: 0.011 }), mail);
         }
-      } else {
+      }
+
+
+      // ==== BERSERKER FUR (owner: U4) ====
+
+
+      if (bare) {
         // Bare arms: fur at the shoulder, iron rings on the biceps.
         p.add(shell([
           { y: 0.075, hw: rSh * 1.1, hd: rSh * 1.14 },
           { y: -0.02, hw: rSh * 1.5, hd: rSh * 1.55 },
           { y: -0.075, hw: rSh * 1.3, hd: rSh * 1.34 },
         ], lod.limb, { power: 2.0, wall: 0.016, capTop: true }), pelt(2 * Math.PI * rSh * 1.45));
+
+
+        // ==== ARM RINGS (owner: U4) ====
+
+
         // THE ARM-RINGS, AND THEY WERE FLOATING — backlog 8.1, the owner:
         // "the armour design needs rework on all class types as some have
         // defects shown in SS", photographed as a disc standing clear of an
@@ -15588,6 +15761,10 @@ export function buildCharacter(
         if (lod.trim) armRing(-0.2, 0.009);
       }
 
+
+      // ==== BRACER (owner: U3) ====
+
+
       // Bracer over the forearm, buckled. It stops at the wrist, not 28 mm short of
       // it: that gap was 28 mm of bare skin between the leather and the back of the
       // hand, and because the hand is the other side of it, it read as a break in
@@ -15635,6 +15812,10 @@ export function buildCharacter(
         fitAdd(p, "wrist-rune", bracerC, box(0.006, 0.05, 0.008), rune,
           seatXf(bracerC, wrist + 0.07, outboard, 0.004));
       }
+
+
+      // ==== FIST (owner: U2) ====
+
 
       // The fist, rotated onto the axis the weapon will run along. `reach` and
       // `lead` are where the wrist is in the fist's own frame — resolved here
@@ -16855,6 +17036,10 @@ export function buildCharacter(
     return 1;
   };
 
+
+  // ==== HEAD EMIT (owner: U5) ====
+
+
   emit("head", headPivot, () => {
     const p = new Part();
     const place = xf(0, skullY, 0);
@@ -17090,6 +17275,10 @@ export function buildCharacter(
         thick: 0.0007,
       }), hair, place.clone());
     }
+
+
+    // ==== HAIR (owner: U8) ====
+
 
     // ---- hair ----
     //
@@ -21356,6 +21545,10 @@ export function buildCharacter(
       }
     }
 
+
+    // ==== COMPLEXION (owner: U5) ====
+
+
     // The complexion, written onto every piece of flesh on the head at once —
     // skull, lids, lips, ears, the throat — so all of them land on one
     // continuous map and no boundary between two of them can show as a step.
@@ -21369,6 +21562,10 @@ export function buildCharacter(
     }
     return p;
   }, headSig);
+
+
+  // ==== NECK (owner: U5) ====
+
 
   // ==========================================================
   // THE NECK
