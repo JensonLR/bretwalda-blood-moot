@@ -992,6 +992,50 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   };
   raf = requestAnimationFrame(loop);
 
+  const probe: StageProbe = {
+    get ready() { return ready; },
+    get lens() { return lens; },
+    get slot() { return slot; },
+    get turn() { return turn; },
+    get crown() { return crown; },
+    headWindow() {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      camera.updateMatrixWorld(true);
+      const at = (x: number, y: number, z: number) => {
+        const p = new THREE.Vector3(x, y, z).project(camera);
+        return { x: (p.x * 0.5 + 0.5) * size.x, y: (1 - (p.y * 0.5 + 0.5)) * size.y };
+      };
+      // A head is ~0.16 m across and a helm or a head of hair adds a few
+      // centimetres either side; from the crest to the chin is ~0.27 m.
+      const xs: number[] = [], ys: number[] = [];
+      for (const x of [-0.14, 0.14]) for (const z of [-0.12, 0.12]) for (const y of [crown - 0.27, crown + 0.02]) {
+        const q = at(x, y, z); xs.push(q.x); ys.push(q.y);
+      }
+      const x0 = Math.max(0, Math.floor(Math.min(...xs))), x1 = Math.min(size.x, Math.ceil(Math.max(...xs)));
+      const y0 = Math.max(0, Math.floor(Math.min(...ys))), y1 = Math.min(size.y, Math.ceil(Math.max(...ys)));
+      if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+      return {
+        x: x0, y: y0, w: x1 - x0, h: y1 - y0,
+        crownAt: at(0, crown, 0).y / size.y, bootsAt: at(0, 0, 0).y / size.y,
+        canvasW: size.x, canvasH: size.y,
+      };
+    },
+    read(x, y, w, h) {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      renderOnce();
+      const gl = renderer.getContext();
+      const buf = new Uint8Array(w * h * 4);
+      gl.readPixels(x, size.y - y - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      // GL reads bottom-up; a harness thinks top-down.
+      const row = w * 4, out = new Uint8Array(buf.length);
+      for (let j = 0; j < h; j++) out.set(buf.subarray((h - 1 - j) * row, (h - j) * row), j * row);
+      let bin = "";
+      for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+      return { w, h, rgba: btoa(bin) };
+    },
+  };
+  if (typeof window !== "undefined") (window as unknown as Record<string, unknown>).__armouryStage = probe;
+
   STATS.tier = forge.quality.tier;
   publishStats();
   setThumbForgeLive(true);
@@ -1032,6 +1076,10 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     setTurn(radians) { turn = radians; lastTouch = performance.now(); },
     dispose() {
       cancelAnimationFrame(raf);
+      if (typeof window !== "undefined") {
+        const w = window as unknown as Record<string, unknown>;
+        if (w.__armouryStage === probe) delete w.__armouryStage;
+      }
       setThumbForgeLive(false);
       if (rig) { rig.dispose(); rig = null; }
       if (canvas.parentNode === mount) mount.removeChild(canvas);
@@ -1107,6 +1155,44 @@ function publishStats(): void {
   if (typeof window !== "undefined") {
     (window as unknown as Record<string, unknown>).__armouryStats = STATS;
   }
+}
+
+/**
+ * What a HARNESS may ask of the live stage, on `window.__armouryStage`, and
+ * nothing it may change. `tools/stagehead.mjs`, `armourycard.mjs` and
+ * `uishots.mjs` use it to answer the one question the owner asked four times —
+ * "where is his head?" — from the pixels the canvas actually drew.
+ *
+ * WHY THE STAGE READS ITS OWN CANVAS. A WebGL context without
+ * `preserveDrawingBuffer` reads back as an empty bitmap from outside (the first
+ * run of `armourycard` reported "contrast=0, a blank panel" for a panel with a
+ * warrior in it), and it is only valid to read inside the task that drew it. So
+ * the stage draws one frame on request and reads the rectangle back in the same
+ * breath, which is the only place the pixels exist.
+ *
+ * WHY THE WINDOW IS THE PROCEDURAL CROWN. The rectangle a head must occupy is
+ * projected from `rig.headTop` — the height the procedural builder measured off
+ * the man it built, which is where his head belongs whichever body is standing
+ * there — and NOT from the authored skull, so a stage whose authored head has
+ * collapsed is asked about the place the head should be, and answers "nothing".
+ */
+export interface StageProbe {
+  readonly ready: boolean;
+  readonly lens: string;
+  readonly slot: string | undefined;
+  /** The turntable bearing, radians. */
+  readonly turn: number;
+  /** The procedural crown, metres. */
+  readonly crown: number;
+  /** Where the head belongs on the canvas, in drawing-buffer pixels, top-left origin; null when it is off-canvas. */
+  headWindow(): {
+    x: number; y: number; w: number; h: number;
+    /** Where the crown and the boots project to, as fractions of the canvas height from the top. */
+    crownAt: number; bootsAt: number;
+    canvasW: number; canvasH: number;
+  } | null;
+  /** Draw a frame NOW and read a rectangle back: RGBA, top-left origin, base64. */
+  read(x: number, y: number, w: number, h: number): { w: number; h: number; rgba: string };
 }
 
 let thumbCam: THREE.PerspectiveCamera | null = null;
