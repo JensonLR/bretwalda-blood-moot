@@ -134,3 +134,20 @@ export const WARRIOR_INFO: Array<{ id: WarriorClass; name: string; desc: string;
   { id: "runekeeper", name: "WRECCA", desc: "Twin seaxes. The exile's speed.", Icon: Wind },
   { id: "berserker", name: "BERSERKER", desc: "Danish axe. Pure rage.", Icon: Hammer },
 ];
+
+// ---------------- rounds ----------------
+// (Lived in lobbyParts.tsx, a component file; a string helper does not belong in one, and Fast Refresh
+// cannot keep component state in a file that exports non-components.)
+
+// What a format means, in the words a player would use. The mode matters
+// because a war band scores by side and a duel does not.
+export function roundsBlurb(bestOf: number, mode: string): string {
+  const team = mode === "war_band";
+  if (bestOf <= 1) return "One round decides everything. Fall once and the match is over.";
+  const need = Math.ceil(bestOf / 2);
+  // The tiebreak is stated here because the lobby is the only place a player
+  // reads the rules before they cost him anything. Two men level on rounds is
+  // the ordinary result of a free-for-all, not an edge case.
+  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}\u20130. `
+    + `Level on rounds, the most kills wins; level on both and it is a draw. Gold and glory are paid at the end.`;
+}

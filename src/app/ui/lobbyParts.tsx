@@ -9,7 +9,7 @@
 // keywords and the re-pointed relative imports. The commit that made the move records the
 // before/after frame comparison that shows nothing on screen changed.
 //
-// Contains: WarriorPanel, BAR_COLOUR, ClassGrid, roundsBlurb, RoundPicker, LinkPill, StatBar,
+// Contains: WarriorPanel, BAR_COLOUR, ClassGrid, RoundPicker, LinkPill, StatBar,
 // Section, CtrlRow, Tip.
 // Owner: UNIT L. Ownership is by component name (`shared.ts` lists the unit letters), so no other
 // unit edits this file; a change that has to touch a neighbour's component goes through that unit.
@@ -136,19 +136,6 @@ export function ClassGrid({ selected, onSelect, compact }: {
 }
 
 // ---------------- rounds ----------------
-
-// What a format means, in the words a player would use. The mode matters
-// because a war band scores by side and a duel does not.
-export function roundsBlurb(bestOf: number, mode: string): string {
-  const team = mode === "war_band";
-  if (bestOf <= 1) return "One round decides everything. Fall once and the match is over.";
-  const need = Math.ceil(bestOf / 2);
-  // The tiebreak is stated here because the lobby is the only place a player
-  // reads the rules before they cost him anything. Two men level on rounds is
-  // the ordinary result of a free-for-all, not an edge case.
-  return `First ${team ? "war band" : "warrior"} to ${need} round${need === 1 ? "" : "s"} takes the match — so it can end ${need}\u20130. `
-    + `Level on rounds, the most kills wins; level on both and it is a draw. Gold and glory are paid at the end.`;
-}
 
 export function RoundPicker({ value, onChange }: { value: BestOf; onChange: (n: BestOf) => void }) {
   return (

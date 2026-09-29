@@ -65,14 +65,14 @@ import { territory } from "@/game/war.mjs";
 // ---------------------------------------------------------------------------------------------
 // SHARED — ui/shared.ts
 import type { RoomState, Link, Notice, WarOutcomeMsg } from "./ui/shared";
-import { CharacterPreview, WARRIOR_INFO } from "./ui/shared";
+import { CharacterPreview, WARRIOR_INFO, roundsBlurb } from "./ui/shared";
 // UNIT:T — ui/shell.tsx
 import {
   MenuShell, ContentWrap, ScreenHead, LandingStat, TourGuide, SoundToggle, BackButton,
 } from "./ui/shell";
 // UNIT:L — ui/lobbyParts.tsx
 import {
-  WarriorPanel, ClassGrid, roundsBlurb, RoundPicker, LinkPill, Section, CtrlRow, Tip,
+  WarriorPanel, ClassGrid, RoundPicker, LinkPill, Section, CtrlRow, Tip,
 } from "./ui/lobbyParts";
 // UNIT:S — ui/sagaParts.tsx
 import { TheKeep, ProfStat } from "./ui/sagaParts";
