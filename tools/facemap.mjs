@@ -24,6 +24,11 @@
 //                   VERTEX (`faceComplexion`, the field the procedural head is painted with).
 //                   Relative error, worst channel.
 //   THE SEAM        no triangle spans more than half the map in u after `writeUv`.
+//   THE EYES        the textures `render/eyeMap.ts` paints are laid out on the UV that `patch()` gave the eye's parts
+//                   and that the export leaves alone (it overwrites the UVs of the world-tiled substances and of nothing
+//                   else): the iris is polar (u the angle, running backwards, v the radius over the iris's), the sclera is
+//                   across-the-aperture by lower-to-upper-margin. Read off the SHIPPED FILES and checked, so a re-export
+//                   that changes them is a red gate and not an iris that spins.
 //   THE STEP        the builder's stature step (`faceFieldOf` mirrors one line of `buildCharacter`)
 //                   is held by the skull's own height: the field's crown against the GLB's.
 //
@@ -106,6 +111,50 @@ for (const cls of CLASSES) {
   // ---- the crown: the step the field mirrors ----
   const sb = skull.geometry.boundingBox;
   const crown = F.headY + (() => { const o = new THREE.Vector3(); F.surface(0, Math.PI / 2, o); return o.y; })();
+  // ---- the eyes: the UV the eye textures are laid out for ----
+  {
+    let sclera = null, iris = null;
+    gltf.scene.traverse((m) => {
+      if (!m.isMesh || headWeight(m) < 0.9) return;
+      if (m.material.name === `m_${CH.SKIN_TONES[CH.faceTraits(0).tone].sclera.toString(16)}` || m.material.name === "m_655d50") sclera = m;
+      if (m.material.name === `m_${CH.IRIS_COLORS[CH.faceTraits(0).iris].toString(16)}` || m.material.name === "m_241810") iris = m;
+    });
+    const L = CH.faceLandmarks(cls, 0);
+    if (!iris || !sclera) say(false, `could not find the sclera (${!!sclera}) and the iris (${!!iris}) parts`);
+    else {
+      // iris: the angle and the radius, in the eye's own frame (head x, head y; the export mirrors x)
+      const p = iris.geometry.getAttribute("position"), uv = iris.geometry.getAttribute("uv");
+      const rI = L.eyes[0].irisR;
+      let n = 0, bad = 0, worst = 0, sr = 0, srr = 0, sv = 0, svv = 0, srv = 0, nr = 0;
+      for (let i = 0; i < p.count; i++) {
+        const X = -p.getX(i), Y = p.getY(i) - F.headY;
+        const e = L.eyes.reduce((a, b) => (Math.hypot(X - a.iris[0], Y - (a.iris[1] - F.headY)) < Math.hypot(X - b.iris[0], Y - (b.iris[1] - F.headY)) ? a : b));
+        const dx = X - e.iris[0], dy = Y - (e.iris[1] - F.headY), r = Math.hypot(dx, dy) / rI;
+        if (r > 1.25) continue;
+        nr++; sr += r; srr += r * r; sv += uv.getY(i); svv += uv.getY(i) ** 2; srv += r * uv.getY(i);
+        if (r < 0.15) continue;
+        const want = (((-Math.atan2(dy, dx)) / (2 * Math.PI)) % 1 + 1) % 1;
+        const d = Math.abs(uv.getX(i) - want), dd = Math.min(d, 1 - d);
+        n++; worst = Math.max(worst, dd); if (dd > 0.06) bad++;
+      }
+      const corr = (srv / nr - (sr / nr) * (sv / nr)) / Math.sqrt((srr / nr - (sr / nr) ** 2) * (svv / nr - (sv / nr) ** 2));
+      say(bad / n < 0.05 && corr < -0.97, `iris UV is polar (u = -angle/2pi: ${bad} of ${n} vertices more than 0.06 of a turn off, worst ${worst.toFixed(3)}; v = 1 - radius over the iris's: corr ${corr.toFixed(3)}, glTF's v runs down the image)`);
+      // sclera: u across the aperture (medial <-> lateral) and v lower <-> upper margin
+      const ps = sclera.geometry.getAttribute("position"), us = sclera.geometry.getAttribute("uv");
+      let a1 = 0, a2 = 0, a11 = 0, a22 = 0, a12 = 0, m = 0, b1 = 0, b2 = 0, b11 = 0, b22 = 0, b12 = 0;
+      for (let i = 0; i < ps.count; i++) {
+        const X = -ps.getX(i), Y = ps.getY(i) - F.headY;
+        const e = L.eyes.reduce((a, b) => (Math.hypot(X - a.centre[0], Y - (a.centre[1] - F.headY)) < Math.hypot(X - b.centre[0], Y - (b.centre[1] - F.headY)) ? a : b));
+        const dx = X - e.centre[0], dy = Y - (e.centre[1] - F.headY);
+        m++; a1 += dx; a2 += us.getX(i); a11 += dx * dx; a22 += us.getX(i) ** 2; a12 += dx * us.getX(i);
+        b1 += dy; b2 += us.getY(i); b11 += dy * dy; b22 += us.getY(i) ** 2; b12 += dy * us.getY(i);
+      }
+      const cu = (a12 / m - (a1 / m) * (a2 / m)) / Math.sqrt((a11 / m - (a1 / m) ** 2) * (a22 / m - (a2 / m) ** 2));
+      const cv = (b12 / m - (b1 / m) * (b2 / m)) / Math.sqrt((b11 / m - (b1 / m) ** 2) * (b22 / m - (b2 / m) ** 2));
+      say(Math.abs(cu) > 0.9 && cv < -0.55, `sclera UV runs across the aperture and DOWN the lids (u against the eye's x: corr ${cu.toFixed(3)}; v against its y: corr ${cv.toFixed(3)}: v = 0 is the upper margin)`);
+    }
+  }
+
   say(Math.abs(crown - sb.max.y) * 1000 <= CROWN_MM, `crown: field ${crown.toFixed(4)} m, the GLB skull's top ${sb.max.y.toFixed(4)} m (${((crown - sb.max.y) * 1000).toFixed(2)} mm; bar ${CROWN_MM})`);
 
   // ---- a lever moves the head, before the map is written ----

@@ -48,6 +48,7 @@ import type { AuthoredMaterialHandler, AuthoredDressContext } from "./authoredDr
 import type { MaterialLibrary } from "./materials";
 import { FACE_DARK, FACE_TILE, IRIS_COLORS, SKIN_TONES, faceTraits, type SkinTone } from "../characters";
 import { FACE_MAP_GAIN, faceMapFor, type FaceKind } from "./faceMap";
+import { irisTexture, scleraTexture } from "./eyeMap";
 
 /**
  * What the SHIPPED warriors carry (`public/authored`, exported before the tones were
@@ -135,6 +136,14 @@ function headFlesh(ctx: AuthoredDressContext, kind: FaceKind, role: FleshRole, c
   });
 }
 
+function eyeMaterial(ctx: AuthoredDressContext, name: string, roughness: number, map: THREE.Texture): THREE.Material {
+  const m = ctx.materials.standard(0xffffff, roughness).clone();
+  m.name = name;
+  m.color.setHex(0xffffff);
+  m.map = map;
+  return m;
+}
+
 export const dressSkin: AuthoredMaterialHandler = (ask, mesh, ctx) => {
   if (ask.surface === "skin") {
     const role = fleshRoleOf(ask.color);
@@ -161,8 +170,12 @@ export const dressSkin: AuthoredMaterialHandler = (ask, mesh, ctx) => {
     const role = eyeRoleOf(ask.color);
     if (!role) return null;
     const man = manOf(ctx.faceSeed);
-    if (role === "sclera") return cached(ctx.materials, `eye|sclera|${man.tone.sclera}`, () => ctx.materials.standard(man.tone.sclera, 0.34));
-    if (role === "iris") return cached(ctx.materials, `eye|iris|${man.iris}`, () => ctx.materials.standard(man.iris, 0.09));
+    // The sclera and the iris are TEXTURED with the man's own colour baked in (`eyeMap.ts`): the corners go
+    // dark and warm, the iris has fibres, a collarette, a darker outer zone and a catchlight. The material's
+    // colour is white because the texture IS the colour (a white catchlight multiplied into a blue material
+    // is a darker blue).
+    if (role === "sclera") return cached(ctx.materials, `eye|sclera|${man.tone.sclera}`, () => eyeMaterial(ctx, `eye-sclera:${man.tone.sclera.toString(16)}`, 0.34, scleraTexture(man.tone.sclera)));
+    if (role === "iris") return cached(ctx.materials, `eye|iris|${man.iris}`, () => eyeMaterial(ctx, `eye-iris:${man.iris.toString(16)}`, 0.09, irisTexture(man.iris)));
     return cached(ctx.materials, "eye|dark", () => ctx.materials.standard(FACE_DARK, 0.42));
   }
   return null;

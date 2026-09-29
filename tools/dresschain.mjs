@@ -224,10 +224,17 @@ function threeLibrary() {
   // the eyes
   const eye = (hex, name = "part_36", head = true) => D.resolveAuthoredMaterial({ surface: null, color: hex }, { name, dominantBone: "Head", isHead: head }, ctxH);
   const toneOf = CHARS.SKIN_TONES[CHARS.faceTraits(seedA).tone], irisOf = CHARS.IRIS_COLORS[CHARS.faceTraits(seedA).iris];
-  check("the baked sclera and iris become the man's own, wet (0.34 and 0.09), and the dark stays the eye's dark",
-    eye(S.LEGACY_BAKED.sclera).color.getHex() === toneOf.sclera && eye(S.LEGACY_BAKED.sclera).roughness === 0.34
-    && eye(S.LEGACY_BAKED.iris, "part_38").color.getHex() === irisOf && eye(S.LEGACY_BAKED.iris, "part_38").roughness === 0.09
-    && eye(S.LEGACY_BAKED.dark, "part_37").color.getHex() === CHARS.FACE_DARK);
+  const texel = (tex, x, y) => { const w = tex.image.width; const o = (y * w + x) * 4; return [tex.image.data[o], tex.image.data[o + 1], tex.image.data[o + 2]]; };
+  const near = (a, hex, tol = 3) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].every((v, i) => Math.abs(a[i] - v) <= tol);
+  const scl = eye(S.LEGACY_BAKED.sclera), irs = eye(S.LEGACY_BAKED.iris, "part_38");
+  check("the baked sclera and iris become the man's own, TEXTURED, wet (0.34 and 0.09), and the dark stays the eye's dark",
+    scl.roughness === 0.34 && irs.roughness === 0.09 && scl.color.getHex() === 0xffffff && irs.color.getHex() === 0xffffff
+    && near(texel(scl.map, 32, 8), toneOf.sclera) && near(texel(irs.map, 20, 12), irisOf, 60)
+    && eye(S.LEGACY_BAKED.dark, "part_37").color.getHex() === CHARS.FACE_DARK,
+    `sclera centre ${texel(scl.map, 32, 8).join("/")} for #${toneOf.sclera.toString(16)}`);
+  check("...the sclera goes darker toward the corners and the iris carries a catchlight (a pixel near white)",
+    texel(scl.map, 1, 8)[0] < texel(scl.map, 32, 8)[0] - 30
+    && (() => { let best = 0; for (let j = 0; j < 32; j++) for (let i = 0; i < 128; i++) best = Math.max(best, texel(irs.map, i, j)[0]); return best > 225; })());
   check("the runekeeper's hood (a helm mesh in the eye's dark) and a hand-held plain colour are NOT eyes",
     eye(S.LEGACY_BAKED.dark, "helm_42") === libH.standard(S.LEGACY_BAKED.dark) && eye(S.LEGACY_BAKED.sclera, "part_36", false) === libH.standard(S.LEGACY_BAKED.sclera));
 }
