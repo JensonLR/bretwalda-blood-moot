@@ -500,12 +500,18 @@ function buildForge(): Forge | null {
   // outshines the man"). Its roughness is already 0.96; the glitter is the
   // detail normal map catching the key and the fire and the env map reflecting
   // a sky into every bump. So the shop gets a CLONE of the library's ground with
-  // the map's slope cut to a fifth, the albedo dimmed, and NO environment: the
+  // no relief, no roughness map, the albedo dimmed, and NO environment: the
   // library re-adopts every material it holds on each sky rebake and would put an
   // env intensity back on the original (`materials.ts` `adopt`), which is why this
   // is a clone the library does not know. The arena's ground is untouched.
   const groundMat = (materials.get("ground") as THREE.MeshStandardMaterial).clone();
-  groundMat.normalScale?.set(0.2, 0.2);
+  // The relief goes altogether (the first capture with the slope at a fifth still had the
+  // fire's light flashing off every grain of it), and with it the roughness map that decides
+  // where the grains shine: a ground that is only ever diffuse cannot be specular sand.
+  groundMat.normalMap = null;
+  groundMat.roughnessMap = null;
+  groundMat.roughness = 1;
+  groundMat.metalness = 0;
   groundMat.envMap = null;
   groundMat.envMapIntensity = 0;
   groundMat.color.multiplyScalar(0.62);

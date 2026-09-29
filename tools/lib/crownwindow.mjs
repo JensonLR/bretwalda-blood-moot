@@ -42,14 +42,18 @@ export const FACING = 1.2;
  * px tall in the portrait lens on a desktop and ~20 in the fight lens on a phone; a
  * floor of 6 pixels stops a fraction of a hundred-pixel window from being a fraction
  * of nothing. Set from the measured populations (docs/GATES.md, "stagehead"): the
- * smallest a healthy man reads, and the largest the headless man reads, with the bar
- * between them.
+ * smallest a healthy man reads and the largest the headless man reads, with the bar at
+ * the GEOMETRIC MEAN of the two (portrait 10.4% and 2.5% -> 5%; shoulders 6.2% and 3.3%
+ * -> 4.5%; full kit 7.4% and 5.0% -> 6%; fight 6.9% and 0.5% -> 2%). The full-kit bar is
+ * within 1.2x of both populations, because the whole head is 35 px across there and the
+ * headless man's neck stump is skin-coloured; that lens leans on the head net's verdict
+ * (which the pixels cannot fool) more than the others do.
  */
 export const BARS = {
-  face: { skinFrac: 0.03 },
-  bust: { skinFrac: 0.03 },
-  figure: { skinFrac: 0.03 },
-  fight: { skinFrac: 0.03 },
+  face: { skinFrac: 0.05 },
+  bust: { skinFrac: 0.045 },
+  figure: { skinFrac: 0.06 },
+  fight: { skinFrac: 0.02 },
 };
 /** The fewest skin-hue pixels a window may hold, whatever its fraction. */
 export const MIN_SKIN_PX = 6;

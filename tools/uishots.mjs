@@ -529,6 +529,16 @@ async function main() {
     await page.waitForTimeout(3500);
     await shot("lobby");
     await shot("lobby-viewport", false);
+    // THE MAN IN THE LOBBY, IN VIEW. The two frames above are photographed with the shell scrolled
+    // down to the roster and the format, and YOUR WARRIOR is at the top of it: the crown window
+    // was being read off a canvas nobody could see in the PNG, which is a check with no picture
+    // to go with it (PROCESS R5). `role="img"` on the stage's mount is the hook.
+    const warriorPanel = page.locator('[role="img"][aria-label*="arrow keys"]').first();
+    if (await warriorPanel.count()) {
+      await warriorPanel.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(600);
+      await shot("lobby-warrior", false);
+    }
 
     // The lobby's own tap-target audit used to live here, on this ONE screen,
     // printing and never failing. `tapAudit` rides every `shot()` now and gates
