@@ -149,8 +149,9 @@
    documented shorthand and is not: the shorthand takes a selector OR an at-rule,
    not both, and the rest is not an error, it is a variant that matches nothing.
    The build passed, tsc passed, csscheck passed, and the compiled sheet had zero
-   `.hover\:` rules where the old one had thirty. Only reading the COMPILED
-   stylesheet showed it, which is why `tools/palettecheck.mjs` counts them. */
+   `.hover\:` rules where the old one had twenty distinct utilities. Only reading
+   the COMPILED stylesheet showed it, which is why `tools/palettecheck.mjs` counts
+   them. */
 @custom-variant hover {
   &:hover {
     @media (hover: hover) and (pointer: fine) {
@@ -1336,10 +1337,16 @@
     transition: all 0.15s ease;
   }
 
-  /* Gilded bronze rather than orange plastic: a bright top edge, a dark
-     bottom, and the seam of light that any struck metal has just under its
-     rim. The gleam is a background layer, not a child, so every caller gets
-     it without changing markup. */
+  /* WHAT THIS COMMENT USED TO SAY was "Gilded bronze rather than orange
+     plastic", and the rule under it is the orange gradient it claimed not to
+     be: #c9761d to #7c3c07 with a white gleam over it, which UI-PLAN D02 read
+     off every frame as a glossy orange pill and the only warm control on a
+     palette whose one heat is blood (docs/PROCESS.md R7: a comment that
+     describes a value the code does not have is a defect). F1 corrects the
+     comment and not the rule, because the rule belongs to F2, which replaces
+     it with the silver hero plate and the niello default. Until then: a bright
+     top edge, a dark bottom, and a gleam that is a background layer and not a
+     child, so every caller gets it without changing markup. */
   .btn-primary {
     position: relative;
     overflow: hidden;

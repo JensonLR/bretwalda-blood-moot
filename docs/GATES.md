@@ -232,9 +232,12 @@ replaces read `page.tsx` for typed maxima; an adversary changed the drawn geomet
 and the scan never moved. So this one:
 
 * takes a real screenshot, decodes it, and measures each bar as a **run of
-  saturated pixels** from the left end of its track — the rect is used only to
-  find the bar, and claim 2 gates rect against pixels so that a clip or a
-  transform between the two is a finding rather than a silence;
+  pixels that change when the fill is hidden** from the left end of its track
+  (the clip is shot twice, the second time with every fill `visibility:hidden`)
+  — the rect is used only to find the bar, and claim 2 gates rect against pixels
+  so that a clip or a transform between the two is a finding rather than a
+  silence. It read "saturated pixels" until F1 remapped the emerald and sky bars
+  onto silver, which are not saturated, and two of four bars read as zero;
 * injects a stylesheet that pins every fill to 100% and **requires its own
   discrimination claim to go from 0 faults to 24**, while printing that the source
   scan's verdict is unchanged, because it cannot see pixels;
@@ -311,6 +314,50 @@ in, and every assertion of the form "this must not be there" (`classmatrix`'s
 typed `max=`, `marktest`'s removed `title=`) would have kept passing while looking
 at a file that no longer held the text. A gate that is green because the case is
 absent is not a gate.
+
+## The palette gates — `palettecheck`, `csscheck` 7-13, `numeralprobe`
+
+Added 29 Sep 2026 with F1 of the UI overhaul. The palette is a **stylesheet**
+concern, so all of it is arithmetic and none of it needs a frame, except the one
+thing a frame cannot be replaced for (`numeralprobe`, below).
+
+| ruler | costs | answers |
+|---|---|---|
+| `npm run palettecheck` | ~1 s, no browser | is the ink ramp 4.5:1 on niello-raised, the hall and the lit card top; does every Tailwind hue class the source uses still exist in the **compiled** sheet and resolve to a palette token; is every `hover:` rule behind `(hover:hover) and (pointer:fine)`; are the three `--hp-*` bases the same hexes as `hud3d.ts` |
+| `npm run csscheck` (checks 7-13) | ~1 s | ratchets, each **measured on the tree it landed on** and only allowed to fall: arbitrary text sizes under the floor, Tailwind hue classes per hue, system monospace, literal font-family names outside `layout.tsx`/`globals.css`, text set in `--ink-ghost`, raw `rgba(238,226,204)`, `:hover` inside TSX strings |
+| `npm run numeralprobe` | ~1 min, one browser | does `lining-nums` / `tabular-nums` reach Alegreya's figures in the font **as served**, after Google's subsetter and `next/font` |
+| `touchtest` (new claims) | with the suite | a pinch zooms a menu and does not zoom the fight; no touchable element in the fight can let one through |
+
+**They read the built sheet because the source cannot say.** The first draft of
+the hover override was `@custom-variant hover (@media (...) { &:hover })`. It
+reads like the documented shorthand and is not, and Tailwind does not object: it
+defines a variant that matches nothing, and **every `hover:` utility in the app
+disappeared**. `tsc`, `next build` and `csscheck` all passed. The compiled sheet
+had zero `.hover\:` rules where the old one had twenty, and only `palettecheck`
+looked. That is `DESIGN-SYSTEM.md` section 10's lesson ("verify tokens in the
+compiled sheet, not the source") turned into a gate, and it found three more
+things while it was being written, each of them in the gate itself: it read the
+`prefers-contrast` overrides as the page's tokens; a class with a variant prefix
+(`hover\:bg-amber-700`) was invisible to it; and the `.shell` container's
+`touch-action: pan-y` meant that removing the viewport's zoom lock changed
+nothing on any menu (found by writing `touchtest`'s zoom control, which pinches
+the title screen and requires the page to grow).
+
+**Each of them was shown failing first**, on the tree before F1 or by pulling a
+lever: `palettecheck` 11 FAILED on the F0 tree (faint ink 2.78:1, 19 of 29
+tokens absent, 85 compiled hue rules carrying Tailwind's raw oklch); the hover
+check red on the broken draft; the text-legibility check red when one ramp step
+was pointed at `--pewter`; the hp mirror red when one side of it was edited; each
+`csscheck` ratchet red when one violation was added in a scratch copy.
+
+**What they cannot see, said here because the verdict line will not.** A ratchet
+on a COUNT cannot see a 9px becoming an 8px (both are "under the floor"); the
+ceiling falls when a site is removed, not when one is made worse. `palettecheck`
+grades text steps `50`-`500` on niello-raised and the hall and only REPORTS the
+legacy card top for blood text (`text-red-500`, #d4634a, is 5.1:1 on niello and 3.6:1 on
+the old brown); the ink ramp itself IS gated on all three. `forced-colors` has no
+gate: `UISHOTS_FORCED=1 node tools/uishots.mjs` renders the sweep in it, and the
+block is exactly as tested as that.
 
 ## What this does not mean
 

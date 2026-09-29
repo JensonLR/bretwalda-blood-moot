@@ -459,6 +459,19 @@ while (i < css.length) {
     const per = new Map(); hits.forEach((f) => per.set(f, (per.get(f) ?? 0) + 1));
     report(hits.length <= CEILING, `raw rgba(238,226,204,...) in the TSX: ${hits.length}, ceiling ${CEILING}`, [...per.entries()].map(([f, c]) => `${c}  ${f}`));
   }
+
+  // ---- 13. a hover that outlives the finger ----------------------------------
+  // Every `:hover` that moves or recolours is behind `@media (hover: hover) and (pointer: fine)` (UI-PLAN 1.7), or a tap leaves
+  // it stuck on. globals.css and the `hover:` utilities are held by check 3 of palettecheck against the COMPILED sheet. This is
+  // the third place a hover can be written: a CSS string inside a component, which neither of those sees. One exists
+  // (`Hearth.tsx`, unit W's). Counted per occurrence rather than judged for a wrapper, because a string of CSS in a template
+  // literal cannot be parsed honestly with a regex, and the honest ceiling is the one nobody has to trust.
+  {
+    const CEILING = 1;
+    const hits = [];
+    for (const { file, code } of files) for (const m of code.matchAll(/[.\w-]+:hover\b/g)) hits.push(`${file}: ${m[0]}`);
+    report(hits.length <= CEILING, `:hover written inside TSX/TS (an inline CSS string, invisible to the stylesheet checks): ${hits.length}, ceiling ${CEILING}`, hits);
+  }
 }
 
 console.log(failures ? `[csscheck] ${failures} FAILED` : "[csscheck] the stylesheet parses and survives the build");

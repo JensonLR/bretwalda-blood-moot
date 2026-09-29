@@ -333,6 +333,9 @@ or down while `--ink-dim` can.
 
 145 sites converted, values unchanged, so nothing moved on screen.
 
+*(The three lowest steps above were re-based on 29 Sep 2026 because the bottom
+one was under the contrast floor. Current values, and why, are in section 11.)*
+
 ### Two things worth keeping
 
 **Verify tokens in the compiled sheet, not the source.** Eleven of the
@@ -379,3 +382,59 @@ place a player learns he is still un-strikeable.
 `postfx.setPressure` closes the frame in over the last 35% of health as a ramp,
 which is the read `hud3d.ts` describes as one "you get pre-attentively without
 decoding a colour code". What went is a redundant second colour language.
+
+---
+
+## 11. The cold palette is built — F1, 29 September 2026
+
+Section 1 adopted Trewhiddle as the thesis and `grep niello src/` found nothing.
+The overhaul's first landing that touches the stylesheet (`UI-PLAN.md` section 3,
+F1) is the missing vocabulary and the one mechanism that moves about 300 call
+sites onto it without editing them. What it is, and what it deliberately is not.
+
+**Tokens.** `niello`, `niello-raised`, `niello-line`; `silver`, `silver-lit`,
+`silver-dim`; `pewter` (non-text only); `--hall` for the page ground; `blood`,
+`madder`, `woad-team`; the four peoples' fields and their `-lit` text steps
+(declared for the war layer, read by nothing yet); the type scale and its
+`.t-*` classes; `.nums` for figures. **Gilt is declared reserved** (the helm's
+crown, the Bretwalda title, a won-season plate, the season leader's coast) and
+none of the existing sites was moved, because they belong to the units that own
+the components.
+
+**The ink ramp was re-based.** `--ink-faint` was `#7d7057`, which is 2.78:1 on
+the lit top of a card, 3.60:1 on niello-raised and 3.90:1 on the page. 44 sites
+set words in it. The steps are now `#c6b999` / `#b5a788` / `#a39679` (9.0, 7.4
+and 6.0:1 on niello-raised; 6.9, 5.7 and 4.6:1 on the card top), chosen so that
+soft, dim and faint stay three steps and do not collapse into one. `--ink-ghost`
+is for rules, never for words.
+
+**The remap.** Tailwind's amber, yellow, orange, purple, emerald, sky, cyan and
+red, every shade 50 to 950, resolve through three ramps declared on `:root`
+(`--ramp-warm-*`, `--ramp-cold-*`, `--ramp-blood-*`), each entry another palette
+token. It is a top-level `@theme inline`. Three things about it are not obvious:
+
+* A shade left undefined does not fall back, it makes the utility vanish, so all
+  88 are defined rather than resetting the namespace.
+* The ramps are ordered by lightness like the scales they replace, so `hover:`
+  and `/40` mean what they meant. Chroma is what is lost, on purpose.
+* Purple is not "removed": the plan said so, and a removed hue silently makes
+  `text-purple-300` inherit whatever is around it. It maps to the warm ramp, which
+  is where its one use (the ability name) will end up in any case.
+
+**What it costs, said plainly.** Two of the class card's four stat bars
+(`bg-emerald-500`, `bg-sky-400`) are now near-neutral silver. `tools/cardgate.mjs`
+and `classmatrix` read those bars as runs of SATURATED pixels against a neutral
+track, so they will see fewer bars than they used to. That is unit L's to fix
+(`UI-PLAN` D05: "land `cardgate` first"); F1 does not fix it and says so here.
+
+**Hover and zoom.** Hand-written `:hover` rules and `hover:` utilities are behind
+`(hover: hover) and (pointer: fine)`. `maximum-scale=1, user-scalable=no` are
+gone, `.shell` no longer forbids pinch, and the fight carries `.fight-root`
+(`touch-action: none`) so a pinch cannot fire mid-fight. `forced-colors` and
+`prefers-contrast: more` have blocks.
+
+**And it is held by a gate, not by this paragraph.** `palettecheck`,
+`csscheck` checks 7-13 and `numeralprobe` are in `docs/GATES.md`; the one lesson
+worth repeating here is that the first draft of the hover override compiled
+cleanly and deleted every `hover:` utility in the app, and only a gate that reads
+the **compiled** sheet noticed.

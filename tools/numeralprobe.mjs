@@ -118,8 +118,13 @@ async function main() {
   const SIZE = 160;
   const stage = async (family, weight, variant, text) => {
     await page.evaluate(async ({ family, weight, text, SIZE }) => {
-      // Make sure the exact face (weight, and the digits' unicode-range) is loaded before drawing.
-      await document.fonts.load(`${weight} ${SIZE}px ${family}`, text);
+      // Make sure the exact face (weight, and the digits' unicode-range) is loaded before drawing. ONLY THE FIRST FAMILY IS
+      // ASKED FOR: `--font-body` reads `Alegreya, "Alegreya Fallback"`, and `next/font` declares the fallback as
+      // `src: local(Times New Roman)`, which a box without that font cannot load, so `fonts.load()` on the whole stack rejects
+      // with a NetworkError that has nothing to do with the face being probed (the first run of this file died on it).
+      const primary = family.split(",")[0].trim();
+      const loaded = await document.fonts.load(`${weight} ${SIZE}px ${primary}`, text);
+      if (!loaded.length) throw new Error(`no face for "${primary}" weight ${weight} covers "${text}"`);
       await document.fonts.ready;
     }, { family, weight, text, SIZE });
     await page.evaluate(({ family, weight, variant, text, SIZE }) => {
