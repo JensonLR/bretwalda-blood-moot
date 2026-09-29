@@ -227,6 +227,22 @@ const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
     if (leaks.length) fail(`${leaks.length} hue shade(s) are not a var() of a declared token: ${leaks.slice(0, 4).join(" | ")}`);
     if (!nested.length && !missing.length && !leaks.length) pass(`@theme is top level and maps all ${HUES.length * SHADES.length} hue shades (${HUES.join(", ")}) to declared palette ramp tokens`);
   }
+
+  // (a2) The ramps themselves are made of TOKENS. Without this the remap check above could be passed by pointing
+  // `--ramp-warm-300` at `#fcd34d` (Tailwind's amber, typed by hand): every hue class would still read var(--ramp-*), the build
+  // would carry no raw colour in any hue RULE, and the game would be exactly as amber as before. So each ramp entry may contain
+  // only var(--token) of a declared colour token and the syntax of a tint of two of them, and no colour literal of its own.
+  const ramps = [...declared.entries()].filter(([k]) => k.startsWith("--ramp-"));
+  const impure = [];
+  for (const [name, value] of ramps) {
+    const refs = [...value.matchAll(/var\((--[\w-]+)\)/g)].map((m) => m[1]);
+    const rest = value.replace(/var\((--[\w-]+)\)/g, "").replace(/color-mix\(\s*in\s+oklab\s*,/g, "").replace(/[\d.]+%|[(),\s]/g, "");
+    const badRef = refs.find((r) => r.startsWith("--ramp-") || !declared.has(r) || !resolveColour(`var(${r})`, vars0));
+    if (rest || badRef || !refs.length) impure.push(`${name}: ${value}${badRef ? `  (${badRef} is not a palette token)` : ""}`);
+  }
+  if (!ramps.length) fail("no --ramp-* tokens are declared, so the @theme remap has nothing palette-shaped to point at");
+  else if (impure.length) { fail(`${impure.length} of ${ramps.length} ramp entries are not made of palette tokens alone (a colour literal in a ramp is an amber that passes every other check here)`); impure.slice(0, 5).forEach(note); }
+  else pass(`all ${ramps.length} ramp entries are built only from palette tokens (no colour literal, no raw hue)`);
 }
 
 // (b) In the COMPILED sheet.

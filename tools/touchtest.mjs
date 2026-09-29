@@ -552,13 +552,19 @@ const zoomAudit = (page) => page.evaluate(() => {
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) if (blocks(getComputedStyle(e).touchAction)) return false;
     return true;
   };
+  // The guard must actually CONTAIN the fight: the canvas, and a control from the combat cluster. A class moved onto the
+  // canvas alone (or onto some wrapper that holds neither) would leave the HUD outside the walk below, and every reading
+  // after this one would be true about a subtree that is not the fight.
+  const holdsCanvas = !!document.querySelector("canvas.touch-none") && root.contains(document.querySelector("canvas.touch-none"));
+  const slash = document.querySelector('button[aria-label="Slash"]');
+  const holdsHud = !!slash && root.contains(slash);
   const live = [root, ...root.querySelectorAll("*")].filter((e) => {
     const cs = getComputedStyle(e);
     const r = e.getBoundingClientRect();
     return cs.pointerEvents !== "none" && cs.display !== "none" && cs.visibility !== "hidden" && r.width > 0 && r.height > 0;
   });
   const open = live.filter(allowsPinch).map((e) => `${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ""}${e.className && typeof e.className === "string" ? `.${e.className.trim().split(/\s+/).slice(0, 2).join(".")}` : ""}`);
-  return { root: true, live: live.length, open };
+  return { root: true, live: live.length, open, holdsCanvas, holdsHud };
 });
 
 /**
@@ -2239,8 +2245,9 @@ async function main() {
 
     const audit = await zoomAudit(page);
     check("no element in the fight lets a pinch through (every touchable element sits under .fight-root)",
-      audit.root && audit.live >= 4 && audit.open.length === 0,
+      audit.root && audit.holdsCanvas && audit.holdsHud && audit.live >= 4 && audit.open.length === 0,
       !audit.root ? "there is no .fight-root — GameCanvas lost its guard"
+        : !audit.holdsCanvas || !audit.holdsHud ? `.fight-root exists but does not hold the ${!audit.holdsCanvas ? "canvas" : "combat cluster"} — the walk would be of the wrong subtree`
         : audit.open.length ? `${audit.open.length} of ${audit.live} can zoom: ${audit.open.slice(0, 5).join(", ")}`
           : `${audit.live} touchable elements walked, none can zoom`);
 
