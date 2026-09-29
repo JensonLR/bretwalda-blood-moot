@@ -22,7 +22,8 @@
 // THE CASES, all through the REAL swap and the REAL `poseWarrior`, no browser:
 //
 //   HEALTHY    the shipped man, 4 classes x the 12 states the pose has a layer for,
-//              8 loadouts on the default class: the net must PASS every one. The
+//              8 loadouts on the default class, and the CLIP-DRIVEN man the arena
+//              draws by default: the net must PASS every one. The
 //              worst drift and turn are printed against their bars so the margin
 //              is a number and not a feeling.
 //   DEFECTIVE  the man the shipped tree drew before the fix: `applyPose` writing
@@ -109,7 +110,32 @@ for (const cls of classes) {
     }
   }
 }
-const hReach = Math.max(...healthy.map((h) => h.r.worstReach)), hTurn = Math.max(...healthy.map((h) => h.r.worstTurn));
+// THE ARENA'S MAN IS CLIP-DRIVEN by default (`clipsWanted()` is on whenever the authored warriors ship),
+// and the clips are Blender's own animation of the same bones: a net calibrated on the procedural pose
+// alone could refuse every man in the arena on the first frame and nobody would know until a capture.
+let clipReach = 0, clipTurn = 0;
+if (!lever) {
+  for (const cls of classes) {
+    const gltf = await L.parseGlb(ROOT, cls);
+    let worstR = 0, worstT = 0, refused = 0, samples = 0;
+    for (const state of L.WIDE_STATES) {
+      const pair = L.buildPair(kit, cls, gltf);
+      L.giveClips(kit, pair);
+      const net = armHeadNet(asNet(pair.B));
+      for (let f = 0; f < 90; f++) {
+        pose(pair.B, state, f);
+        if (f === 0 || f % 10 === 9) {
+          const v = net.check(); samples++;
+          if (!v.ok) refused++;
+          worstR = Math.max(worstR, v.reachDrift ?? 0); worstT = Math.max(worstT, v.turnDeg ?? 0);
+        }
+      }
+    }
+    clipReach = Math.max(clipReach, worstR); clipTurn = Math.max(clipTurn, worstT);
+    check(`${cls}: the CLIP-DRIVEN healthy man (12 states) is NOT refused in any of ${samples} samples`, refused === 0, `worst reach drift ${worstR.toFixed(3)} m, worst turn ${worstT.toFixed(1)} deg`);
+  }
+}
+const hReach = Math.max(clipReach, ...healthy.map((h) => h.r.worstReach)), hTurn = Math.max(clipTurn, ...healthy.map((h) => h.r.worstTurn));
 console.log(`\n  HEALTHY worst: reach drift ${hReach.toFixed(3)} m (bar ${HEAD_NET.maxReach}, ${(HEAD_NET.maxReach / hReach).toFixed(1)}x headroom), turn ${hTurn.toFixed(1)} deg (bar ${HEAD_NET.maxTurn}, ${(HEAD_NET.maxTurn / hTurn).toFixed(1)}x headroom)`);
 
 // ---- DEFECTIVE -----------------------------------------------------------

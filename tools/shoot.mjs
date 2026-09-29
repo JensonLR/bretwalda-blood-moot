@@ -910,6 +910,13 @@ async function main() {
     if (authoredMen.length === 0 && staged.subject && staged.subject.warPaint === "none") {
       errors.push("no AUTHORED man was drawn (window.__authoredHeads is empty after 90 s): this frame is a picture of the PROCEDURAL man");
     }
+    // AND WHO THE HEAD NET THREW OUT (render/authoredHead.ts). A man it refused is a PROCEDURAL man on
+    // screen, drawn safely and wrongly, and would otherwise be one fewer in the count above with nothing
+    // to say why. It is an error: a refusal means the authored path lost a head on this build.
+    const refusedMen = await page.evaluate(() => (window.__authoredRefused ?? []).map((r) => ({ cls: r.cls, problems: r.problems })));
+    if (refusedMen.length) {
+      errors.push(`the head net REFUSED ${refusedMen.length} authored man/men (${refusedMen.map((r) => `${r.cls}: ${r.problems.join("; ")}`).join(" | ")}): those frames show the PROCEDURAL man`);
+    }
     console.log(`[shoot] ${key}: authored men drawn ${authoredMen.length}` +
       `${authoredMen.length ? ` (${authoredMen.map((m) => `${m.cls}:${(m.props || []).join("+") || "bare"}${m.missing?.length ? `!missing ${m.missing.join("+")}` : ""}`).join(", ")})` : ""}`);
 

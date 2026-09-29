@@ -32,12 +32,15 @@
  *
  *   reach   the farthest head vertex from the chest bone, in metres. A rigid
  *           head turning on its neck moves this by a few centimetres (measured
- *           0.00-0.035 over every state the pose has a layer for, all four
- *           classes); a head turned 180 degrees about its own pivot moves it
- *           0.08-0.34 (the defect, measured on the tree before the fix).
+ *           0.000-0.027 over the 12 states the pose has a layer for, all four
+ *           classes, procedural pose AND the clips the arena plays); a head
+ *           turned 180 degrees about its own pivot moves it 0.096-0.34 (the
+ *           defect, measured on the tree before the fix).
  *   turn    the head bone's orientation relative to the chest bone, against the
- *           same at bind, in degrees. No vertex involved, so it cannot be fooled
- *           by what hair or helm happens to be on him.
+ *           same at bind, in degrees: 33.6 at the worst healthy sample (a dead man's
+ *           head, clip-driven), 178-180 on the defect. No vertex involved, so it
+ *           cannot be fooled by what hair or helm happens to be on him. It is the
+ *           one that carries the verdict for a flip; `tools/headnet.mjs` holds both.
  *
  * and the structural facts the brief for this unit lists: something is drawn
  * above the shoulders, the bone's matrix has not collapsed, its scale has not

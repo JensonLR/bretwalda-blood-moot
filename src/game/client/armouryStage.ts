@@ -416,7 +416,10 @@ function buildFire(materials: MaterialLibrary, flameTex: THREE.Texture): {
 } {
   const g = new THREE.Group();
   const logGeo = new THREE.CylinderGeometry(0.06, 0.075, 1.15, 7);
-  const logMat = materials.get("bonfireLog");
+  // Charred wood against fire is a silhouette, and a lit log with the fire's own light inside
+  // the pile is the white slat with a black slit the first capture of this scene had. Unlit and
+  // dark: the flames' glow (additive, drawn over them) is what lights the wood.
+  const logMat = new THREE.MeshBasicMaterial({ color: 0x1c110a });
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
     const log = new THREE.Mesh(logGeo, logMat);
@@ -445,7 +448,7 @@ function buildFire(materials: MaterialLibrary, flameTex: THREE.Texture): {
   mk(0.14, 0.9, -0.05, 0.55, 0.9, 0.62);
   mk(0.0, 1.22, 0, 0.42, 0.85, 0.5);
   const light = new THREE.PointLight(0xff9a44, 34, 16, 2);
-  light.position.set(0, 0.9, 0);
+  light.position.set(0, 1.25, 0);
   g.add(light);
   return { group: g, light, flames };
 }
@@ -493,15 +496,19 @@ function buildForge(): Forge | null {
 
   // Ground. The real dirt substance, world-tiled by the shader exactly as the
   // arena tiles it, so the turf under the mannequin is the turf he fights on.
-  const groundMat = materials.get("ground") as THREE.MeshStandardMaterial;
   // GROUND SPECULAR <= 0.15 (UI-PLAN D18: "the ground is specular sand that
   // outshines the man"). Its roughness is already 0.96; the glitter is the
   // detail normal map catching the key and the fire and the env map reflecting
-  // a sky into every bump. The map's slope is halved and the env's share cut to
-  // 0.15, which keeps the turf's grain and takes the sparkle off it. This is
-  // the shop's own material library — the arena's ground is untouched.
-  groundMat.normalScale?.set(0.4, 0.4);
-  groundMat.envMapIntensity = 0.15;
+  // a sky into every bump. So the shop gets a CLONE of the library's ground with
+  // the map's slope cut to a fifth, the albedo dimmed, and NO environment: the
+  // library re-adopts every material it holds on each sky rebake and would put an
+  // env intensity back on the original (`materials.ts` `adopt`), which is why this
+  // is a clone the library does not know. The arena's ground is untouched.
+  const groundMat = (materials.get("ground") as THREE.MeshStandardMaterial).clone();
+  groundMat.normalScale?.set(0.2, 0.2);
+  groundMat.envMap = null;
+  groundMat.envMapIntensity = 0;
+  groundMat.color.multiplyScalar(0.62);
   const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 64), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = quality.shadows;
@@ -806,8 +813,13 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
    * never shown an authored man before the head net has looked at him.
    */
   let authoredPending = false;
-  /** Past this, `ready` stops waiting for a slow download; the swap is still checked when it lands. */
-  const readyDeadline = performance.now() + AUTHORED_PATIENCE_MS;
+  /**
+   * Past this, `ready` stops waiting for a slow download; the swap is still checked when it lands.
+   * Started when the FIRST FRAME has been drawn, not when the stage was made: the first frame is
+   * where the texture library and the PMREM are baked (8 s on a box with no GPU), and a clock
+   * started before it would have run out before the first thing was on screen.
+   */
+  let readyDeadline = Infinity;
   /** The authored man just swapped in, waiting for his first posed frame. */
   interface ArmedHeadNet {
     rig: WarriorRig; net: HeadNet; res: Extract<SwapResult, { ok: true }>; dress: () => void;
@@ -1050,7 +1062,16 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       // not of the helmet. Pitched down, what is behind him is turf — which
       // is also what is behind an enemy in a real fight.
       camera.position.set(0, 2.30, FIGHT_DIST);
-      camera.lookAt(0, 0.92, 0);
+      // AIMED SO THE CROWN IS 8% FROM THE TOP, whatever the man's height. The lookAt
+      // was a fixed 0.92 m, which on a desktop panel put the crown ON the top edge
+      // (the berserker's 5% over it — the helmet the lens exists to show, cropped).
+      // The scale stays the honest one above; only where the frame sits on him moves,
+      // and on a phone, where the slice is too short for all of him, it is his head
+      // and shoulders that stay and his boots that go.
+      const half = Math.tan((camera.fov * Math.PI) / 360);
+      const phiCrown = Math.atan((2.30 - crown) / FIGHT_DIST);
+      const pitch = phiCrown + Math.atan((0.5 - FIG_TOP) * 2 * half);
+      camera.lookAt(0, 2.30 - FIGHT_DIST * Math.tan(pitch), 0);
     } else if (lens === "figure") {
       // Solved, not tuned: see `solveFrame`. A narrow panel (a phone) widens the
       // lens until the man's arms are in it and lets the crown and boots stay
@@ -1195,6 +1216,11 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         rig.group.rotation.y = turn;
         if (rig && motion) poseWarrior(rig, motion, player, dt, ctx);
       }
+      // AFTER the pose, every frame: `poseWarrior` writes `rig.shield.visible` itself (a man
+      // with a board has it up), so a shield hidden once at a head crop was back on his arm on
+      // the next frame — the huscarl's board filled the SHOULDERS lens in the first capture
+      // of this scene. What the lens hides is decided after the pose and before the draw.
+      armRig();
     }
     forge.sky.update(dt, ctx);
     if (lens === "fight") {
@@ -1211,7 +1237,8 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     renderer.setViewport(0, 0, w, h);
     renderer.setScissorTest(false);
     renderOnce();
-    if (!ready && (!authoredPending || t > readyDeadline)) ready = true;
+    if (readyDeadline === Infinity) readyDeadline = performance.now() + AUTHORED_PATIENCE_MS;
+    if (!ready && (!authoredPending || performance.now() > readyDeadline)) ready = true;
     settledFrames++;
     STATS.frames++;
     STATS.worstFrameMs = Math.max(STATS.worstFrameMs, performance.now() - t);
