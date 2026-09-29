@@ -32,7 +32,7 @@
 //      FIRST and the loop is frozen, so both are one instant.
 //   2. THE GROUND BEHIND IT: the median luma of the WORLD pixels (turf, fence,
 //      sky - not the man) in a ring 4-16 px round the blade.
-//   3. BLADE / GROUND: the median luma of the blade's own pixels over that.
+//   3. BLADE / GROUND: the median luma of the LIT STEEL (the bright class; the dark inlay has its own bar, below) over that.
 //      Bar 0.9-2.0. Below 0.9 the blade is darker than the dirt it is in front of
 //      (HEAD); above 2.0 it is a blown highlight, which is the OTHER way to fail
 //      and the reason the Dane axe was once "a white blob beside the helm".
@@ -446,7 +446,10 @@ function analyse(png, W, H, cls, kind) {
   out.groundMedian = median(useRing);
   out.groundSource = ring.length >= 80 ? `${ring.length} world px` : `${ringAll.length} px incl. the man (only ${ring.length} world px in the ring)`;
 
-  const bl = [], clip = [];
+  // The LIT STEEL is the bright class: the fuller is a dark inlay on purpose and the stripe bar is what holds it, so folding its
+  // near-black pixels into the median of "the blade" would let a bigger fuller pass a duller blade (a 44%-dark blade's median falls
+  // to its bright half's lower quartile). The union median is still reported, for anyone who wants the plan's other reading.
+  const bl = [], clip = [], blAll = [];
   const Lb = [], Ld = [];
   // the principal axis of the bright metal, for the sword and seax fuller zone
   let mx = 0, my = 0, n = 0;
@@ -466,7 +469,8 @@ function analyse(png, W, H, cls, kind) {
     if (!blade[i]) continue;
     const [r, g, b] = at(i);
     const l = luma(r, g, b);
-    bl.push(l); clip.push(l >= 250 ? 1 : 0);
+    blAll.push(l);
+    if (bright[i]) { bl.push(l); clip.push(l >= 250 ? 1 : 0); }
     const x = i % W, y = (i / W) | 0;
     const t = (x - mx) * ax + (y - my) * ay;
     const Ls = Lstar(r, g, b);
@@ -478,6 +482,7 @@ function analyse(png, W, H, cls, kind) {
     }
   }
   out.bladeMedian = median(bl);
+  out.unionMedian = median(blAll);
   out.ratio = out.bladeMedian / out.groundMedian;
   out.clipFrac = clip.reduce((a, v) => a + v, 0) / clip.length;
   out.brightL = median(Lb); out.darkL = median(Ld);
@@ -540,7 +545,7 @@ async function sweepFrame(page, { cls, turn, kind, tag, prep }) {
       if (cfg.gated) notMeasurable.push(tag);
       continue;
     }
-    console.log(`  ${cfg.label.padEnd(34)} blade ${res.bladeMedian.toFixed(0).padStart(3)} / ground ${res.groundMedian.toFixed(0).padStart(3)} = ${res.ratio.toFixed(2)}   bright ${res.brightL.toFixed(0)} L*, dark ${Number.isFinite(res.darkL) ? res.darkL.toFixed(0) : "-"} L*, stripe ${Number.isFinite(res.stripe) ? res.stripe.toFixed(0) : "none"}   clip ${(res.clipFrac * 100).toFixed(1)}%`);
+    console.log(`  ${cfg.label.padEnd(34)} lit steel ${res.bladeMedian.toFixed(0).padStart(3)} (with the inlay ${res.unionMedian.toFixed(0)}) / ground ${res.groundMedian.toFixed(0).padStart(3)} = ${res.ratio.toFixed(2)}   bright ${res.brightL.toFixed(0)} L*, dark ${Number.isFinite(res.darkL) ? res.darkL.toFixed(0) : "-"} L*, stripe ${Number.isFinite(res.stripe) ? res.stripe.toFixed(0) : "none"}   clip ${(res.clipFrac * 100).toFixed(1)}%`);
     sweepRows.push({ tag, label: cfg.label, ratio: res.ratio, stripe: res.stripe, blade: res.bladeMedian, ground: res.groundMedian });
     if (cfg.gated) {
       check(`[${tag}] the blade is not darker than the ground it stands in front of, nor blown out: blade / ground ${RATIO_LO}-${RATIO_HI}`, res.ratio >= RATIO_LO && res.ratio <= RATIO_HI, `${res.ratio.toFixed(2)}  (${res.bladeMedian.toFixed(0)} / ${res.groundMedian.toFixed(0)})`);
@@ -615,7 +620,7 @@ try {
       if (res.hist[1] === 0 && res.hist[2] === 0 && res.hist[3] === 0) { console.log("  the class pass saw no weapon pixels of any class: stopping here, the rest would say the same"); break; }
       continue;
     }
-    console.log(`  blade ${res.nBlade} px (${res.nBright} bright + ${res.nDark} dark), ${res.axisPx.toFixed(0)} px long; median luma ${res.bladeMedian.toFixed(0)} against a ground of ${res.groundMedian.toFixed(0)} (${res.groundSource})`);
+    console.log(`  blade ${res.nBlade} px (${res.nBright} bright + ${res.nDark} dark), ${res.axisPx.toFixed(0)} px long; the lit steel's median luma ${res.bladeMedian.toFixed(0)} (${res.unionMedian.toFixed(0)} with the dark inlay in) against a ground of ${res.groundMedian.toFixed(0)} (${res.groundSource})`);
     check(`[${tag}] the blade is not darker than the ground it stands in front of, nor blown out: blade / ground ${RATIO_LO}-${RATIO_HI}`, res.ratio >= RATIO_LO && res.ratio <= RATIO_HI, `${res.ratio.toFixed(2)}  (${res.bladeMedian.toFixed(0)} / ${res.groundMedian.toFixed(0)})`);
     check(`[${tag}] the blade is not clipped: at most ${CLIP_MAX * 100}% of its pixels at luma >= 250`, res.clipFrac <= CLIP_MAX, `${(res.clipFrac * 100).toFixed(1)}%`);
     check(`[${tag}] the ${kind === "sword" || kind === "seax" ? "fuller" : kind === "spear" ? "socket and wings" : "cheeks"} read as a stripe against the bright metal: >= ${STRIPE_MIN} L*`,
