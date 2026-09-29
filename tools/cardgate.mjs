@@ -61,6 +61,7 @@ import { spawn } from "child_process";
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -455,7 +456,10 @@ async function installStatMutation(page, muts) {
 // on, and its whole purpose here is claim 6 — under a mutation of the drawn
 // pixels it does not move, because it cannot see them.
 function sourceScan() {
-  const src = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+  // The page AND what the F0 carve moved out of it: `<StatBar max={...}>` is written in
+  // `ui/lobbyParts.tsx` now, and a scan of `page.tsx` alone would report GREEN about text it can no
+  // longer see. This ruler is never gated on, which is exactly why it must not be allowed to go quiet.
+  const src = pageSource(ROOT);
   const literals = [...src.matchAll(/<StatBar[^>]*?max=\{\s*([\d.]+)\s*\}/g)].map((m) => m[1]);
   const clamped = /Math\.min\(\s*100\s*,/.test(src);
   return { literals, clamped, clean: literals.length === 0 && !clamped };
@@ -473,7 +477,7 @@ const VIEWPORTS = [
 ];
 
 const scan = sourceScan();
-console.log(`\n[matrix] the OLD ruler, for comparison only — source scan of page.tsx: `
+console.log(`\n[matrix] the OLD ruler, for comparison only — source scan of the page and src/app/ui: `
   + `${scan.clean ? "GREEN" : "RED"} (${scan.literals.length} typed maxima ${scan.literals.join(", ") || "—"}; `
   + `clamp ${scan.clamped ? "present" : "absent"})`);
 
