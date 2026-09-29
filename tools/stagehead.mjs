@@ -109,8 +109,7 @@ async function main() {
           await A.framesMore(page, 3);
           await W.untilSettled(page, { expectAuthored: false, budgetMs: 30000 });
           const r = await W.readHead(page);
-          const problems = W.judge(r, W.BARS, { requireAuthored: !ALLOW_REFUSED, allowRefused: ALLOW_REFUSED });
-          if (!NO_NET && !ALLOW_REFUSED && r && !r.authored?.net) problems.push("no head net verdict on window.__authored (this tree has no head net)");
+          const problems = W.judge(r, W.BARS, { requireAuthored: !ALLOW_REFUSED, allowRefused: ALLOW_REFUSED, requireNet: !NO_NET && !ALLOW_REFUSED });
           if (r?.win && FRAMING[lens]) {
             const f = FRAMING[lens];
             if (r.win.crownAt < f.crown[0] || r.win.crownAt > f.crown[1]) problems.push(`the crown is ${(r.win.crownAt * 100).toFixed(1)}% from the top, wanted ${f.crown.map((v) => v * 100).join("-")}%`);

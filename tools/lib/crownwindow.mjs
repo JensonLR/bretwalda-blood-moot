@@ -145,7 +145,7 @@ export function describe(r) {
  * `bars` is `BARS` (or a stricter one): per lens, the smallest fraction of the
  * window that may be skin on a man facing the lens, with `MIN_SKIN_PX` as the floor.
  */
-export function judge(r, bars, { requireAuthored = true, allowRefused = false } = {}) {
+export function judge(r, bars, { requireAuthored = true, allowRefused = false, requireNet = requireAuthored } = {}) {
   const bad = [];
   if (!r) return ["no stage is mounted (window.__armouryStage is absent)"];
   if (!r.win) return [`the head window is off the canvas (crown ${r.crown})`];
@@ -163,6 +163,10 @@ export function judge(r, bars, { requireAuthored = true, allowRefused = false } 
     if (!a) bad.push("no authored man reported on window.__authored");
     else if (!a.refused && !a.ok) bad.push(`the authored swap did not land: ${a.why}`);
   }
+  // THE NET'S VERDICT MUST BE THERE. A tree with no head net has no way to say its man is wrong, and
+  // the pre-fix man's numbers (det, skull, visible) all read fine: skin painted where the face belongs
+  // would pass everything else on it. So a report without a net verdict cannot be green.
+  if (requireNet && a && !a.refused && !a.net) bad.push("no head net verdict on window.__authored (this tree has no head net)");
   if (a?.head) {
     const h = a.head;
     // |det|: a MIRRORED man (a left-handed player's) has det -1 and is not a collapsed one.

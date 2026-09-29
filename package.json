@@ -117,7 +117,8 @@
     "headflip": "node tools/headflip.mjs",
     "parity": "node tools/parity.mjs",
     "headnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/headnet.mjs",
-    "stagehead": "node tools/stagehead.mjs"
+    "stagehead": "node tools/stagehead.mjs",
+    "crownwindowtest": "node tools/crownwindowtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",
