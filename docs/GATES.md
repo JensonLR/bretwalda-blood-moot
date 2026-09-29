@@ -293,6 +293,25 @@ server; it belongs in the **MIDDLE** tier for any change to the class roster,
 `StatBar`, or `WARRIOR_STATS`, and in the **OUTER** gate otherwise. Neither is an
 inner-loop instrument.
 
+## Gates that read the page as text go through `tools/lib/pagesrc.mjs`
+
+Several gates assert something about the menu screens by reading source (a stat
+bar carries no typed ceiling, the tour's targets exist, the round hold is derived
+from the replay, the hex-literal ratchet). `src/app/page.tsx` stopped being one
+file when the F0 scaffold carved its components into `src/app/ui/*`, and it will
+keep changing shape as the units land, so **a gate must not open `page.tsx` by
+name**: `pageSources()` (per file, for a report that names `file:line`) and
+`pageSource()` (one string, for "is it anywhere") return the page and everything
+carved out of it.
+
+The failure this prevents is silent, which is why it is a rule and not a tidy-up.
+The day the carve landed, `csscheck`'s ratchet read **7 raw hex literals against a
+ceiling of 15**: eight had moved next door, so eight new ones would have been let
+in, and every assertion of the form "this must not be there" (`classmatrix`'s
+typed `max=`, `marktest`'s removed `title=`) would have kept passing while looking
+at a file that no longer held the text. A gate that is green because the case is
+absent is not a gate.
+
 ## What this does not mean
 
 It does not mean lowering the bar. `docs/VISUAL-BAR.md` still says 8+ on every
