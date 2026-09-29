@@ -8,6 +8,7 @@
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --only=huscarl:0,warden:0
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --mutant=whiteout|flat|blackout
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --lever=metalness:1,roughness:0.2
+//   /tmp/claude-0/cap node tools/bladevalue.mjs --sweep="metalness:1;metalness:0.7;metalness:0.5,roughness:0.3"
 //
 // WHY THIS EXISTS. CHAR-PLAN CH-24: "Steel is a mirror: blades are the darkest
 // thing on the man". `steel` was metalness 1, roughness 0.18-0.22, and a metal
@@ -72,6 +73,12 @@ const has = (n) => argv.includes(`--${n}`);
 const MUTANT = flagVal("mutant");
 // R1, pull the lever: `--lever=metalness:1,roughness:0.2` sets those on every steel in the weapon, in the page, on
 // the build as it stands, so a run says whether the number the ruler reports MOVES when the thing it is about moves.
+// `--sweep="a:1;a:0.5,b:2"`: several levers over ONE page load per frame. The class map is taken once, the game's clock is
+// held nearly still (a millisecond a frame, so nothing moves by a pixel) and each lever is applied, left to settle and
+// photographed in turn. Readings only: the gated run is the as-built weapon, or `--lever` if that is given. It exists because
+// a page load is a minute and a half on this box and a lever sweep by reloading is a queue for the lock per value.
+const parseLever = (v) => { const o = {}; for (const kv of v.split(",")) { const [k, x] = kv.split(":"); o[k] = Number(x); } return o; };
+const SWEEP = (() => { const v = flagVal("sweep"); return v ? v.split(";").map((c) => ({ label: c.replace(/:/g, "="), lever: parseLever(c) })) : null; })();
 const LEVER = (() => { const v = flagVal("lever"); if (!v) return null; const o = {}; for (const kv of v.split(",")) { const [k, x] = kv.split(":"); o[k] = Number(x); } return o; })();
 const OUT = resolve(ROOT, flagVal("out", "art/bladevalue"));
 const PORT = parseInt(process.env.PORT || String(3300 + (process.pid % 300)), 10);
@@ -119,8 +126,8 @@ mkdirSync(OUT, { recursive: true });
 
 // ---- the page-side passes ---------------------------------------------------
 /** In the page: find the game's camera, apply a mutant, and freeze the loop. */
-async function preparePage(page, mutant, lever) {
-  return page.evaluate(async ([mut, lev]) => {
+async function preparePage(page, mutant, lever, freeze = true) {
+  return page.evaluate(async ([mut, lev, frz]) => {
     const scene = window.__bretwaldaScene, renderer = window.__bretwaldaRenderer;
     if (!scene || !renderer) return { error: "the page publishes no __bretwaldaScene / __bretwaldaRenderer" };
     const weapons = [];
@@ -162,9 +169,74 @@ async function preparePage(page, mutant, lever) {
     if (!cam) return { error: "renderer.render was never called with a perspective camera in 3 frames" };
     window.__bvCam = cam;
     // Freeze: no further frame is scheduled. One may already be in flight; the caller waits it out.
-    window.requestAnimationFrame = () => 0;
+    if (frz) window.requestAnimationFrame = () => 0;
     return { fov: cam.fov, near: cam.near, far: cam.far, aspect: cam.aspect, frame: renderer.info.render.frame };
-  }, [mutant, lever]);
+  }, [mutant, lever, freeze]);
+}
+
+/**
+ * The sweep's preparation: the same camera grab, but instead of stopping the loop the game's clock is held nearly still, one
+ * millisecond a frame, so the loop keeps drawing (a lever can be applied, compiled and photographed) and the man does not move
+ * by a pixel between the class map and any of the photographs.
+ */
+async function preparePageSweep(page, mutant) {
+  const first = await preparePage(page, mutant, null, false);
+  if (first.error) return first;
+  await page.evaluate(() => {
+    let T = performance.now();
+    performance.now = () => T;
+    const inner = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb) => inner(() => { T += 1; cb(T); });
+  });
+  return first;
+}
+
+/** Wait for the game to have drawn `n` more times (three counts every pass, so this is generous). */
+async function waitFrames(page, n) {
+  const f0 = await page.evaluate(() => window.__bretwaldaRenderer.info.render.frame);
+  for (const t0 = Date.now(); Date.now() - t0 < 120000;) {
+    const f = await page.evaluate(() => window.__bretwaldaRenderer.info.render.frame);
+    if (f >= f0 + n) return true;
+    await page.waitForTimeout(400);
+  }
+  return false;
+}
+
+/** Put every material the class pass swapped back, and every hidden thing visible again. */
+async function restorePass(page) {
+  return page.evaluate(() => {
+    const saved = window.__bvSaved ?? [];
+    for (const [o, key, val] of saved) o[key] = val;
+    window.__bvSaved = [];
+    return saved.length;
+  });
+}
+
+/** Apply a lever to the weapon's steels (null puts the game's own materials back). The originals are kept by mesh. */
+async function applyLever(page, lever) {
+  return page.evaluate((lev) => {
+    const scene = window.__bretwaldaScene;
+    const weapons = []; scene.traverse((o) => { if (o.name === "weapon" && !o.isMesh) weapons.push(o); });
+    window.__bvOrig ??= new Map();
+    let n = 0;
+    for (const w of weapons) w.traverse((o) => {
+      if (!o.isMesh || !o.material || !/^(steel|weldsteel|serpentsteel)/.test((window.__bvOrig.get(o.uuid) ?? o.material).name || "")) return;
+      if (!window.__bvOrig.has(o.uuid)) window.__bvOrig.set(o.uuid, o.material);
+      const src = window.__bvOrig.get(o.uuid);
+      if (!lev) { o.material = src; n++; return; }
+      const m = src.clone();
+      // a scalar means nothing under a map that multiplies it: take the maps out so the lever is the whole story
+      if ("metalness" in lev) { m.metalness = lev.metalness; m.metalnessMap = null; }
+      if ("roughness" in lev) { m.roughness = lev.roughness; m.roughnessMap = null; }
+      if ("albedo" in lev) m.color.multiplyScalar(lev.albedo);
+      // a colour lever, as linear multipliers on the base colour: `tr:0.95,tg:1,tb:1.1` cools a blade a step
+      if ("tr" in lev || "tg" in lev || "tb" in lev) { m.color.r *= lev.tr ?? 1; m.color.g *= lev.tg ?? 1; m.color.b *= lev.tb ?? 1; }
+      if ("env" in lev) m.envMapIntensity = lev.env;
+      m.needsUpdate = true;
+      o.material = m; n++;
+    });
+    return n;
+  }, lever);
 }
 
 /** In the page, after the screenshot: redraw the same scene with class colours and read it back. */
@@ -203,13 +275,16 @@ async function classPass(page) {
     const inWeapon = (o) => { for (let p = o; p; p = p.parent) if (weapons.includes(p)) return true; return false; };
     const inMan = (o) => { for (let p = o; p; p = p.parent) if (typeof p.name === "string" && p.name.startsWith("warrior:")) return true; return false; };
     const counts = { bright: 0, dark: 0, other: 0, body: 0, world: 0, hidden: 0 };
+    window.__bvSaved = [];
+    const keep = (o, key) => window.__bvSaved.push([o, key, o[key]]);
     scene.traverse((o) => {
-      if (o.isPoints || o.isSprite || o.isLine) { o.visible = false; counts.hidden++; return; }
+      if (o.isPoints || o.isSprite || o.isLine) { keep(o, "visible"); o.visible = false; counts.hidden++; return; }
       if (!o.isMesh) return;
       // `rig:shadow` is the merged depth-only copy of a bone's meshes that casts the man's shadow (anim.ts, the shadow
       // proxy): its material writes no colour, so the game's camera never sees it. Given an opaque class colour here it
       // was drawn OVER the blade in blue, and the first two trials of this ruler read "no blade" for exactly that reason.
-      if (o.name === "rig:shadow" || (o.material && o.material.colorWrite === false)) { o.visible = false; counts.hidden++; return; }
+      if (o.name === "rig:shadow" || (o.material && o.material.colorWrite === false)) { keep(o, "visible"); o.visible = false; counts.hidden++; return; }
+      keep(o, "material");
       if (inWeapon(o)) {
         const name = o.material?.name || "";
         const hex = parseHex(name);
@@ -220,7 +295,7 @@ async function classPass(page) {
         else if ((metal || surf === "iron" || surf === "interlace") && L <= 38) { o.material = M.dark; counts.dark++; }
         else { o.material = M.other; counts.other++; }
       } else if (inMan(o)) { o.material = M.body; counts.body++; }
-      else if (o.material && o.material.transparent) { o.visible = false; counts.hidden++; }
+      else if (o.material && o.material.transparent) { keep(o, "visible"); o.visible = false; counts.hidden++; }
       else { o.material = M.world; counts.world++; }
     });
     scene.background = null; scene.fog = null; scene.environment = null;
@@ -419,8 +494,65 @@ function analyse(png, W, H, cls, kind) {
 }
 
 // ---- the run ----------------------------------------------------------------
-const browser = await chromium.launch(launchOptions());
 const results = [];
+
+/**
+ * One frame, many levers (`--sweep`). The class map once, then each lever applied, settled and photographed, all in one page load.
+ * The as-built weapon (or `--lever`) is gated exactly as the ordinary run gates it; every other row is a reading and never a verdict,
+ * which is what R1 asks of a ruler: does the number move when the thing it is about moves.
+ */
+const sweepRows = [];
+async function sweepFrame(page, { cls, turn, kind, tag, prep }) {
+  await waitFrames(page, 6);
+  const cp = await classPass(page);
+  if (cp.error) { console.log(`  ${cp.error}`); notMeasurable.push(tag); return; }
+  await restorePass(page);
+  const cbuf = Buffer.from(cp.b64, "base64");
+  console.log(`  camera fov ${prep.fov.toFixed(2)}; meshes by class ${JSON.stringify(cp.counts)}; class map ${cp.w}x${cp.h} by ${cp.method}${cp.errors.length ? `   [page said: ${cp.errors.slice(0, 2).join(" | ")}]` : ""}`);
+  const configs = [{ label: LEVER ? `as leavered ${JSON.stringify(LEVER)}` : "as built", lever: LEVER, gated: true }, ...SWEEP.map((c) => ({ ...c, gated: false }))];
+  let first = true;
+  for (const cfg of configs) {
+    await applyLever(page, cfg.lever);
+    await waitFrames(page, 6);
+    const shot = await page.screenshot({ timeout: 300000 });
+    const png = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const W = png.info.width, H = png.info.height;
+    const res = analyse({ data: png.data, channels: png.info.channels }, W, H, { data: cbuf, w: cp.w, h: cp.h }, kind);
+    const slug = cfg.gated ? "" : `-${cfg.label.replace(/[^\w.=-]+/g, "_")}`;
+    if (first) {
+      console.log(`  class map pixels: world ${res.hist[0]}, bright metal ${res.hist[1]}, dark ${res.hist[2]}, other weapon ${res.hist[3]}, the man ${res.hist[4]}`);
+      writeFileSync(resolve(OUT, `${tag}.png`), shot);
+      if (res.C) {
+        const rgb = Buffer.alloc(W * H * 3);
+        const pal = [[10, 10, 10], [255, 60, 60], [40, 220, 90], [70, 110, 255], [120, 120, 120]];
+        for (let i = 0; i < res.C.length; i++) { const q = pal[res.C[i]]; const a = res.C[i] === 0 ? 0.0 : 0.85; for (let k = 0; k < 3; k++) rgb[i * 3 + k] = Math.round(q[k] * a + png.data[i * png.info.channels + k] * (1 - a)); }
+        await sharp(rgb, { raw: { width: W, height: H, channels: 3 } }).png().toFile(resolve(OUT, `${tag}-classes.png`));
+      }
+      first = false;
+    }
+    if (res.measurable) {
+      const [x0, y0, x1, y1] = res.bbox; const pad = 30;
+      const cx0 = Math.max(0, x0 - pad), cy0 = Math.max(0, y0 - pad), cw = Math.min(W, x1 + pad) - cx0, chh = Math.min(H, y1 + pad) - cy0;
+      await sharp(shot).extract({ left: cx0, top: cy0, width: cw, height: chh }).resize({ width: Math.min(1000, cw * 3), kernel: "nearest" }).png().toFile(resolve(OUT, `${tag}${slug}-crop.png`));
+    }
+    if (!res.measurable) {
+      console.log(`  ${cfg.label.padEnd(34)} NOT MEASURABLE (${res.nBlade} blade px)`);
+      if (cfg.gated) notMeasurable.push(tag);
+      continue;
+    }
+    console.log(`  ${cfg.label.padEnd(34)} blade ${res.bladeMedian.toFixed(0).padStart(3)} / ground ${res.groundMedian.toFixed(0).padStart(3)} = ${res.ratio.toFixed(2)}   bright ${res.brightL.toFixed(0)} L*, dark ${Number.isFinite(res.darkL) ? res.darkL.toFixed(0) : "-"} L*, stripe ${Number.isFinite(res.stripe) ? res.stripe.toFixed(0) : "none"}   clip ${(res.clipFrac * 100).toFixed(1)}%`);
+    sweepRows.push({ tag, label: cfg.label, ratio: res.ratio, stripe: res.stripe, blade: res.bladeMedian, ground: res.groundMedian });
+    if (cfg.gated) {
+      check(`[${tag}] the blade is not darker than the ground it stands in front of, nor blown out: blade / ground ${RATIO_LO}-${RATIO_HI}`, res.ratio >= RATIO_LO && res.ratio <= RATIO_HI, `${res.ratio.toFixed(2)}  (${res.bladeMedian.toFixed(0)} / ${res.groundMedian.toFixed(0)})`);
+      check(`[${tag}] the blade is not clipped: at most ${CLIP_MAX * 100}% of its pixels at luma >= 250`, res.clipFrac <= CLIP_MAX, `${(res.clipFrac * 100).toFixed(1)}%`);
+      check(`[${tag}] the ${kind === "sword" || kind === "seax" ? "fuller" : kind === "spear" ? "socket and wings" : "cheeks"} read as a stripe against the bright metal: >= ${STRIPE_MIN} L*`,
+        Number.isFinite(res.stripe) && res.stripe >= STRIPE_MIN, Number.isFinite(res.stripe) ? `${res.stripe.toFixed(1)}` : "no stripe found");
+      results.push({ tag, cls, turn, kind, measurable: true, ratio: res.ratio, stripe: res.stripe, clip: res.clipFrac, bladeMedian: res.bladeMedian, groundMedian: res.groundMedian });
+    }
+  }
+}
+
+const browser = await chromium.launch(launchOptions());
 try {
   const ctx = await browser.newContext({ viewport: { width: KIT.w, height: KIT.h }, deviceScaleFactor: 1, reducedMotion: "no-preference" });
   await ctx.addInitScript(installVirtualClock, FRAME_MS);
@@ -439,8 +571,9 @@ try {
     { const t0 = Date.now(); let last = -1, quiet = 0;
       while (Date.now() - t0 < 90000) { const n = await page.evaluate(() => (window.__authoredHeads ?? []).length); quiet = n === last ? quiet + 1 : 0; last = n; if (n > 0 && quiet >= 6) break; await page.waitForTimeout(500); }
       console.log(`  authored men drawn ${last}`); }
-    const prep = await preparePage(page, MUTANT, LEVER);
+    const prep = SWEEP ? await preparePageSweep(page, MUTANT) : await preparePage(page, MUTANT, LEVER);
     if (prep.error) { console.log(`  ${prep.error}`); await page.close(); notMeasurable.push(tag); continue; }
+    if (SWEEP) { await sweepFrame(page, { cls, turn, kind, tag, prep }); await page.close(); continue; }
     // wait out the frame that may already be in flight
     { const t0 = Date.now(); let f = await page.evaluate(() => window.__bretwaldaRenderer.info.render.frame), still = 0;
       while (Date.now() - t0 < 60000 && still < 4) { await page.waitForTimeout(1500); const g = await page.evaluate(() => window.__bretwaldaRenderer.info.render.frame); still = g === f ? still + 1 : 0; f = g; } }
@@ -495,6 +628,10 @@ try {
   stop();
 }
 
+if (SWEEP && sweepRows.length) {
+  console.log("\n[bladevalue] the sweep, as blade / ground and the fuller stripe (a reading, not a verdict):");
+  for (const r of sweepRows) console.log(`  ${r.tag.padEnd(12)} ${r.label.padEnd(34)} ${r.blade.toFixed(0).padStart(3)} / ${r.ground.toFixed(0).padStart(3)} = ${r.ratio.toFixed(2)}  stripe ${Number.isFinite(r.stripe) ? r.stripe.toFixed(0) : "none"}`);
+}
 console.log("");
 console.log("[bladevalue] readings: " + results.map((r) => (r.measurable ? `${r.tag} ${r.bladeMedian.toFixed(0)}/${r.groundMedian.toFixed(0)}=${r.ratio.toFixed(2)} stripe ${Number.isFinite(r.stripe) ? r.stripe.toFixed(0) : "none"}` : `${r.tag} not measurable`)).join(" | "));
 const defer = notMeasurable.length ? ` - WITH ${notMeasurable.length} frame(s) NOT MEASURABLE (${notMeasurable.join(", ")}), which is a deferral and not a pass` : "";

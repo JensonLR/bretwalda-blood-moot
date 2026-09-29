@@ -524,6 +524,15 @@ const SHEETS = {
   // all six; the spear, the seax and the axe take the same `weapon` slot and nothing photographed them in
   // it, so the dark finish (its edges must stay bright) and the two pattern ones (the pattern lives in a
   // fuller the spear and the axe do not have) were untested on three of the four weapons.
+  // The berserker's OTHER two loadouts, which no sheet ever photographed: a dead man's weapon in his hands
+  // (`?taken=cls:arms`), so the hand axes and the twin bearded axes have a frame at kit scale.
+  weaponarms: {
+    file: "weapon-arms.png", card: "kitcard", cols: 2,
+    title: "THE BERSERKER'S OTHER HANDS · hand axes, twin bearded axes · portrait scale, three-quarter −35°",
+    shots: ["hand_axes", "twin_beards"].map((arms) => ({
+      label: `berserker · ${arms.replace("_", " ")}`, turn: QUARTER, cls: "berserker", query: `taken=berserker:${arms}`,
+    })),
+  },
   weaponfinish: {
     file: "weapon-finish.png", card: "kitcard", cols: 3,
     title: "THE PAID FINISHES · spear, seax, axe · portrait scale, three-quarter −35° · pattern-welded above, oil-blackened, serpent-marked below",
@@ -591,9 +600,9 @@ function panelsFor(name, spec, roster) {
   // something a player buys, and `expect` checks purchases against what the page
   // says it built. It rides on the query only, and the card presets have read
   // `?cls=` since they were written.
-  const panel = (label, turn, dress, extra, cls) => ({
+  const panel = (label, turn, dress, extra, cls, more) => ({
     label,
-    query: [`preset=${spec.card}`, `turn=${turn}`, ...(cls ? [`cls=${cls}`] : []),
+    query: [`preset=${spec.card}`, `turn=${turn}`, ...(cls ? [`cls=${cls}`] : []), ...(more ? [more] : []),
       ...dressOf(dress).map(([s, id]) => `${s}=${id}`),
       ...(extra ? [`${extra.slot}=${extra.id}`] : [])].join("&"),
     expect: {
@@ -603,7 +612,7 @@ function panelsFor(name, spec, roster) {
     },
   });
 
-  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls));
+  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls, s.query));
 
   const slot = roster.slots.find((s) => s.slot === spec.slot);
   if (!slot) throw new Error(`[shoot] sheet "${name}" wants slot "${spec.slot}", which the armoury does not have`);
