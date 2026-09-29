@@ -22,7 +22,7 @@ import { fileURLToPath } from "url";
 import { AUTHORED_WEB } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
+const BLENDER = process.env.BLENDER || (process.platform === "linux" ? resolve(ROOT, "tools/blender/linux/blender") : "/Applications/Blender.app/Contents/MacOS/Blender");
 const ART = resolve(ROOT, "art/blender");
 // The directory the browser fetches from. It was GLTF_SINK, which no client
 // has ever read — see the note on AUTHORED_WEB in sink.mjs.

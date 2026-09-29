@@ -24,7 +24,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { GLTF_SINK } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
+const BLENDER = process.env.BLENDER || (process.platform === "linux" ? resolve(ROOT, "tools/blender/linux/blender") : "/Applications/Blender.app/Contents/MacOS/Blender");
 const ART = resolve(ROOT, "art/blender");
 const SHIP = GLTF_SINK;   // docs/ONE-CLIENT.md §4.4
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];

@@ -1,0 +1,10 @@
+#!/bin/bash
+# tools/blender/linux/blender  -  `Blender -b [file.blend] -P script.py -- args` on Linux, over the `bpy` PyPI module.
+# Point the exporters at it:   BLENDER=$PWD/tools/blender/linux/blender node tools/blender/exportmen.mjs --cls huscarl
+# Interpreter: $BW_BPY_PYTHON, else <repo>/.venv-bpy/bin/python (created by tools/blender/linux/setup.sh).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+PY="${BW_BPY_PYTHON:-$ROOT/.venv-bpy/bin/python}"
+[ -x "$PY" ] || { echo "blender (linux shim): no bpy interpreter at $PY - run tools/blender/linux/setup.sh, or set BW_BPY_PYTHON" >&2; exit 2; }
+export BW_ROOT="${BW_ROOT:-$ROOT}"
+exec "$PY" "$HERE/blender_shim.py" "$@"

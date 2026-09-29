@@ -54,7 +54,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-export const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
+export const BLENDER = process.env.BLENDER || (process.platform === "linux" ? resolve(ROOT, "tools/blender/linux/blender") : "/Applications/Blender.app/Contents/MacOS/Blender");
 const HOST = process.env.BLENDER_MCP_HOST || "127.0.0.1";
 const PORT = Number(process.env.BLENDER_MCP_PORT || 9876);
 

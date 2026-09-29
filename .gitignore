@@ -176,7 +176,11 @@ art/blender/
 /.exportrig/
 /.exportworld/
 /.exportwarrior/
-tools/blender/__pycache__/
+tools/blender/**/__pycache__/
+# the Linux bpy venv and the rebuild lock/timings (tools/blender/linux/)
+/.venv-bpy/
+/.rebuild.lock
+/.rebuild-timings.tsv
 
 # Authored glTF, PNG and JSON written by tools/blender/* and read by the
 # renderer's asset loader (docs/ONE-CLIENT.md §4.4, P2). Generated, large, and

@@ -111,6 +111,9 @@
     "armourytest": "node tools/blender/exportarmoury.mjs --check",
     "exportclips": "node tools/blender/exportclips.mjs",
     "exportmen": "node tools/blender/exportmen.mjs",
+    "exportprops": "node tools/blender/exportprops.mjs",
+    "blender:setup": "bash tools/blender/linux/setup.sh",
+    "authored:rebuild": "bash tools/blender/linux/rebuild-all.sh && bash tools/blender/linux/ship-changed.sh",
     "blenderdoctor": "node tools/blender/doctor.mjs",
     "railgate": "node tools/railgate.mjs",
     "authoredweight": "node tools/authoredweight.mjs"

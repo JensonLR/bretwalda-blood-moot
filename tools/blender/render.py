@@ -3,7 +3,7 @@
 import bpy, sys, math, os
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 NAME = argv[0] if argv else "Head_huscarl"
-OUT = argv[1] if len(argv) > 1 else os.path.expanduser("~/bretwalda-blood-moot/art/blender/render.png")
+OUT = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "art", "blender", "render.png")
 obj = bpy.data.objects[NAME]
 scene = bpy.context.scene
 # A parent Empty (the warrior) is measured through its mesh children, in world space.

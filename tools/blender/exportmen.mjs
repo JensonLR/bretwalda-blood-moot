@@ -26,7 +26,7 @@ import { fileURLToPath } from "url";
 import { AUTHORED_WEB } from "./sink.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const BLENDER = process.env.BLENDER || "/Applications/Blender.app/Contents/MacOS/Blender";
+const BLENDER = process.env.BLENDER || (process.platform === "linux" ? resolve(ROOT, "tools/blender/linux/blender") : "/Applications/Blender.app/Contents/MacOS/Blender");
 const ART = resolve(ROOT, "art/blender");
 // The directory the browser fetches from. It was GLTF_SINK, which no client
 // has ever read — see the note on AUTHORED_WEB in sink.mjs.
@@ -38,6 +38,10 @@ const WANT_CLIPS = 15;
 const argv = process.argv.slice(2);
 const only = argv.indexOf("--cls") >= 0 ? argv[argv.indexOf("--cls") + 1] : null;
 if (!existsSync(BLENDER)) { console.error(`[exportmen] no Blender at ${BLENDER} — set BLENDER=`); process.exit(2); }
+// rig.py / strands.py / prop.py bake the UV repeat and the world-tile projection from art/blender/tex/tiles.json and, when it is missing,
+// SKIP THAT SILENTLY and exit 0 (measured: 40 of 46 meshes get different UVs, ~5,400 fewer vertices, a 1446 KB man instead of 1723 KB, and
+// he still ships). Refuse instead: `node tools/blender/exporttextures.mjs` writes it (8 s).
+if (!existsSync(resolve(ART, "tex/tiles.json"))) { console.error("[exportmen] art/blender/tex/tiles.json is missing - run `node tools/blender/exporttextures.mjs` first (else UV baking is silently skipped)"); process.exit(2); }
 
 const run = (cmd, args, tag) => {
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8" });

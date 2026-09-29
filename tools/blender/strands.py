@@ -9,8 +9,9 @@ import bpy, bmesh, os, sys, math, random
 from mathutils import Vector, noise
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"; SEED = int(argv[1]) if len(argv) > 1 else 7
-D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
+D = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "art", "blender")
 random.seed(SEED)
+noise.seed_set(SEED)   # mathutils.noise has its OWN state, seeded from the wall clock by default: without this every run grows different turbulence
 # PROP MODE: a beard-<cls>-<style> or hair-<cls>-<style> OBJ from
 # exportcosmetics.mjs (a hair-material shell in the head's frame) is
 # imported fresh, grown on, and exported as its own glTF for Unity to hang
