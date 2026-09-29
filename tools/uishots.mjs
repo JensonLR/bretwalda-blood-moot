@@ -157,6 +157,12 @@ async function main() {
       isMobile: vp.touch,
       hasTouch: vp.touch,
       reducedMotion: "reduce",
+      // `UISHOTS_FORCED=1` renders the whole sweep in forced-colors (Windows High
+      // Contrast). It exists because `globals.css` carries a `forced-colors`
+      // block that no gate can assert on, and a block nobody has looked at is
+      // the same as a block that is not there. Frames land in art/ui like any
+      // other run, so copy them out before the next one.
+      ...(process.env.UISHOTS_FORCED ? { forcedColors: "active" } : {}),
     });
     const page = await ctx.newPage();
     // THE 44 px FLOOR, ON EVERY SCREEN THIS SWEEP VISITS — backlog 5.10, whose
