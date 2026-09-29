@@ -110,6 +110,29 @@ for (const cls of classes) {
     }
   }
 }
+// A LEFT-HANDED player's man is MIRRORED by `handedness` (anim.ts `handMirror`): every bone's world
+// determinant is -1 and `getWorldScale` reads -1 on x. The first cut of the net tested the SIGNED
+// scale and would have refused every left-handed man in the game; nothing here posed one, and the
+// stagehead run on the tree before the fix was the first thing to read det -1 off a mirrored man.
+if (!lever) {
+  for (const cls of classes) {
+    const gltf = await L.parseGlb(ROOT, cls);
+    kit.input.setHandedness(true);
+    try {
+      let refused = 0, samples = 0, worstScale = 9;
+      for (const state of ["idle", "attacking", "knocked", "dead"]) {
+        const r = runMan(cls, gltf, L.DEFAULT_ARMS[cls], state);
+        samples++; if (!r.allOk) refused++;
+        worstScale = Math.min(worstScale, ...r.last.now.scale.map(Math.abs));
+        if (!r.last.now.det || r.last.now.det > 0) refused += 1000;   // the case is only a left-handed man if he is mirrored
+      }
+      check(`${cls}: the LEFT-HANDED (mirrored, det -1) healthy man is NOT refused, in ${samples} states`, refused === 0, `smallest scale magnitude ${worstScale}${refused >= 1000 ? " — BUT he was not mirrored, so this is not the case it claims to be" : ""}`);
+      const d = runMan(cls, gltf, L.DEFAULT_ARMS[cls], "idle", { defective: true });
+      check(`${cls}: ...and the LEFT-HANDED defective man is still refused`, !d.first.ok);
+    } finally { kit.input.setHandedness(false); }
+  }
+}
+
 // THE ARENA'S MAN IS CLIP-DRIVEN by default (`clipsWanted()` is on whenever the authored warriors ship),
 // and the clips are Blender's own animation of the same bones: a net calibrated on the procedural pose
 // alone could refuse every man in the arena on the first frame and nobody would know until a capture.

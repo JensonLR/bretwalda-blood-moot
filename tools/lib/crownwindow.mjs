@@ -161,10 +161,11 @@ export function judge(r, bars, { requireAuthored = true, allowRefused = false } 
   }
   if (a?.head) {
     const h = a.head;
-    if (!(h.det >= 1e-3)) bad.push(`head.det ${h.det} < 1e-3`);
+    // |det|: a MIRRORED man (a left-handed player's) has det -1 and is not a collapsed one.
+    if (!(Math.abs(h.det) >= 1e-3)) bad.push(`|head.det| ${Math.abs(h.det)} < 1e-3`);
     if (h.skull === null || h.skull === undefined) bad.push("head.skull is null");
     if (!(h.visible > 0)) bad.push("head.visible is empty");
-    if (h.scale?.some((c) => !(c >= 0.5))) bad.push(`a head.scale component < 0.5 (${JSON.stringify(h.scale)})`);
+    if (h.scale?.some((c) => !(Math.abs(c) >= 0.5))) bad.push(`a head.scale component < 0.5 (${JSON.stringify(h.scale)})`);
   }
   return bad;
 }

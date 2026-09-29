@@ -199,6 +199,12 @@ export function censusHead(rig: HeadNetRig): HeadCensus {
   head.matrixWorld.decompose(_p, _q, _s);
   const sc = new THREE.Vector3();
   head.getWorldScale(sc);
+  // MAGNITUDES. A mirrored man is -1 on an axis and is not a collapsed one: `handedness` (anim.ts)
+  // reflects the whole rig for a left-handed player, `getWorldScale` reads the reflection as a
+  // negative x scale, and a test of "scale >= 0.5" on the signed value refuses every left-handed
+  // man in the game. The first cut of this file did; the stagehead run on the tree before the fix
+  // read det -1 and scale [-1,1,1] off a mirrored man and said so.
+  sc.set(Math.abs(sc.x), Math.abs(sc.y), Math.abs(sc.z));
   const cq = new THREE.Quaternion();
   chest.matrixWorld.decompose(_p, cq, _s);
   const rel = _qc.copy(cq).invert().multiply(_q.clone());
