@@ -22,10 +22,21 @@
 // it is a rasteriser drawing the glyph.
 //
 // WHAT IS MEASURED (never the CSS, always the ink):
-//   A. lining-nums  — the ink height of "1" equals the ink height of "H".
-//                     That is the DEFINITION of a lining figure: it stands on
-//                     the baseline and reaches cap height. An old-style "1" is
-//                     x-height tall.
+//   A. lining-nums  — the ink height of "1" reaches (almost) cap height AND is
+//                     clearly taller than the same "1" under oldstyle-nums. A
+//                     lining figure stands on the baseline and reaches the caps;
+//                     an old-style "1" is x-height tall.
+//                     THE FIRST DRAFT OF THIS CLAIM WAS WRONG, and it was wrong
+//                     the way this repository's rulers usually are. It demanded
+//                     the lining "1" equal the "H" to within 6% and failed on the
+//                     real font at 98px against 105px, calling `lnum` broken when
+//                     the figures were plainly lining (98px against 85px old-style,
+//                     and "0" moved the same way). Alegreya draws its lining
+//                     figures about 7% under cap height; that is a property of the
+//                     typeface's design, not of the feature. What the feature
+//                     changes, and what the claim now measures, is the RATIO
+//                     between the two settings, with the cap height as a sanity
+//                     bound that a figure of a quarter-height cannot pass.
 //   B. tabular-nums — "1" and "0" occupy the same advance width; under
 //                     proportional-nums they do not. That is what stops a
 //                     ticking clock from shivering.
@@ -156,8 +167,8 @@ async function main() {
     for (const v of Object.keys(one)) {
       note(`${v.padEnd(26)} "1" ink ${String(one[v].w).padStart(3)}x${String(one[v].h).padStart(3)} adv ${one[v].adv.toFixed(1).padStart(6)}   "0" adv ${zero[v].adv.toFixed(1).padStart(6)} ink h ${zero[v].h}`);
     }
-    const liningIsCap = Math.abs(one["lining-nums"].h - H.h) <= Math.max(3, H.h * 0.06);
-    const defaultIsCap = Math.abs(one["normal"].h - H.h) <= Math.max(3, H.h * 0.06);
+    const liningIsCap = one["lining-nums"].h >= H.h * 0.9 && one["lining-nums"].h >= one["oldstyle-nums"].h * 1.1;
+    const defaultIsCap = one["normal"].h >= H.h * 0.9;
     const tabEqual = Math.abs(one["tabular-nums"].adv - zero["tabular-nums"].adv) < 0.6;
     const propDiffer = Math.abs(one["proportional-nums"].adv - zero["proportional-nums"].adv) >= 0.6;
     const liningMoves = one["lining-nums"].h !== one["oldstyle-nums"].h || one["lining-nums"].w !== one["oldstyle-nums"].w;
@@ -168,8 +179,9 @@ async function main() {
   const C = await ask("CINZEL (control: the face the plan says has the wrong figures)", fam.display, 700);
 
   console.log("");
-  if (A.liningIsCap) pass(`A. Alegreya lining-nums: "1" is cap height (${A.one["lining-nums"].h}px vs "H" ${A.H.h}px)`);
-  else fail(`A. Alegreya lining-nums: "1" is ${A.one["lining-nums"].h}px against cap height ${A.H.h}px — lnum did not take. STOP, use the plan's fallback (Alegreya SC / enlarge the digit)`);
+  const r = (a, b) => (a / b).toFixed(2);
+  if (A.liningIsCap) pass(`A. Alegreya lining-nums: "1" reaches the caps (${A.one["lining-nums"].h}px = ${r(A.one["lining-nums"].h, A.H.h)} of "H" ${A.H.h}px) and is ${r(A.one["lining-nums"].h, A.one["oldstyle-nums"].h)}x the old-style "1" (${A.one["oldstyle-nums"].h}px)`);
+  else fail(`A. Alegreya lining-nums: "1" is ${A.one["lining-nums"].h}px against cap height ${A.H.h}px and old-style ${A.one["oldstyle-nums"].h}px — lnum did not take. STOP, use the plan's fallback (Alegreya SC / enlarge the digit)`);
   if (A.tabEqual && A.propDiffer) pass(`B. Alegreya tabular-nums: "1" and "0" share an advance (${A.one["tabular-nums"].adv.toFixed(1)} / ${A.zero["tabular-nums"].adv.toFixed(1)}), proportional-nums does not (${A.one["proportional-nums"].adv.toFixed(1)} / ${A.zero["proportional-nums"].adv.toFixed(1)})`);
   else fail(`B. Alegreya tabular-nums: tab equal=${A.tabEqual}, proportional differs=${A.propDiffer} — tnum did not take`);
   if (A.liningMoves) pass(`   lining-nums and oldstyle-nums draw different figures — the switch is wired both ways`);
