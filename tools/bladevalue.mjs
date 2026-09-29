@@ -170,6 +170,8 @@ async function preparePage(page, mutant, lever) {
 /** In the page, after the screenshot: redraw the same scene with class colours and read it back. */
 async function classPass(page) {
   return page.evaluate(async () => {
+    const errors = []; const ce = console.error, cw = console.warn;
+    console.error = (...a) => { errors.push(a.map(String).join(" ").slice(0, 160)); }; console.warn = (...a) => { errors.push(a.map(String).join(" ").slice(0, 160)); };
     const scene = window.__bretwaldaScene, renderer = window.__bretwaldaRenderer, cam = window.__bvCam;
     const parseHex = (name) => { const m = /:([0-9a-f]{6})/.exec(name || ""); return m ? parseInt(m[1], 16) : null; };
     const lstar = (hex) => {
@@ -253,7 +255,53 @@ async function classPass(page) {
     let s = "";
     const CH = 0x8000;
     for (let i = 0; i < cls.length; i += CH) s += String.fromCharCode.apply(null, cls.subarray(i, i + CH));
-    return { w, h, counts, method, b64: btoa(s) };
+    console.error = ce; console.warn = cw;
+    return { w, h, counts, method, errors, b64: btoa(s) };
+  });
+}
+
+
+/**
+ * When the class pass finds NO bright metal, ask why instead of only saying so: hide everything that is not the
+ * weapon, draw it alone through a second renderer and report what came out, mesh by mesh. A ruler that says
+ * "0 blade pixels" and stops is a ruler nobody can fix (PROCESS R4).
+ */
+async function diagPass(page) {
+  return page.evaluate(() => {
+    const scene = window.__bretwaldaScene, renderer = window.__bretwaldaRenderer, cam = window.__bvCam;
+    const errors = []; const ce = console.error, cw = console.warn;
+    console.error = (...a) => { errors.push(a.map(String).join(" ").slice(0, 200)); }; console.warn = (...a) => { errors.push(a.map(String).join(" ").slice(0, 200)); };
+    const weapons = []; scene.traverse((o) => { if (o.name === "weapon" && !o.isMesh) weapons.push(o); });
+    const inWeapon = (o) => { for (let p = o; p; p = p.parent) if (weapons.includes(p)) return true; return false; };
+    const hidden = [];
+    scene.traverse((o) => { if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && !inWeapon(o) && o.visible) { o.visible = false; hidden.push(o); } });
+    const gl = renderer.getContext(); const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    const out = { weaponGroups: weapons.length, meshes: [] };
+    scene.updateMatrixWorld(true);
+    scene.traverse((o) => {
+      if (!o.isMesh || !inWeapon(o)) return;
+      o.geometry.computeBoundingSphere();
+      const c = o.geometry.boundingSphere.center.clone().applyMatrix4(o.matrixWorld).project(cam);
+      out.meshes.push({ vis: o.visible, skinned: !!o.isSkinnedMesh, tris: Math.round((o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3), emissive: o.material.emissive ? o.material.emissive.toArray().map((v) => +v.toFixed(2)) : null, ndc: c.toArray().map((v) => +v.toFixed(3)), culled: o.frustumCulled, layers: o.layers.mask, side: o.material.side, depthTest: o.material.depthTest, transparent: o.material.transparent });
+    });
+    try {
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      const R2 = new renderer.constructor({ canvas: cv, antialias: false, alpha: false, preserveDrawingBuffer: true });
+      R2.setPixelRatio(1); R2.setSize(w, h, false); R2.toneMapping = 0; R2.setClearColor(0x000000, 1);
+      const bg = scene.background; scene.background = null;
+      R2.render(scene, cam);
+      const g2 = R2.getContext(); const buf = new Uint8Array(w * h * 4); g2.readPixels(0, 0, w, h, g2.RGBA, g2.UNSIGNED_BYTE, buf);
+      const seen = new Map();
+      for (let i = 0; i < w * h; i++) { const k = `${buf[i * 4] >> 5},${buf[i * 4 + 1] >> 5},${buf[i * 4 + 2] >> 5}`; seen.set(k, (seen.get(k) ?? 0) + 1); }
+      out.calls = R2.info.render.calls; out.tris = R2.info.render.triangles;
+      out.colours = [...seen].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${k} x${n}`);
+      out.programsErr = R2.info.programs ? R2.info.programs.length : null;
+      scene.background = bg;
+    } catch (e) { out.threw = String(e).slice(0, 200); }
+    for (const o of hidden) o.visible = true;
+    console.error = ce; console.warn = cw;
+    out.errors = errors.slice(0, 6);
+    return out;
   });
 }
 
@@ -300,8 +348,10 @@ function analyse(png, W, H, cls, kind) {
   for (let i = 0; i < blade.length; i++) { blade[i] = bright[i] || dark[i] ? 1 : 0; bladeRaw[i] = C[i] === 1 || C[i] === 2 ? 1 : 0; }
 
   const nB = bright.reduce((a, v) => a + v, 0), nD = dark.reduce((a, v) => a + v, 0);
-  const out = { nBright: nB, nDark: nD, nBlade: nB + nD };
-  if (out.nBlade < MIN_PX || nB < 60) return { ...out, measurable: false };
+  const hist = [0, 0, 0, 0, 0];
+  for (let i = 0; i < C.length; i++) hist[C[i]]++;
+  const out = { nBright: nB, nDark: nD, nBlade: nB + nD, hist };
+  if (out.nBlade < MIN_PX || nB < 60) return { ...out, measurable: false, C };
 
   // ground: WORLD pixels in a ring 4-16 px round the blade
   const dist = distance(bladeRaw, W, H, 16);
@@ -398,6 +448,15 @@ try {
     const cbuf = Buffer.from(cp.b64, "base64");
     const res = analyse({ data: png.data, channels: png.info.channels }, W, H, { data: cbuf, w: cp.w, h: cp.h }, kind);
     console.log(`  camera fov ${prep.fov.toFixed(2)} aspect ${prep.aspect.toFixed(3)}; meshes by class ${JSON.stringify(cp.counts)}; frame ${W}x${H}, class map ${cp.w}x${cp.h} by ${cp.method}`);
+    if (res.hist[1] === 0) {
+      try {
+        const d = await diagPass(page);
+        console.log(`  NO BRIGHT METAL in the class map. The weapon drawn alone through a second renderer (${d.weaponGroups} weapon group(s)): ${d.calls} calls, ${d.tris} triangles, dominant colours (r,g,b in eighths) ${JSON.stringify(d.colours)}${d.threw ? `, THREW ${d.threw}` : ""}`);
+        for (const m of d.meshes) console.log(`    mesh ${JSON.stringify(m)}`);
+        if (d.errors?.length) console.log(`    page said: ${d.errors.join(" | ")}`);
+      } catch (e) { console.log(`  the diagnostic pass itself failed: ${String(e).slice(0, 200)}`); }
+    }
+    console.log(`  class map pixels: world ${res.hist[0]}, bright metal ${res.hist[1]}, dark ${res.hist[2]}, other weapon ${res.hist[3]}, the man ${res.hist[4]}${cp.errors.length ? `   [page said: ${cp.errors.slice(0, 3).join(" | ")}]` : ""}`);
     // R5: the pictures, so the class map can be looked at as well as believed
     writeFileSync(resolve(OUT, `${tag}.png`), shot);
     if (res.C) {
@@ -415,6 +474,8 @@ try {
       console.log(`  NOT MEASURABLE: ${res.nBlade} blade pixels (${res.nBright} bright, ${res.nDark} dark) after erosion; the floor is ${MIN_PX}`);
       notMeasurable.push(tag);
       results.push({ tag, cls, turn, kind, measurable: false });
+      // No weapon pixel of ANY class in the map means the pass itself read nothing, and every remaining frame would say the same.
+      if (res.hist[1] === 0 && res.hist[2] === 0 && res.hist[3] === 0) { console.log("  the class pass saw no weapon pixels of any class: stopping here, the rest would say the same"); break; }
       continue;
     }
     console.log(`  blade ${res.nBlade} px (${res.nBright} bright + ${res.nDark} dark), ${res.axisPx.toFixed(0)} px long; median luma ${res.bladeMedian.toFixed(0)} against a ground of ${res.groundMedian.toFixed(0)} (${res.groundSource})`);

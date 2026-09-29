@@ -10,7 +10,7 @@
 //                                           spear: fat-leaf, wingless, oak-broomstick
 //                                           seax:  emissive-runes, no-runes
 //                                           axe:   same-iron-bit, long-edge
-//   node tools/weaponshape.mjs --only=sword|seax|axe|spear|shield
+//   node tools/weaponshape.mjs --only=sword|seax|axe|spear|shield|real
 //
 // WHY THIS EXISTS. `docs/PROCESS.md` failure mode 1: a harness that measures
 // the wrong quantity is green about a defect it cannot see. Before this file
@@ -869,6 +869,55 @@ function shieldReadings() {
 }
 
 // ============================================================
+// THE SHIPPED MATERIAL LIBRARY (section 6)
+// ============================================================
+/**
+ * `RAW`, the headless library every check above builds with, hands `weldsteel` and `serpentsteel` the
+ * metalness its own default does (0.25-0.55) and `blade()` whatever the recipe says, so it cannot tell a
+ * pattern finish that forgot to ask for a partial metal from one that did. The SHIPPED library can:
+ * `tools/lib/authoredrig.mjs` stands the real client up in node (real recipes, real means divided out), and
+ * these are the numbers the game's own materials carry. Read as SCALARS: a real material's metalness is the
+ * requested value over its map's measured mean, so it lands within a percent of what was asked, while its
+ * roughness scalar is nothing like the roughness (the map's mean is ~0.32) and is not read.
+ */
+async function realLibraryChecks() {
+  let kit;
+  try {
+    const { loadKit } = await import("./lib/authoredrig.mjs");
+    kit = await loadKit(ROOT, ".weaponshape-kit");
+  } catch (e) {
+    report("the weapons' steels in the SHIPPED material library are partial metals", `NOT MEASURED: ${String(e?.message ?? e).split("\n")[0].slice(0, 160)}`, "the client could not be stood up in node, so a pattern finish's metalness is unread (RAW cannot see it)");
+    return;
+  }
+  const M = kit.materials, C = kit.characters;
+  const b = M.blade(0xb8bbbf, 0.3);
+  check("blade() (helm crowns, the shield boss) is a partial metal and not the mirror: metalness <= 0.90", b.metalness <= 0.90, `metalness ${b.metalness.toFixed(3)}`);
+  const want = C.WEAPON_STEEL?.metal;
+  const own = want === undefined ? null : M.tinted("steel", 0xb8bbbf, { roughness: 0.3, metalness: want });
+  check("blade() and the weapons' own steels agree (WEAPON_STEEL.metal is typed in two files: PROCESS R7)", !!own && Math.abs(b.metalness - own.metalness) < 0.005, own ? `${b.metalness.toFixed(3)} against ${own.metalness.toFixed(3)}` : "characters.ts exports no WEAPON_STEEL");
+  for (const name of ["spearTip", "debrisBlade"]) {
+    const m = M.get(name);
+    check(`${name} (the racked and dropped blades in world.ts) is a partial metal: metalness <= 0.90`, !!m && m.metalness <= 0.90, m ? `metalness ${m.metalness.toFixed(3)}` : "the library has no such material");
+  }
+  const builds = {
+    sword: (id) => C.buildSword(M, id), seax: (id) => C.buildDagger(M, id), spear: (id) => C.buildSpear(M, id),
+    dane: (id) => C.buildAxe(M, id, "dane"), hand: (id) => C.buildAxe(M, id, "hand"),
+  };
+  for (const [name, fn] of Object.entries(builds)) {
+    let worst = { metal: -1, name: "-", id: "-" }, meanWorst = 0, meanId = "-";
+    for (const id of STYLE_IDS) {
+      const steel = collect(fn(id)).filter((t) => STEELS.has(t.mi.surface));
+      const total = steel.reduce((q, t) => q + t.area, 0) || 1;
+      const mean = steel.reduce((q, t) => q + t.area * (t.mi.metalness ?? 1), 0) / total;
+      if (mean > meanWorst) { meanWorst = mean; meanId = id; }
+      for (const t of steel) if ((t.mi.metalness ?? 1) > worst.metal) worst = { metal: t.mi.metalness ?? 1, name: t.mi.name, id };
+    }
+    check(`[${name}, all ${STYLE_IDS.length} finishes] no steel in the SHIPPED library is a mirror: metalness <= 0.90 everywhere, the area-weighted mean <= 0.80`,
+      worst.metal <= 0.90 && meanWorst <= 0.80, `highest ${worst.metal.toFixed(2)} (${worst.name}, ${worst.id}); highest mean ${meanWorst.toFixed(2)} (${meanId})`);
+  }
+}
+
+// ============================================================
 // RUN
 // ============================================================
 console.log("[weaponshape] the shape of every held weapon, read off the triangles the builders emit");
@@ -904,6 +953,10 @@ if (!ONLY || ONLY === "axe") {
 if (!ONLY || ONLY === "spear") {
   section("4. SPEAR (gar, Petersen E: LORE 5.4)");
   for (const id of STYLE_IDS) spearChecks(id);
+}
+if (!ONLY || ONLY === "real") {
+  section("6. THE SHIPPED MATERIAL LIBRARY (CH-24: no steel is a mirror, read from the real recipes and not the headless ones)");
+  await realLibraryChecks();
 }
 if (!ONLY || ONLY === "shield") {
   section(`5. SHIELD (board, lime, rawhide: LORE 5.6) - ${GATE_SHIELD ? "GATED (--shield)" : "read out, not gated here"}`);

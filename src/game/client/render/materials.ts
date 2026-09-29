@@ -757,8 +757,13 @@ export function createMaterialLibrary(
       return tint("skin", color);
     },
 
+    // A partial metal, not the substance's mirror: at metalness 1 a blade has no diffuse term and shows
+    // the sky and nothing else, and the sky is darker than the turf (CH-24: the sword's median luma on the
+    // kit card was 35 against a ground of 88, the spear head's 18, the helm crown and the shield boss the same
+    // black-or-chrome). 0.70 is the number `WEAPON_STEEL.metal` in characters.ts passes for the weapons'
+    // own steels; `tools/weaponshape.mjs` reads both off the real library and requires them to agree.
     blade(color, roughness) {
-      return tint("steel", color, { roughness });
+      return tint("steel", color, { roughness, metalness: 0.7 });
     },
 
     timber(color) {
