@@ -316,7 +316,7 @@ const STATICS = [
   ["card", `<div class="card" data-subject style="width:290px;padding:16px">${CARD()}</div>`],
   ["card-glow", `<div class="card card-glow" data-subject style="width:290px;padding:16px">${CARD()}</div>`],
   ["card-noble", `<div class="card card-noble card-glow" data-subject style="width:290px;padding:26px 28px">${CARD()}</div>`],
-  ["warcode-frame", `<div class="warcode-frame card-noble" data-subject style="width:310px;padding:24px;text-align:center"><span class="label-overline" style="display:block">WAR CODE</span><span class="warcode">JORVIK49</span><div class="knot-band" style="margin:6px auto 0;width:15rem"></div></div>`],
+  ["warcode-frame", `<div class="warcode-frame card-noble" data-subject style="width:310px;padding:24px;text-align:center"><span class="label-overline" style="display:block">WAR CODE</span><span class="warcode" style="font-size:34px">JORVIK49</span><div class="knot-band" style="margin:6px auto 0;width:15rem"></div></div>`],
   ["badges", `<div data-subject style="display:flex;gap:10px"><span class="badge-sky">YOU</span><span class="badge-garnet">WAR-GEAR</span><span class="badge-stone">KEPT ON THIS DEVICE</span></div>`],
   ["kbd", `<div data-subject style="display:flex;gap:10px;align-items:center"><span class="kbd">SPACE</span><span class="kbd" style="min-width:0">W</span><span style="color:var(--ink-dim);font-size:14px">to jump</span></div>`],
   ["plate-lift", `<div class="plate-lift" data-subject style="width:240px"><div class="plate-silver" style="padding:16px 22px;text-align:center;font:700 15px/1.2 var(--font-display);letter-spacing:.14em">THE HERO PLATE</div></div>`],
@@ -546,7 +546,7 @@ if (stateIssues.length) { fail(`${stateIssues.length} state(s) do not show: hove
 else pass(`every control shows every one of its states: ${stateChecks} states, each moves at least ${(THRESH * 100).toFixed(1)}% of its pixels; the wrapper's lift moves ${(liftDiff * 100).toFixed(1)}% outside the plate`);
 if (shapeIssues.length) { fail(`${shapeIssues.length} shape fault(s) on the rendered specimens`); shapeIssues.slice(0, 14).forEach(note); }
 else pass("every rendered specimen, in every state, is cut (clip-path), square, unblurred, opaque and unshadowed");
-if (legibility.length) { fail(`${legibility.length} piece(s) of type under the floor on the plate behind them`); legibility.slice(0, 12).forEach(note); }
+if (legibility.length) { fail(`${legibility.length} piece(s) of type under the floor on the plate behind them`); legibility.slice(0, 40).forEach(note); }
 else pass(`all ${textProbes} pieces of type in ${textChecks} renders clear 4.5:1 (3:1 large) against the median plate colour behind them, top and bottom half; worst ${worstText.c.toFixed(2)}:1 ("${worstText.where}")`);
 if (targets.length) { fail(`${targets.length} control(s) under the 44px floor`); targets.forEach(note); }
 else pass(`all ${CONTROLS.length} controls are at least 44px on their smaller side`);

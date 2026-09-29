@@ -583,18 +583,21 @@
     --onsilver-soft: #2a292d;
     --onsilver-dim: #3a393d;
     --onsilver-faint: #48474b;
-    /* The colour of a small caps label, which flips on silver. */
-    --label-ink: var(--silver-dim);
+    /* The colour of a small caps label, which flips on silver. SILVER, not silver-dim: the
+       first proof sheet graded "YOUR WARRIOR" at 4.4:1 on a plate's lit top, 4.3 on hover
+       and 3.5 on a selected card, where the plate is one step lighter still. */
+    --label-ink: var(--silver);
 
     /* THE GRAIN. Two 160px tiles of feTurbulence (baseFrequency .85, two octaves,
        UI-PLAN 1.1) drawn as an inline SVG, so it is markup and not an asset and
        costs no request: the reason this game opens from a link. The colour
-       matrix turns the noise into alpha only (about .07 on average, peaks near
-       .15), white on niello and black on silver, so a plate has tooth without
+       matrix turns the noise into alpha only (about .055 on average and .10 at the
+       peaks: the first cut, at .07 and .15, read as pebbled plastic in the first
+       proof sheet, so the gain came down by a quarter), white on niello and black on silver, so a plate has tooth without
        changing its colour. `color-interpolation-filters='sRGB'` because the
        default (linearRGB) would re-curve the noise and the mean alpha with it. */
-    --grain-lit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .5 0 0 0 -.18'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    --grain-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 0 0 0 -.18'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --grain-lit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .38 0 0 0 -.13'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --grain-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .32 0 0 0 -.11'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 
     /* THE PLAIT, as a MASK. Two strands of period 24 that cross every 12px,
        alternating over and under, and the strand that goes under is CUT where it
@@ -611,7 +614,7 @@
        a run of cut pieces and never a line that runs the length of a panel
        (UI-PLAN 1.6 law 2). The dim variant is for a rule inside a plate. */
     --rule-cells: linear-gradient(90deg, transparent 0 3px, var(--silver-dim) 3px 45px, transparent 45px 48px);
-    --rule-cells-dim: linear-gradient(90deg, transparent 0 3px, var(--niello-line) 3px 45px, transparent 45px 48px);
+    --rule-cells-dim: linear-gradient(90deg, transparent 0 3px, var(--pewter) 3px 45px, transparent 45px 48px);
 
     /* `--knot` STAYS, UNTOUCHED, FOR THE WAR MAP. It is the OLD plait (two strands, no gap, the
        strokes hard-coded gilt in the URI) and its only reader is `.faction-map-plate::before` at
@@ -1829,16 +1832,16 @@
     min-height: 3.25rem;
     padding: 0.75rem 1.1rem;
     --fill: var(--madder);
-    --fill-top: color-mix(in srgb, var(--hp-critical) 55%, var(--madder));
+    --fill-top: color-mix(in srgb, var(--hp-critical) 28%, var(--madder));
     --rim: var(--garnet);
-    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 55%, transparent);
-    --inlay: color-mix(in srgb, var(--niello) 55%, var(--madder));
+    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 30%, var(--garnet));
+    --inlay: color-mix(in srgb, var(--niello) 45%, var(--madder));
     color: var(--ink-bright);
     transition: filter 0.12s ease, transform 0.12s ease;
   }
   @media (hover: hover) and (pointer: fine) {
     .btn-danger:hover:not(:disabled):not([aria-disabled="true"]) {
-      filter: brightness(1.14);
+      filter: brightness(1.1);
     }
   }
   .btn-danger:active:not(:disabled):not([aria-disabled="true"]) {
@@ -1982,10 +1985,13 @@
     min-height: 5.5rem;
     padding: 0.9rem 0.4rem;
     color: var(--silver-lit);
-    font-family: var(--font-display), "Cinzel", serif;
+    /* THE BODY FACE, ON PURPOSE. Five of these share a 26rem row on a desktop, 75px
+       each, and "Training" in Cinzel at the 12px label step is about 80px wide
+       before its tracking: the first draft set the word in Cinzel and overflowed
+       every cell. Alegreya bold is what these were and what fits. */
     font-weight: 700;
-    font-size: var(--fs-label);
-    letter-spacing: 0.12em;
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
     transition: filter 0.12s ease, transform 0.12s ease;
   }
   @media (hover: hover) and (pointer: fine) {
@@ -2145,9 +2151,9 @@
   }
   .badge-garnet {
     --fill: var(--madder);
-    --fill-top: color-mix(in srgb, var(--hp-critical) 55%, var(--madder));
+    --fill-top: color-mix(in srgb, var(--hp-critical) 28%, var(--madder));
     --rim: var(--garnet);
-    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 55%, transparent);
+    --rim-top: color-mix(in srgb, var(--hp-critical-lit) 30%, var(--garnet));
     color: var(--ink-bright);
   }
   .badge-stone {
@@ -2366,7 +2372,7 @@
   /* --------------------------------------------------------------- misc */
 
   /* A compartmented hairline for inside a plate: the same cells as the section
-     rule, one pixel tall and in niello-line, so a plate's divider is a run of cut
+     rule, one pixel tall and in pewter, so a plate's divider is a run of cut
      pieces and never a line to both edges. */
   .divider {
     height: 1px;
