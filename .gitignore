@@ -243,3 +243,4 @@ tools/blender/**/__pycache__/
 .weaponshape/
 .bladevalue/
 art/bladevalue/
+.weaponshape-kit/
