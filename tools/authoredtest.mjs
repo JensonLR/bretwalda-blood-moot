@@ -34,6 +34,7 @@ const {
   readSurfaceName, dressFromSurfaceNames,
   pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
   upgradeRigToAuthored, drapeBonesOf, DRAPE_BONE_NAMES,
+  drivePivot, driveRest,
   PROP_ROLES, propIdOf, propFileFor, propsWantedFor,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
 const { HELM_VALUES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/characters.ts")).href)
@@ -270,6 +271,94 @@ for (const cls of CLASSES) {
   check("a swapped rig is marked authored, so the gore path can tell",
     rig.authored === true, `rig.authored = ${JSON.stringify(rig.authored)}`);
 
+  // ---- THE REST FRAMES: the bones do not rest at identity -----------------
+  //
+  // THE OWNER, of the armoury mannequin: "a torso ending in a neck stump with
+  // hair strands floating over the collar"; of the arena: "inverted heads with
+  // the beard on top". `applyPose` wrote absolute rotations onto bones that rest
+  // turned — Head at (0,0,-1,0) — and every gate in this file passed, because
+  // every one of them asked about names. `tools/headflip.mjs` and
+  // `tools/parity.mjs` ask the question that sees it, by posing the man; these
+  // are the structural claims that make the answer possible.
+  {
+    const rest = rig.pivots.rest;
+    check("the swap captured the rest frames of every pivot the pose writes",
+      !!rest && Object.keys(PIVOT_BONE_NAMES).every((k) => rest.slots?.[k]?.q && rest.slots[k].p && rest.slots[k].pInv),
+      rest ? `${Object.keys(rest.slots).length} slots` : "rig.pivots.rest is absent");
+    const hq = rest?.slots?.head?.q;
+    check("...and the Head's is the 180 degrees about Z that used to put it in the chest",
+      !!hq && Math.abs(hq.z) > 0.99 && Math.abs(hq.w) < 0.05,
+      hq ? `(${hq.x.toFixed(3)}, ${hq.y.toFixed(3)}, ${hq.z.toFixed(3)}, ${hq.w.toFixed(3)})` : "no head slot");
+    check("the authored man is placed in the procedural body space (scene.scale.x = -1), so the handedness node mirrors him once and not twice",
+      g.scene.scale.x === -1, `scale.x = ${g.scene.scale.x}`);
+
+    // A man who is not posed must not move: the write at the pose's own rest is
+    // the bone's own rest, for all twelve. (The wrists rest at Rx(gripPitch), so
+    // the pose's rest for them is that pitch — 1.28 rad in every shipped class.)
+    const GRIP = 1.28;
+    let worst = 0;
+    for (const k of Object.keys(PIVOT_BONE_NAMES)) {
+      const bone = rig.pivots[k];
+      const before = bone.quaternion.clone();
+      const wrist = k === "wristR" || k === "wristL";
+      drivePivot(rest, k, bone, wrist ? GRIP : 0, 0, 0, wrist ? GRIP : 0);
+      worst = Math.max(worst, before.angleTo(bone.quaternion));
+    }
+    check("driving every pivot at its own rest leaves it exactly where it was",
+      worst < 1e-6, `worst ${(worst * 180 / Math.PI).toExponential(2)} deg`);
+
+    // And a nod is a nod: 0.5 rad about x of the procedural frame turns the Head
+    // by 0.5 rad, whatever the bone's own rest is.
+    const head = rig.pivots.head, h0 = head.quaternion.clone();
+    drivePivot(rest, "head", head, 0.5, 0, 0);
+    check("a 0.5 rad nod turns the authored head by 0.5 rad, not by 0.5 rad plus its rest",
+      Math.abs(h0.angleTo(head.quaternion) - 0.5) < 1e-6, `${h0.angleTo(head.quaternion).toFixed(4)} rad`);
+    head.quaternion.copy(h0);
+  }
+
+  // A LEFT-HANDED EXPORT IS REFUSED, not drawn in the wrong hand. The scale that
+  // cancels the double mirror is right for a right-handed GLB and would put a
+  // left-handed one's weapon in the wrong hand, so the swap says no and leaves
+  // the rig exactly as it found it (§5b).
+  {
+    const lh = await parse(resolve(ART, "warrior-warden.glb"));
+    lh.scene.scale.x = -1;               // the weapon arm now at +x
+    const bad = fakeRig();
+    const res = upgradeRigToAuthored(bad, {
+      scene: lh.scene, wornRoles: new Set(), resolveMaterial: () => null, clips: lh.animations,
+    });
+    check("a LEFT-HANDED export is refused", !res.ok && /right-handed/.test(res.why), res.ok ? "accepted" : res.why);
+    check("...and that rig is untouched, with no rest frames on it",
+      bad.body.children[0] === bad.kept && bad.pivots.chest.procedural === true && !bad.pivots.rest);
+  }
+
+  // THE BOARD IS FOLDED AT THE SWAP, not only by the pose. A man a CLIP poses never
+  // calls `applyPose` again, so his board keeps whatever local transform the swap
+  // left it — and `parity` cannot see that, because its procedural men re-fold it
+  // every frame (a mutation that dropped the swap's fold passed both gates). So it
+  // is asked here, of a board given a known local transform before the swap:
+  // position -> E^-1 . (-x, y, z), quaternion -> E^-1 . M(q), scale.x -> -1.
+  {
+    const THREE = await import("three");
+    const gb = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const rigB = fakeRig();
+    const board = new THREE.Group();
+    board.position.set(0.10, 0.20, 0.30);
+    board.rotation.set(0.30, 0.20, 0.10);
+    const q0 = board.quaternion.clone();
+    rigB.shield = board;
+    const res = upgradeRigToAuthored(rigB, {
+      scene: gb.scene, wornRoles: new Set(["helm"]), resolveMaterial: () => ({ isMaterial: true }), clips: gb.animations,
+    });
+    const e = rigB.pivots.rest.slots.elbowL;
+    const R = e.p.clone().multiply(e.q).invert();
+    const wantP = new THREE.Vector3(-0.10, 0.20, 0.30).applyQuaternion(R);
+    const wantQ = R.clone().multiply(new THREE.Quaternion(q0.x, -q0.y, -q0.z, q0.w));
+    check("the swap folds a board's local transform through the elbow's rest and the mirror",
+      res.ok && board.position.distanceTo(wantP) < 1e-6 && board.quaternion.angleTo(wantQ) < 1e-6 && board.scale.x === -1,
+      res.ok ? `position off ${board.position.distanceTo(wantP).toExponential(1)} m, turn off ${board.quaternion.angleTo(wantQ).toExponential(1)} rad` : res.why);
+  }
+
   // ---- THE CLOAK: the drape the solver integrates ----------------------
   //
   // This was declared an unfixable topology mismatch and withheld, on the
@@ -303,6 +392,15 @@ for (const cls of CLASSES) {
       rigC.drape.map((b) => b?.name ?? "?").join(", "));
     check("the cloak is NOT hidden any more — it can be posed",
       res.ok && res.hidden < 4, res.ok ? `${res.hidden} hidden` : res.why);
+    // The cloth had the same defect as the pivots: the export's CloakYoke rests
+    // 34 degrees about Z and drapeCloak wrote an absolute rotation over it, so an
+    // authored cloak hung 0.2-0.34 m from where the procedural one does.
+    check("the swap captured the cloth's rest frames too, one per drape bone",
+      !!rigC.pivots.rest?.drape && rigC.pivots.rest.drape.length === DRAPE_BONE_NAMES.length,
+      rigC.pivots.rest?.drape ? `${rigC.pivots.rest.drape.length} drape rests` : "rest.drape is absent");
+    check("...and the cloth solver's frame is a live node under the authored Spine, not the detached procedural group",
+      rigC.pivots.cloak?.name === "authoredCloakFrame" && rigC.pivots.cloak?.parent?.name === "Spine",
+      `cloak frame = ${rigC.pivots.cloak?.name ?? "MISSING"} under ${rigC.pivots.cloak?.parent?.name ?? "nothing"}`);
   }
 
   // ---- THE HANDS: what he was holding must still be on him -------------
@@ -337,6 +435,14 @@ for (const cls of CLASSES) {
     check("...a blade on the fist and a board on the elbow it straps to",
       carried.includes("the-weapon") && carried.includes("the-shield"),
       `mounts carry: ${carried.join(", ") || "nothing"}`);
+    // What hangs off the bones crosses the same mirror the bones do: the blade
+    // and the board were built in procedural space, under a frame that is now its
+    // reflection, so each carries scale.x = -1; and a blade's own turn is zero
+    // because the wrist bone carries it now (a blade that kept the turn it was
+    // last given would take it twice — 17 to 38 degrees off the fist).
+    check("...carried across the mirror: the blade and the board are reflected, and the blade's own turn is zero",
+      wrist.scale.x < 0 && board.scale.x < 0 && wrist.rotation.x === 0 && wrist.rotation.z === 0,
+      `blade scale.x ${wrist.scale.x}, board scale.x ${board.scale.x}, blade rotation (${wrist.rotation.x}, ${wrist.rotation.z})`);
   }
 
   // ---- AND THE REFUSALS LEAVE THE RIG EXACTLY AS THEY FOUND IT ----

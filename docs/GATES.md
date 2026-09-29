@@ -293,6 +293,97 @@ server; it belongs in the **MIDDLE** tier for any change to the class roster,
 `StatBar`, or `WARRIOR_STATS`, and in the **OUTER** gate otherwise. Neither is an
 inner-loop instrument.
 
+## The authored man: `headflip` and `parity` — the two gates that pose him
+
+Added 28 Sep 2026, after the owner reported "a torso ending in a neck stump" in
+the armoury and men "with inverted heads, the beard on top" in the arena — what
+every default-build player sees, because `next.config.ts` stamps
+`NEXT_PUBLIC_AUTHORED=1` whenever `public/authored/*.glb` is committed.
+
+| harness | costs | answers |
+|---|---|---|
+| `npm run headflip` | ~25 s, no browser | the Head-weighted crown, box and turn of the AUTHORED man against the PROCEDURAL man's, after 90 frames of the real `poseWarrior`, 4 classes x BOTH loadouts each (the engine's `ARMS`: the two-handed `dane_axe` the default berserker holds is one of them) x idle/walking/attacking/knocked/dead. Bars 3 cm / 3 cm / 3 deg. Also the HELM, HAIR and BEARD props, mounted by the real `dressAuthoredHead` against the shipped prop GLBs (the owner's "strands floating over the collar"): top and centre against the procedural head group's, 6 cm (the two men wear different hair; the defect moves them 13-34 cm) |
+| `npm run parity` | ~30 s, no browser | all twelve pivots (1 cm, 3 deg), the cloak's seven bones (same bars), which hand the weapon is in (right AND left-handed), the weapon / off-hand blade / board probe points (1.5 cm), and the clip-driven arena man. `--wide` sweeps all twelve states |
+| either, `--naive` | same | the control: today's drive, absolute `rotation.set()` onto the GLB bones. **Must fail** |
+| either, `--no-mirror` | same | the control: the double mirror put back. **Must fail** |
+| either, `--lever=90` | same | R1: turns the captured rest of the head (and, in `parity`, the weapon wrist and the board's elbow) by 90 degrees. **Must move the numbers** |
+
+They share `tools/lib/authoredrig.mjs`, which builds the same man twice — once as
+`createWarriorRig` makes him, once after the real `upgradeRigToAuthored` on the
+shipped warrior GLB — and poses both with one id (two ids are two men breathing
+out of step: `createMotion` seeds the idle sway from it).
+
+**The picture step (R5) has its own two ways of lying, both now closed in the tools.**
+A capture taken before the async swap lands is a picture of the PROCEDURAL man, who has a
+head: `armourycard --classes/--lenses` waits on `window.__authored` and prints whether the
+swap LANDED, and `shoot.mjs` now waits on `window.__authoredHeads` (one row per man the
+arena has swapped and dressed), prints `authored men drawn N (cls:props)` on every preset,
+records it in `report.json`, and treats zero for a no-war-paint single-man card as an error.
+And a capture that lands but is framed on the wrong thing: `armourycard`'s first desktop run
+logged 0 errors and LANDED eight times while every frame was of the helmet cards with the
+mannequin scrolled off the top; it scrolls back before it shoots. Neither was visible in a
+log. Both were visible in one PNG.
+
+**Why nothing else could see this.** The head census (`GameCanvas.tsx`,
+`armouryStage.ts`) counts meshes whose BIND bounding box reaches y >= 1.6 and are
+`visible`; a skull drawn 0.34 m inside the chest passes it. `head.det` looks for
+a collapsed matrix; this one was fine, merely 180 degrees wrong. `authoredtest`,
+`gltftest`, `cliptest`, `severauthored` and `weightprobe` read the files or run
+one function on them and never pose a man. Every ruler that builds
+`buildCharacter` directly (`headmeasure`, `wearmeasure`, `hairmail`, `teamread`,
+`factionread`'s CPU sections, ...) is blind to the authored path entirely: **a
+green from any of them says nothing about what the default player sees.**
+
+**What they were the first time, on the tree that shipped:** `headflip` 0 of 36,
+head turned exactly 180.0 deg in every run, crown -0.157 m (runekeeper) to
+-0.336 m (warden); `parity` 16 of 146, worst joint 0.65-1.12 m, the arena man's
+weapon in his LEFT hand (x +0.304 against -0.463) and a left-hander's man
+right-handed. The 16 that passed were "the weapon origin sits on the fist", true
+by construction.
+
+## The mannequin's head: `headnet`, `stagehead`, and the browser's last line of defence
+
+Added 29 Sep 2026, on top of the section above. `headflip` and `parity` say the SHIPPED pose
+puts the authored head where it belongs. They cannot follow a build to a browser, and the
+next export, bone rename or refactor will lose the head in a way no gate anticipated. So the
+browser has a net of its own, and two tools that ask the picture.
+
+| harness | costs | answers |
+|---|---|---|
+| `render/authoredHead.ts` (in the game) | ~2 ms a man, twice in his life | both call sites (`armouryStage.ts`, `GameCanvas.tsx`) arm it at the swap: a census of the head AT BIND, and again on the FIRST POSED FRAME before it is drawn. If the head is not where bind says the pose must leave it, the authored man is hidden, `console.error` prints the head object, `window.__authored` (`window.__authoredRefused` in the arena) records it, the class is refused for the session, and a PROCEDURAL man is built in his place. "Wrong body beats no head." |
+| `npm run headnet` | ~40 s, no browser | the net itself, against the shipped man (4 classes x 12 states procedural, 8 loadouts, the CLIP-DRIVEN man the arena draws, and a LEFT-HANDED man) and the man the tree shipped before the fix. It must not refuse any healthy man, must refuse every defective one on the first posed frame, must trip on each of the five structural facts on its own, and must follow its bars (`--lever`: open them and the defective man passes; close them and the healthy one is refused) |
+| `npm run stagehead` | ~4 min per viewport, browser, through the lock | 4 classes x 4 lenses (portrait, shoulders, full kit, fight range) x phone+desktop: make the stage draw a frame, read the crown window off the canvas, count skin-hue pixels (H 15-35, S .2-.6, V > .25); assert `__authored.head` (det, skull, visible, scale), that the head net PASSED him (a refused man is a fail: the frame then shows the procedural man and would pass the pixels), and the full-kit framing (crown ~8% from the top, boots ~90%) |
+| `uishots`, `armourycard --classes/--lenses` | as before | the same crown-window read, under every mannequin they meet: the lobby's YOUR WARRIOR, the oath mirror, the training muster, the armoury. A screen that must have a mannequin and does not is a failure, not a skip |
+
+**What the net measures, and why not the crown.** The brief for this unit said "crown more than 3 cm off the
+procedural crown". The only procedural crown the browser has is `rig.headTop`, taken at rest with the armoury's helm
+on him, against an authored man still in the export's baked helm until the props land; the two differ by a helm, and
+a healthy idle man sits 1.4-2.8 cm under `headTop`, 2 mm inside the brief's bar. So the crown is in the census (a
+harness reads it) and not in the verdict. What the verdict uses is state-independent, because the arena swaps men
+mid-swing and mid-fall: **reach** (farthest head vertex from the chest bone: healthy 0.000-0.027 m over every state,
+procedural and clip-driven; defect 0.096-0.34) and **turn** (head against chest, from bind: healthy 33.6 deg at
+the worst sample, a dead man's head; defect 178-180), bars 0.06 m and 75 deg. `headflip` still gates the crown at 3 cm,
+against the procedural man posed in the same frame, which is the comparison that is exact.
+
+**A second thing the brief's list got wrong.** "det < 1e-3, or a scale component under 0.5" reads a MIRRORED man as
+collapsed: `handedness` reflects the whole rig for a left-handed player, `getWorldScale` reads that as a negative x
+scale, and the first cut of the net refused every left-handed man in the game. It was found by the `stagehead` run on
+the tree before the fix, which read det -1 and scale [-1,1,1] off a mirrored man, and is held now by a left-handed case
+in `headnet` (with the signed scale put back, 39 passed and 1 failed). Both are tested on magnitudes.
+
+**Also from that run: the skull is found by what it is, not by `part_34`.** The old census looked for a mesh with that
+name; on the berserker's export it does not exist (`skull NO` in the pre-fix run), so the census cried a missing skull
+on a man who had one. The net takes the biggest body mesh that is entirely head-weighted and has at least 1,500 vertices
+(the skull is 4,174; the next candidate, the brow and eyes, is 358).
+
+STAGEHEAD_NUMBERS
+
+**What `stagehead` cannot see**, so nobody mistakes it for more than it is: a head on the right way up but the wrong
+way round, a face that is skin-coloured and wrong, and a skin-coloured thing in the scene that is not the man. The pixel
+test alone can also be passed WITHOUT fixing the head: the net's own fallback is a headed procedural man, so with the
+defect present the frame passes 1 and 2 and only the third ("the net passed him") is red. That is why all three are asked
+and why `--allow-refused` exists: the run that proves the net fires is the one run that turns that check off.
+
 ## What this does not mean
 
 It does not mean lowering the bar. `docs/VISUAL-BAR.md` still says 8+ on every

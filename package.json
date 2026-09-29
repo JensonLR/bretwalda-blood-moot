@@ -116,7 +116,12 @@
     "authored:rebuild": "bash tools/blender/linux/rebuild-all.sh && bash tools/blender/linux/ship-changed.sh",
     "blenderdoctor": "node tools/blender/doctor.mjs",
     "railgate": "node tools/railgate.mjs",
-    "authoredweight": "node tools/authoredweight.mjs"
+    "authoredweight": "node tools/authoredweight.mjs",
+    "headflip": "node tools/headflip.mjs",
+    "parity": "node tools/parity.mjs",
+    "headnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/headnet.mjs",
+    "stagehead": "node tools/stagehead.mjs",
+    "crownwindowtest": "node tools/crownwindowtest.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

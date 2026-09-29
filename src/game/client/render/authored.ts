@@ -22,8 +22,14 @@
  * runs them against the real exports with no browser and no GPU. `loadAuthored`
  * is the only function here that touches the network, and it is a thin cache
  * over one call.
+ *
+ * THREE IS A VALUE IMPORT HERE SINCE THE REST FRAMES LANDED (`AuthoredRest`,
+ * below), and it is the ONLY runtime import: the quaternion maths that drives an
+ * authored skeleton has to be defined once, next to the capture that feeds it,
+ * and this is where the capture is. It still imports no other module of the
+ * client, which is what a gate needs in order to run it under plain node.
  */
-import type * as THREE from "three";
+import * as THREE from "three";
 
 /**
  * The roles `tools/blender/exportrig.mjs` names its objects by, so a client can
@@ -461,12 +467,21 @@ export function dressFromSurfaceNames(
  *
  * So an authored man can be driven by the SAME pose the procedural one is —
  * the same `SWINGS`, the same `chainSwing` variants, the same weight, hitstop
- * and stagger — with no change to a line of it. The upgrade is the mesh
- * underneath, and everything this project has learned about how a man moves
- * stays exactly where it is.
+ * and stagger. The upgrade is the mesh underneath, and everything this project
+ * has learned about how a man moves stays exactly where it is.
  *
  * That is the difference between a wave and a rewrite, and it is worth being
  * exact about because the roadmap costed it as the latter.
+ *
+ * CORRECTED 28 Sep 2026: THIS PARAGRAPH SAID "WITH NO CHANGE TO A LINE OF IT",
+ * AND THAT WAS FALSE. The NAMES map; the FRAMES do not. Blender's bones rest
+ * turned and the GLB is the mirror image of the space the pose was written in,
+ * so `applyPose` writing `rotation.set()` onto them put the head upside-down in
+ * the chest of every default-build player. The pose is still the same pose and
+ * still needs no new layer — what it needs is that its writes go through the
+ * bones' captured rest frames, which `applyPose` now does when `pivots.rest` is
+ * present. See `AuthoredRest`. It was believed for a month because every gate
+ * asked about names and counts.
  */
 export const PIVOT_BONE_NAMES = {
   chest: "Spine",
@@ -569,6 +584,200 @@ export function missingPivotBones(root: THREE.Object3D): PivotSlot[] {
 }
 
 /* --------------------------------------------------------------------------
+   THE REST FRAMES — the authored skeleton is not the skeleton the pose was written for
+   -------------------------------------------------------------------------- */
+
+/**
+ * WHY `applyPose` CANNOT WRITE AN ABSOLUTE ROTATION ONTO AN AUTHORED BONE.
+ *
+ * The bridge above says an authored man "can be driven by the SAME pose the
+ * procedural one is — with no change to a line of it". That was true of the
+ * NAMES and false of the FRAMES, and it was believed for a month because every
+ * gate asked about names, counts and bind-time geometry.
+ *
+ * `applyPose` says `piv.head.rotation.set(P.hrx, P.hry, P.hrz)`. On the
+ * procedural rig that is a rotation relative to a parent, from a rest pose of
+ * identity: every pivot is a `Group` the builder placed with a position and no
+ * rotation. On the authored rig the pivot is a Blender bone, and Blender orients
+ * a bone along its child (`tools/blender/rig.py`: tail toward the first child,
+ * else `head + down * 0.08`). So the `Head` bone, which has no child, rests at
+ * quaternion (0, 0, -1, 0) — 180 degrees about Z — and `RightShoulder`,
+ * `LeftShoulder`, `RightHip` and `LeftHip` (the PARENTS of the arm and leg pivots)
+ * rest the same way, and `RightWrist` rests at -78 about X. `rotation.set` throws
+ * that rest away. The first posed frame turned the head upside-down about its own
+ * pivot and sank it 0.34 m into the chest; the hair, beard and helm props hang off
+ * a socket that assumes the bone is at its bind orientation and went with it; and
+ * every other joint landed 0.25 to 0.75 m from where the procedural man has it,
+ * with pitch inverted (a forward swing went behind him).
+ *
+ * WHAT IS WRITTEN INSTEAD. For a pivot with parent bind-world rotation P, own
+ * rest rotation q, and a procedural pose Rp written from a procedural rest Rrest
+ * (identity everywhere except the wrists, which rest at `Rx(gripPitch)`):
+ *
+ *     q_local = P⁻¹ · M( Rp · Rrest⁻¹ ) · P · q
+ *
+ * where M(x, y, z, w) = (x, -y, -z, w) is conjugation by the x-reflection. Read it
+ * right to left: `P · q` is the bone's bind-world orientation; the procedural
+ * pose's departure from ITS rest, `Rp · Rrest⁻¹`, is reflected because the GLB is
+ * the mirror image of the procedural body space (next paragraph); and `P⁻¹ ·`
+ * carries it into the parent's frame. At Rp = Rrest it is exactly q, so a man who
+ * is not posed does not move. Derived by induction down the hierarchy and checked
+ * against the procedural man to 2-3 mm by `tools/parity.mjs`.
+ *
+ * AND THE MAN WAS BUILT MIRRORED TWICE. `exportrig.mjs` bakes the mirror into the
+ * GLB (it is right-handed at positive scale; `exportmen.mjs` refuses to ship a man
+ * whose weapon arm is at x >= 0), and the `handedness` node in `anim.ts` — which
+ * exists because the procedural builder puts the weapon arm at +x — reflects
+ * whatever is under it. So the authored man was reflected a second time: every
+ * default-build authored man carried his weapon in his LEFT hand, and the
+ * handedness switch was inverted for him. `scene.scale.x = -1` puts the authored
+ * man in the procedural body space the pose was written for, and the `handedness`
+ * node then mirrors him exactly once, as it does the procedural man.
+ *
+ * WHAT HANGS OFF THE BONES CROSSES THE SAME MIRROR. A blade, the off-hand blade
+ * and the board were built in procedural space, and hang under bones whose frame
+ * is now the reflection of the procedural frame. So each carries `scale.x = -1`
+ * (the hand mounts `HandR`/`HandL` are exactly the reflection of the procedural
+ * mount — measured 0.000 degrees and under a millimetre on all four classes — so
+ * that is the whole correction for a blade), and the board, which hangs off the
+ * elbow, also takes the elbow's rest rotation (`foldBoard`).
+ *
+ * THE BLADE NO LONGER TAKES THE WRIST TURN TWICE. On the procedural rig the weapon
+ * hangs off the FOREARM and `applyPose` turns it directly, while the wrist bone
+ * (a skinning-only sibling) turns the fist to match. The authored export parents
+ * `HandR` under the wrist bone, so the same turn written to both was applied
+ * twice — the blade was 17 to 38 degrees off the fist that held it. The wrist
+ * bone now carries the turn alone and the blade rides the hand, which is also the
+ * only arrangement in which a blade follows the wrist a CLIP animates. Its local
+ * rotation stays zero; `groundBlade` lifts it by turning the wrist (`nudgeAbout`).
+ *
+ * NOT A POST-PASS. `groundBlade` reads the blade's world position in the middle of
+ * `poseWarrior`, so the compensation has to happen inside `applyPose`, where the
+ * rotation is written, and not after the frame is built.
+ */
+export interface RestSlot {
+  /** The bone's own REST local rotation, as the export stored it. */
+  q: THREE.Quaternion;
+  /** Its parent's BIND world rotation: the rest rotations multiplied from the scene root down to the parent. */
+  p: THREE.Quaternion;
+  /** p⁻¹, cached, because p is a constant. */
+  pInv: THREE.Quaternion;
+}
+
+export interface AuthoredRest {
+  /** One per pivot the pose writes, keyed exactly as `PIVOT_BONE_NAMES`. */
+  slots: Record<PivotSlot, RestSlot>;
+  /**
+   * The two numbers `poseWarrior` reads off the PROCEDURAL pivots' positions —
+   * hip height and shoulder half-width — captured before the swap replaces those
+   * pivots with bones whose local positions are zero (`RightThigh` and
+   * `RightUpperArm` sit at the origin of their shoulder and hip parents). Read
+   * off the authored pivots they were 1.02 (the fallback) and 0, so a man's feet
+   * were planted for a leg that is not his and his collapse had no shoulder width.
+   */
+  legLen?: number;
+  armX?: number;
+  /**
+   * The cloth's seven bones (`CloakYoke`, `Drape1..6`), captured the same way, in
+   * the solver's own index order. Present only when the swap repointed the
+   * solver's array at them. The drape had the same defect as the pivots and it
+   * showed as a cloak 0.2 to 0.34 m from where the procedural man's hangs: the
+   * export's `CloakYoke` rests 34 degrees about Z (and `Drape1/3/5` rest at -34,
+   * cancelling it), and `drapeCloak` wrote an absolute rotation over all of them.
+   */
+  drape?: RestSlot[];
+}
+
+const _dq = new THREE.Quaternion();
+const _gq = new THREE.Quaternion();
+const _pq = new THREE.Quaternion();
+const _de = new THREE.Euler();
+const _ax = new THREE.Vector3();
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+
+/**
+ * Take the rest frames of the twelve pivots off a scene that has not been posed.
+ *
+ * Called by `upgradeRigToAuthored` after it has judged the asset and before it
+ * touches the rig, so a scene it cannot capture is a refusal and not a half swap.
+ * `scene` itself is the boundary: its own transform (the handedness flip, added
+ * after this runs) is deliberately not part of any P.
+ */
+export function captureRest(
+  scene: THREE.Object3D,
+  bones: Record<PivotSlot, THREE.Object3D>,
+  drape?: readonly THREE.Object3D[] | null,
+): AuthoredRest {
+  const restOf = (bone: THREE.Object3D): RestSlot => {
+    const chain: THREE.Object3D[] = [];
+    for (let o = bone.parent; o && o !== scene; o = o.parent) chain.push(o);
+    const p = new THREE.Quaternion();
+    for (let i = chain.length - 1; i >= 0; i--) p.multiply(chain[i].quaternion);
+    return { q: bone.quaternion.clone(), p, pInv: p.clone().invert() };
+  };
+  const slots = {} as Record<PivotSlot, RestSlot>;
+  for (const slot of Object.keys(bones) as PivotSlot[]) slots[slot] = restOf(bones[slot]);
+  return drape && drape.length ? { slots, drape: drape.map(restOf) } : { slots };
+}
+
+/**
+ * Write a procedural pose (Euler XYZ, as `applyPose` computes it) onto an
+ * authored bone, through the rest frame. `gripPitch` is the pose's own rest for
+ * the wrists and zero for every other pivot.
+ */
+export function drivePivot(
+  rest: AuthoredRest, slot: PivotSlot, bone: THREE.Object3D,
+  x: number, y: number, z: number, gripPitch = 0,
+): void {
+  driveRest(rest.slots[slot], bone, x, y, z, gripPitch);
+}
+
+/** The same write for any bone whose rest frame was captured — the drape's seven. */
+export function driveRest(
+  s: RestSlot, bone: THREE.Object3D,
+  x: number, y: number, z: number, gripPitch = 0,
+): void {
+  _dq.setFromEuler(_de.set(x, y, z, "XYZ"));
+  if (gripPitch !== 0) _dq.multiply(_gq.set(-Math.sin(gripPitch / 2), 0, 0, Math.cos(gripPitch / 2)));
+  // Conjugation by the x-reflection.
+  _dq.set(_dq.x, -_dq.y, -_dq.z, _dq.w);
+  bone.quaternion.copy(s.pInv).multiply(_dq).multiply(_pq.copy(s.p).multiply(s.q));
+}
+
+/**
+ * Turn a pivot by `angle` about the PROCEDURAL frame's x axis, on top of whatever
+ * it holds — the wrist's half of `weapon.rotation.x += use; wrist.rotation.x += use`.
+ * Valid on a pose written by `drivePivot` and on one a clip wrote, because it acts
+ * on the bone's current rotation and not on a remembered Euler:
+ * `P⁻¹ · Rx(u) · P` is a rotation of u about the axis `P⁻¹ x̂`, and Rx is its own
+ * reflection.
+ */
+export function nudgeAbout(rest: AuthoredRest, slot: PivotSlot, bone: THREE.Object3D, angle: number): void {
+  _ax.copy(X_AXIS).applyQuaternion(rest.slots[slot].pInv);
+  bone.quaternion.premultiply(_dq.setFromAxisAngle(_ax, angle));
+}
+
+/**
+ * The board's frame. It is built and placed in the PROCEDURAL forearm frame
+ * (`rig.offGrip`, `SHIELD_GRIP_Z`), and hangs off an authored elbow whose frame is
+ * the reflection of that one turned by the elbow's bind rotation E. Folding
+ * `E⁻¹ · M` into its local transform puts every point of it where the procedural
+ * board has it:
+ *
+ *     position -> E⁻¹ · (-x, y, z)        quaternion -> E⁻¹ · M(q)        scale.x = -1
+ *
+ * (`scale.x = -1` is set once, at the swap.) Called by `applyPose` after it has
+ * written the procedural position and rotation, and once by the swap itself for a
+ * man a clip will pose, whose board `applyPose` never revisits.
+ */
+export function foldBoard(rest: AuthoredRest, board: THREE.Object3D): void {
+  const e = rest.slots.elbowL;
+  _pq.copy(e.p).multiply(e.q).invert();
+  board.position.set(-board.position.x, board.position.y, board.position.z).applyQuaternion(_pq);
+  board.quaternion.set(board.quaternion.x, -board.quaternion.y, -board.quaternion.z, board.quaternion.w).premultiply(_pq);
+}
+
+/* --------------------------------------------------------------------------
    THE SWAP — a procedural man, upgraded in place
    -------------------------------------------------------------------------- */
 
@@ -648,14 +857,40 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   //     who will be drawn unarmed, and that is what the first capture showed.
   const byName = new Map<string, THREE.Object3D>();
   swap.scene.traverse((o) => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
-  const held: Array<[THREE.Object3D, THREE.Object3D]> = [];
+  const held: Array<[THREE.Object3D, THREE.Object3D, MountSlot]> = [];
   for (const slot of Object.keys(MOUNT_BONE_NAMES) as MountSlot[]) {
     const carried = rig[slot];
     if (!carried) continue;                    // he is not holding one
     const mount = byName.get(MOUNT_BONE_NAMES[slot]);
     if (!mount) return { ok: false, why: `no ${MOUNT_BONE_NAMES[slot]} to hang the ${slot} on` };
-    held.push([carried, mount]);
+    held.push([carried, mount, slot]);
   }
+
+  // 2c. AND CAN THE POSE DRIVE HIM IN THE RIGHT FRAMES? The rest frames are
+  //     captured here, before anything is touched, for the reason everything else
+  //     on this side of step 3 is: a man the swap cannot capture is a refusal and
+  //     not a half swap. See `AuthoredRest` for what they are and why the pose
+  //     needs them.
+  //
+  //     And the maths assumes the export is RIGHT-HANDED at positive scale, which
+  //     `exportrig.mjs` bakes and `exportmen.mjs` enforces. A left-handed export
+  //     would be flipped a second time by the scale below and hold its weapon in
+  //     the wrong hand, so it is refused here instead of drawn wrong.
+  swap.scene.updateMatrixWorld(true);
+  const armX = bones.rightArm.matrixWorld.elements[12];
+  if (!(armX < 0)) {
+    return { ok: false, why: `the export is not right-handed (weapon arm at x = ${armX.toFixed(3)}, wanted < 0)` };
+  }
+  // The cloth, when the solver's array can be pointed at the export's bones (the
+  // same test step 5 applies — a class with no cloak has no drape and that is
+  // not a failure).
+  const authoredDrape = rig.drape && rig.drape.length ? drapeBonesOf(swap.scene) : null;
+  const drapeFits = !!authoredDrape && authoredDrape.length === rig.drape!.length;
+  const rest = captureRest(swap.scene, bones, drapeFits ? authoredDrape : null);
+  // What the pose reads off the PROCEDURAL pivots' positions, before they are gone.
+  const proc = rig.pivots as unknown as Record<string, { position?: THREE.Vector3 } | undefined>;
+  rest.legLen = proc.leftLeg?.position?.y;
+  rest.armX = proc.rightArm?.position ? Math.abs(proc.rightArm.position.x) : undefined;
 
   // 3. Nothing above this line has mutated anything. From here it commits.
   const hidden = hideBakedRoles(swap.scene, swap.wornRoles);
@@ -671,21 +906,45 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
   for (const [carried] of held) carried.removeFromParent?.();
   for (const child of [...rig.body.children]) rig.body.remove(child);
   rig.body.add(swap.scene);
-  // And back on, at the authored mounts, KEEPING their local transforms.
+  // THE AUTHORED MAN IS IN THE PROCEDURAL BODY SPACE, so the `handedness` node
+  // above him mirrors him once and not twice. See `AuthoredRest`.
+  swap.scene.scale.x = -1;
+  // And back on, at the authored mounts.
   //
-  // Clearing them was tried and was wrong: `anim.ts` places a board relative to
-  // the elbow it is strapped to and a blade relative to the fist that holds it,
-  // and those offsets are the carry — not slack to be zeroed. The floating
-  // shield that prompted the idea was a WRONG MOUNT (HandL for a board that
-  // straps to the forearm), which the berserker's correctly-held axe in the
-  // same build should have said first.
-  for (const [carried, mount] of held) mount.add(carried);
+  // THE BOARD KEEPS ITS LOCAL TRANSFORM, and clearing it was tried and was wrong:
+  // `anim.ts` places a board relative to the elbow it is strapped to, and that
+  // offset is the carry — not slack to be zeroed. The floating shield that
+  // prompted the idea was a WRONG MOUNT (HandL for a board that straps to the
+  // forearm), which the berserker's correctly-held axe in the same build should
+  // have said first. What it gets now is the mirror and the elbow's rest turn
+  // (`foldBoard`), so that its procedural offset means what it meant.
+  //
+  // A BLADE DOES NOT: it is reset to the mount's own frame, because the wrist
+  // bone carries the turn now and a blade that also kept the turn it was last
+  // given would take it twice. Its `scale.x` is flipped for the same reason as
+  // the board's, and that is the whole of its correction (`AuthoredRest`).
+  for (const [carried, mount, slot] of held) {
+    mount.add(carried);
+    carried.scale.x = -Math.abs(carried.scale.x);
+    if (slot === "shield") {
+      foldBoard(rest, carried);
+    } else {
+      carried.rotation.set(0, 0, 0);
+      carried.position.set(0, 0, 0);
+    }
+  }
 
   // 4. And the pose now writes the authored skeleton. This is the whole bridge:
   //    `applyPose` sets rotations on these by name and does not care whether it
   //    is holding a Group the builder inserted or a Bone Blender exported.
   let joints = 0;
   for (const [slot, bone] of Object.entries(bones)) { rig.pivots[slot] = bone; joints++; }
+  // THE REST FRAMES RIDE THE PIVOTS, and not the rig, because that is the object
+  // `applyPose` and `groundBlade` are handed and the one both call sites share.
+  // (`rig.authored` below is written to whatever literal the caller passed, which
+  // at both call sites is a fresh object and not the `WarriorRig` — see the note
+  // there. This does not depend on that.)
+  (rig.pivots as unknown as { rest?: AuthoredRest }).rest = rest;
 
   // 5. AND THE CLOTH. The solver integrates a spring per drape bone and writes
   //    the result onto `rig.drape[i]`; pointing that array at the export's own
@@ -696,12 +955,36 @@ export function upgradeRigToAuthored(rig: UpgradableRig, swap: AuthoredSwap): Sw
     const authored = drapeBonesOf(swap.scene);
     if (authored && authored.length === rig.drape.length) {
       for (let i = 0; i < authored.length; i++) { rig.drape[i] = authored[i]; drape++; }
+      // THE SOLVER'S FRAME. `drapeCloak` projects gravity and the man's own
+      // acceleration onto the basis of `rig.pivots.cloak`, and that node was the
+      // PROCEDURAL cloak group — which the swap detached, so its world matrix
+      // froze at the last procedural pose and an authored man's cloth was blown
+      // about in the frame of a man standing upright whatever he was doing. It is
+      // repointed at a node under the authored `Spine` that reproduces the
+      // procedural chest frame: the same `E⁻¹ · M` fold the board takes.
+      const chest = rest.slots.chest;
+      const frame = new THREE.Object3D();
+      frame.name = "authoredCloakFrame";
+      frame.quaternion.copy(chest.p).multiply(chest.q).invert();
+      frame.scale.x = -1;
+      bones.chest.add(frame);
+      (rig.pivots as Record<string, THREE.Object3D>).cloak = frame;
     }
   }
 
   // 6. AND SAY SO ON THE RIG. `anim.ts` had no way to tell an authored body
   //    from a procedural one, which is why the gore path could fail on one
   //    without noticing. See `WarriorRig.authored`.
+  //
+  //    KNOWN GAP, FOUND 28 Sep 2026 AND NOT CLOSED HERE: both call sites
+  //    (`GameCanvas.tsx`, `armouryStage.ts`) hand this function a fresh object
+  //    literal built from the rig's fields, not the `WarriorRig`, so this write
+  //    lands on the literal and is discarded. `WarriorRig.authored` is therefore
+  //    never true in the game and `beginGore` never takes its authored branch.
+  //    Closing it turns `severAuthoredZone` on for the first time in a real
+  //    match, which wants its own capture campaign, so it is left as found and
+  //    reported. The rest frames above ride `rig.pivots` — the one member of the
+  //    literal that IS the rig's own object — and so do not share the gap.
   rig.authored = true;
 
   return { ok: true, dressed, hidden, joints, rehung: held.length, drape };

@@ -77,6 +77,7 @@ import type { DeathCause, GamePlayer, WarriorClass } from "../../types";
 import { WARRIOR_STATS, SWING_PHASES, SHOVE, KNOCKDOWN, EMOTE_SECONDS, type EmoteId, SHIELD } from "../../types";
 import { type ClipDriver, type ClipIntent } from "./clipDriver";
 import { severAuthoredZone } from "./authoredSever";
+import { drivePivot, driveRest, nudgeAbout, foldBoard, type AuthoredRest } from "./authored";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
   defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
@@ -269,6 +270,20 @@ export interface RigPivots {
    * tell a swirl from a sideways lurch.
    */
   drapeAt?: Array<{ x: number; z: number }>;
+  /**
+   * PRESENT ONLY AFTER THE AUTHORED SWAP, and the reason `applyPose` is not the
+   * same function on every body.
+   *
+   * On the procedural rig every pivot above rests at identity in the body space
+   * the pose was written for, so `rotation.set(...)` is a correct write. On the
+   * authored rig the same names are Blender's bones, which rest turned (`Head` at
+   * 180 degrees about Z) in the mirror image of that space, and an absolute write
+   * puts the head upside-down in the chest and every joint in the wrong frame.
+   * `upgradeRigToAuthored` captures the rest frames here; while it is undefined
+   * every line of `applyPose` and `groundBlade` is exactly what it always was.
+   * See `AuthoredRest` in `authored.ts` for the maths and the incident.
+   */
+  rest?: AuthoredRest;
 }
 
 export interface WarriorRig {
@@ -3194,12 +3209,23 @@ function groundBlade(rig: WarriorRig, piv: RigPivots, groundY: number): void {
   // for, and they cost nothing on the frames that do not need them because the
   // loop exits the moment the tip is clear.
   let total = 0;
+  // An authored blade rides the hand, so the blade is lifted by turning the WRIST
+  // — about the procedural frame's x axis, on whatever the bone holds, which is
+  // what makes it work on a pose a clip wrote as well. Its own rotation is zero.
+  const rest = piv.rest;
   for (let step = 0; step < 4 && y < floorY; step++) {
     const eps = 0.08;
-    const before = weapon.rotation.x;
-    weapon.rotation.x = before + eps;
-    const dy = (tipAt() - y) / eps;
-    weapon.rotation.x = before;
+    let dy: number;
+    if (rest) {
+      nudgeAbout(rest, "wristR", piv.wristR, eps);
+      dy = (tipAt() - y) / eps;
+      nudgeAbout(rest, "wristR", piv.wristR, -eps);
+    } else {
+      const before = weapon.rotation.x;
+      weapon.rotation.x = before + eps;
+      dy = (tipAt() - y) / eps;
+      weapon.rotation.x = before;
+    }
     // A derivative that has gone flat means the blade is edge-on to the problem
     // and no amount of wrist will lift it. Give up rather than divide by it.
     if (Math.abs(dy) < 0.05) break;
@@ -3210,12 +3236,16 @@ function groundBlade(rig: WarriorRig, piv: RigPivots, groundY: number): void {
     const room = Math.max(0, 1.4 - Math.abs(total)) * Math.sign(lift || 1);
     const use = Math.abs(lift) <= Math.abs(room) ? lift : room;
     if (Math.abs(use) < 1e-4) break;
-    weapon.rotation.x += use;
-    piv.wristR.rotation.x += use;
+    if (rest) nudgeAbout(rest, "wristR", piv.wristR, use);
+    else {
+      weapon.rotation.x += use;
+      piv.wristR.rotation.x += use;
+    }
     total += use;
     y = tipAt();
   }
-  rig.wristRef = weapon.rotation.x;
+  if (rest) { if (rig.wristRef !== null) rig.wristRef += total; }
+  else rig.wristRef = weapon.rotation.x;
 }
 
 /**
@@ -4028,7 +4058,12 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
   // two wings turn opposite ways because they are on opposite sides of the axis.
   const yx = clamp(motion.drapeX[0], -SWING_FWD, SWING_BACK);
   const yz = clamp(motion.drapeZ[0], -SWING_SIDE, SWING_SIDE);
-  rings[0].rotation.set(yx, 0, yz);
+  // An authored cloak's bones rest turned (the yoke 34 degrees about Z), so the
+  // same absolute angles go through their captured rest frames — see
+  // `AuthoredRest.drape`. A procedural cloak has none and is written as ever.
+  const dr = rig.pivots.rest?.drape;
+  if (dr) driveRest(dr[0], rings[0], yx, 0, yz);
+  else rings[0].rotation.set(yx, 0, yz);
   for (let c = 0; c < cols; c++) {
     let prevX = yx;
     let prevZ = yz;
@@ -4046,7 +4081,8 @@ function drapeCloak(rig: WarriorRig, motion: WarriorMotion, dt: number, t: numbe
       const twist = r === DRAPE_RINGS - 1
         ? (-w * 0.07 - DRAPE_SIDE[c] * 0.05) * upright
         : 0;
-      rings[i].rotation.set(x - prevX, twist, z - prevZ);
+      if (dr) driveRest(dr[i], rings[i], x - prevX, twist, z - prevZ);
+      else rings[i].rotation.set(x - prevX, twist, z - prevZ);
       prevX = x;
       prevZ = z;
     }
@@ -5058,7 +5094,11 @@ export function poseWarrior(
   if (player.id === ctx.localId) reportHand(rig, wantMirror);
   // Hip height is the length of the rigid leg, and the leg is what the body
   // has to stand on: everything vertical in here is measured against it.
-  const legLen = piv.leftLeg.position.y || 1.02;
+  // An authored man's hip height was read off the PROCEDURAL pivot before the swap
+  // replaced it (`AuthoredRest.legLen`): the authored `LeftThigh` sits at the
+  // origin of its hip parent, so its own y is 0 and this used to fall through to
+  // the constant. A procedural man has no `rest` and reads exactly what he did.
+  const legLen = (piv.rest?.legLen ?? piv.leftLeg.position.y) || 1.02;
 
   Object.assign(P, ZERO);
 
@@ -5152,7 +5192,7 @@ export function poseWarrior(
     // already the collapse of a body that is missing something.
     beginGore(rig, motion, player, hooks);
     deathLayer(motion.actT, motion.fall, rig.gore.shape, motion.seed,
-      player.deathCause, !!player.deathHeavy, Math.abs(piv.rightArm.position.x));
+      player.deathCause, !!player.deathHeavy, Math.abs(piv.rest?.armX ?? piv.rightArm.position.x));
     stops();
     settleOnFeet(legLen, 0);
     motion.leanX *= 0.9;
@@ -5598,18 +5638,37 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   const body = rig.body;
   body.position.set(P.px, P.py, P.pz);
   body.rotation.set(P.prx, P.pry, P.prz);
-  piv.chest.rotation.set(P.crx, P.cry, P.crz);
-  piv.head.rotation.set(P.hrx, P.hry, P.hrz);
-  piv.rightArm.rotation.set(P.arx, P.ary, P.arz);
-  piv.leftArm.rotation.set(P.olx, P.oly, P.olz);
-  piv.rightLeg.rotation.set(P.lrx, 0, P.lrz);
-  piv.leftLeg.rotation.set(P.llx, 0, P.llz);
-  // Hinges: X only. Everything above them already turns, and a knee given a
-  // second axis is a knee that can be put on backwards.
-  piv.elbowR.rotation.x = P.arb;
-  piv.elbowL.rotation.x = P.olb;
-  piv.kneeR.rotation.x = P.lrb;
-  piv.kneeL.rotation.x = P.llb;
+  // AN AUTHORED MAN IS DRIVEN THROUGH HIS REST FRAMES. The same eleven numbers
+  // below, written so that a bone which rests turned in a mirrored space lands
+  // where the procedural pivot they were written for does — see `AuthoredRest`.
+  // It is here, in the middle of the pose, and not a pass after it, because
+  // `groundBlade` reads the blade's world position before the frame is done.
+  const rest = piv.rest;
+  if (rest) {
+    drivePivot(rest, "chest", piv.chest, P.crx, P.cry, P.crz);
+    drivePivot(rest, "head", piv.head, P.hrx, P.hry, P.hrz);
+    drivePivot(rest, "rightArm", piv.rightArm, P.arx, P.ary, P.arz);
+    drivePivot(rest, "leftArm", piv.leftArm, P.olx, P.oly, P.olz);
+    drivePivot(rest, "rightLeg", piv.rightLeg, P.lrx, 0, P.lrz);
+    drivePivot(rest, "leftLeg", piv.leftLeg, P.llx, 0, P.llz);
+    drivePivot(rest, "elbowR", piv.elbowR, P.arb, 0, 0);
+    drivePivot(rest, "elbowL", piv.elbowL, P.olb, 0, 0);
+    drivePivot(rest, "kneeR", piv.kneeR, P.lrb, 0, 0);
+    drivePivot(rest, "kneeL", piv.kneeL, P.llb, 0, 0);
+  } else {
+    piv.chest.rotation.set(P.crx, P.cry, P.crz);
+    piv.head.rotation.set(P.hrx, P.hry, P.hrz);
+    piv.rightArm.rotation.set(P.arx, P.ary, P.arz);
+    piv.leftArm.rotation.set(P.olx, P.oly, P.olz);
+    piv.rightLeg.rotation.set(P.lrx, 0, P.lrz);
+    piv.leftLeg.rotation.set(P.llx, 0, P.llz);
+    // Hinges: X only. Everything above them already turns, and a knee given a
+    // second axis is a knee that can be put on backwards.
+    piv.elbowR.rotation.x = P.arb;
+    piv.elbowL.rotation.x = P.olb;
+    piv.kneeR.rotation.x = P.lrb;
+    piv.kneeL.rotation.x = P.llb;
+  }
 
   // The wrist, solved out of where the blade is meant to be pointing rather
   // than authored beside the joints that also move it. `wa` is an absolute
@@ -5686,7 +5745,10 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   // which is a set lookup against a set of size zero.
   const gone = rig.gore.dropped;
   if (!gone.has(rig.weapon)) {
-    rig.weapon.rotation.set(wrist, 0, P.wz);
+    // An authored blade rides the hand and its wrist bone carries the turn, so the
+    // blade's own rotation stays zero (`AuthoredRest`). A procedural blade hangs
+    // off the forearm and is turned here, with the wrist following below.
+    if (!rest) rig.weapon.rotation.set(wrist, 0, P.wz);
     rig.weapon.position.y = P.wy * st.slide;
   }
   // And the hand goes with it. The mount's pitch is already in the bone's bind
@@ -5699,7 +5761,8 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
   // thrust read; a sword only creeps, because a hand sliding down a blade is a
   // different and much worse-looking idea. Written above, with the rotation, so
   // both are behind the same guard.
-  piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz);
+  if (rest) drivePivot(rest, "wristR", piv.wristR, rig.gripPitch + wrist, 0, P.wz, rig.gripPitch);
+  else piv.wristR.rotation.set(rig.gripPitch + wrist, 0, P.wz);
   if (rig.offhand && !gone.has(rig.offhand)) {
     // The second seax mirrors the main hand, a beat behind and never as far.
     // `wrist + P.arb` is where the weapon hand is pointing once its elbow is
@@ -5707,9 +5770,14 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
     // rather than the same wrist angle, which after the elbows went in are two
     // very different things.
     const lead = wrist + P.arb;
-    rig.offhand.rotation.set(mix(st.rest, lead, 0.55) - P.olb, 0, -P.wz * 0.6);
-    // The off fist follows its own seax on the same argument as the main one.
-    piv.wristL.rotation.set(rig.gripPitch + rig.offhand.rotation.x, 0, rig.offhand.rotation.z);
+    if (rest) {
+      // The same two numbers, onto the wrist alone: the blade rides the hand.
+      drivePivot(rest, "wristL", piv.wristL, rig.gripPitch + (mix(st.rest, lead, 0.55) - P.olb), 0, -P.wz * 0.6, rig.gripPitch);
+    } else {
+      rig.offhand.rotation.set(mix(st.rest, lead, 0.55) - P.olb, 0, -P.wz * 0.6);
+      // The off fist follows its own seax on the same argument as the main one.
+      piv.wristL.rotation.set(rig.gripPitch + rig.offhand.rotation.x, 0, rig.offhand.rotation.z);
+    }
   }
   if (rig.shield && !gone.has(rig.shield)) {
     // The pitch is solved, not authored: the disc gives back whatever the
@@ -5733,6 +5801,9 @@ function applyPose(rig: WarriorRig, piv: RigPivots, st: Stance, ready: number): 
       rig.offGrip.y - GRIP.y + P.sfy,
       rig.offGrip.z - GRIP.z + P.sfz,
     );
+    // Written in the procedural forearm frame; an authored elbow is that frame
+    // mirrored and turned by its own rest, and the board has to be carried across.
+    if (rest) foldBoard(rest, rig.shield);
   }
 }
 

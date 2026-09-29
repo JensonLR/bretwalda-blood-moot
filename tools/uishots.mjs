@@ -13,6 +13,7 @@
 // ============================================================
 import { chromium } from "playwright";
 import { launchOptions, watchBoot } from "./lib/browser.mjs";
+import * as W from "./lib/crownwindow.mjs";
 import { spawn } from "child_process";
 import { mkdirSync, existsSync, statSync, readdirSync } from "fs";
 import { resolve, dirname, join } from "path";
@@ -39,6 +40,21 @@ const TAP_FLOOR = 44;
 const tapFails = [];
 /** Which screens wear the Trewhiddle ornament — backlog 5.9. Counted, not judged. */
 const ornCensus = [];
+/**
+ * THE CROWN WINDOW, ON EVERY SCREEN THAT DRAWS A MAN (`tools/lib/crownwindow.mjs`).
+ * The owner's words, reported on four screens: the mannequin is "a torso ending in a
+ * neck stump with hair strands floating over the collar". This sweep photographed all
+ * four of them, printed a clean tap audit under each, and had no idea: it never asked
+ * the canvas whether there was a head. It does now, on the lobby's YOUR WARRIOR panel,
+ * the oath mirror, the training muster and the armoury, and it fails the run.
+ */
+const headFails = [];
+const headLog = [];
+/** Screens on which a mannequin MUST be mounted; on those, its absence is the failure and not a skip. */
+const MUST_HAVE_STAGE = /^(armoury|lobby|oath|training-setup)/;
+/** A build that ships the authored warriors draws THEM by default (`next.config.ts` `authoredPresent()`), and a frame read before the swap is a picture of the man nobody sees. */
+const EXPECT_AUTHORED = ["huscarl", "warden", "runekeeper", "berserker"]
+  .every((c) => existsSync(resolve(ROOT, `public/authored/warrior-${c}.glb`)));
 // See the same constant in shoot.mjs for why this is not 127.0.0.1: Next 16
 // blocks dev resources from the loopback literal, the HMR socket dies, and the
 // dev client reload-loops the page — which for this tool means every shot is of
@@ -272,8 +288,26 @@ async function main() {
       console.log(`[ui] ${name}-${vp.tag} controls ${rows.total}, under ${TAP_FLOOR}px: ${rows.bad.length}`);
     };
 
+    // THE HEAD, in the pixels the stage drew, before the frame is photographed: the stage is
+    // waited on (settled, and reporting on the man on it) so the PNG is the same man the read is.
+    const crownCheck = async (name) => {
+      const wait = await W.untilSettled(page, { expectAuthored: EXPECT_AUTHORED, budgetMs: 60000 });
+      if (!wait.present) {
+        if (MUST_HAVE_STAGE.test(name)) headFails.push(`${name}-${vp.tag}: no mannequin stage is mounted on this screen (window.__armouryStage is absent)`);
+        return;
+      }
+      const r = await W.readHead(page);
+      const problems = W.judge(r, W.BARS, { requireAuthored: EXPECT_AUTHORED });
+      if (wait.timedOut) problems.push(`the stage never settled and reported within 60 s (settled=${wait.settled}, reported=${wait.reported})`);
+      const line = `[ui] ${name}-${vp.tag} HEAD ${problems.length ? "FAIL" : "ok"}: ${W.describe(r)}`;
+      console.log(line);
+      headLog.push(line);
+      if (problems.length) headFails.push(`${name}-${vp.tag}: ${problems.join("; ")}`);
+    };
+
     const shot = async (name, full = true) => {
       await waitForStyles(page);
+      await crownCheck(name);
       await page.waitForTimeout(700);
       await page.screenshot({ path: resolve(OUT, `${name}-${vp.tag}.png`), fullPage: full });
       await tapAudit(name);
@@ -495,6 +529,16 @@ async function main() {
     await page.waitForTimeout(3500);
     await shot("lobby");
     await shot("lobby-viewport", false);
+    // THE MAN IN THE LOBBY, IN VIEW. The two frames above are photographed with the shell scrolled
+    // down to the roster and the format, and YOUR WARRIOR is at the top of it: the crown window
+    // was being read off a canvas nobody could see in the PNG, which is a check with no picture
+    // to go with it (PROCESS R5). `role="img"` on the stage's mount is the hook.
+    const warriorPanel = page.locator('[role="img"][aria-label*="arrow keys"]').first();
+    if (await warriorPanel.count()) {
+      await warriorPanel.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(600);
+      await shot("lobby-warrior", false);
+    }
 
     // The lobby's own tap-target audit used to live here, on this ONE screen,
     // printing and never failing. `tapAudit` rides every `shot()` now and gates
@@ -540,11 +584,19 @@ async function main() {
   }
   console.log(`[ui] ${tapFails.length ? "FAIL" : "PASS"}: the ${TAP_FLOOR}px floor, on every screen this sweep walks, at both widths`);
   console.log("");
+  // THE HEAD, REPORTED AND THEN HELD. See `crownCheck`.
+  if (headFails.length) {
+    console.log("[ui] NO HEAD WHERE THE HEAD BELONGS — the owner's \"a torso ending in a neck stump\":");
+    for (const f of headFails) console.log(`[ui]   ${f}`);
+  }
+  console.log(`[ui] ${headFails.length ? "FAIL" : "PASS"}: a head in the crown window on every mannequin this sweep meets (${headLog.length} read, ${headFails.length} failed)`
+    + `${EXPECT_AUTHORED ? "" : "  — NOTE: this tree ships no authored warriors, so the man read is the procedural one"}`);
+  console.log("");
   const bare = ornCensus.filter((l) => l.includes("0 band(s), 0 rule(s)"));
   console.log(`[ui] TREWHIDDLE (5.9): ${ornCensus.length - bare.length} of ${ornCensus.length} rendered screens wear the ornament.`);
   for (const l of bare) console.log(`[ui]   bare: ${l.split(":")[0]}`);
   if (server && !server.killed) server.kill("SIGTERM");
-  process.exit(tapFails.length ? 1 : 0);
+  process.exit(tapFails.length || headFails.length ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); if (server && !server.killed) server.kill("SIGTERM"); process.exit(1); });

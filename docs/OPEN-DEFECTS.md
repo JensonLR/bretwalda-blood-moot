@@ -8,6 +8,151 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN 28-29 Sep 2026 — SIX THINGS THE AUTHORED-MAN INTEGRITY WORK FOUND AND DID NOT CLOSE
+
+Found while fixing the head, the pivots and the handedness (`tools/headflip.mjs`,
+`tools/parity.mjs`; the fix is `AuthoredRest` in `authored.ts`). None of them is
+in the way of that fix and none belongs to it.
+
+**1. `WarriorRig.authored` is never true in the game, so an authored man is never
+severed by `severAuthoredZone`.** `upgradeRigToAuthored` writes `rig.authored =
+true` — onto whatever object it is handed. Both call sites (`GameCanvas.tsx`
+~:1253, `armouryStage.ts` ~:652) hand it a fresh object LITERAL built from the
+rig's fields (`{ body, pivots, weapon, offhand, shield, drape }`), not the
+`WarriorRig`, so the write lands on the literal and is thrown away.
+`beginGore` reads `rig.authored`, finds it undefined, and calls the procedural
+`built.sever`, which returns null for an authored body — so every severing kill
+plays as an intact collapse and the "[gore] an authored body refused the cut"
+warning, which is guarded by the same flag, can never fire. `tools/authoredtest`
+passes because it hands the function the rig itself. **Not fixed here because the
+fix (`rig.authored = true` at both sites, or pass the rig) turns
+`severAuthoredZone` on in a real match for the first time**, and it has only ever
+run against `severauthored`'s fixtures. It bakes the piece through
+`applyBoneTransform` in body space: with the authored scene now at `scale.x = -1`
+its winding, the carried proxies (the blade and board are direct children of
+`HandR`/`LeftElbow` and travel with the limb; the cloak's `authoredCloakFrame`
+under `Spine` would travel with a waist cut) and `rig.gore.dropped` all want a
+capture campaign of their own.
+
+**2. `tools/eyeclip.mjs` compiles into `.eyeclip/` and deletes it again, and the
+directory is not in `.gitignore`.** Anything that runs it and then `git add -A`
+commits 20,000 lines of `characters.js`; anything that runs it after that shows
+two tracked files deleted. It happened once on this stream (commit aa59848 of
+`stream/mannequin`) and the files were removed from the tree in a later commit; the
+history was not rewritten, so that hunk wants dropping at integration. `.eyeclip/`
+is ignored now; the other tsc-emit directories were already.
+
+**3. Clip-driven men do not re-place their board.** In clip mode `applyPose` is
+not called, so an authored huscarl's board keeps the last position the PROCEDURAL
+pose gave it (folded once at the swap). It rides the forearm correctly and is not
+re-solved against the clip's guard. It was that way before this change (by
+`parity`'s board probe points it was 1.2-2.1 m off on the tree that shipped); it is
+now in the right place and merely unrefined.
+
+**4. The brief's CARRY TARGETS are not properties of anything in this repository (R10).**
+The unit that finished this work was briefed with "spear ~150 mm outboard of the face
+midline, axe head ~180 mm outboard and 160 mm below the crown". No file, doc or harness
+in the tree states them, and neither man meets them. Measured with `tools/parity.mjs`'s
+own rig, 90 frames of idle, default loadouts, in the warrior's frame, against the
+skull's box midline: applyPose (the armoury / oath / lobby mannequin) — warden's gar
+point 408 mm outboard and 160 mm ABOVE the crown, berserker's great-axe point 470 mm
+outboard and 219 mm below the crown; clip-driven (the arena) — gar point 105 mm outboard
+and 300 mm below the crown but 1.27 m in front of him, great-axe point 215 mm outboard,
+575 mm below the crown and 0.91 m in front. What IS true: the fist is at 0.83-0.97 m in
+every class (hip 0.94-1.07 m, crown 1.87-2.12 m) — belly height — and the authored man's
+carry equals the procedural man's to 0.0 mm in every `applyPose` state (`parity`, gated).
+The fist height itself is NOT gated as an absolute: an absolute bar was tried and dropped
+because it also passes on the pre-fix drive (`parity --naive` puts the fist at 0.90-0.96 m
+too; what the owner saw at the face was the spear SHAFT, from a weapon in the wrong hand,
+not a raised fist), so it could never have failed on the defect (PROCESS R2). If the
+briefed numbers are a design intent they are a change to `STANCE` and to the clips, which
+this work did not make and should not be credited with.
+
+**5. The great axe rides the hand-axes clip.** `clipDriver.ts` never reads the loadout,
+the clips are baked for the loadout `exportrig.mjs` exports (its own copy of the table:
+`berserker: "hand_axes"`, which is not a berserker loadout — the engine's are `dane_axe`,
+the default, and `twin_beards`), so the default berserker's two-hander is carried at the
+angle a 0.4 m hand axe is (`ai1b` kit frames: the head sits out past his shoulder, and in
+the arena the point is 0.9 m in front of him). `tools/lib/authoredrig.mjs` had copied that
+table and so had never posed the default berserker; it reads `ARMS` from the engine now.
+`exportrig.mjs`'s copy is left as found — it decides which fists Blender bakes.
+
+**6. The authored beard and hair render WHITE in the armoury portrait lens** (`ai1b-*-portrait-*`
+frames: light spiky strands on a man whose card, thumbnail and class default are brown or
+black), and they did before this work (the pre-fix neck-stump frames carry the same white
+specks at the collar). The props are Blender's `hairStrand` ribbons with a flat glTF
+material that `materials.tinted()` cannot resolve (`RENDER-PATHS` section B); colour and
+lighting are the hair/beard stream's, and no rest frame or mirror in this work can
+explain them.
+
+---
+
+## OPEN 29 Sep 2026 — THE MANNEQUIN GATE AND STAGE: WHAT IT FOUND AND DID NOT CLOSE
+
+Found while putting a net under the authored man's head (`render/authoredHead.ts`), a pixel
+gate over the armoury's canvas (`tools/stagehead.mjs`), and the scene and framing of the stage
+(UI-PLAN U-M M1-M3). None of these is in the way of that work.
+
+**1. The shop's THUMBNAILS photograph the PROCEDURAL man, and the mannequin beside them is the
+AUTHORED man. Decided: leave it, with the measurements.** Both are in one frame in every armoury
+capture: a smooth-skinned procedural head on the card, the authored head (faceted, with the
+authored beard) on the panel. The cards are built by `buildCharacter` directly (`armouryStage.ts`
+`pumpThumbs`); the panel by `createWarriorRig` + `upgradeRigToAuthored`. What it would take to make
+the cards authored, in this build: the swap itself is cheap (44 ms a man on this CPU, no GL, against
+126 ms for a procedural card subject with a different helm each time) and is NOT the barrier. The
+barrier is the props. An authored card of a helm is a posed authored man PLUS that helm's GLB, and
+the helm, hair and beard are not in the warrior file: per class, the ten helm cards are 1.3-1.45 MB of
+GLB, the three hair cards 4.4-5.8 MB (`hair-runekeeper-long.glb` alone is 3.5 MB) and the four beard
+cards 3.1-3.6 MB. A phone opening the armoury on the HAIR tab would download five megabytes to draw
+three pictures, each card would become an asynchronous multi-frame job in a queue that is drained
+one synchronous job per frame on purpose, and a class change would redo all of it. The items on a
+card are the SAME geometry as the items on the panel (the props are the procedural helms, hair and
+beards exported by `exportarmoury`); what differs is the head they sit on. So the cards keep selling
+the item truthfully and disagree with the panel about the face. If the owner wants the two to agree,
+the honest options are (a) make the authored head match the procedural one, which is the seam
+stream's and the hair/beard stream's work, or (b) cache the authored props in IndexedDB so a card
+costs a swap and no download. It is not a bug fix and it is not cheap; it is a decision.
+
+**2. R10: the brief's premise that production serves the procedural man is out of date.** UI-PLAN §4
+and `LORE.md` §9 say the authored GLB men are gitignored and 404 in production, so "whether production
+draws a head on the preview is unverified". `.gitignore` says otherwise, in the owner's words of
+10 Sep 2026: `/public/authored/` is NOT ignored, the 68 files in it are committed, and
+`next.config.ts` stamps `NEXT_PUBLIC_AUTHORED=1` because of it. The authored man is the DEFAULT man
+of every build made from this repository, so the headless mannequin and the inverted arena heads
+shipped, and were not confined to dev captures. (`Dockerfile` still never runs `npm run authored`; it
+does not need to.)
+
+**3. `armourytest` fails on a clean checkout, and passes only against a file it just made.**
+`node tools/blender/exportarmoury.mjs --check` wants `art/gltf/armoury.json`, which is gitignored and
+written by `exportarmoury.mjs` itself (no Blender: it compiles `characters.ts` and writes JSON). Run
+`npm run exportarmoury` first and the check reports "56 options, 13 free — the shipped catalogue matches
+characters.ts", which is true and says nothing, because the "shipped" copy is the one it wrote a second
+ago. Reported here under R4 as a deferral: the R9 battery ran it in that order.
+
+**4. `.hairmap/` is three tracked files that `tools/hairmap.mjs` rewrites.** `.hairmap/client/render/quality.js`,
+`textures.js` and `types.js` were committed by accident (`23b40a7`) and are not in `.gitignore`, so
+running the battery dirties the tree by 370 lines and a careless `git add -A` commits them. They were
+restored before every commit on this stream. `git rm --cached -r .hairmap` and an ignore line would
+close it; left as found because the fix is a deletion in a file set other streams also touch.
+
+**5. The dais is a 0.88 m plinth.** With the boots at 90% of the frame (the spec) the near edge of a
+larger ellipse is below the bottom of it: at a camera 0.8 of the crown up, a full ellipse fits at a radius of
+0.44 m (`daisRadiusFor`, near edge held at 97.5%). It is a full ellipse and it is small. The panel is also
+small (361x268 on desktop, 323x251 on phone) and that is `page.tsx`'s (UI-PLAN D17, the sticky stage
+and its canvas size), not the stage's.
+
+**6. The fight lens's honest scale still crops a man on a phone.** The slice of the game's frame a phone panel
+is tall enough for is about 1.7 m; the man is 2.05. The lens is aimed so the CROWN is 8% from the top and
+his boots go, which keeps the helmet the lens exists to show and loses the feet. The alternative is to
+abandon the "at this screen's own scale" claim the caption makes, which is a design decision (PROCESS R12
+stage 6, in the sense that it changes what the player is shown) and the owner's.
+
+**7. The beard and hair are still white and spiky in the portrait lens.** Not new (AI1 item 6) and still not
+this work's: the frames now put a 256 px procedural card of the same beard beside it, brown and soft, which
+makes the difference easy to see.
+
+---
+
 ## CLOSED 9 Sep 2026 — THE BLADE IS NOW MEASURED AGAINST THE RANGE THAT TAKES HEALTH OFF, and it is a REACH question and not a timing one
 
 Carried here as: *"Nothing samples a warrior mid-stroke on the client and checks
