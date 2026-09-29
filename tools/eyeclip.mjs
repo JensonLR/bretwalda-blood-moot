@@ -50,9 +50,24 @@
 // the disc reaches past the aperture with occlusion ignored) has to stay
 // POSITIVE somewhere in the population. A build that passes by making the disc
 // small fails those two, and a build that passes by covering the disc does not.
+//
+// THE CANTHAL TILT (added by H1, PROCESS R6 — the owner's words become a named check).
+//
+//   "The eyes on the character look a little bit asian (Chinese / Japanese Asian)."
+//
+// `eyeFrame` answered that note by editing `tilt` from 0.0022 to 0.0011 (8.3 degrees to 4.2: the published
+// means put a European male near 4 and an East Asian male at 8 to 10) and NOTHING in `tools/` would have gone
+// red if it were put back: `grep -i "tilt\|canthal" tools/` was empty. `tiltDeg` is that claim. It is read off
+// the two EMITTED lid margins, not off `eyeFrame`'s declaration (the SUTTON-HOO lesson `apertureMm` already
+// carries): the angle, in the front view, of the line from the medial canthus to the lateral one against the
+// horizontal, where the canthi are the two ends of the upper margin `lidPatch` is built from. The bar is 3 to 5
+// degrees, the European range; R1 is `--lever-tilt 0.0022`, which puts the old constant back in the COMPILED
+// module (and REFUSES to run if it cannot find it, so a refactor cannot quietly disarm the lever) and requires
+// the claim to go red. Measured by H1: HEAD 4.52 to 4.65 (ok); `--lever-tilt 0.0022` 8.96 to 9.19 (FAIL, the
+// owner's note put back); 0.0004 gives 1.65 (FAIL, the other way).
 // ============================================================
 import { spawnSync } from "child_process";
-import { rmSync, mkdirSync, existsSync, readdirSync, writeFileSync } from "fs";
+import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { pathToFileURL, fileURLToPath } from "url";
 import { deflateSync } from "zlib";
@@ -63,6 +78,7 @@ const argv = process.argv.slice(2);
 const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const SEEDS = parseInt(flag("seeds", "8"), 10);
 const DUMP = flag("dump", null);
+const LEVER_TILT = flag("lever-tilt", null);
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -78,6 +94,14 @@ const built = found[0] ?? resolve(OUT, "characters.js");
 if (!existsSync(built)) {
   console.error("[eye] tsc emitted nothing:\n" + (tsc.stdout || "") + (tsc.stderr || ""));
   process.exit(2);
+}
+if (LEVER_TILT !== null) {
+  // R1 for the tilt claim: the constant `eyeFrame` returns, changed in the compiled module and nowhere else.
+  const src = readFileSync(built, "utf8");
+  const pat = /tilt:\s*side\s*\*\s*0\.0011/;
+  if (!pat.test(src)) { console.error("[eye] --lever-tilt: `tilt: side * 0.0011` is not in the compiled characters.js; the lever cannot find the constant it claims to pull"); process.exit(2); }
+  writeFileSync(built, src.replace(pat, `tilt: side * ${Number(LEVER_TILT)}`));
+  console.log(`[eye] LEVER: canthal tilt constant 0.0011 -> ${Number(LEVER_TILT)} in the compiled module`);
 }
 const { eyeClipProbe } = await import(pathToFileURL(built).href);
 
@@ -435,6 +459,16 @@ function measure(cls, seed) {
         }
         return worst * 1000;
       })(),
+      // THE CANTHAL TILT, off the emitted upper margin's two ends, in the HEAD frame's front view. The
+      // margin is `lidMarginPoint` at t = 0 .. 1 and both lids close on the same two canthi, so its ends ARE
+      // the corners of the eye. Medial is the one nearer the midline; the angle is taken from the medial
+      // corner to the lateral one, positive when the lateral corner is HIGHER (the upward slant the owner
+      // read as Asian and a European male carries about 4 degrees of).
+      tiltDeg: (() => {
+        const a = [e.margin[0], e.margin[1]], b = [e.margin[e.margin.length - 3], e.margin[e.margin.length - 2]];
+        const [med, lat] = Math.abs(a[0]) < Math.abs(b[0]) ? [a, b] : [b, a];
+        return Math.atan2(lat[1] - med[1], Math.abs(lat[0] - med[0])) * 180 / Math.PI;
+      })(),
       marks, marginPoly, lowerPoly,
     });
   }
@@ -453,6 +487,7 @@ function measure(cls, seed) {
     pitchDeg: worst("pitchDeg", (a, b) => Math.abs(a) > Math.abs(b)),
     irisAcross: per[0].irisAcross,
     apertureMm: per[0].apertureMm,
+    tiltDeg: worst("tiltDeg", (a, b) => Math.abs(a - 4) > Math.abs(b - 4)),
     per,
   };
 }
@@ -484,6 +519,8 @@ const ASSERTS = [
     "L4 · mm the lid stands in front of the disc where it DOES cover it, at the tightest point. Coverage by a hundredth of a millimetre passes a ray test and z-fights in a renderer whose depth buffer is quantised, so the margin of the win is barred and not only the win"],
   ["apertureMm", 8.5, 17,
     "reported, not diagnostic on its own: the palpebral fissure's full height, which rides `eyeOpen` from 0.8 to 1.2 while the iris does not. The narrow end of this range is where the defect lives"],
+  ["tiltDeg", 3, 5,
+    "THE CANTHAL TILT. Degrees the lateral corner of the eye stands above the medial one, in the front view, off the emitted lid margins. The owner: \"the eyes look a little bit asian\". A European male's is about 4 and an East Asian male's 8 to 10; this build declares 4.2 in `eyeFrame` and MEASURES 4.5 to 4.6 off the lids (the socket's plane is pitched, which the declared number knows nothing about). The claim is 3 to 5 and the head of the population furthest from 4 is the one printed. `--lever-tilt 0.0022` puts the old 8.3 degrees back and this must go red"],
   ["splayDeg", 0, 40,
     "reported: degrees between the socket normal the APERTURE is cut on and the gaze axis the DISC is laid out on. This is the size of the disagreement the lid has to absorb, and it is why the overshoot is millimetres rather than tenths"],
   ["pitchDeg", -25, 25,
