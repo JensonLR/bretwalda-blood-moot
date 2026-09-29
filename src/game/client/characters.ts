@@ -1872,9 +1872,10 @@ export interface WeaponStyle {
    * Replacement for the grip leather, or null to keep the builder's own.
    * `substance: "rope"` re-maps the grip as a twisted wrap — the gilt rung's
    * wire-bound grip, which its own name promised and its flat hide never
-   * delivered.
+   * delivered. `substance: "bone"` makes it horn: the Horn and Bronze rung's
+   * grip, which was a dark hide under a name that said horn.
    */
-  grip: { hex: number; substance?: "rope" } | null;
+  grip: { hex: number; substance?: "rope" | "bone" } | null;
   /** Multiplier on the shaft timber. */
   shaft: { tint: readonly [number, number, number] };
 }
@@ -1937,7 +1938,7 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     blade: { tint: [0.99, 0.97, 0.93], dRough: 0.02 },
     iron: { tint: [1.0, 0.94, 0.84] },
     fitting: { hex: 0x96763f, rough: 0.44 },
-    grip: { hex: 0x241a11 },
+    grip: { hex: 0x4a3a2a, substance: "bone" },
     shaft: { tint: [0.96, 0.9, 0.83] },
   },
   // Serpent-marked: Beowulf's own word — wyrm-fah, the serpent in the steel.
@@ -2048,9 +2049,11 @@ function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
     // Brass wire is a partial metal too: at 0.9 and 0.25 it reflects the dark sky and the runes vanish into the fuller they are meant to light.
     wire: base.wire !== undefined ? M.tinted("steel", base.wire, { roughness: 0.35, metalness: 0.75 }) : undefined,
     grip: style.grip
-      ? (style.grip.substance
-        ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
-        : M.hide(style.grip.hex))
+      ? (style.grip.substance === "bone"
+        ? M.tinted("bone", style.grip.hex)
+        : style.grip.substance
+          ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
+          : M.hide(style.grip.hex))
       : base.horn !== undefined
         ? M.tinted("bone", base.horn)
         : base.grip !== undefined ? M.hide(base.grip) : undefined,
@@ -11572,7 +11575,7 @@ function lobedPommel(o: { hw: number; lobeR: number; drop: number; depth: number
     pts.push([xx, Number.isFinite(y) ? y : yc]);
   }
   pts.push([hw, 0], [hw * 0.5, 0.0006], [0, 0.0009], [-hw * 0.5, 0.0006], [-hw, 0]);
-  return wfPillow(pts, depth / 2, [[-1, 0.66], [-0.62, 0.93], [0, 1], [0.62, 0.93], [1, 0.66]]);
+  return wfPillow(pts, depth / 2, [[-1, 0.80], [-0.62, 0.95], [0, 1], [0.62, 0.95], [1, 0.80]]);
 }
 
 /**
@@ -11749,7 +11752,7 @@ export function buildSword(materials?: CharacterMaterials, styleId?: string): TH
   // Upper guard and the pommel: one flat bar under the grip and ONE cast shell with three
   // lobes on its butt, a niello panel on each face of it.
   part.add(guardBar({ hw: 0.033, hh: 0.0065, depth: 0.024, droop: 0.0006 }), silver, xf(0, -0.0835, 0));
-  part.add(lobedPommel({ hw: 0.035, lobeR: 0.0125, drop: 0.0285, depth: 0.026 }), silver, xf(0, -0.0895, 0));
+  part.add(lobedPommel({ hw: 0.035, lobeR: 0.0090, drop: 0.0285, depth: 0.026 }), silver, xf(0, -0.0895, 0));
   for (const s of [-1, 1]) {
     part.add(wfPlate(wfRoundedRect(0.016, 0.0072, 0.004), 0.0006), niello, xf(0, -0.104, s * 0.0133));
   }

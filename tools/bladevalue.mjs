@@ -206,6 +206,10 @@ async function classPass(page) {
     scene.traverse((o) => {
       if (o.isPoints || o.isSprite || o.isLine) { o.visible = false; counts.hidden++; return; }
       if (!o.isMesh) return;
+      // `rig:shadow` is the merged depth-only copy of a bone's meshes that casts the man's shadow (anim.ts, the shadow
+      // proxy): its material writes no colour, so the game's camera never sees it. Given an opaque class colour here it
+      // was drawn OVER the blade in blue, and the first two trials of this ruler read "no blade" for exactly that reason.
+      if (o.name === "rig:shadow" || (o.material && o.material.colorWrite === false)) { o.visible = false; counts.hidden++; return; }
       if (inWeapon(o)) {
         const name = o.material?.name || "";
         const hex = parseHex(name);
@@ -464,7 +468,7 @@ try {
       const pal = [[10, 10, 10], [255, 60, 60], [40, 220, 90], [70, 110, 255], [120, 120, 120]];
       for (let i = 0; i < res.C.length; i++) { const p = pal[res.C[i]]; const a = res.C[i] === 0 ? 0.0 : 0.85; for (let k = 0; k < 3; k++) rgb[i * 3 + k] = Math.round(p[k] * a + png.data[i * png.info.channels + k] * (1 - a)); }
       await sharp(rgb, { raw: { width: W, height: H, channels: 3 } }).png().toFile(resolve(OUT, `${tag}-classes.png`));
-      const [x0, y0, x1, y1] = res.bbox; const pad = 30;
+      const [x0, y0, x1, y1] = res.bbox ?? [0, 0, W - 1, H - 1]; const pad = 30;
       const cx0 = Math.max(0, x0 - pad), cy0 = Math.max(0, y0 - pad), cw = Math.min(W, x1 + pad) - cx0, chh = Math.min(H, y1 + pad) - cy0;
       await sharp(shot).extract({ left: cx0, top: cy0, width: cw, height: chh }).resize({ width: Math.min(1400, cw * 3), kernel: "nearest" }).png().toFile(resolve(OUT, `${tag}-crop.png`));
     }
