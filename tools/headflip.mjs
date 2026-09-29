@@ -4,6 +4,7 @@
 //
 //   node tools/headflip.mjs                          gate: 4 classes x idle/walking/attacking/knocked/dead, 90 frames each
 //   node tools/headflip.mjs --cls=warden --states=idle
+//   node tools/headflip.mjs --arms=default           only each class's own weapon (the gate runs all EIGHT loadouts the engine offers)
 //   node tools/headflip.mjs --wide                   all twelve states the pose has a layer for
 //   node tools/headflip.mjs --lever=90               R1: turn the captured Head rest by 90 deg; the gate MUST go red
 //   node tools/headflip.mjs --naive                  the control: today's write, absolute rotations onto the GLB bones. MUST fail
@@ -81,6 +82,7 @@ const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || `--$
 const flag = (k) => process.argv.includes(`--${k}`);
 const classes = arg("cls", L.CLASSES.join(",")).split(",");
 const states = arg("states", (flag("wide") ? L.WIDE_STATES : L.STATES).join(",")).split(",");
+const armsSel = arg("arms", "all");
 const frames = Number(arg("frames", 90));
 const lever = Number(arg("lever", 0));
 const naive = flag("naive"), noMirror = flag("no-mirror");
@@ -100,44 +102,47 @@ for (const cls of classes) {
   const rq = headBone.quaternion;
   console.log(`  ${cls}: shipped Head bone rest quaternion (${[rq.x, rq.y, rq.z, rq.w].map((v) => v.toFixed(3)).join(", ")})` +
     `${Math.abs(rq.w) < 0.5 ? "  <- NOT identity: an absolute rotation.set() lands turned by this" : ""}`);
-  for (const state of states) {
-    const pair = L.buildPair(kit, cls, gltf);
-    await L.dressHead(kit, pair.B);
-    const rest = pair.B.rig.pivots.rest;
-    if (naive) delete pair.B.rig.pivots.rest;
-    if (noMirror) pair.B.scene.scale.x = 1;
-    if (lever) {
-      if (!rest?.slots?.head) { check(`${cls}: the lever has a captured Head rest to pull`, false, "rig.pivots.rest.slots.head is absent"); continue; }
-      rest.slots.head.q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (lever * Math.PI) / 180));
+  for (const arms of L.armsFor(cls, armsSel)) {
+    console.log(`    ${arms}`);
+    for (const state of states) {
+      const pair = L.buildPair(kit, cls, gltf, arms);
+      await L.dressHead(kit, pair.B);
+      const rest = pair.B.rig.pivots.rest;
+      if (naive) delete pair.B.rig.pivots.rest;
+      if (noMirror) pair.B.scene.scale.x = 1;
+      if (lever) {
+        if (!rest?.slots?.head) { check(`${cls}: the lever has a captured Head rest to pull`, false, "rig.pivots.rest.slots.head is absent"); continue; }
+        rest.slots.head.q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (lever * Math.PI) / 180));
+      }
+      const s = L.run(kit, pair, state, frames, 15);
+      const crown = L.worst(s, (x) => Math.abs(x.head.crown));
+      const box = L.worst(s, (x) => x.head.box);
+      const turn = L.worst(s, (x) => x.joints.head.deg);
+      const propTop = L.worst(s, (x) => Math.abs(x.head.props.top));
+      const propMid = L.worst(s, (x) => x.head.props.mid);
+      rows.push({ cls, arms, state, crown, box, turn, propTop, propMid, last: s[s.length - 1] });
+      console.log(`      ${state.padEnd(9)} crown ${L.f3(s[s.length - 1].head.crown)} m (worst ${crown.toFixed(3)})   box worst ${box.toFixed(3)} m   head turn worst ${turn.toFixed(1)} deg` +
+        `   [A crown y ${s[s.length - 1].head.a.max.y.toFixed(3)}, B ${s[s.length - 1].head.b.max.y.toFixed(3)}]` +
+        `   props top ${propTop.toFixed(3)} m, centre ${propMid.toFixed(3)} m`);
     }
-    const s = L.run(kit, pair, state, frames, 15);
-    const crown = L.worst(s, (x) => Math.abs(x.head.crown));
-    const box = L.worst(s, (x) => x.head.box);
-    const turn = L.worst(s, (x) => x.joints.head.deg);
-    const propTop = L.worst(s, (x) => Math.abs(x.head.props.top));
-    const propMid = L.worst(s, (x) => x.head.props.mid);
-    rows.push({ cls, state, crown, box, turn, propTop, propMid, last: s[s.length - 1] });
-    console.log(`    ${state.padEnd(9)} crown ${L.f3(s[s.length - 1].head.crown)} m (worst ${crown.toFixed(3)})   box worst ${box.toFixed(3)} m   head turn worst ${turn.toFixed(1)} deg` +
-      `   [A crown y ${s[s.length - 1].head.a.max.y.toFixed(3)}, B ${s[s.length - 1].head.b.max.y.toFixed(3)}]` +
-      `   props top ${propTop.toFixed(3)} m, centre ${propMid.toFixed(3)} m`);
   }
 }
 console.log("");
 
 if (!lever) {
   for (const r of rows) {
-    check(`${r.cls}/${r.state}: the Head-weighted crown is within ${CROWN_BAR * 100} cm of the procedural man's`, r.crown <= CROWN_BAR, `worst ${r.crown.toFixed(3)} m`);
-    check(`${r.cls}/${r.state}: every face of the head's box is within ${BOX_BAR * 100} cm of the procedural head's`, r.box <= BOX_BAR, `worst ${r.box.toFixed(3)} m`);
-    check(`${r.cls}/${r.state}: the head turned as far as the procedural head did (within ${TURN_BAR} deg)`, r.turn <= TURN_BAR, `worst ${r.turn.toFixed(1)} deg`);
-    check(`${r.cls}/${r.state}: his helm, hair and beard top out at the procedural head's crown (within ${PROP_BAR * 100} cm)`, r.propTop <= PROP_BAR, `worst ${r.propTop.toFixed(3)} m`);
-    check(`${r.cls}/${r.state}: and are centred on the procedural head (x, z within ${PROP_BAR * 100} cm)`, r.propMid <= PROP_BAR, `worst ${r.propMid.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: the Head-weighted crown is within ${CROWN_BAR * 100} cm of the procedural man's`, r.crown <= CROWN_BAR, `worst ${r.crown.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: every face of the head's box is within ${BOX_BAR * 100} cm of the procedural head's`, r.box <= BOX_BAR, `worst ${r.box.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: the head turned as far as the procedural head did (within ${TURN_BAR} deg)`, r.turn <= TURN_BAR, `worst ${r.turn.toFixed(1)} deg`);
+    check(`${r.cls}/${r.arms}/${r.state}: his helm, hair and beard top out at the procedural head's crown (within ${PROP_BAR * 100} cm)`, r.propTop <= PROP_BAR, `worst ${r.propTop.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: and are centred on the procedural head (x, z within ${PROP_BAR * 100} cm)`, r.propMid <= PROP_BAR, `worst ${r.propMid.toFixed(3)} m`);
   }
 } else {
   // R1: the constant the fix claims to depend on has to be one the ruler feels.
   for (const r of rows) {
-    check(`${r.cls}/${r.state}: turning the captured rest ${lever} deg moves the crown past its bar`, r.crown > CROWN_BAR, `${r.crown.toFixed(3)} m`);
-    check(`${r.cls}/${r.state}: ...and the head's turn past its bar`, r.turn > TURN_BAR, `${r.turn.toFixed(1)} deg`);
-    check(`${r.cls}/${r.state}: ...and the props' top past theirs, or their centre`, r.propTop > PROP_BAR || r.propMid > PROP_BAR, `top ${r.propTop.toFixed(3)} m, centre ${r.propMid.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: turning the captured rest ${lever} deg moves the crown past its bar`, r.crown > CROWN_BAR, `${r.crown.toFixed(3)} m`);
+    check(`${r.cls}/${r.arms}/${r.state}: ...and the head's turn past its bar`, r.turn > TURN_BAR, `${r.turn.toFixed(1)} deg`);
+    check(`${r.cls}/${r.arms}/${r.state}: ...and the props' top past theirs, or their centre`, r.propTop > PROP_BAR || r.propMid > PROP_BAR, `top ${r.propTop.toFixed(3)} m, centre ${r.propMid.toFixed(3)} m`);
   }
 }
 

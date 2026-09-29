@@ -37,10 +37,30 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { emitClient } from "./clientmodule.mjs";
+import { ARMS as ENGINE_ARMS, defaultArmsOf } from "../../src/game/engine.mjs";
 
 export const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
-/** The loadout each shipped warrior GLB was exported in (`exportrig.mjs`). */
-export const ARMS = { huscarl: "sword_board", warden: "gar", runekeeper: "twin_seax", berserker: "hand_axes" };
+/**
+ * THE LOADOUTS, FROM THE ENGINE'S OWN TABLE. This file used to carry
+ * `{ berserker: "hand_axes", ... }` — the loadout `exportrig.mjs` happens to bake the
+ * fists for, and NOT one the berserker can choose: his are `dane_axe` (the default,
+ * the two-hander every berserker who has not touched the picker is holding) and
+ * `twin_beards`. So the gates had never posed the default berserker, and the
+ * two-handed branch of the pose (`weaponArms === "dane_axe"`) was walked by no
+ * authored-man gate at all. A table copied out of the engine is the mirrored
+ * definition of PROCESS Part 1 §3; the engine's is the only one there is.
+ */
+export const LOADOUTS = Object.fromEntries(CLASSES.map((c) => [c, Object.keys(ENGINE_ARMS[c])]));
+export const DEFAULT_ARMS = Object.fromEntries(CLASSES.map((c) => [c, defaultArmsOf(c)]));
+/** `default` (the class's own), `alt` (the others) or `all` — for a gate's `--arms=`. */
+export function armsFor(cls, which = "all") {
+  const all = LOADOUTS[cls];
+  if (which === "default") return [DEFAULT_ARMS[cls]];
+  if (which === "alt") return all.filter((a) => a !== DEFAULT_ARMS[cls]);
+  if (which === "all") return all;
+  if (!all.includes(which)) throw new Error(`${cls} has no loadout "${which}" (${all.join(", ")})`);
+  return [which];
+}
 export const SLOTS = ["chest", "head", "rightArm", "leftArm", "rightLeg", "leftLeg",
   "elbowR", "elbowL", "wristR", "wristL", "kneeR", "kneeL"];
 
@@ -102,14 +122,14 @@ export function parseGlb(root, cls) {
 }
 
 /** A `GamePlayer` with the fields the pose reads. */
-export function mkPlayer(kit, cls, id) {
+export function mkPlayer(kit, cls, id, arms = DEFAULT_ARMS[cls]) {
   return {
     id, name: "", warriorClass: cls, team: "none", ready: true, position: { x: 0, y: 0, z: 0 }, rotation: 0,
     velocity: { x: 0, y: 0, z: 0 }, health: 100, maxHealth: 100, stamina: 100, maxStamina: 100, state: "idle",
     attackDir: "right", blockDir: "right", attackTimer: 0, blockTimer: 0, dodgeTimer: 0, staggerTimer: 0,
     abilityCooldown: 0, abilityActive: false, abilityTimer: 0, kills: 0, deaths: 0, damage: 0, score: 0,
     lastHitBy: "", comboCount: 0, comboTimer: 0, invincible: false, invincibleTimer: 0,
-    appearance: kit.characters.defaultAppearance(cls), arms: ARMS[cls],
+    appearance: kit.characters.defaultAppearance(cls), arms,
   };
 }
 
@@ -121,13 +141,13 @@ const ctxOf = (kit) => ({ dt: 0, rawDt: 0, time: 0, camera, focus: new THREE.Vec
  * the shipped scene, with the arguments the two call sites pass — the literal is
  * copied from `GameCanvas.tsx` and `armouryStage.ts`, which pass the same shape.
  */
-export function buildMan(kit, cls, gltf, authored) {
+export function buildMan(kit, cls, gltf, authored, arms = DEFAULT_ARMS[cls]) {
   const parent = new THREE.Group();
   // ONE ID FOR BOTH MEN. `createMotion` seeds the idle sway, the stride phase and
   // the cloak from a hash of it, so two ids are two different men breathing out of
   // step: a first cut of this gave them "a" and "b" and read a 5 degree head
   // difference in idle that was two phases of one sway, not a defect.
-  const p = mkPlayer(kit, cls, "man");
+  const p = mkPlayer(kit, cls, "man", arms);
   const rig = kit.anim.createWarriorRig(parent, p, kit.materials, kit.settings);
   let res = null, scene = null;
   if (authored) {
@@ -193,14 +213,14 @@ export function propVerts(man) {
 }
 
 /** A pair, and the bind-pose world orientation of every slot, taken before either is posed. */
-export function buildPair(kit, cls, gltf) {
-  const A = buildMan(kit, cls, gltf, false);
-  const B = buildMan(kit, cls, gltf, true);
+export function buildPair(kit, cls, gltf, arms = DEFAULT_ARMS[cls]) {
+  const A = buildMan(kit, cls, gltf, false, arms);
+  const B = buildMan(kit, cls, gltf, true, arms);
   const bind = (m) => Object.fromEntries(SLOTS.map((s) => [s, worldRot(m.rig.pivots[s])]));
   A.bind = bind(A); B.bind = bind(B);
   const dbind = (m) => (m.rig.pivots.drape || []).map((b) => worldRot(b));
   A.dbind = dbind(A); B.dbind = dbind(B);
-  return { A, B, cls, gltf };
+  return { A, B, cls, gltf, arms };
 }
 
 /** Give the authored man of a pair the real clip driver — the ARENA's man. */

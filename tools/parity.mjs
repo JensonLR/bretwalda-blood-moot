@@ -4,6 +4,7 @@
 //
 //   node tools/parity.mjs                           gate: 4 classes x idle/walking/attacking/knocked/dead, 90 frames each, right-handed AND left-handed
 //   node tools/parity.mjs --cls=huscarl --states=attacking
+//   node tools/parity.mjs --arms=default            only each class's own weapon (the gate runs all EIGHT loadouts the engine offers)
 //   node tools/parity.mjs --wide                    the wider sweep: all twelve states the pose has a layer for
 //   node tools/parity.mjs --lever=90                R1: turn the captured Rest of one pivot; the gate MUST go red
 //   node tools/parity.mjs --naive                   control: absolute rotation.set() onto the GLB bones (today's drive). MUST fail
@@ -68,6 +69,7 @@ const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || `--$
 const flag = (k) => process.argv.includes(`--${k}`);
 const classes = arg("cls", L.CLASSES.join(",")).split(",");
 const states = arg("states", (flag("wide") ? L.WIDE_STATES : L.STATES).join(",")).split(",");
+const armsSel = arg("arms", "all");
 const frames = Number(arg("frames", 90));
 const lever = Number(arg("lever", 0));
 const naive = flag("naive"), noMirror = flag("no-mirror");
@@ -86,8 +88,8 @@ for (const lefty of [false, true]) {
   kit.input.setHandedness(lefty);
   for (const cls of classes) {
     const gltf = await L.parseGlb(ROOT, cls);
-    for (const state of states) {
-      const pair = L.buildPair(kit, cls, gltf);
+    for (const arms of L.armsFor(cls, armsSel)) for (const state of states) {
+      const pair = L.buildPair(kit, cls, gltf, arms);
       const rest = pair.B.rig.pivots.rest;
       if (naive) delete pair.B.rig.pivots.rest;
       if (noMirror) pair.B.scene.scale.x = 1;
@@ -109,7 +111,7 @@ for (const lefty of [false, true]) {
       const sameSign = s.every((x) => Math.abs(x.weaponSide.a) < 0.05 || Math.sign(x.weaponSide.a) === Math.sign(x.weaponSide.b))
         && s.every((x) => Math.abs(x.armSide.a) < 0.05 || Math.sign(x.armSide.a) === Math.sign(x.armSide.b));
       const r = {
-        lefty, cls, state, joint, turn, wj, wt, side, sameSign,
+        lefty, cls, arms, state, joint, turn, wj, wt, side, sameSign,
         tip: L.worst(s, (x) => x.weapon.tip), probe: L.worst(s, (x) => x.weapon.probe),
         off: pair.A.rig.offhand ? L.worst(s, (x) => x.offhand) : null,
         shield: pair.A.rig.shield ? L.worst(s, (x) => x.shield) : null,
@@ -117,7 +119,7 @@ for (const lefty of [false, true]) {
         hand: { a: last.weaponSide.a, b: last.weaponSide.b },
       };
       rows.push(r);
-      console.log(`  ${lefty ? "LEFT " : "right"} ${cls.padEnd(10)} ${state.padEnd(9)} worst joint ${wj[0]} ${L.mm(wj[1])}   worst turn ${wt[0]} ${wt[1].toFixed(2)} deg   ` +
+      console.log(`  ${lefty ? "LEFT " : "right"} ${cls.padEnd(10)} ${arms.padEnd(11)} ${state.padEnd(9)} worst joint ${wj[0]} ${L.mm(wj[1])}   worst turn ${wt[0]} ${wt[1].toFixed(2)} deg   ` +
         `weapon x A ${last.weaponSide.a.toFixed(3)} B ${last.weaponSide.b.toFixed(3)}   tip ${L.mm(r.tip)}  blade probes ${L.mm(r.probe)}` +
         `${r.off !== null ? `  off ${L.mm(r.off)}` : ""}${r.shield !== null ? `  board ${L.mm(r.shield)}` : ""}${r.cloak ? `  cloak ${L.mm(r.cloak.d)}/${r.cloak.deg.toFixed(2)}deg` : ""}`);
     }
@@ -141,13 +143,13 @@ if (!lever && !naive && !noMirror && !flag("no-ground")) {
   const hooks = { groundAt: () => GROUND };
   for (const cls of classes) {
     const gltf = await L.parseGlb(ROOT, cls);
-    for (const state of ["idle", "attacking"]) {
-      const pair = L.buildPair(kit, cls, gltf);
+    for (const arms of L.armsFor(cls, armsSel)) for (const state of ["idle", "attacking"]) {
+      const pair = L.buildPair(kit, cls, gltf, arms);
       const s = L.run(kit, pair, state, frames, 15, hooks);
       const tip = L.worst(s, (x) => x.weapon.tip), probe = L.worst(s, (x) => x.weapon.probe);
       const lifted = L.worst(s, (x) => Math.max(0, GROUND - x.tipY.a));   // how far the procedural blade still is under the turf
-      groundRows.push({ cls, state, tip, probe, lifted, lowest: Math.min(...s.map((x) => x.tipY.b)) });
-      console.log(`  right ${cls.padEnd(10)} ${state.padEnd(9)} tip ${L.mm(tip)}  blade probes ${L.mm(probe)}   lowest authored tip y ${Math.min(...s.map((x) => x.tipY.b)).toFixed(3)} m (turf at ${GROUND})`);
+      groundRows.push({ cls, arms, state, tip, probe, lifted, lowest: Math.min(...s.map((x) => x.tipY.b)) });
+      console.log(`  right ${cls.padEnd(10)} ${arms.padEnd(11)} ${state.padEnd(9)} tip ${L.mm(tip)}  blade probes ${L.mm(probe)}   lowest authored tip y ${Math.min(...s.map((x) => x.tipY.b)).toFixed(3)} m (turf at ${GROUND})`);
     }
   }
   console.log("");
@@ -161,8 +163,8 @@ if (!lever && !naive && !noMirror && !flag("no-clips")) {
     kit.input.setHandedness(lefty);
     for (const cls of classes) {
       const gltf = await L.parseGlb(ROOT, cls);
-      for (const state of ["idle", "walking", "running", "blocking", "attacking"]) {
-        const pair = L.buildPair(kit, cls, gltf);
+      for (const arms of L.armsFor(cls, armsSel)) for (const state of ["idle", "walking", "running", "blocking", "attacking"]) {
+        const pair = L.buildPair(kit, cls, gltf, arms);
         L.giveClips(kit, pair);
         const s = L.run(kit, pair, state, 60, 20);
         const last = s[s.length - 1];
@@ -178,8 +180,8 @@ if (!lever && !naive && !noMirror && !flag("no-clips")) {
         const swing = state === "attacking";
         const armOk = swing || s.every((x) => Math.abs(x.armSide.a) < 0.05 || Math.sign(x.armSide.a) === Math.sign(x.armSide.b));
         const carriedOk = state !== "idle" || s.every((x) => Math.sign(x.weaponSide.a) === Math.sign(x.weaponSide.b) && Math.abs(x.weaponSide.b) > 0.05);
-        clipRows.push({ lefty, cls, state, swing, sameSign: armOk && carriedOk, ride, a: last.armSide.a, b: last.armSide.b, wa: last.weaponSide.a, wb: last.weaponSide.b });
-        console.log(`  ${lefty ? "LEFT " : "right"} ${cls.padEnd(10)} ${state.padEnd(9)} weapon-arm x A ${last.armSide.a.toFixed(3)} B ${last.armSide.b.toFixed(3)}   weapon x A ${last.weaponSide.a.toFixed(3)} B ${last.weaponSide.b.toFixed(3)}   weapon origin to fist ${L.mm(ride)}`);
+        clipRows.push({ lefty, cls, arms, state, swing, sameSign: armOk && carriedOk, ride, a: last.armSide.a, b: last.armSide.b, wa: last.weaponSide.a, wb: last.weaponSide.b });
+        console.log(`  ${lefty ? "LEFT " : "right"} ${cls.padEnd(10)} ${arms.padEnd(11)} ${state.padEnd(9)} weapon-arm x A ${last.armSide.a.toFixed(3)} B ${last.armSide.b.toFixed(3)}   weapon x A ${last.weaponSide.a.toFixed(3)} B ${last.weaponSide.b.toFixed(3)}   weapon origin to fist ${L.mm(ride)}`);
       }
     }
   }
@@ -189,7 +191,7 @@ if (!lever && !naive && !noMirror && !flag("no-clips")) {
 
 if (!lever) {
   for (const r of rows) {
-    const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.state}`;
+    const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.arms}/${r.state}`;
     check(`${tag}: every one of the twelve pivots is within ${JOINT_BAR * 100} cm of the procedural man's`, r.wj[1] <= JOINT_BAR, `worst ${r.wj[0]} ${r.wj[1].toFixed(3)} m`);
     check(`${tag}: and has turned as far as the procedural pivot did (within ${TURN_BAR} deg)`, r.wt[1] <= TURN_BAR, `worst ${r.wt[0]} ${r.wt[1].toFixed(1)} deg`);
     check(`${tag}: the weapon is in the same hand as the procedural man's, within ${SIDE_BAR * 100} cm`, r.sameSign && r.side <= SIDE_BAR, `A ${r.hand.a.toFixed(3)} B ${r.hand.b.toFixed(3)}`);
@@ -199,17 +201,17 @@ if (!lever) {
     if (r.cloak) check(`${tag}: the cloak's seven bones are within ${JOINT_BAR * 100} cm and ${TURN_BAR} deg of the procedural cloak's`, r.cloak.d <= JOINT_BAR && r.cloak.deg <= TURN_BAR, `worst ${r.cloak.d.toFixed(3)} m / ${r.cloak.deg.toFixed(1)} deg`);
   }
   for (const r of groundRows) {
-    check(`${r.cls}/${r.state} on raised ground: the authored blade is lifted exactly as the procedural one is (within ${MOUNT_BAR * 100} cm)`,
+    check(`${r.cls}/${r.arms}/${r.state} on raised ground: the authored blade is lifted exactly as the procedural one is (within ${MOUNT_BAR * 100} cm)`,
       r.tip <= MOUNT_BAR && r.probe <= MOUNT_BAR, `tip ${r.tip.toFixed(3)} m, probes ${r.probe.toFixed(3)} m`);
   }
   for (const r of clipRows) {
-    const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.state} (clips)`;
+    const tag = `${r.lefty ? "LEFT" : "right"} ${r.cls}/${r.arms}/${r.state} (clips)`;
     if (!r.swing) check(`${tag}: his weapon arm is on the procedural man's side${r.state === "idle" ? " and the carried blade is in that hand" : ""}`, r.sameSign, `arm A ${r.a.toFixed(3)} B ${r.b.toFixed(3)}; blade A ${r.wa.toFixed(3)} B ${r.wb.toFixed(3)}`);
     check(`${tag}: and rides the fist (origin within 2 cm of HandR)`, r.ride <= 0.02, `${r.ride.toFixed(3)} m`);
   }
 } else {
   for (const r of rows) {
-    const tag = `${r.cls}/${r.state}`;
+    const tag = `${r.cls}/${r.arms}/${r.state}`;
     check(`${tag}: turning the captured rests ${lever} deg moves a joint past its bar`, r.wj[1] > JOINT_BAR, `${r.wj[0]} ${r.wj[1].toFixed(3)} m`);
     check(`${tag}: ...and a pivot's turn past its bar`, r.wt[1] > TURN_BAR, `${r.wt[0]} ${r.wt[1].toFixed(1)} deg`);
   }
