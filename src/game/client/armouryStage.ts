@@ -36,6 +36,7 @@ import { createMaterialLibrary, type MaterialLibrary } from "./render/materials"
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
 import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
+import { authoredResolver, authoredDressContext } from "./render/authoredDress";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
@@ -646,9 +647,13 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         );
         // Declared here rather than inline, because the head dressing below
         // wants the SAME library — a second copy of it is a second answer.
-        const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
-          ? forge.materials.tinted(ask.surface as Parameters<MaterialLibrary["tinted"]>[0], ask.color)
-          : forge.materials.standard(ask.color));
+        const resolveMaterial = authoredResolver(authoredDressContext({
+          cls: player.warriorClass,
+          appearance: loadout.appearance,
+          team: player.team,
+          faceSeed: loadout.faceSeed,
+          materials: forge.materials,
+        }));
         const res = upgradeRigToAuthored(
           {
             body: want.body,

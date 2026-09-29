@@ -40,9 +40,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
-  PROP_ROLES, propsWantedFor, dressFromSurfaceNames,
-  type PropRole, type AuthoredMaterialAsk,
+  PROP_ROLES, propsWantedFor, dressFromSurfaceNames, HEAD_BONE_NAME,
+  type PropRole,
 } from "./authored";
+import type { AuthoredMaterialResolver } from "./authoredDress";
 import { AUTHORED_BASE } from "./authoredSource";
 
 /**
@@ -118,7 +119,7 @@ export interface DressHeadOptions {
   head: THREE.Object3D;
   /** Any skinned mesh's skeleton from the same authored man. */
   skeleton: THREE.Skeleton;
-  resolveMaterial: (ask: AuthoredMaterialAsk) => THREE.Material | null;
+  resolveMaterial: AuthoredMaterialResolver;
   /**
    * Drop the strand shells. A head of long hair is 23,500 triangles and up to
    * 3.5 MB, and almost all of both is `hair__strands` sitting over a solid
@@ -177,7 +178,9 @@ export async function dressAuthoredHead(o: DressHeadOptions): Promise<DressHeadR
         for (const gone of c.children.filter((g) => /__strands$/.test(g.name))) c.remove(gone);
       });
     }
-    dressFromSurfaceNames(node, o.resolveMaterial);
+    // Static meshes, dressed BEFORE they are mounted, so no bone is above them
+    // yet: say which one they will hang on, so the resolver sees a head prop as one.
+    dressFromSurfaceNames(node, o.resolveMaterial, HEAD_BONE_NAME);
     node.userData[SOCKET_TAG] = wanted[i].role;
     socket.add(node);
     mounted.push(wanted[i].role);

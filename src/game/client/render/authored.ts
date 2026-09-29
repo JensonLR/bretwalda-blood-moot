@@ -318,9 +318,106 @@ function forSkinnedMesh(base: THREE.Material): THREE.Material {
   return clone;
 }
 
+/**
+ * WHICH MESH IS ASKING. The name of a material says what it is made of and
+ * nothing about where it is worn, so a head's skin and a hand's skin arrive as
+ * the same `skin:8d6444` and a resolver could not tell them apart. This is the
+ * rest of the question, handed to it alongside the ask.
+ *
+ * LAZY, AND THAT IS PART OF THE CONTRACT. `dominantBone` and `isHead` read the
+ * whole skin-weight table of the mesh (up to about 25,000 vertices), so they are
+ * computed on first read and remembered: a resolver that never looks at them —
+ * every one, until the skin and livery handlers land — costs nothing.
+ */
+export interface AuthoredMeshInfo {
+  /** The glTF mesh's own name (`part_34`, `hair_…`). Empty for a mesh that has none. */
+  readonly name: string;
+  /**
+   * The bone carrying the most skin weight on this mesh, by name; for a static
+   * mesh, the bone it rides (see `dressFromSurfaceNames`' `rides`). Null when
+   * there is nothing to say: no skeleton, no weights, no bone above it.
+   */
+  readonly dominantBone: string | null;
+  /**
+   * TRUE WHEN AT LEAST `HEAD_WEIGHT_MIN` (0.9) OF THE MESH'S SKIN WEIGHT IS ON
+   * THE `Head` BONE. That is the skull, the ears, the lids and the eyes; the
+   * neck is shared with the spine and is not the head. A static mesh that rides
+   * the Head bone carries all of its weight on it and is the head.
+   */
+  readonly isHead: boolean;
+}
+
+/** The bone the head hangs on, by the name `exportrig.mjs` gives it. */
+export const HEAD_BONE_NAME = "Head";
+/** The share of a mesh's skin weight on `HEAD_BONE_NAME` from which it counts as the head. */
+export const HEAD_WEIGHT_MIN = 0.9;
+
+type WeightedMesh = THREE.Object3D & {
+  isSkinnedMesh?: boolean;
+  geometry?: THREE.BufferGeometry;
+  skeleton?: THREE.Skeleton;
+};
+
+function boneShareOf(mesh: WeightedMesh, rides: string | null): { bone: string | null; head: number } {
+  const geo = mesh.geometry;
+  const index = geo?.getAttribute("skinIndex");
+  const weight = geo?.getAttribute("skinWeight");
+  const bones = mesh.skeleton?.bones;
+  if (mesh.isSkinnedMesh && index && weight && bones && bones.length) {
+    const per = new Float64Array(bones.length);
+    let total = 0;
+    for (let v = 0; v < weight.count; v++) {
+      for (let k = 0; k < 4; k++) {
+        const w = weight.getComponent(v, k);
+        const b = index.getComponent(v, k);
+        if (w > 0 && b >= 0 && b < per.length) { per[b] += w; total += w; }
+      }
+    }
+    if (total <= 0) return { bone: null, head: 0 };
+    let best = 0;
+    let head = 0;
+    for (let b = 0; b < per.length; b++) {
+      if (per[b] > per[best]) best = b;
+      if (bones[b].name === HEAD_BONE_NAME) head += per[b];
+    }
+    return { bone: bones[best].name || null, head: head / total };
+  }
+  // A static mesh is carried whole by whatever it hangs on: 100% on that bone.
+  let bone = rides;
+  if (bone === null) {
+    for (let a = mesh.parent; a && bone === null; a = a.parent) {
+      if ((a as THREE.Object3D & { isBone?: boolean }).isBone) bone = a.name || null;
+    }
+  }
+  return { bone, head: bone === HEAD_BONE_NAME ? 1 : 0 };
+}
+
+function meshInfoOf(mesh: WeightedMesh, rides: string | null): AuthoredMeshInfo {
+  let share: { bone: string | null; head: number } | null = null;
+  const read = () => (share ??= boneShareOf(mesh, rides));
+  return {
+    name: mesh.name ?? "",
+    get dominantBone() { return read().bone; },
+    get isHead() { return read().head >= HEAD_WEIGHT_MIN; },
+  };
+}
+
+/**
+ * `resolve` is handed the ask AND which mesh is asking — see `AuthoredMeshInfo`.
+ * A resolver written before the second argument existed ignores it and behaves
+ * as it always did. `rides` is for a root of STATIC meshes that is about to be
+ * hung on a bone the meshes themselves cannot see yet — the head props are
+ * dressed before they are mounted, so they pass `"Head"`.
+ *
+ * NB `UpgradableSwap.resolveMaterial` is still typed with the one-argument
+ * signature (that interface is in the mount code's region of this file and was
+ * left alone); a resolver taking `(ask, mesh?)` is assignable to it, and
+ * `swap.resolveMaterial` reaches this function unwrapped, so the mesh arrives.
+ */
 export function dressFromSurfaceNames(
   root: THREE.Object3D,
-  resolve: (ask: AuthoredMaterialAsk) => THREE.Material | null,
+  resolve: (ask: AuthoredMaterialAsk, mesh: AuthoredMeshInfo) => THREE.Material | null,
+  rides: string | null = null,
 ): { dressed: number; unknown: string[] } {
   const unknown = new Set<string>();
   let dressed = 0;
@@ -332,7 +429,7 @@ export function dressFromSurfaceNames(
     let next: THREE.Material | null = null;
     // A library that throws on an unknown surface must not take the fight with
     // it: the man keeps the flat colour the glTF gave him and the fight starts.
-    try { next = resolve(ask); } catch { next = null; }
+    try { next = resolve(ask, meshInfoOf(mesh, rides)); } catch { next = null; }
     if (!next) { unknown.add(mesh.material.name); return; }
     mesh.material = mesh.isSkinnedMesh ? forSkinnedMesh(next) : next;
     dressed++;

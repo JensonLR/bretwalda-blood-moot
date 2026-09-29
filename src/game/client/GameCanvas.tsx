@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone, type WeaponDrop } from "../types";
 import GameHud from "./GameHud";
 import { getFeel, getForged, sampleInput, useTouchControls, type MobileFlags } from "./input";
-import { setTeamContrast, buildWeaponForClass } from "./characters";
+import { setTeamContrast, buildWeaponForClass, type Appearance } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary, matchBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
@@ -33,6 +33,7 @@ import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
 import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
 import { createClipDriver } from "./render/clipDriver";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
+import { authoredResolver, authoredDressContext } from "./render/authoredDress";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -1247,9 +1248,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
               const live = warriorsRef.current.get(p.id);
               if (!asset || !live || live.rig !== rig) return;
               const worn = new Set<AuthoredRole>(AUTHORED_ROLES.filter((r) => wearsAuthoredRole(p, r)));
-              const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
-                ? stage.materials.tinted(ask.surface as Parameters<typeof stage.materials.tinted>[0], ask.color)
-                : stage.materials.standard(ask.color));
+              // The seam every authored material goes through: the library's own
+              // answer today, and the skin, livery and hair handlers' when they land.
+              const resolveMaterial = authoredResolver(authoredDressContext({
+                cls: p.warriorClass,
+                appearance: (p as GamePlayer & { appearance?: Appearance }).appearance,
+                team: p.team,
+                id: p.id,
+                materials: stage.materials,
+              }));
               const res = upgradeRigToAuthored(
                 {
                   body: rig.body,

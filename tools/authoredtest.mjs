@@ -521,5 +521,116 @@ for (const cls of CLASSES) {
   }
 }
 
+// ---- WHICH MESH IS ASKING: the identity the resolver seam hands its handlers ---------------------------
+//
+// `render/authoredDress.ts` chains three handlers (skin U5, livery U6, hair U6) behind one resolver, and the
+// two of them that matter most cannot be written without knowing WHICH mesh is asking: a head's skin and a
+// hand's skin both arrive as `skin:8d6444`. `dressFromSurfaceNames` therefore passes `{name, dominantBone,
+// isHead}` (Head-bone weight 0.9 or more) to the resolver. These claims hold that contract on the real
+// exports and on synthetic meshes where the answer is known by construction.
+{
+  const THREE = await import("three");
+  const A = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+  check("the head-weight threshold is stated: bone 'Head', 0.9", A.HEAD_BONE_NAME === "Head" && A.HEAD_WEIGHT_MIN === 0.9,
+    `${A.HEAD_BONE_NAME} ${A.HEAD_WEIGHT_MIN}`);
+
+  for (const cls of CLASSES) {
+    const file = resolve(ART, `warrior-${cls}.glb`);
+    if (!existsSync(file)) { check(`${cls}: mesh identity`, false, "no export"); continue; }
+    const g = await parse(file);
+    const rows = [];
+    const r = dressFromSurfaceNames(g.scene, (ask, mesh) => {
+      rows.push({ n: mesh.name, surface: ask.surface, bone: mesh.dominantBone, head: mesh.isHead });
+      return null;
+    });
+    check(`${cls}: the resolver is asked once per readable mesh, with a mesh`,
+      rows.length > 0 && rows.every((x) => typeof x.n === "string" && x.n.length > 0) && r.dressed === 0,
+      `${rows.length} asks`);
+    check(`${cls}: every skinned mesh reports a dominant bone`, rows.every((x) => typeof x.bone === "string" && x.bone.length > 0));
+    check(`${cls}: isHead implies the Head bone dominates (the weights arithmetic is consistent)`,
+      rows.filter((x) => x.head).every((x) => x.bone === A.HEAD_BONE_NAME));
+    const skin = rows.filter((x) => x.surface === "skin");
+    const headSkin = skin.filter((x) => x.head);
+    check(`${cls}: the skull's skin is the head (${headSkin.map((x) => x.n).join("+") || "none"})`,
+      headSkin.length >= 1 && headSkin.every((x) => x.bone === "Head"));
+    check(`${cls}: no hand is the head`,
+      skin.filter((x) => /Wrist$/.test(x.bone ?? "")).length >= 2 && skin.filter((x) => /Wrist$/.test(x.bone ?? "")).every((x) => !x.head),
+      skin.filter((x) => /Wrist$/.test(x.bone ?? "")).map((x) => `${x.n}[${x.bone}]`).join(" "));
+    check(`${cls}: the neck is shared with the spine and is NOT the head`,
+      skin.some((x) => x.bone === "Spine" && !x.head), skin.filter((x) => x.bone === "Spine").map((x) => x.n).join(" "));
+    const baked = rows.filter((x) => /^(hair|beard|helm)_/.test(x.n));
+    check(`${cls}: the baked helm, hair and beard ride the head`, baked.length >= 3 && baked.every((x) => x.head), baked.map((x) => x.n).join(" "));
+  }
+
+  // BY CONSTRUCTION, on a synthetic skinned mesh: 20 vertices, each weighted whole to one bone. The share on
+  // Head is the lever (R1): 18 of 20 is 0.90 and is the head, 17 of 20 is 0.85 and is not.
+  const synth = (onHead, total = 20) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(total * 3), 3));
+    const idx = new Uint16Array(total * 4), w = new Float32Array(total * 4);
+    for (let v = 0; v < total; v++) { idx[v * 4] = v < onHead ? 0 : 1; w[v * 4] = 1; }
+    geo.setAttribute("skinIndex", new THREE.BufferAttribute(idx, 4));
+    geo.setAttribute("skinWeight", new THREE.BufferAttribute(w, 4));
+    let reads = 0;
+    const real = geo.getAttribute.bind(geo);
+    geo.getAttribute = (n) => { reads++; return real(n); };
+    const head = new THREE.Bone(); head.name = "Head";
+    const spine = new THREE.Bone(); spine.name = "Spine";
+    const mat = new THREE.MeshBasicMaterial(); mat.name = "skin:8d6444";
+    const mesh = new THREE.SkinnedMesh(geo, mat); mesh.name = "synthetic";
+    mesh.add(head, spine);
+    mesh.bind(new THREE.Skeleton([head, spine]));
+    const root = new THREE.Group(); root.add(mesh);
+    return { root, reads: () => reads };
+  };
+  const ask = (root, rides) => {
+    let info = null;
+    dressFromSurfaceNames(root, (a, m) => { info = m; return null; }, rides);
+    return info;
+  };
+  {
+    const at90 = synth(18), at85 = synth(17);
+    check("18 of 20 vertices on Head is the head", ask(at90.root).isHead === true && ask(at90.root).dominantBone === "Head");
+    check("17 of 20 vertices on Head is NOT the head, though Head still dominates",
+      ask(at85.root).isHead === false && ask(at85.root).dominantBone === "Head");
+    check("9 of 20 vertices on Head: the Spine dominates and it is not the head",
+      ask(synth(9).root).dominantBone === "Spine" && ask(synth(9).root).isHead === false);
+  }
+  {
+    // LAZY, AND REMEMBERED. A resolver that never looks at the mesh must not pay for its weights.
+    const s = synth(20);
+    dressFromSurfaceNames(s.root, () => null);
+    check("a resolver that ignores the mesh reads no weights", s.reads() === 0, `${s.reads()} attribute reads`);
+    let a = null;
+    dressFromSurfaceNames(s.root, (x, m) => { a = m; return null; });
+    void a.isHead; void a.dominantBone; void a.isHead;
+    check("...and one that asks reads them once, however often it asks again", s.reads() === 2, `${s.reads()} attribute reads (index + weight)`);
+  }
+  {
+    // A STATIC MESH IS CARRIED WHOLE by what it hangs on — the head props are dressed BEFORE they are mounted.
+    const mk = () => {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+      m.material.name = "hairstrand:4a3220"; m.name = "hair__strands";
+      const root = new THREE.Group(); root.add(m); return root;
+    };
+    const riding = ask(mk(), "Head");
+    check("a static prop told it rides Head is the head", riding.isHead === true && riding.dominantBone === "Head");
+    const adrift = ask(mk());
+    check("...and one on no bone is nothing at all", adrift.isHead === false && adrift.dominantBone === null);
+    const root = new THREE.Group(); const bone = new THREE.Bone(); bone.name = "Head"; root.add(bone);
+    const inner = mk(); bone.add(inner);
+    check("...and one already under a Head bone finds it by itself", ask(root).isHead === true);
+  }
+  {
+    // BEHAVIOUR-NEUTRAL FOR A RESOLVER WRITTEN BEFORE THE SECOND ARGUMENT EXISTED.
+    const g = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const old = dressFromSurfaceNames(g.scene, (a) => ({ name: `stub:${a.surface}`, isMaterial: true }));
+    const g2 = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const now = dressFromSurfaceNames(g2.scene, (a, m) => ({ name: `stub:${a.surface}`, isMaterial: true, seen: m.name }));
+    check("a one-argument resolver dresses exactly the meshes a two-argument one does",
+      old.dressed === now.dressed && old.unknown.join() === now.unknown.join(), `${old.dressed} dressed`);
+  }
+}
+
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
