@@ -490,6 +490,36 @@ const SHEETS = {
         label: `${people} · ${label}`, turn, cls, dress: { people },
       }))),
   }])),
+  // ---- THE HELD WEAPONS, ACROSS THE ROSTER (U7, the weapons stream) ----
+  //
+  // `weaponcards` above is the SWORD's grip on the huscarl, six finishes deep;
+  // nothing in the sheet set photographed a spear, an axe or a seax at all, and
+  // the kit card is the lens the plan's `bladevalue` ruler reads. Two sheets, one
+  // question each, both across the four classes so a weapon is judged on the man
+  // who carries it and in the carry the game gives him:
+  //
+  //   weaponkit        PORTRAIT scale (700x900), front 0 and three-quarter -35.
+  //                    Sword and board, spear, twin seax, two-hander. Whether a
+  //                    blade reads as a forged object: bevel, fuller, guard.
+  //   weaponkitfight   FIGHT scale (play 1:1), three-quarter and profile. Whether
+  //                    the same weapon is still a T1 shape and a T2 stripe at
+  //                    7.9 mm a pixel, which is the only place it is used.
+  weaponkit: {
+    file: "weapon-kit.png", card: "kitcard", cols: 4,
+    title: "THE HELD WEAPONS · four classes · portrait scale · front 0° above, three-quarter −35° below",
+    shots: [0, QUARTER].flatMap((turn) =>
+      ["huscarl", "warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${turn === 0 ? "front 0°" : "3/4 −35°"}`, turn, cls,
+      }))),
+  },
+  weaponkitfight: {
+    file: "weapon-kit-fight.png", card: "fightcard", cols: 4,
+    title: "THE HELD WEAPONS · four classes · fight distance · three-quarter −35° above, profile 90° below",
+    shots: [QUARTER, 90].flatMap((turn) =>
+      ["huscarl", "warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${turn === 90 ? "profile 90°" : "3/4 −35°"}`, turn, cls,
+      }))),
+  },
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 

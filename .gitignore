@@ -240,3 +240,5 @@ tools/blender/**/__pycache__/
 .eyeclip/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
+.weaponshape/
+.bladevalue/
