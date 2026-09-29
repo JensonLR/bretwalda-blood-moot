@@ -5,6 +5,7 @@
 //   node tools/facecontrast.mjs <face card PNG | directory of them>...
 //   node tools/facecontrast.mjs --debug art/fc <cards>       leave a picture of every window it read (PROCESS R5)
 //   node tools/facecontrast.mjs --lever <cards>              R1: paint the feature on the picture and require the reading to follow
+//   node tools/facecontrast.mjs --verbose <cards>            print the L*a*b* of every window it read
 //   node tools/facecontrast.mjs --reg dx,dy,k <card>         override the registration (development)
 //
 // THE OWNER'S WORDS (CHAR-PLAN CH-02, CH-03; three reports across the character audit):
@@ -22,12 +23,13 @@
 // through the card's own lens, read out of the shot page as text, and REGISTERS them to the image):
 //
 //   socket      the eye socket is DARKER than the cheek beside it, by 8 L* or more (the orbit is shadow; a flat
-//               face has none). The socket windows (under the brow, under the eye) against the cheek windows.
+//               face has none). The window under the brow against the cheekbone window under the eye, ONE SIDE AT A TIME:
+//               the arena's key stands to one side and the two halves of the face differ by 20 L*.
 //   lip         the lips are a different COLOUR from the skin round them: 6 or more, in the plan's dE but taken in HUE
 //               only (see the note at the reading: a shadowed slot is a different LIGHT, and is not a lip).
-//   sclera      the white of the eye is LIGHTER than the skin: between skin L* + 5 and + 25. Both sides of the iris are
-//               read and the lighter one is the sclera (the other may sit in a lid's shade). A grey sclera fails low, a
-//               lamp fails high.
+//   sclera      the white of the eye is LIGHTER than the skin beside it: between that skin's L* + 5 and + 25 (the same
+//               side's cheek and cheekbone, in the same light). Both sides of the iris are read and the lighter one is the
+//               sclera (the other may sit in a lid's shade). A grey sclera fails low, a lamp fails high.
 //   iris        the iris is not a black bead: mean L* of 20 or more over its disc (the pupil is in the disc: a real iris
 //               has one, and it is still 20).
 //   glint       the iris carries a HIGHLIGHT: a pixel at L* 60 or more AND 20 or more above the iris's own median, read
@@ -36,8 +38,9 @@
 //               iris and it is not a light). A catchlight is what makes an eye look wet and looked-at, and the plan's
 //               frame has none.
 //   brow        the brow is dark against the forehead (by 12 L*, so it is there) and is NOT ink: between hair L* + 4 and
-//               + 14. The hair reference is the frame's own hair when the card has any and otherwise `--hair-l`
-//               (default 20, the plan's lit-hair band 18-30) and it is printed either way.
+//               + 14. The hair reference is the frame's own hair when the card has any (the band above the forehead, if
+//               it is 15 L* darker than the forehead) and otherwise `--hair-l` (default 20, the plan's lit-hair band
+//               18-30); it is printed either way.
 //   lattice     no repeated pattern in the skin: the autocorrelation peak of `tools/lattice.mjs`, 0.15 or under.
 //   step        no luma STEP over 6 L* within 4 mm on a vertical scan down the cheek: the hard-edged chamfer the owner
 //               reported three times ("a hard vertical chamfer from eye to jaw") is a step, and a smooth cheek is not.
@@ -66,6 +69,7 @@ const DEBUG = flag("debug", null);
 const HAIR_L = Number(flag("hair-l", "20"));
 const REG = flag("reg", null);
 const LEVER = argv.includes("--lever");
+const VERBOSE = argv.includes("--verbose");
 const VALUE_FLAGS = new Set(["debug", "hair-l", "reg"]);
 const targets = argv.filter((a, i) => !a.startsWith("--") && !(argv[i - 1]?.startsWith("--") && VALUE_FLAGS.has(argv[i - 1].slice(2))));
 
@@ -97,6 +101,14 @@ function pngsUnder(p) {
 
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+/** Mean Lab over a rectangle of the frame (pixel centres inside [x0, x1] x [y0, y1]). */
+function strip(lab, x0, x1, y0, y1) {
+  let n = 0, L = 0, A = 0, B = 0;
+  for (let j = Math.max(0, Math.ceil(y0)); j <= Math.min(lab.h - 1, Math.floor(y1)); j++) for (let i = Math.max(0, Math.ceil(x0)); i <= Math.min(lab.w - 1, Math.floor(x1)); i++) {
+    const k = j * lab.w + i; L += lab.L[k]; A += lab.A[k]; B += lab.B[k]; n++;
+  }
+  return n ? [L / n, A / n, B / n] : null;
+}
 
 /** Everything the checks need, read off one card. */
 function readCard(img, lm, lab) {
@@ -107,20 +119,32 @@ function readCard(img, lm, lab) {
   const mark = (kind, p, mm, extra = {}) => R.windows.push({ kind, x: p.x, y: p.y, r: Math.max(1.2, mmPx(mm)), ...extra });
 
   // ---- skin and cheek ----
+  // The arena's key stands to one side, so the two halves of the face differ by 20 L* and every comparison below is made WITHIN
+  // one side: the near eye's white against the near cheek, the near orbit against the near cheekbone under it.
   const cheeks = lm.skin.filter((s) => s.name === "cheek" && vis(s));
   const chin = lm.skin.filter((s) => s.name === "chin" && vis(s));
-  const cheekLab = cheeks.map((s) => { mark("cheek", s, 4); return win(s, 4); }).filter(Boolean);
+  const cheekLab = cheeks.map((s) => { mark("cheek", s, 4, { side: s.side }); return { side: s.side, c: win(s, 4) }; }).filter((q) => q.c);
   const chinLab = chin.map((s) => { mark("chin", s, 4); return win(s, 4); }).filter(Boolean);
-  const skinWins = [...cheekLab, ...chinLab];
+  const under = lm.skin.filter((s) => s.name === "underEye" && vis(s, 0.45));
+  const underLab = under.map((s) => { mark("under", s, 3, { side: s.side }); return { side: s.side, c: win(s, 3) }; }).filter((q) => q.c);
+  const skinWins = [...cheekLab.map((q) => q.c), ...chinLab, ...underLab.map((q) => q.c)];
   R.skinL = skinWins.length ? median(skinWins.map((c) => c[0])) : NaN;
   R.skinLab = skinWins.length ? [mean(skinWins.map((c) => c[0])), mean(skinWins.map((c) => c[1])), mean(skinWins.map((c) => c[2]))] : null;
+  /** The L* of the bare skin beside one eye: its own cheek and the cheekbone under it (the same light as the white). */
+  const sideSkinL = (side) => { const v = [...cheekLab, ...underLab].filter((q) => q.side === side).map((q) => q.c[0]); return v.length ? mean(v) : NaN; };
+  R.sideSkinL = sideSkinL;
 
-  // ---- socket against cheek ----
-  const socketBits = lm.skin.filter((s) => (s.name === "socket" || s.name === "underEye") && vis(s, 0.45));
-  const socketL = socketBits.map((s) => { mark("socket", s, 3); return win(s, 3)?.[0]; }).filter((v) => v !== undefined);
-  R.socketL = socketL.length ? mean(socketL) : NaN;
-  R.cheekL = cheekLab.length ? mean(cheekLab.map((c) => c[0])) : NaN;
-  R.socketDL = R.cheekL - R.socketL;
+  // ---- socket against the cheekbone under it, one side at a time ----
+  const sockets = lm.skin.filter((s) => s.name === "socket" && vis(s, 0.45));
+  const dls = [], sockL = [], cheekL = [];
+  for (const s of sockets) {
+    mark("socket", s, 3, { side: s.side });
+    const sc = win(s, 3), u = underLab.find((q) => q.side === s.side);
+    if (sc && u) { dls.push(u.c[0] - sc[0]); sockL.push(sc[0]); cheekL.push(u.c[0]); }
+  }
+  R.socketL = sockL.length ? mean(sockL) : NaN;
+  R.cheekL = cheekL.length ? mean(cheekL) : NaN;
+  R.socketDL = dls.length ? mean(dls) : NaN;
 
   // ---- lips against the skin beside them ----
   // A DIFFERENT COLOUR, NOT A DIFFERENT LIGHT. The plan's bar is a dE of 6, and CIE76 dE counts lightness: on the
@@ -128,15 +152,27 @@ function readCard(img, lm, lab) {
   // cheek with no lip in it at all (the huscarl at -35, measured). So the difference is taken in HUE only: the a*b*
   // distance between the skin's own colour and a colour of the LIP's hue at the skin's chroma, 2 C sin(dh / 2), which
   // is the plan's dE with the lightness and the saturation taken out. A shadow does not turn a hue and a vermilion does.
-  if (vis(lm.mouth.stomion, 0.5)) {
-    mark("lip", lm.mouth.upper, 1.6); mark("lip", lm.mouth.lower, 1.6);
-    const u = win(lm.mouth.upper, 1.6), l = win(lm.mouth.lower, 1.6);
-    if (u && l && R.skinLab) {
-      const lip = [(u[0] + l[0]) / 2, (u[1] + l[1]) / 2, (u[2] + l[2]) / 2];
-      const hue = (c) => Math.atan2(c[2], c[1]);
-      let dh = Math.abs(hue(lip) - hue(R.skinLab)); if (dh > Math.PI) dh = 2 * Math.PI - dh;
-      R.lipLab = lip; R.lipDH = dh * 180 / Math.PI;
-      R.lipDE = 2 * Math.hypot(R.skinLab[1], R.skinLab[2]) * Math.sin(dh / 2);
+  //
+  // AND THE LIP IS FOUND, NOT ASSUMED, to within six pixels up and down the mouth: the registration is a shift and a
+  // scale off the eyes, and the mouth is a hundred pixels below them, so a percent of scale is a pixel and the head's own
+  // pitch is more (the landmark was 3.5 px off the lip on the frame that showed it). The strip that is furthest in hue
+  // from the skin is the lip. A face with no lip has skin in every strip and a dark slot that is the skin's hue, so the
+  // search finds nothing on it, which is what R2 measures.
+  if (vis(lm.mouth.stomion, 0.5) && R.skinLab) {
+    const hue = (c) => Math.atan2(c[2], c[1]);
+    const cx = lm.mouth.stomion.x, cy = lm.mouth.stomion.y, half = Math.max(4, mmPx(8));
+    let best = null;
+    for (let oy = -6; oy <= 6; oy++) {
+      const c = strip(lab, cx - half, cx + half, cy + oy - 1.5, cy + oy + 1.5);
+      if (!c) continue;
+      let dh = Math.abs(hue(c) - hue(R.skinLab)); if (dh > Math.PI) dh = 2 * Math.PI - dh;
+      if (!best || dh > best.dh) best = { dh, c, y: cy + oy };
+    }
+    if (best) {
+      for (let q = -2; q <= 2; q++) R.windows.push({ kind: "lip", x: cx + q * half / 2.5, y: best.y, r: 2 });
+      R.lipLab = best.c; R.lipDH = best.dh * 180 / Math.PI;
+      R.lipDE = 2 * Math.hypot(R.skinLab[1], R.skinLab[2]) * Math.sin(best.dh / 2);
+      R.lipAt = best.y - cy;
     }
   }
 
@@ -160,6 +196,19 @@ function readCard(img, lm, lab) {
     R.eyes.push({ side: e.side, scleraL, irisL: disc.length ? mean(disc) : NaN, highlight: core.length ? Math.max(...core) - median(core) : NaN, glintL: core.length ? Math.max(...core) : NaN });
   }
 
+  // ---- the hair the brow is read against ----
+  // The plan's bar is "hair L* + 4 to + 14": a brow is a little lighter than the scalp hair it grows beside (the skin
+  // shows through it) and never the ink the frame has. So it needs the FRAME's hair, and reads it off the frame: the band
+  // 12 to 24 mm above the forehead window, taken only if it is 15 L* or more darker than the forehead (a bald head has
+  // no hair there and its "hair" would be skin). A card with none says so and uses `--hair-l`.
+  const fh = lm.skin.find((s) => s.name === "forehead");
+  if (fh && vis(fh)) {
+    const above = [];
+    for (let dy = 12; dy <= 24; dy++) for (let dx = -8; dx <= 8; dx += 2) { const c = discLab(lab, fh.x + mmPx(dx), fh.y - mmPx(dy), 1.2); if (c) above.push(c[0]); }
+    const fhL = win(fh, 4)?.[0];
+    if (above.length > 20 && fhL !== undefined) { const m = median(above); if (m <= fhL - 15) R.hairL = m; }
+  }
+
   // ---- the brow ----
   const brows = lm.brows.filter((b) => vis(b.points[4], FACING));
   const browL = [], foreL = [];
@@ -176,17 +225,21 @@ function readCard(img, lm, lab) {
 
   // ---- a vertical scan down each visible cheek: the biggest step over 4 mm ----
   const stepPx = Math.max(2, Math.round(mmPx(BARS.stepMm)));
+  // The scan runs down the CHEEKBONE, at the x of the window under the eye, and not down the cheek window at the face's
+  // edge (which is where the head turns away from the light: a scan there measures the terminator of a sphere, and on the
+  // first after frame read 10 L* of nothing but that). The owner's chamfer runs "from eye to jaw" across the cheek.
   const scans = [];
   for (const c of cheeks) {
-    const ue = lm.skin.find((s) => s.name === "underEye" && s.side === c.side) ?? c;
+    const ue = lm.skin.find((s) => s.name === "underEye" && s.side === c.side);
+    if (!ue || !vis(ue, 0.5)) continue;
     const y0 = Math.round(ue.y + mmPx(5)), y1 = Math.round(Math.min(lm.mouth.stomion.y, lm.mouth.corners[0].y) - mmPx(1));
     if (y1 - y0 < stepPx * 3) continue;
     const col = [];
-    for (let y = y0; y <= y1; y++) { const t = discLab(lab, c.x, y, 1.5); col.push(t ? t[0] : NaN); }
+    for (let y = y0; y <= y1; y++) { const t = discLab(lab, ue.x, y, 1.5); col.push(t ? t[0] : NaN); }
     let worst = 0;
     for (let i = 0; i + stepPx < col.length; i++) if (Number.isFinite(col[i]) && Number.isFinite(col[i + stepPx])) worst = Math.max(worst, Math.abs(col[i + stepPx] - col[i]));
     scans.push(worst);
-    R.windows.push({ kind: "scan", x: c.x, y: y0, y1, r: 0.5 });
+    R.windows.push({ kind: "scan", x: ue.x, y: y0, y1, r: 0.5 });
   }
   if (scans.length) R.stepL = Math.max(...scans);
   return R;
@@ -200,23 +253,25 @@ function checksOf(R, lattice) {
   const has = (v) => Number.isFinite(v);
 
   push("socket", has(R.socketL) && has(R.cheekL), R.socketDL, has(R.socketDL) && R.socketDL >= BARS.socketDL,
-    `cheek L* ${fmt(R.cheekL)} - socket L* ${fmt(R.socketL)} = ${fmt(R.socketDL)}  (bar >= ${BARS.socketDL})`);
+    `cheekbone L* ${fmt(R.cheekL)} - orbit L* ${fmt(R.socketL)} = ${fmt(R.socketDL)}, each side against its own  (bar >= ${BARS.socketDL})`);
   push("lip", R.lipDE !== undefined, R.lipDE, has(R.lipDE) && R.lipDE >= BARS.lipDE,
-    `lip Lab ${R.lipLab ? R.lipLab.map((v) => v.toFixed(0)).join("/") : "n/a"} vs skin ${R.skinLab ? R.skinLab.map((v) => v.toFixed(0)).join("/") : "n/a"}: hue ${fmt(R.lipDH)} deg apart, dE of hue ${fmt(R.lipDE)}  (bar >= ${BARS.lipDE})`);
+    `lip strip Lab ${R.lipLab ? R.lipLab.map((v) => v.toFixed(0)).join("/") : "n/a"} (${fmt(R.lipAt, 0)} px from the landmark) vs skin ${R.skinLab ? R.skinLab.map((v) => v.toFixed(0)).join("/") : "n/a"}: hue ${fmt(R.lipDH)} deg apart, dE of hue ${fmt(R.lipDE)}  (bar >= ${BARS.lipDE})`);
   for (const e of R.eyes) {
     if (e.hidden) continue;
-    const s = e.scleraL - R.skinL;
+    const near = R.sideSkinL(e.side), skinL = Number.isFinite(near) ? near : R.skinL;
+    const s = e.scleraL - skinL;
     push(`sclera ${e.side < 0 ? "L" : "R"}`, true, s, has(s) && s >= BARS.scleraLo && s <= BARS.scleraHi,
-      `sclera L* ${fmt(e.scleraL)} vs skin L* ${fmt(R.skinL)}: ${s >= 0 ? "+" : ""}${fmt(s)}  (bar +${BARS.scleraLo}..+${BARS.scleraHi})`);
+      `sclera L* ${fmt(e.scleraL)} vs the skin beside it L* ${fmt(skinL)}: ${s >= 0 ? "+" : ""}${fmt(s)}  (bar +${BARS.scleraLo}..+${BARS.scleraHi})`);
     push(`iris ${e.side < 0 ? "L" : "R"}`, true, e.irisL, has(e.irisL) && e.irisL >= BARS.irisL,
       `iris L* ${fmt(e.irisL)} over the disc (bar >= ${BARS.irisL}; a black bead is 6)`);
     push(`glint ${e.side < 0 ? "L" : "R"}`, true, e.highlight, has(e.highlight) && e.highlight >= BARS.irisHighlight && e.glintL >= BARS.glintFloor,
       `brightest pixel of the iris L* ${fmt(e.glintL)} (bar >= ${BARS.glintFloor}: a highlight, not a white rim), ${fmt(e.highlight)} over its median (bar >= ${BARS.irisHighlight})`);
   }
   if (R.browL !== undefined) {
-    const lo = HAIR_L + BARS.browLo, hi = HAIR_L + BARS.browHi;
+    const hairL = Number.isFinite(R.hairL) ? R.hairL : HAIR_L;
+    const lo = hairL + BARS.browLo, hi = hairL + BARS.browHi;
     push("brow", true, R.browL, has(R.browL) && R.browContrast >= BARS.browContrast && R.browL >= lo && R.browL <= hi,
-      `brow L* ${fmt(R.browL)}, ${fmt(R.browContrast)} below the forehead (bar >= ${BARS.browContrast}); hair L* ${HAIR_L} so the band is ${lo}..${hi}`);
+      `brow L* ${fmt(R.browL)}, ${fmt(R.browContrast)} below the forehead (bar >= ${BARS.browContrast}); hair L* ${fmt(hairL)} (${Number.isFinite(R.hairL) ? "read off the frame" : "no hair on the card: --hair-l"}) so the band is ${fmt(lo)}..${fmt(hi)}`);
   }
   push("lattice", true, lattice.ok ? lattice.peak : NaN, lattice.ok && lattice.peak <= BARS.latticePeak,
     lattice.ok ? (lattice.smooth ? `skin is smooth (texture rms ${lattice.rms.toFixed(2)} L*)` : `autocorrelation peak ${lattice.peak.toFixed(3)} at a ${lattice.pitch.toFixed(0)} px pitch, texture rms ${lattice.rms.toFixed(2)} L*  (bar <= ${BARS.latticePeak})`) : `could not read the skin: ${lattice.why}`);
@@ -228,7 +283,7 @@ function checksOf(R, lattice) {
 function drawOverlay(img, R, lm, path) {
   const out = { ...img, data: new Uint8Array(img.data) };
   const put = (x, y, c) => { const X = Math.round(x), Y = Math.round(y); if (X < 0 || Y < 0 || X >= img.w || Y >= img.h) return; const o = (Y * img.w + X) * img.ch; out.data[o] = c[0]; out.data[o + 1] = c[1]; out.data[o + 2] = c[2]; };
-  const COL = { cheek: [255, 255, 0], chin: [255, 255, 0], socket: [0, 255, 255], lip: [255, 0, 255], sclera: [0, 255, 0], iris: [255, 128, 0], brow: [255, 64, 64], scan: [255, 255, 255] };
+  const COL = { cheek: [255, 255, 0], chin: [255, 255, 0], under: [255, 200, 0], socket: [0, 255, 255], lip: [255, 0, 255], sclera: [0, 255, 0], iris: [255, 128, 0], brow: [255, 64, 64], scan: [255, 255, 255] };
   for (const w of R.windows) {
     const c = COL[w.kind] ?? [255, 255, 255];
     if (w.kind === "scan") { for (let y = w.y; y <= w.y1; y += 2) put(w.x, y, c); continue; }
@@ -295,6 +350,7 @@ for (const f of files) {
     table.set(fam, t);
     console.log(`  ${c.applies ? (c.pass ? "ok  " : "RED ") : "n/a "} ${c.name.padEnd(9)} ${c.text}`);
   }
+  if (VERBOSE) for (const w of R.windows) { if (w.kind === "scan") continue; const c = discLab(lab, w.x, w.y, w.r); console.log(`      window ${w.kind.padEnd(7)} (${w.x.toFixed(0)},${w.y.toFixed(0)}) r ${w.r.toFixed(1)}px  L* ${c ? c[0].toFixed(1) : "?"}  a* ${c ? c[1].toFixed(1) : "?"}  b* ${c ? c[2].toFixed(1) : "?"}${w.side ? `  side ${w.side}` : ""}`); }
   if (DEBUG) drawOverlay(img, R, lm, resolve(DEBUG, `${basename(f, ".png").replace(/^facecard-.*-cls/, "cls")}.png`));
 
   if (LEVER) {
