@@ -351,6 +351,23 @@ export interface AuthoredMeshInfo {
    * the Head bone carries all of its weight on it and is the head.
    */
   readonly isHead: boolean;
+  /**
+   * The mesh's own geometry, or absent. SHARED by every man of the class:
+   * `SkeletonUtils.clone` copies the nodes and shares the buffers, so a handler
+   * that writes to it writes for all of them and must do so IDEMPOTENTLY.
+   *
+   * Handed over for the one handler that has to write a per-vertex attribute the
+   * export could not carry. The export overwrote the head's own (u, v) with a 35 mm
+   * cube projection (`blendlib.py`, `attach_textures`), and a complexion map is only
+   * a map if it can be looked up by the head's own (u, v): `authoredSkin.ts`
+   * recomputes it from each vertex's bind position and writes it back into `uv`.
+   * `uv` and not a second set, because the severed head (`authoredSever.ts`) copies
+   * `uv` into the piece it throws and nothing else it does not know by name.
+   *
+   * Optional so that a stand-in carrying only the three fields above (the
+   * anonymous mesh, a gate's stub) is still a mesh info.
+   */
+  readonly geometry?: THREE.BufferGeometry | null;
 }
 
 /** The bone the head hangs on, by the name `exportrig.mjs` gives it. */
@@ -405,6 +422,7 @@ function meshInfoOf(mesh: WeightedMesh, rides: string | null): AuthoredMeshInfo 
     name: mesh.name ?? "",
     get dominantBone() { return read().bone; },
     get isHead() { return read().head >= HEAD_WEIGHT_MIN; },
+    get geometry() { return mesh.geometry ?? null; },
   };
 }
 
