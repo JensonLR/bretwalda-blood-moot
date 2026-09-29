@@ -34,8 +34,9 @@ import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
+import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, type SwapResult, AUTHORED_ROLES } from "./render/authored";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
+import { armHeadNet, type HeadNet, type HeadNetRig } from "./render/authoredHead";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
@@ -553,6 +554,25 @@ function wearsRole(loadout: StageLoadout, role: AuthoredRole): boolean {
   return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
 }
 
+/**
+ * CLASSES WHOSE AUTHORED MAN FAILED THE HEAD NET THIS SESSION.
+ *
+ * A failed net is a property of the asset and the code, not of one loadout, so
+ * it is remembered per class: the stage does not swap in a man it has already
+ * caught losing his head, once per helm the player tries on.
+ */
+const HEAD_REFUSED = new Set<string>();
+
+/**
+ * How long the panel waits for the authored man before it shows the procedural
+ * one. The head check has to have run before the stage says `ready`, so that
+ * "LIGHTING THE HALL..." covers the build and the player never sees the swap
+ * (or a man with no head); but a phone on a bad signal must not stare at a
+ * black panel for as long as 1.6 MB takes. The swap still lands whenever it
+ * lands, and is still checked before it is drawn.
+ */
+const AUTHORED_PATIENCE_MS = 6000;
+
 export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): StageHandle | null {
   const held = acquireForge();
   if (!held) return null;
@@ -578,6 +598,21 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   let loadout = initial;
   let turn = bearingFor("face");
   let ready = false;
+  /**
+   * True from the first build until the authored man has been CHECKED (or has
+   * failed to arrive, or has been refused). `ready` waits on it: the panel's
+   * "LIGHTING THE HALL..." is what covers the swap, so the player is never shown
+   * the procedural man for a beat and then a different man, and above all is
+   * never shown an authored man before the head net has looked at him.
+   */
+  let authoredPending = false;
+  /** Past this, `ready` stops waiting for a slow download; the swap is still checked when it lands. */
+  const readyDeadline = performance.now() + AUTHORED_PATIENCE_MS;
+  /** The authored man just swapped in, waiting for his first posed frame. */
+  interface ArmedHeadNet {
+    rig: WarriorRig; net: HeadNet; res: Extract<SwapResult, { ok: true }>; dress: () => void;
+  }
+  let headNet: ArmedHeadNet | null = null;
   /** Panel size in CSS pixels, as of the last frame. Declared up here because
    *  `buildRig` reframes off it and runs before the frame loop is set up. */
   let sized = { w: 0, h: 0 };
@@ -636,11 +671,20 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     // has to be honest.
     const painted = typeof loadout.appearance?.warPaint === "string"
       && loadout.appearance.warPaint !== "none";
-    if (authoredWanted() && !painted) {
+    headNet = null;
+    authoredPending = false;
+    if (authoredWanted() && !painted && !HEAD_REFUSED.has(player.warriorClass)) {
+      // THE PANEL IS NOT READY UNTIL THE AUTHORED MAN HAS BEEN CHECKED, the
+      // first time. See `authoredPending`; a rebuild after the panel is up does
+      // not put it back behind the curtain.
+      if (!ready) authoredPending = true;
       const want = built;
       void loadAuthoredWarrior(player.warriorClass).then((asset) => {
         // He may have been rebuilt or disposed while 1.6 MB was in flight.
-        if (!asset || rig !== want) return;
+        if (rig !== want) return;
+        // Not there (a 404, a parse failure): the procedural man stands, and the
+        // panel has nothing left to wait for.
+        if (!asset) { authoredPending = false; return; }
         const worn = new Set<AuthoredRole>(
           AUTHORED_ROLES.filter((r) => wearsRole(loadout, r)),
         );
@@ -680,59 +724,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         // Said out loud, because a swap that silently did nothing looks exactly
         // like a swap that was never wired.
         const w = window as unknown as Record<string, unknown>;
-        // AND WHAT IS ACTUALLY DRAWN ABOVE HIS SHOULDERS. The owner, of an
-        // authored arena capture: "image 1's head is missing from a full
-        // health player". Every structural claim passed on that frame — the
-        // swap landed, ten joints repointed, forty-six meshes dressed — because
-        // none of them ask whether the man still has a face. This does, by
-        // name and by visibility, so the next report of a missing head is a
-        // list of meshes rather than an argument about a screenshot.
-        const head: {
-          visible: string[]; hidden: string[]; bone: number[] | null; skull: number[] | null;
-          scale?: number[]; det?: number; boneName?: string; isBone?: boolean;
-        } = { visible: [], hidden: [], bone: null, skull: null };
-        {
-          const box = new THREE.Box3();
-          want.body.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (!m.isMesh || !m.geometry) return;
-            m.geometry.computeBoundingBox();
-            box.copy(m.geometry.boundingBox ?? new THREE.Box3());
-            if (box.isEmpty() || box.max.y < 1.6) return;
-            (m.visible ? head.visible : head.hidden).push(m.name || "(unnamed)");
-          });
-          // WHERE THE HEAD ACTUALLY IS, in the world, after posing. A skinned
-          // skull follows its bone, so "the mesh is visible" and "the man has a
-          // face" are different claims and the first one passed while the
-          // second was false. This is the second one.
-          want.body.updateMatrixWorld(true);
-          const p3 = new THREE.Vector3();
-          head.bone = want.pivots.head.getWorldPosition(p3).toArray().map((v) => +v.toFixed(3));
-          const skullBox = new THREE.Box3();
-          want.body.traverse((o) => {
-            const m = o as THREE.SkinnedMesh;
-            if (!m.isMesh || m.name !== "part_34") return;
-            skullBox.setFromObject(m);
-          });
-          head.skull = skullBox.isEmpty() ? null
-            : [skullBox.min.y, skullBox.max.y, skullBox.min.x, skullBox.max.x].map((v) => +v.toFixed(3));
-          // AND THE BONE'S OWN SCALE. `Box3.setFromObject` on a SkinnedMesh
-          // reads the BIND geometry through the mesh's matrix and knows nothing
-          // about skinning, so the box above says where the skull was authored,
-          // not where it is drawn. A skull that is drawn nowhere is a Head bone
-          // whose world matrix has collapsed, and this is the number that says
-          // so: `visible` is true on a mesh scaled to a point.
-          const sc = new THREE.Vector3();
-          want.pivots.head.getWorldScale(sc);
-          head.scale = sc.toArray().map((v) => +v.toFixed(4));
-          head.det = +want.pivots.head.matrixWorld.determinant().toFixed(6);
-          head.boneName = want.pivots.head.name || "(unnamed)";
-          head.isBone = !!(want.pivots.head as unknown as { isBone?: boolean }).isBone;
-        }
-        w.__authored = res.ok
-          ? { cls: player.warriorClass, ...res, head }
-          : { ok: false, cls: player.warriorClass, why: res.why, head };
         if (!res.ok) {
+          authoredPending = false;
+          w.__authored = { ok: false, cls: player.warriorClass, why: res.why };
           console.warn(`[authored] ${player.warriorClass}: ${res.why} — keeping the procedural man`);
           return;
         }
@@ -746,25 +740,41 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         //
         // The baked piece comes off only once its replacement is on him: see
         // GameCanvas for the reasoning. Wrong helm beats no head.
-        const skinned = firstSkinnedMesh(want.body);
-        if (!skinned) return;
-        void dressAuthoredHead({
-          cls: player.warriorClass,
-          appearance: (player as { appearance?: Record<string, unknown> }).appearance,
-          head: want.pivots.head,
-          skeleton: skinned.skeleton,
-          resolveMaterial,
-          strands: true,
-        }).then((d) => {
-          if (d.mounted.length) {
-            hideBakedRoles(want.body,
-              new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
-          }
-          const wd = window as unknown as Record<string, unknown>;
-          wd.__authoredProps = d;
-          console.info(`[authored] ${player.warriorClass}: props ${d.mounted.join("+") || "none"}`
-            + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`);
-        });
+        //
+        // NOT YET: this runs once the head net has passed him (`settleHeadNet`),
+        // so a man about to be thrown away does not go and fetch a helm.
+        const dress = (): void => {
+          const skinned = firstSkinnedMesh(want.body);
+          if (!skinned) return;
+          void dressAuthoredHead({
+            cls: player.warriorClass,
+            appearance: (player as { appearance?: Record<string, unknown> }).appearance,
+            head: want.pivots.head,
+            skeleton: skinned.skeleton,
+            resolveMaterial,
+            strands: true,
+          }).then((d) => {
+            // Rebuilt, or thrown out by the head net, while the helm was in flight.
+            if (rig !== want) return;
+            if (d.mounted.length) {
+              hideBakedRoles(want.body,
+                new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
+            }
+            const wd = window as unknown as Record<string, unknown>;
+            wd.__authoredProps = d;
+            console.info(`[authored] ${player.warriorClass}: props ${d.mounted.join("+") || "none"}`
+              + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`);
+          });
+        };
+        // ---- THE HEAD NET (render/authoredHead.ts) ----
+        //
+        // Armed NOW, at bind, and judged on the first posed frame, before that
+        // frame is drawn. The owner: "image 1's head is missing from a full
+        // health player". A skull that is visible, skinned and drawn inside the
+        // chest passes every structural claim this stage used to make, so the
+        // census is now taken twice and compared. See the file for what it
+        // measures and why those numbers.
+        headNet = { rig: want, net: armHeadNet(want as unknown as HeadNetRig), res, dress };
       });
     }
     // Re-aimed here and not only on resize: every framing decision in this
@@ -775,6 +785,50 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   }
 
   buildRig();
+
+  /**
+   * Judge the authored man the swap has just put in, on his first posed frame.
+   *
+   * Returns true when he stands (or is not yet judgeable) and FALSE when he has
+   * been thrown out and a procedural man built in his place — the caller poses
+   * the new man before the frame is drawn.
+   *
+   * WRONG BODY BEATS NO HEAD. `armouryStage.ts` has always said "wrong helm beats
+   * no head"; this is the same law one size up. The authored man is discarded,
+   * never shown, and the class is refused for the rest of the session so the
+   * next helm the player tries on does not rebuild the same failure. The head
+   * object goes to `console.error` because that is where a person looking at a
+   * bug report will look, and to `window.__authored` where a harness will.
+   */
+  function settleHeadNet(): boolean {
+    const armed = headNet;
+    if (!armed) return true;
+    // Not the man on stage any more (rebuilt while he waited).
+    if (armed.rig !== rig) { headNet = null; return true; }
+    const { outcome, verdict: v } = armed.net.step();
+    if (outcome === "waiting") return true;
+    headNet = null;
+    const w = window as unknown as Record<string, unknown>;
+    const cls = player.warriorClass;
+    if (outcome === "pass") {
+      authoredPending = false;
+      w.__authored = { cls, ...armed.res, head: v.now, net: { ok: true, turnDeg: v.turnDeg, reachDrift: v.reachDrift } };
+      armed.dress();
+      return true;
+    }
+    console.error(`[authored] ${cls}: the head net REFUSED the authored man — ${v.problems.join("; ")}. `
+      + "Keeping the procedural man (wrong body beats no head).", v.now);
+    w.__authored = {
+      ok: false, refused: true, cls, why: `head net: ${v.problems.join("; ")}`,
+      head: v.now, net: { ok: false, turnDeg: v.turnDeg, reachDrift: v.reachDrift, problems: v.problems },
+    };
+    HEAD_REFUSED.add(cls);
+    // He is never drawn: hidden first, so that nothing in the rebuild can show him.
+    armed.rig.body.visible = false;
+    buildRig();
+    authoredPending = false;
+    return false;
+  }
 
   function frameCamera(w: number, h: number): void {
     const aspect = w / Math.max(1, h);
@@ -910,6 +964,12 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     if (rig && motion) {
       rig.group.rotation.y = turn;
       poseWarrior(rig, motion, player, dt, ctx);
+      // BETWEEN THE POSE AND THE DRAW, so a man the net throws out is never on
+      // screen for even one frame.
+      if (headNet && !settleHeadNet()) {
+        rig.group.rotation.y = turn;
+        if (rig && motion) poseWarrior(rig, motion, player, dt, ctx);
+      }
     }
     forge.sky.update(dt, ctx);
     if (lens === "fight") {
@@ -925,7 +985,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     renderer.setViewport(0, 0, w, h);
     renderer.setScissorTest(false);
     renderOnce();
-    ready = true;
+    if (!ready && (!authoredPending || t > readyDeadline)) ready = true;
     STATS.frames++;
     STATS.worstFrameMs = Math.max(STATS.worstFrameMs, performance.now() - t);
     if ((STATS.frames & 15) === 0) publishStats();

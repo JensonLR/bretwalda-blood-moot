@@ -226,6 +226,7 @@ tools/blender/__pycache__/
 .cliptest/
 .severauthored/
 .headflip/
+.headnet/
 .parity/
 .authoredrig-*/
 # tools/eyeclip.mjs compiles here and deletes the directory again. It was not ignored, and one

@@ -115,7 +115,8 @@
     "railgate": "node tools/railgate.mjs",
     "authoredweight": "node tools/authoredweight.mjs",
     "headflip": "node tools/headflip.mjs",
-    "parity": "node tools/parity.mjs"
+    "parity": "node tools/parity.mjs",
+    "headnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/headnet.mjs"
   },
   "dependencies": {
     "@types/three": "^0.185.1",

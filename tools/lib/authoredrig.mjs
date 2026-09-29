@@ -96,22 +96,23 @@ export async function loadKit(root, work) {
     "src/game/client/render/anim.ts",
     "src/game/client/render/authored.ts",
     "src/game/client/render/authoredProps.ts",
+    "src/game/client/render/authoredHead.ts",
     "src/game/client/render/clipDriver.ts",
     "src/game/client/render/textures.ts",
     "src/game/client/render/materials.ts",
   ], work);
-  const [anim, authored, props, clipDriver, textures, materials, characters, input] = await Promise.all([
-    byName("anim.js"), byName("authored.js"), byName("authoredProps.js"), byName("clipDriver.js"),
+  const [anim, authored, props, net, clipDriver, textures, materials, characters, input] = await Promise.all([
+    byName("anim.js"), byName("authored.js"), byName("authoredProps.js"), byName("authoredHead.js"), byName("clipDriver.js"),
     byName("textures.js"), byName("materials.js"), byName("characters.js"), byName("input.js"),
   ]);
-  for (const [n, m] of Object.entries({ anim, authored, props, clipDriver, textures, materials, characters })) {
+  for (const [n, m] of Object.entries({ anim, authored, props, net, clipDriver, textures, materials, characters })) {
     if (!m) throw new Error(`tsc emitted no ${n}.js`);
   }
   const settings = { anisotropy: 8, textureSize: 512, spriteSize: 128, tier: "high", dynamicLights: true,
     instancing: false, propDensity: 1, shadows: true, shadowMapSize: 2048 };
   const tex = textures.createTextureLibrary({ capabilities: { getMaxAnisotropy: () => 8 } }, settings);
   const mats = materials.createMaterialLibrary(tex, settings);
-  return { root, anim, authored, props, clipDriver, characters, input, settings, materials: mats };
+  return { root, anim, authored, props, net, clipDriver, characters, input, settings, materials: mats };
 }
 
 export function parseGlb(root, cls) {
