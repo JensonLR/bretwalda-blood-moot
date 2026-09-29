@@ -302,7 +302,7 @@ every default-build player sees, because `next.config.ts` stamps
 
 | harness | costs | answers |
 |---|---|---|
-| `npm run headflip` | ~8 s, no browser | the Head-weighted crown, box and turn of the AUTHORED man against the PROCEDURAL man's, after 90 frames of the real `poseWarrior`, 4 classes x idle/walking/attacking/knocked/dead. Bars 3 cm / 3 cm / 3 deg |
+| `npm run headflip` | ~25 s, no browser | the Head-weighted crown, box and turn of the AUTHORED man against the PROCEDURAL man's, after 90 frames of the real `poseWarrior`, 4 classes x idle/walking/attacking/knocked/dead. Bars 3 cm / 3 cm / 3 deg. Also the HELM, HAIR and BEARD props, mounted by the real `dressAuthoredHead` against the shipped prop GLBs (the owner's "strands floating over the collar"): top and centre against the procedural head group's, 6 cm (the two men wear different hair; the defect moves them 13-34 cm) |
 | `npm run parity` | ~15 s, no browser | all twelve pivots (1 cm, 3 deg), the cloak's seven bones (same bars), which hand the weapon is in (right AND left-handed), the weapon / off-hand blade / board probe points (1.5 cm), and the clip-driven arena man. `--wide` sweeps all twelve states |
 | either, `--naive` | same | the control: today's drive, absolute `rotation.set()` onto the GLB bones. **Must fail** |
 | either, `--no-mirror` | same | the control: the double mirror put back. **Must fail** |

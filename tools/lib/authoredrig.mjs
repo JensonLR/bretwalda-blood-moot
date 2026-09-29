@@ -32,7 +32,7 @@
 // checkout.
 // ============================================================
 import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -140,6 +140,56 @@ export function buildMan(kit, cls, gltf, authored) {
   }
   parent.updateMatrixWorld(true);
   return { rig, parent, p, scene, res, motion: kit.anim.createMotion(p), ctx: ctxOf(kit), authored, clips: null };
+}
+
+/**
+ * HANG HIS HELM, HAIR AND BEARD, the way both call sites do: `dressAuthoredHead`
+ * on the authored head bone, against the shipped prop GLBs. The prop loader is a
+ * `fetch`, so `fetch` is pointed at `public/authored/` for the run — nothing
+ * else in the harness touches the network. The owner's other symptom, "hair
+ * strands floating over the collar", was the props riding a head that was
+ * turned 180 degrees, and until this the harness never mounted one.
+ *
+ * Returns what mounted; a man whose props did not all mount is a defect in the
+ * harness and is thrown, not measured (a gate that measures nothing passes).
+ */
+export async function dressHead(kit, man) {
+  if (!man.authored) throw new Error("dressHead: only the authored man wears props");
+  const shipped = resolve(kit.root, "public/authored");
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const file = resolve(shipped, basename(String(url)));
+    if (!existsSync(file)) return { ok: false };
+    const b = readFileSync(file);
+    return { ok: true, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
+  };
+  try {
+    let skinned = null;
+    man.rig.body.traverse((o) => { if (!skinned && o.isSkinnedMesh) skinned = o; });
+    const res = await kit.props.dressAuthoredHead({
+      cls: man.p.warriorClass, appearance: man.p.appearance, head: man.rig.pivots.head,
+      skeleton: skinned.skeleton, resolveMaterial: () => null, base: "shipped",
+    });
+    if (res.missing.length || res.mounted.length !== res.wanted) {
+      throw new Error(`dressHead: ${man.p.warriorClass} wanted ${res.wanted} props, mounted ${JSON.stringify(res.mounted)}, missing ${JSON.stringify(res.missing)}`);
+    }
+    return res;
+  } finally { globalThis.fetch = prev; }
+}
+
+/** The vertices of the props hung under the head socket, in world space; empty if none are mounted. */
+export function propVerts(man) {
+  const out = [];
+  const socket = man.rig.pivots.head.children.find((c) => c.userData?.authoredHeadSocket);
+  if (!socket) return out;
+  const v = new THREE.Vector3();
+  socket.traverse((o) => {
+    if (!o.isMesh || !o.visible) return;
+    const pos = o.geometry.getAttribute("position");
+    o.updateWorldMatrix(true, false);
+    for (let i = 0; i < pos.count; i++) out.push(v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).clone());
+  });
+  return out;
 }
 
 /** A pair, and the bind-pose world orientation of every slot, taken before either is posed. */
@@ -270,8 +320,18 @@ export function measure(pair) {
     }
   }
   const ha = boxOf(headVerts(A)), hb = boxOf(headVerts(B));
+  // The props, when the harness dressed him: where the HAIR, BEARD and HELM ended up,
+  // which the skinned skull cannot say (they are separate static meshes on a socket).
+  const pv = B.authored ? propVerts(B) : [];
+  const hp = pv.length ? boxOf(pv) : null;
+  const c = (bx, k) => (bx.min[k] + bx.max[k]) / 2;
   const head = {
     a: ha, b: hb, crown: hb.max.y - ha.max.y,
+    // The dressed props against the procedural head group (which carries his helm,
+    // hair and beard too). The TOP of both is the helm or the hair's crown; the
+    // centre in x and z is where the head is. Not the bottom: an authored beard is
+    // Blender's ribbons and hangs a few centimetres lower than the procedural shell.
+    props: hp && { box: hp, top: hp.max.y - ha.max.y, mid: Math.max(Math.abs(c(hp, "x") - c(ha, "x")), Math.abs(c(hp, "z") - c(ha, "z"))) },
     // All six faces of the box, so a head that is the right height and facing
     // the wrong way (or turned on its side) still reads.
     box: Math.max(

@@ -45,6 +45,21 @@
 //   turn    the rotation the head made from its own bind pose, A against B, in
 //           degrees. The bar is 3. This is the one that separates a head turned
 //           by 180 about Z from one merely offset, and it needs no vertex.
+//   props   the HELM, HAIR and BEARD the armoury sold him, mounted the way both
+//           call sites mount them (`dressAuthoredHead` on the authored Head bone,
+//           against the shipped prop GLBs — `L.dressHead`), against the procedural
+//           head group that carries the same three. "Hair strands floating over
+//           the collar" was these riding a head turned 180 degrees; the skinned
+//           skull cannot say where they are, because they are separate meshes on
+//           a socket. Top within 6 cm (a helm's or a head of hair's crown is the
+//           man's crown) and centre in x and z within 6 cm. Not the bottom: an
+//           authored beard is Blender's ribbons and hangs lower than the shell.
+//           THE BAR IS 6 CM AND NOT 3 because the two men wear different hair, not
+//           the same hair: measured on the tree that passes, the props' top is
+//           4.4 cm off and their centre 3.4 cm off on a DEAD warden's head (lying,
+//           so the ribbons and the shell project differently). The defect it is
+//           here for is the props riding a head turned 90 to 180 degrees, which
+//           moves them 13 to 34 cm; the bar is under half of the smallest.
 //
 // The three are read at every 15th frame of 90, in idle, in an attack swept
 // through its windup, strike and recovery (all four directions), and knocked
@@ -70,7 +85,7 @@ const frames = Number(arg("frames", 90));
 const lever = Number(arg("lever", 0));
 const naive = flag("naive"), noMirror = flag("no-mirror");
 
-const CROWN_BAR = 0.03, BOX_BAR = 0.03, TURN_BAR = 3;
+const CROWN_BAR = 0.03, BOX_BAR = 0.03, TURN_BAR = 3, PROP_BAR = 0.06;
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`); ok ? pass++ : fail++; };
@@ -87,6 +102,7 @@ for (const cls of classes) {
     `${Math.abs(rq.w) < 0.5 ? "  <- NOT identity: an absolute rotation.set() lands turned by this" : ""}`);
   for (const state of states) {
     const pair = L.buildPair(kit, cls, gltf);
+    await L.dressHead(kit, pair.B);
     const rest = pair.B.rig.pivots.rest;
     if (naive) delete pair.B.rig.pivots.rest;
     if (noMirror) pair.B.scene.scale.x = 1;
@@ -98,9 +114,12 @@ for (const cls of classes) {
     const crown = L.worst(s, (x) => Math.abs(x.head.crown));
     const box = L.worst(s, (x) => x.head.box);
     const turn = L.worst(s, (x) => x.joints.head.deg);
-    rows.push({ cls, state, crown, box, turn, last: s[s.length - 1] });
+    const propTop = L.worst(s, (x) => Math.abs(x.head.props.top));
+    const propMid = L.worst(s, (x) => x.head.props.mid);
+    rows.push({ cls, state, crown, box, turn, propTop, propMid, last: s[s.length - 1] });
     console.log(`    ${state.padEnd(9)} crown ${L.f3(s[s.length - 1].head.crown)} m (worst ${crown.toFixed(3)})   box worst ${box.toFixed(3)} m   head turn worst ${turn.toFixed(1)} deg` +
-      `   [A crown y ${s[s.length - 1].head.a.max.y.toFixed(3)}, B ${s[s.length - 1].head.b.max.y.toFixed(3)}]`);
+      `   [A crown y ${s[s.length - 1].head.a.max.y.toFixed(3)}, B ${s[s.length - 1].head.b.max.y.toFixed(3)}]` +
+      `   props top ${propTop.toFixed(3)} m, centre ${propMid.toFixed(3)} m`);
   }
 }
 console.log("");
@@ -110,12 +129,15 @@ if (!lever) {
     check(`${r.cls}/${r.state}: the Head-weighted crown is within ${CROWN_BAR * 100} cm of the procedural man's`, r.crown <= CROWN_BAR, `worst ${r.crown.toFixed(3)} m`);
     check(`${r.cls}/${r.state}: every face of the head's box is within ${BOX_BAR * 100} cm of the procedural head's`, r.box <= BOX_BAR, `worst ${r.box.toFixed(3)} m`);
     check(`${r.cls}/${r.state}: the head turned as far as the procedural head did (within ${TURN_BAR} deg)`, r.turn <= TURN_BAR, `worst ${r.turn.toFixed(1)} deg`);
+    check(`${r.cls}/${r.state}: his helm, hair and beard top out at the procedural head's crown (within ${PROP_BAR * 100} cm)`, r.propTop <= PROP_BAR, `worst ${r.propTop.toFixed(3)} m`);
+    check(`${r.cls}/${r.state}: and are centred on the procedural head (x, z within ${PROP_BAR * 100} cm)`, r.propMid <= PROP_BAR, `worst ${r.propMid.toFixed(3)} m`);
   }
 } else {
   // R1: the constant the fix claims to depend on has to be one the ruler feels.
   for (const r of rows) {
     check(`${r.cls}/${r.state}: turning the captured rest ${lever} deg moves the crown past its bar`, r.crown > CROWN_BAR, `${r.crown.toFixed(3)} m`);
     check(`${r.cls}/${r.state}: ...and the head's turn past its bar`, r.turn > TURN_BAR, `${r.turn.toFixed(1)} deg`);
+    check(`${r.cls}/${r.state}: ...and the props' top past theirs, or their centre`, r.propTop > PROP_BAR || r.propMid > PROP_BAR, `top ${r.propTop.toFixed(3)} m, centre ${r.propMid.toFixed(3)} m`);
   }
 }
 
