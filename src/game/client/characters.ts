@@ -5242,10 +5242,28 @@ export interface FaceField {
    * both are per-man colours a multiplier map cannot hold.
    */
   complexion(x: number, y: number, z: number, out: THREE.Color, fyHint?: number): void;
+  /**
+   * What the complexion field does not paint and the authored head needs painted, at azimuth `w` and latitude `v` (radians):
+   * the brow, the lips and the line between them. Coverages, not colours: the colour is the man's (his hair, his skin) and
+   * `render/faceMap.ts` mixes it in.
+   */
+  detail(w: number, v: number, out: FaceDetail): FaceDetail;
   /** The neck's section at a body-frame height: half-breadths and the centre's z. */
   neckAt(y: number): { hw: number; hd: number; z: number };
   /** The neck shell's own extent, body-frame y. */
   readonly neckSpan: { readonly top: number; readonly bottom: number };
+}
+
+/** What `FaceField.detail` returns: coverages in 0..1. */
+export interface FaceDetail {
+  /** the brow's hair */
+  brow: number;
+  /** the vermilion, upper lip */
+  upper: number;
+  /** the vermilion, lower lip */
+  lower: number;
+  /** the line where the lips meet, and its corners */
+  line: number;
 }
 
 const _fieldMemo = new Map<string, FaceField>();
@@ -5259,7 +5277,7 @@ export function faceFieldOf(cls: WarriorClass, identity = 0): FaceField {
   const step = Math.round(hash(identity, 31) * 2) - 1;
   const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
   const K: Skull = { R: S.headR, F: face };
-  const field = faceComplexion(K, S.headY, SKIN_TONES[face.tone], "none", null);
+  const field = faceComplexion(K, S.headY, SKIN_TONES[face.tone], "none", null, { mottle: 0, lips: false });
   const ST = neckStations(S);
   const d = new THREE.Vector3();
   const f: FaceField = {
@@ -5268,11 +5286,58 @@ export function faceFieldOf(cls: WarriorClass, identity = 0): FaceField {
     headY: S.headY, neckTop: S.neckTop,
     surface: (w, v, out) => faceSurface(K, dirOf(w, v, d), out),
     complexion: (x, y, z, out, fyHint) => field(x, y, z, out, fyHint),
+    detail: (w, v, out) => faceDetailAt(K, w, v, out),
     neckAt: (y) => { const st = neckSectionAt(ST, y); return { hw: st.hw, hd: st.hd, z: st.z ?? 0 }; },
     neckSpan: { top: ST[0]!.y, bottom: ST[ST.length - 1]!.y },
   };
   _fieldMemo.set(key, f);
   return f;
+}
+
+/**
+ * THE BROW AND THE MOUTH, AS COVERAGE (see `FaceField.detail`).
+ *
+ * The brow is the SAME brow the procedural head is built with (`BROW`: the arc, the half-height, the taper), so it lies where
+ * the baked ribbon lies; the ribbon is ink (L* 3, darker than the hair it is baked in) and `render/authoredSkin.ts` hides it
+ * and lets this stand in, in the man's own hair colour. It is feathered at both edges and thins toward the tail, and
+ * `render/faceMap.ts` breaks it up with hair-like noise; here it is only a shape.
+ *
+ * The mouth is two lips and a line. The soft oval the complexion used to carry read as a brown smear (no edge, one mass, one
+ * hue): a lip is a defined shape with an edge, the upper thinner and turned in, the lower fuller, a dark line where they meet
+ * that is darkest at the corners. Sizes are the real ones, in the field's own units (0.01 of latitude is 1.2-1.3 mm on this
+ * head): an upper vermilion 8 mm at the middle, a lower 11, a mouth 61 mm across at the corners (`F.mouth`), an edge about a
+ * millimetre wide. The colours are `faceMap.ts`'s.
+ */
+function faceDetailAt(K: Skull, w: number, v: number, out: FaceDetail): FaceDetail {
+  const a = Math.abs(w);
+  // ---- the brow ----
+  out.brow = 0;
+  if (a > 0.05 && a < 0.58) {
+    const half = BROW.half(a);
+    if (half > 1e-4) {
+      const d = Math.abs(v - BROW.arc(a)) / half;
+      const t = BROW.along(a);
+      // the ribbon ends at bearing 0.56 and so does this: feathered at both ends, thinning toward the tail
+      out.brow = clamp01((1 - smooth(0.55, 1.05, d)) * (0.40 + 0.60 * (1 - smooth(0.70, 1.0, t))) * (1 - smooth(0.52, 0.575, a)));
+    }
+  }
+  // ---- the mouth ----
+  out.upper = 0; out.lower = 0; out.line = 0;
+  const mw = 0.29 * K.F.mouth;
+  const x = a / mw;                       // 0 at the middle of the mouth, 1 at a corner
+  if (x < 1.12) {
+    const dy = Math.sin(v) - Y_LIP;       // latitude sine: up is positive
+    const ew = 0.0075;                    // the edge, about a millimetre
+    const hu = 0.064 * (1 - Math.pow(Math.min(1, x), 2.1)) + 0.004;
+    const hl = 0.088 * (1 - Math.pow(Math.min(1, x), 1.8)) + 0.004;
+    const along = 1 - smooth(0.90, 1.06, x);
+    out.upper = clamp01(smooth(0.0, ew, dy) * (1 - smooth(hu - ew, hu + ew, dy)) * along);
+    out.lower = clamp01(smooth(0.0, ew, -dy) * (1 - smooth(hl - ew, hl + ew, -dy)) * along);
+    // the line: thin at the middle, deepening to the corners where the lips meet and turn in
+    const th = 0.0046 + 0.0028 * smooth(0.55, 1.0, x);
+    out.line = clamp01(Math.exp(-((dy / th) ** 2)) * (1 - smooth(0.98, 1.12, x)) * (0.72 + 0.28 * smooth(0.3, 1.0, x)));
+  }
+  return out;
 }
 
 /**
@@ -9975,7 +10040,16 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
 export function faceComplexion(
   K: Skull, y0: number, tone: SkinTone, paint: string,
   whiskers: { color: number; full: boolean } | null,
+  /**
+   * Two terms the AUTHORED head paints for itself and so turns off here (`faceFieldOf`, the door for `render/faceMap.ts`); every
+   * caller that builds a procedural head passes nothing and gets both, exactly as before. `mottle` scales the three cosines (they
+   * are periodic, and a periodic pattern read at the pixel scale is the lattice `tools/lattice.mjs` measures: the map has aperiodic
+   * noise in its place); `lips` is the soft vermilion oval (the map paints a defined mouth: two lips, a line between them).
+   */
+  opts?: { mottle?: number; lips?: boolean },
 ): (x: number, y: number, z: number, out: THREE.Color, fyHint?: number) => void {
+  const mottleAmp = opts?.mottle ?? 1;
+  const lipsOn = opts?.lips !== false;
   const R = K.R;
   const F = K.F;
   const chosen = WAR_PAINT[paint];
@@ -10200,8 +10274,8 @@ export function faceComplexion(
     // latitude lands at 0.34 of the half-breadth.
     const lipW = 0.44 * F.mouth;
     const lipHalf = 0.078 * (1 - Math.pow(clamp01(s / lipW), 2.2)) + 0.012;
-    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
-      * (1 - smooth(lipW * 0.78, lipW, s))) * front;
+    const lip = lipsOn ? clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
+      * (1 - smooth(lipW * 0.78, lipW, s))) * front : 0;
 
     // Shadow goes cool as well as dark, which is what separates it from dirt;
     // flush goes red without going bright, because the specular term does not
@@ -10227,10 +10301,10 @@ export function faceComplexion(
       0.55 * Math.cos(dy * 6.1 + dx * 3.7)
       + 0.30 * Math.cos(dx * 9.4 - dz * 5.3 + 1.7)
       + 0.15 * Math.cos(dz * 14.9 + dy * 11.2 + 3.1);
-    const tint = 1 + 0.040 * mottle;
+    const tint = 1 + 0.040 * mottle * mottleAmp;
     // Blood sits under the surface, so the darker half of the mottle goes red
     // rather than grey — the same reason the tone's `warm` channel exists.
-    const flush = 0.028 * clamp01(-mottle);
+    const flush = 0.028 * clamp01(-mottle) * mottleAmp;
 
     // The lip factors went 0.10/0.36/0.44 → 0.14/0.42/0.50 for backlog 1.7's
     // "lips need work": at those depths the vermilion read flat-lit but the

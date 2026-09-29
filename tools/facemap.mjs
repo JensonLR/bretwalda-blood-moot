@@ -29,6 +29,13 @@
 //                   else): the iris is polar (u the angle, running backwards, v the radius over the iris's), the sclera is
 //                   across-the-aperture by lower-to-upper-margin. Read off the SHIPPED FILES and checked, so a re-export
 //                   that changes them is a red gate and not an iris that spins.
+//   THE BROW        the brow the map paints (`FaceField.detail`, the shape; `FaceMap.browed`, the hair) is where the baked
+//                   ribbon is: the coverage-weighted centre of each side's painted brow is within 2 mm of the centre of that
+//                   side's ribbon in the GLB, and its width is within 20% of the ribbon's. And `hideBrowRibbons` takes out
+//                   exactly those two components of the baked hair mesh and nothing else (the cap, the strands and the
+//                   lash lines are still there).
+//   THE MOUTH       the line the map paints between the lips is at the height of the stomion the rulers read (within 1.5 mm)
+//                   and the lips are the width of the mouth (corners within 2 mm).
 //   THE STEP        the builder's stature step (`faceFieldOf` mirrors one line of `buildCharacter`)
 //                   is held by the skull's own height: the field's crown against the GLB's.
 //
@@ -61,10 +68,11 @@ globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight:
   matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
 globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
 globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
-const { byName } = await emitClient(ROOT, ["src/game/client/render/faceMap.ts"], ".faceprobe/facemap");
+const { byName } = await emitClient(ROOT, ["src/game/client/render/faceMap.ts", "src/game/client/render/authoredSkin.ts"], ".faceprobe/facemap");
 const FM = await byName("faceMap.js");
 const CH = await byName("characters.js");
-if (!FM || !CH) throw new Error("tsc emitted no faceMap.js / characters.js");
+const SK = await byName("authoredSkin.js");
+if (!FM || !CH || !SK) throw new Error("tsc emitted no faceMap.js / characters.js / authoredSkin.js");
 
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : NaN; };
 const fmt = (a) => a.length ? `n=${String(a.length).padStart(4)} p50 ${pct(a, 0.5).toFixed(2)}  p95 ${pct(a, 0.95).toFixed(2)}  max ${Math.max(...a).toFixed(2)}` : "none";
@@ -152,6 +160,74 @@ for (const cls of CLASSES) {
       const cu = (a12 / m - (a1 / m) * (a2 / m)) / Math.sqrt((a11 / m - (a1 / m) ** 2) * (a22 / m - (a2 / m) ** 2));
       const cv = (b12 / m - (b1 / m) * (b2 / m)) / Math.sqrt((b11 / m - (b1 / m) ** 2) * (b22 / m - (b2 / m) ** 2));
       say(Math.abs(cu) > 0.9 && cv < -0.55, `sclera UV runs across the aperture and DOWN the lids (u against the eye's x: corr ${cu.toFixed(3)}; v against its y: corr ${cv.toFixed(3)}: v = 0 is the upper margin)`);
+    }
+  }
+
+  // ---- the brow and the mouth ----
+  {
+    const dyL = LEVER === "shift" ? 0.006 : 0;   // the lever: the head is 6 mm out of place, so the ribbon is too
+    let hair = null;
+    gltf.scene.traverse((m) => { if (m.isMesh && /^hair_\d+$/.test(m.name)) hair = m; });
+    if (!hair) say(false, "could not find the baked hair mesh");
+    else {
+      const geo = hair.geometry, pos = geo.getAttribute("position"), idx = geo.getIndex();
+      // components of the baked hair, before and after `hideBrowRibbons`
+      const comps = () => {
+        const parent = Array.from({ length: pos.count }, (_, i) => i);
+        const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+        const ix = geo.getIndex();
+        for (let t = 0; t < ix.count; t += 3) { parent[find(ix.getX(t))] = find(ix.getX(t + 1)); parent[find(ix.getX(t + 1))] = find(ix.getX(t + 2)); }
+        const c = new Map();
+        for (let t = 0; t < ix.count; t += 3) { const r = find(ix.getX(t)); let e = c.get(r); if (!e) { e = { tris: 0, verts: new Set() }; c.set(r, e); } e.tris++; for (let q = 0; q < 3; q++) e.verts.add(ix.getX(t + q)); }
+        return [...c.values()];
+      };
+      const before = comps();
+      const ribbons = before.filter((c) => c.tris >= 250 && c.tris <= 450).map((c) => [...c.verts]);
+      const widthOf = (verts) => { let lo = 9, hi = -9; for (const v of verts) { lo = Math.min(lo, -pos.getX(v)); hi = Math.max(hi, -pos.getX(v)); } return hi - lo; };
+      const removed = SK.hideBrowRibbons(geo);
+      const after = comps();
+      say(ribbons.length === 2 && removed === ribbons.reduce((t, r, i) => t + before.filter((c) => c.tris >= 250 && c.tris <= 450)[i].tris, 0) && after.length === before.length - 2,
+        `hideBrowRibbons takes out the two brow components of the baked hair and nothing else (${before.length} components before, ${after.length} after, ${removed} triangles of ${idx.count / 3 + removed})`);
+      // the map's brow against the ribbon's, in the head's own (azimuth, latitude) grid: which is where the map is laid out, and
+      // free of the ribbon's standoff and of the slope of the brow ridge (a millimetre up the ridge is two back in z)
+      const W = FM.HEAD_MAP_SIZE.w, H = FM.HEAD_MAP_SIZE.h, { GW, GV } = FM.HeadGrid;
+      const P = new THREE.Vector3();
+      const invR = { fi: 0, fj: 0, err: 0 };
+      // grid cells to mm on this head: the equator's length over GW, the meridian's over GV
+      const mmFi = (fm.grid.perimeter / GW) * 1000, mmFj = (fm.grid.meridian / GV) * 1000;
+      for (const side of [-1, 1]) {
+        const rib = ribbons.find((r) => Math.sign(-pos.getX(r[0])) === side);
+        if (!rib) { say(false, `no ribbon on side ${side}`); continue; }
+        // the ribbon, on the grid (shifted by the lever if it is pulled: a head 6 mm out of place)
+        let rj = 0, rlo = 1e9, rhi = -1e9;
+        for (const v of rib) {
+          fm.grid.invert(-pos.getX(v), pos.getY(v) - F.headY - dyL, pos.getZ(v), invR);
+          rj += invR.fj; rlo = Math.min(rlo, invR.fi); rhi = Math.max(rhi, invR.fi);
+        }
+        rj /= rib.length;
+        // the painting, on the same grid
+        let sw = 0, sj = 0, plo = 1e9, phi = -1e9;
+        for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+          const c = fm.cover[j * W + i]; if (c < 40) continue;   // the body of the brow, not its feathering
+          const fi = ((i + 0.5) / W) * GW; if ((fi < GW / 2 ? -1 : 1) !== side) continue;   // negative azimuth is the builder's -x, and `side` is the builder's
+          sw += c; sj += ((j + 0.5) / H) * GV * c; plo = Math.min(plo, fi); phi = Math.max(phi, fi);
+        }
+        const dv = Math.abs(sj / sw - rj) * mmFj;
+        const de = Math.max(Math.abs(plo - rlo), Math.abs(phi - rhi)) * mmFi;
+        say(dv <= 1.5 && de <= 3.0, `brow (side ${side > 0 ? "+" : "-"}): the painted brow is ${dv.toFixed(2)} mm from the ribbon's height (bar 1.5) and its ends are ${de.toFixed(2)} mm from the ribbon's (bar 3.0)`);
+      }
+      // the mouth: the line the map paints, and the lips' width
+      const D = { brow: 0, upper: 0, lower: 0, line: 0 };
+      let bestV = 0, bestLine = -1;
+      for (let j = 0; j < H; j++) { const v = -Math.PI / 2 + ((j + 0.5) / H) * Math.PI; F.detail(0, v, D); if (D.line > bestLine) { bestLine = D.line; bestV = v; } }
+      const LM = CH.faceLandmarks(cls, 0);
+      fm.grid.at(GW / 2, ((bestV + Math.PI / 2) / Math.PI) * GV, P);
+      const dyMm = (P.y + F.headY - LM.mouth.stomion[1] + dyL) * 1000;
+      // width: the azimuth where the line has faded to a half, on each side, on the surface, against the corners
+      let edge = 0; for (let k = 0; k < 400; k++) { const az = (k / 400) * 0.7; F.detail(az, bestV, D); if (D.upper + D.lower > 0.5 || D.line > 0.5) edge = az; }
+      fm.grid.at(GW / 2 + (edge / (2 * Math.PI)) * GW, ((bestV + Math.PI / 2) / Math.PI) * GV, P);
+      const dxMm = (Math.abs(P.x) - Math.abs(LM.mouth.corners[1][0])) * 1000;
+      say(Math.abs(dyMm) <= 1.5 && Math.abs(dxMm) <= 2.0, `mouth: the painted line is ${dyMm.toFixed(2)} mm from the stomion the rulers read (bar 1.5), the lips end ${dxMm.toFixed(2)} mm from the corners (bar 2.0)`);
     }
   }
 

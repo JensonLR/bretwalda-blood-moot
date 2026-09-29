@@ -65,36 +65,46 @@ function texture(w: number, h: number, data: Uint8Array): THREE.DataTexture {
 
 /** The angle of the catchlight in the eye's own frame: 10 to 11 o'clock, up and toward the skull's -x, where the arena's key stands. */
 export const CATCHLIGHT_DEG = 128;
+/**
+ * How far from the middle of the iris the catchlight sits, as a fraction of the iris's radius: 0.56, in the annulus the man can SEE.
+ * The pupil is a black disc of 2.4 mm on the 6.1 mm iris (0.39) and the limbal ring stands over its outer millimetre (0.84 out), so the
+ * visible iris is the band between them and a catchlight painted where the pupil is (as the first one was, at 0.38) is under a black
+ * disc and is not there.
+ */
+export const CATCHLIGHT_RADIUS = 0.56;
 
 /**
  * The iris, as the colour it is: fibres running out from the pupil, a lighter collarette
- * round it, a darker outer zone, the catchlight. `hex` is the man's iris colour (sRGB).
+ * round it, a darker outer zone toward the limbus, the catchlight. `hex` is the man's iris
+ * colour (sRGB). `s` below is 1 at the pupil's centre and 0 at the limbus (glTF's v runs
+ * down the image and the export flips it: see the header).
  */
 export function irisTexture(hex: number): THREE.DataTexture {
   const W = 128, H = 32;
   const data = new Uint8Array(W * H * 4);
   const base = new THREE.Color(hex);
   const light = base.clone().lerp(new THREE.Color(0xe8dcc0), 0.32);   // the collarette: lighter, and a little warm on a cool eye
-  const dark = base.clone().multiplyScalar(0.62);
+  const dark = base.clone().multiplyScalar(0.55);
   // u runs backwards: the angle in the eye's frame is -u * 2pi
   const a0 = (CATCHLIGHT_DEG * Math.PI) / 180;
   const u0 = ((-a0 / TAU) % 1 + 1) % 1;
+  const s0 = 1 - CATCHLIGHT_RADIUS;
   for (let j = 0; j < H; j++) {
     const s = 1 - (j + 0.5) / H;          // glTF's v runs down the image: row 0 is the limbus
     for (let i = 0; i < W; i++) {
       const u = (i + 0.5) / W;
       const fibre = 0.5 * noise(u * 26, s * 3, 26) + 0.3 * noise(u * 61 + 7, s * 6, 61) + 0.2 * noise(u * 11 + 3, s * 2, 11);
       const c = base.clone();
-      c.lerp(light, smooth(0.36, 0.52, s) * (1 - smooth(0.52, 0.72, s)) * 0.85);   // the collarette
-      c.lerp(dark, smooth(0.62, 0.95, s) * 0.9);                                    // the outer zone toward the limbus
+      c.lerp(light, smooth(0.36, 0.52, s) * (1 - smooth(0.52, 0.72, s)) * 0.85);   // the collarette, just outside the pupil
+      c.lerp(dark, (1 - smooth(0.05, 0.34, s)) * 0.7);                              // the outer zone, darker toward the limbus
       c.multiplyScalar(0.72 + 0.56 * fibre);                                        // the fibres
       // the catchlight: a soft-edged spot, a bright point inside a softer glow, in the visible annulus of the disc
-      const du = Math.min(Math.abs(u - u0), 1 - Math.abs(u - u0)) * TAU * 0.62 * 6.1;   // mm along the arc at radius 0.62
-      const dv = (s - 0.62) * 6.1;
+      const du = Math.min(Math.abs(u - u0), 1 - Math.abs(u - u0)) * TAU * CATCHLIGHT_RADIUS * 6.1;   // mm along the arc at that radius
+      const dv = (s - s0) * 6.1;
       const d2 = du * du + dv * dv;
-      const glow = Math.exp(-d2 / (2 * 0.55 * 0.55));
-      const spot = Math.exp(-d2 / (2 * 0.28 * 0.28));
-      c.lerp(new THREE.Color(0xfbf8ee), Math.min(1, 0.35 * glow + 0.95 * spot));
+      const glow = Math.exp(-d2 / (2 * 0.60 * 0.60));
+      const spot = Math.exp(-d2 / (2 * 0.32 * 0.32));
+      c.lerp(new THREE.Color(0xfbf8ee), Math.min(1, 0.40 * glow + 0.95 * spot));
       const o = (j * W + i) * 4;
       data[o] = srgb(c.r); data[o + 1] = srgb(c.g); data[o + 2] = srgb(c.b); data[o + 3] = 255;
     }

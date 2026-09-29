@@ -196,9 +196,38 @@ function threeLibrary() {
   const ctxH = D.authoredDressContext({ cls: "huscarl", faceSeed: seedA, materials: libH });
   const face = D.resolveAuthoredMaterial(base("base"), headMesh, ctxH);
   const map = M.faceMapFor("huscarl", { schedule: false });
-  check("the head's skin wears the class's complexion map, at the head's tile, in the man's own tone",
-    face.map === map.head.tex && face.vertexColors === false && face.name.startsWith("face-head:base:") && libH.calls.some((c) => c[0] === "tinted" && c[3].tile === 0.0022),
+  const toneH = CHARS.SKIN_TONES[CHARS.faceTraits(seedA).tone], hairH = ctxH.appearance.hairColor;
+  check("the head's skin wears the class's complexion map WITH the man's brows painted in his hair colour, at the head's tile, in his own tone",
+    face.map === map.browed(toneH.base, hairH) && face.map !== map.head.tex && face.vertexColors === false && face.name.startsWith("face-head:base:") && libH.calls.some((c) => c[0] === "tinted" && c[3].tile === 0.0022),
     `map ${face.map?.image?.width}x${face.map?.image?.height}`);
+  {
+    const ctxB = D.authoredDressContext({ cls: "huscarl", faceSeed: seedA, materials: libH, appearance: { ...ctxH.appearance, hairColor: 0xe8e4da } });
+    const faceB = D.resolveAuthoredMaterial(base("base"), headMesh, ctxB);
+    check("...a different hair colour is a different map (his brows are his), the same one is the same map",
+      faceB.map !== face.map && faceB.map === map.browed(toneH.base, 0xe8e4da) && D.resolveAuthoredMaterial(base("base"), headMesh, ctxH).map === face.map);
+    // the painted brow is the hair: the stored map at the brow's centre, times the tone and the gain, IS the hair colour (over a fraction that is the density)
+    const Fh = CHARS.faceFieldOf("huscarl", 0), o = new THREE.Vector3();
+    const az = 0.30, v = Math.asin(0), lo = -Math.PI / 2, uu = (az + Math.PI) / (2 * Math.PI);
+    void o; void lo;
+    // find the brow's own row: the latitude where coverage peaks at that bearing
+    map.finish();
+    const W = M.HEAD_MAP_SIZE.w, H = M.HEAD_MAP_SIZE.h;
+    let bestJ = 0, bestC = 0; const iCol = Math.floor(uu * W);
+    for (let j = 0; j < H; j++) if (map.cover[j * W + iCol] > bestC) { bestC = map.cover[j * W + iCol]; bestJ = j; }
+    const map1 = map.browed(toneH.base, hairH);
+    const px = map1.image.data, oo = (bestJ * W + iCol) * 4;
+    const lin = (b) => { const c = b / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const tl = new THREE.Color(toneH.base), hl = new THREE.Color(hairH);
+    const got = [lin(px[oo]) * tl.r * M.FACE_MAP_GAIN, lin(px[oo + 1]) * tl.g * M.FACE_MAP_GAIN, lin(px[oo + 2]) * tl.b * M.FACE_MAP_GAIN];
+    // what the arithmetic says it must be: 86% of the hair (a little lighter than the swatch, fine hairs on skin) and 14% of the skin's own
+    // value at that texel, which is the base map's times the tone
+    const bs = map.head.data;
+    const skinPart = [lin(bs[oo]) * tl.r * M.FACE_MAP_GAIN, lin(bs[oo + 1]) * tl.g * M.FACE_MAP_GAIN, lin(bs[oo + 2]) * tl.b * M.FACE_MAP_GAIN];
+    const want = [hl.r, hl.g, hl.b].map((h, i) => Math.min(1, h * 1.15 / (Math.max(0.02, [tl.r, tl.g, tl.b][i] * M.FACE_MAP_GAIN))) * 0.86 * [tl.r, tl.g, tl.b][i] * M.FACE_MAP_GAIN + skinPart[i] * 0.14);
+    check("...and at the middle of the brow the map times the tone is 86% the hair (a touch lighter than its swatch) and 14% the skin",
+      bestC > 150 && got.every((g, i) => Math.abs(g - want[i]) < 0.03 * want[i] + 0.004) && got.every((g, i) => g < skinPart[i] * 0.85),
+      `cover ${bestC}, got ${got.map((x) => x.toFixed(3)).join("/")}, want ${want.map((x) => x.toFixed(3)).join("/")}, the skin there ${skinPart.map((x) => x.toFixed(3)).join("/")}`);
+  }
   check("...and the head's own (u, v) is written into the shared geometry, once, in substance tiles",
     gHead.userData.faceUv?.kind === "head" && gHead.getAttribute("uv").getX(0) > 10 && gHead.getAttribute("uv").getX(0) < map.head.scaleU + 1);
   const uv0 = Array.from(gHead.getAttribute("uv").array);
@@ -229,9 +258,18 @@ function threeLibrary() {
   const scl = eye(S.LEGACY_BAKED.sclera), irs = eye(S.LEGACY_BAKED.iris, "part_38");
   check("the baked sclera and iris become the man's own, TEXTURED, wet (0.34 and 0.09), and the dark stays the eye's dark",
     scl.roughness === 0.34 && irs.roughness === 0.09 && scl.color.getHex() === 0xffffff && irs.color.getHex() === 0xffffff
-    && near(texel(scl.map, 32, 8), toneOf.sclera) && near(texel(irs.map, 20, 12), irisOf, 60)
-    && eye(S.LEGACY_BAKED.dark, "part_37").color.getHex() === CHARS.FACE_DARK,
-    `sclera centre ${texel(scl.map, 32, 8).join("/")} for #${toneOf.sclera.toString(16)}`);
+    && near(texel(scl.map, 32, 8), S.scleraFor(toneOf)) && near(texel(irs.map, 20, 12), irisOf, 60),
+    `sclera centre ${texel(scl.map, 32, 8).join("/")} for #${S.scleraFor(toneOf).toString(16)} (the table's #${toneOf.sclera.toString(16)})`);
+  {
+    const dk = eye(S.LEGACY_BAKED.dark, "part_37");
+    check("the eye's dark is the man's own shadow (shade x 0.30), matte, and takes a vertex colour so the pupil can be black and the rest his skin's",
+      dk.vertexColors === true && dk.roughness === 0.85 && Math.abs(dk.color.r - new THREE.Color(toneOf.shade).r * 0.30) < 1e-6 && dk.name.startsWith("face-dark:"));
+    const bright = CHARS.SKIN_TONES.map((t) => [t, S.scleraFor(t)]);
+    const l = (hex) => { const c = new THREE.Color(hex); const y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; return y > 216 / 24389 ? 116 * Math.cbrt(y) - 16 : 24389 / 27 * y; };
+    check("the white of the eye is held to 22 L* over the man's base skin on every tone, and left alone where it is already under (a lamp fails high)",
+      bright.every(([t, w]) => l(w) <= l(t.base) + 22.5 && (l(t.sclera) <= l(t.base) + 22 ? w === t.sclera : true)),
+      bright.map(([t, w]) => `${l(t.base).toFixed(0)}: ${l(t.sclera).toFixed(0)} -> ${l(w).toFixed(0)}`).join(", "));
+  }
   check("...the sclera goes darker toward the corners and the iris carries a catchlight (a pixel near white)",
     texel(scl.map, 1, 8)[0] < texel(scl.map, 32, 8)[0] - 30
     && (() => { let best = 0; for (let j = 0; j < 32; j++) for (let i = 0; i < 128; i++) best = Math.max(best, texel(irs.map, i, j)[0]); return best > 225; })());

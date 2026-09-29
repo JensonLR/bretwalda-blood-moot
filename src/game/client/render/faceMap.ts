@@ -40,6 +40,14 @@
  * the hair is, and where a triangle straddles it the vertex is DUPLICATED with `u + 1`
  * (the map wraps in `u`), so nothing interpolates across the whole texture.
  *
+ * WHAT THE MAP PAINTS BEYOND THE FIELD, and why it is here and not in `faceComplexion`. The complexion field is the
+ * procedural head's, and the authored head needs four things it does not have (`FaceField.detail` gives the shapes, this
+ * gives the colours): the BROW in the man's own hair colour (the baked ribbon is ink, L* 3, and is hidden by
+ * `authoredSkin.ts`), the LIPS (two, with an edge, in a vermilion that is a hue and not just a darkening) and the LINE where
+ * they meet, and APERIODIC noise in place of the field's three cosines (which are periodic in direction, and a periodic
+ * pattern at the pixel scale is the lattice this whole unit exists to remove). The brow needs the man's colours, so it is a
+ * VARIANT of the map per (skin, hair) made by `browed()`, on top of a base that is the same for every man of the class.
+ *
  * RUNTIME COST. The head map is ~131,000 texels at 3.3 us for the field and 0.3 us for
  * the position, so about half a second on this box; `step(ms)` does it in slices so a
  * man is dressed at once (his face is a flat tone for the first fraction of a second)
@@ -72,6 +80,40 @@ const encode = (l: number): number => {
   const c = l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055;
   return Math.max(0, Math.min(255, Math.round(c * 255)));
 };
+
+/** sRGB byte -> linear 0..1 (the inverse of `encode`, for blending in linear light). */
+const DECODE = new Float32Array(256);
+for (let i = 0; i < 256; i++) { const c = i / 255; DECODE[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+
+/** Hash noise: no lattice, no period, no dependence on anything but the two integers. */
+const hash2 = (i: number, j: number): number => {
+  let h = (Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+/** Value noise in 0..1; `x` and `y` in cells. */
+const vnoise = (x: number, y: number): number => {
+  const i0 = Math.floor(x), j0 = Math.floor(y), fx = x - i0, fy = y - j0;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  return (hash2(i0, j0) * (1 - u) + hash2(i0 + 1, j0) * u) * (1 - v) + (hash2(i0, j0 + 1) * (1 - u) + hash2(i0 + 1, j0 + 1) * u) * v;
+};
+const smooth = (a: number, b: number, x: number): number => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/**
+ * The lips' colour RELATIVE TO THE SKIN THEY ARE ON, per channel, in linear light: a multiplier and not a colour, so a pale man's
+ * lips are a rose and a dark man's a brown-crimson, on the same numbers. Measured against a target and not chosen by eye:
+ * lips are 15 to 25 degrees of Lab hue away from the face they are in (redder), and about 12 L* darker on a dark skin, and this
+ * takes green down far more than red (skin 0.20/0.10/0.06 linear to 0.15/0.04/0.03, hue 59 degrees to 36). The lower lip is a little
+ * lighter than the upper (it faces up and catches the sky; the upper faces down and does not).
+ */
+const LIP_UPPER: readonly [number, number, number] = [0.74, 0.40, 0.50];
+const LIP_LOWER: readonly [number, number, number] = [0.80, 0.45, 0.54];
+/** The line between the lips: nearly black, with a little red left in it. */
+const LIP_LINE: readonly [number, number, number] = [0.30, 0.20, 0.22];
+/** How much of the brow's hair colour arrives at full coverage (the rest is the skin showing through it). */
+const BROW_DENSITY = 0.86;
+/** A brow is a little lighter than the swatch the hair is bought as (fine hairs on skin: the skin comes through). */
+const BROW_LIGHT = 1.15;
 
 // ---------------------------------------------------------------------------
 // the head's own (azimuth, latitude), as a table
@@ -185,6 +227,8 @@ export class HeadGrid {
 interface Layer {
   readonly tex: THREE.DataTexture;
   readonly data: Uint8Array;
+  /** The head layer's pure complexion field, before the map's own painting (`sample` reads this one). */
+  base?: Uint8Array;
   readonly w: number;
   readonly h: number;
   /** How many of a UV unit's substance tiles span the map: the texture's `repeat` is 1 / this. */
@@ -215,6 +259,9 @@ function makeLayer(w: number, h: number, scaleU: number, scaleV: number): Layer 
   return { tex, data, w, h, scaleU, scaleV, row: 0 };
 }
 
+/** One (skin, hair) pairing's copy of the head map with the brow painted in. */
+interface BrowVariant { readonly layer: Layer; readonly mult: readonly [number, number, number] }
+
 export class FaceMap {
   readonly field: FaceField;
   readonly grid: HeadGrid;
@@ -222,11 +269,16 @@ export class FaceMap {
   readonly neck: Layer;
   private readonly P = new THREE.Vector3();
   private readonly C = new THREE.Color();
+  private readonly D = { brow: 0, upper: 0, lower: 0, line: 0 };
+  /** The brow's coverage at every texel of the head map (0..255): the shape, with hair-like breakup. */
+  readonly cover = new Uint8Array(HEAD_MAP_SIZE.w * HEAD_MAP_SIZE.h);
+  private readonly variants = new Map<string, BrowVariant>();
 
   constructor(readonly cls: WarriorClass, identity = 0) {
     this.field = faceFieldOf(cls, identity);
     this.grid = new HeadGrid(this.field);
     this.head = makeLayer(HEAD_MAP_SIZE.w, HEAD_MAP_SIZE.h, this.grid.perimeter / FACE_TILE, this.grid.meridian / FACE_TILE);
+    this.head.base = new Uint8Array(this.head.data.length);
     const mid = this.field.neckAt((this.field.neckSpan.top + this.field.neckSpan.bottom) / 2);
     const perimeter = Math.PI * (3 * (mid.hw + mid.hd) - Math.sqrt((3 * mid.hw + mid.hd) * (mid.hw + 3 * mid.hd)));
     this.neck = makeLayer(NECK_MAP_SIZE.w, NECK_MAP_SIZE.h, perimeter / FACE_TILE, (this.field.neckSpan.top - this.field.neckSpan.bottom) / FACE_TILE);
@@ -241,8 +293,10 @@ export class FaceMap {
     const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     while (!this.done && now() - t0 < ms) {
       if (this.head.row < this.head.h) {
-        this.headRow(this.head.row++);
-        if (this.head.row >= this.head.h) this.head.tex.needsUpdate = true;
+        const j = this.head.row++;
+        this.headRow(j);
+        for (const v of this.variants.values()) this.browRow(v, j);
+        if (this.head.row >= this.head.h) { this.head.tex.needsUpdate = true; for (const v of this.variants.values()) v.layer.tex.needsUpdate = true; }
       } else {
         this.neckRow(this.neck.row++);
         if (this.neck.row >= this.neck.h) this.neck.tex.needsUpdate = true;
@@ -256,16 +310,76 @@ export class FaceMap {
 
   private headRow(j: number): void {
     const { w, h, data } = this.head;
+    const base = this.head.base!;
     const { GW, GV } = HeadGrid;
     const v = -Math.PI / 2 + ((j + 0.5) / h) * Math.PI;
     const fy = Math.sin(v);
     const fj = ((j + 0.5) / h) * GV;
-    const P = this.P, C = this.C, hy = this.field.headY;
+    const P = this.P, C = this.C, D = this.D, hy = this.field.headY;
     for (let i = 0; i < w; i++) {
+      const az = -Math.PI + ((i + 0.5) / w) * TAU;
       this.grid.at(((i + 0.5) / w) * GW, fj, P);
       this.field.complexion(P.x, P.y + hy, P.z, C, fy);
       const o = (j * w + i) * 4;
-      data[o] = encode(C.r / FACE_MAP_GAIN); data[o + 1] = encode(C.g / FACE_MAP_GAIN); data[o + 2] = encode(C.b / FACE_MAP_GAIN);
+      base[o] = encode(C.r / FACE_MAP_GAIN); base[o + 1] = encode(C.g / FACE_MAP_GAIN); base[o + 2] = encode(C.b / FACE_MAP_GAIN); base[o + 3] = 255;
+      // ---- the map's own painting, in linear light on top of the field ----
+      let r = C.r, g = C.g, b = C.b;
+      // APERIODIC blotch and grain in place of the field's cosines: value noise at the scale blood and weather vary at (about
+      // 25 mm, 12 mm) and a per-texel grain. Cells are in texels (1.2 mm a texel round, 1.6 down).
+      const blot = (vnoise(i / 20, j / 15) * 0.65 + vnoise(i / 9 + 31, j / 7 + 17) * 0.35) * 2 - 1;
+      const grain = hash2(i, j + 7919) * 2 - 1;
+      const dark = blot < 0 ? -blot : 0;
+      const tint = 1 + 0.032 * blot + 0.010 * grain;
+      r *= tint + 0.020 * dark; g *= tint; b *= tint - 0.012 * dark;
+      // the lips and the line
+      this.field.detail(az, v, D);
+      if (D.upper > 0 || D.lower > 0 || D.line > 0) {
+        const lu = D.upper, ll = D.lower;
+        r *= 1 + (LIP_UPPER[0] - 1) * lu + (LIP_LOWER[0] - 1) * ll; g *= 1 + (LIP_UPPER[1] - 1) * lu + (LIP_LOWER[1] - 1) * ll; b *= 1 + (LIP_UPPER[2] - 1) * lu + (LIP_LOWER[2] - 1) * ll;
+        const ln = D.line;
+        r *= 1 + (LIP_LINE[0] - 1) * ln; g *= 1 + (LIP_LINE[1] - 1) * ln; b *= 1 + (LIP_LINE[2] - 1) * ln;
+      }
+      data[o] = encode(r / FACE_MAP_GAIN); data[o + 1] = encode(g / FACE_MAP_GAIN); data[o + 2] = encode(b / FACE_MAP_GAIN); data[o + 3] = 255;
+      // the brow's coverage: the shape, broken up into hair (strokes long in azimuth and a texel thick)
+      if (D.brow > 0) {
+        const fibre = 0.70 + 0.55 * vnoise(i / 5.5, j / 1.15) + 0.20 * (hash2(i + 5, j + 3) - 0.5);
+        this.cover[j * w + i] = Math.round(255 * Math.max(0, Math.min(1, D.brow * fibre)));
+      } else this.cover[j * w + i] = 0;
+    }
+  }
+
+  /**
+   * This man's head map: the base with his brows painted in his own hair colour, over his own skin. Made once per (skin, hair)
+   * pair and shared by every man who has it; rasterised in step with the base when the base is still being made.
+   */
+  browed(skin: number, hair: number): THREE.DataTexture {
+    const key = `${skin}|${hair}`;
+    let v = this.variants.get(key);
+    if (!v) {
+      const t = new THREE.Color(skin), hc = new THREE.Color(hair);
+      // what the map must hold for the brow to arrive as the hair: final = skin x GAIN x stored, so stored = hair / (skin x GAIN)
+      const mult = [
+        Math.min(1, (hc.r * BROW_LIGHT) / Math.max(0.02, t.r * FACE_MAP_GAIN)),
+        Math.min(1, (hc.g * BROW_LIGHT) / Math.max(0.02, t.g * FACE_MAP_GAIN)),
+        Math.min(1, (hc.b * BROW_LIGHT) / Math.max(0.02, t.b * FACE_MAP_GAIN)),
+      ] as const;
+      v = { layer: makeLayer(HEAD_MAP_SIZE.w, HEAD_MAP_SIZE.h, this.head.scaleU, this.head.scaleV), mult };
+      this.variants.set(key, v);
+      for (let j = 0; j < this.head.row; j++) this.browRow(v, j);
+      if (this.head.row >= this.head.h) v.layer.tex.needsUpdate = true;
+    }
+    return v.layer.tex;
+  }
+
+  private browRow(v: BrowVariant, j: number): void {
+    const { w } = this.head;
+    const src = this.head.data, dst = v.layer.data, o0 = j * w * 4;
+    dst.set(src.subarray(o0, o0 + w * 4), o0);
+    for (let i = 0; i < w; i++) {
+      const c = this.cover[j * w + i];
+      if (!c) continue;
+      const k = (c / 255) * BROW_DENSITY, o = o0 + i * 4;
+      for (let q = 0; q < 3; q++) dst[o + q] = encode(DECODE[src[o + q]] * (1 - k) + v.mult[q] * k);
     }
   }
 
@@ -283,14 +397,15 @@ export class FaceMap {
     }
   }
 
-  /** The stored multiplier at a map's (u, v) in 0..1, bilinear, as the shader would read it. For the rulers. */
+  /** The stored multiplier of the pure COMPLEXION FIELD at a map's (u, v) in 0..1, bilinear (the map's own painting is not in it). For the rulers. */
   sample(kind: FaceKind, u: number, v: number, out: THREE.Color): THREE.Color {
     const L = kind === "head" ? this.head : this.neck;
+    const src = L.base ?? L.data;
     const fx = ((u % 1) + 1) % 1 * L.w - 0.5, fy = Math.max(0, Math.min(1, v)) * L.h - 0.5;
     const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
     const px = (x: number, y: number, c: number) => {
       const xx = ((x % L.w) + L.w) % L.w, yy = Math.max(0, Math.min(L.h - 1, y));
-      const b = L.data[(yy * L.w + xx) * 4 + c] / 255;
+      const b = src[(yy * L.w + xx) * 4 + c] / 255;
       return b <= 0.04045 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
     };
     const ch = (c: number) => (px(x0, y0, c) * (1 - tx) + px(x0 + 1, y0, c) * tx) * (1 - ty) + (px(x0, y0 + 1, c) * (1 - tx) + px(x0 + 1, y0 + 1, c) * tx) * ty;
