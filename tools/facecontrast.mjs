@@ -23,7 +23,8 @@
 //
 //   socket      the eye socket is DARKER than the cheek beside it, by 8 L* or more (the orbit is shadow; a flat
 //               face has none). The socket windows (under the brow, under the eye) against the cheek windows.
-//   lip         the lips are a different COLOUR from the skin round them: dE*ab of 6 or more (CIE76).
+//   lip         the lips are a different COLOUR from the skin round them: 6 or more, in the plan's dE but taken in HUE
+//               only (see the note at the reading: a shadowed slot is a different LIGHT, and is not a lip).
 //   sclera      the white of the eye is LIGHTER than the skin: between skin L* + 5 and + 25. Both sides of the iris are
 //               read and the lighter one is the sclera (the other may sit in a lid's shade). A grey sclera fails low, a
 //               lamp fails high.
@@ -122,12 +123,20 @@ function readCard(img, lm, lab) {
   R.socketDL = R.cheekL - R.socketL;
 
   // ---- lips against the skin beside them ----
+  // A DIFFERENT COLOUR, NOT A DIFFERENT LIGHT. The plan's bar is a dE of 6, and CIE76 dE counts lightness: on the
+  // authored man's frame the mouth slot is a dark line and a window that catches its shade reads dE 12 against the
+  // cheek with no lip in it at all (the huscarl at -35, measured). So the difference is taken in HUE only: the a*b*
+  // distance between the skin's own colour and a colour of the LIP's hue at the skin's chroma, 2 C sin(dh / 2), which
+  // is the plan's dE with the lightness and the saturation taken out. A shadow does not turn a hue and a vermilion does.
   if (vis(lm.mouth.stomion, 0.5)) {
-    mark("lip", lm.mouth.upper, 2.4); mark("lip", lm.mouth.lower, 2.4);
-    const u = win(lm.mouth.upper, 2.4), l = win(lm.mouth.lower, 2.4);
+    mark("lip", lm.mouth.upper, 1.6); mark("lip", lm.mouth.lower, 1.6);
+    const u = win(lm.mouth.upper, 1.6), l = win(lm.mouth.lower, 1.6);
     if (u && l && R.skinLab) {
       const lip = [(u[0] + l[0]) / 2, (u[1] + l[1]) / 2, (u[2] + l[2]) / 2];
-      R.lipLab = lip; R.lipDE = deltaE(lip, R.skinLab);
+      const hue = (c) => Math.atan2(c[2], c[1]);
+      let dh = Math.abs(hue(lip) - hue(R.skinLab)); if (dh > Math.PI) dh = 2 * Math.PI - dh;
+      R.lipLab = lip; R.lipDH = dh * 180 / Math.PI;
+      R.lipDE = 2 * Math.hypot(R.skinLab[1], R.skinLab[2]) * Math.sin(dh / 2);
     }
   }
 
@@ -190,10 +199,10 @@ function checksOf(R, lattice) {
   const push = (name, applies, value, pass, text) => C.push({ name, applies, value, pass, text });
   const has = (v) => Number.isFinite(v);
 
-  push("socket", R.socketL !== undefined && (has(R.cheekL) || has(R.socketL)), R.socketDL, has(R.socketDL) && R.socketDL >= BARS.socketDL,
+  push("socket", has(R.socketL) && has(R.cheekL), R.socketDL, has(R.socketDL) && R.socketDL >= BARS.socketDL,
     `cheek L* ${fmt(R.cheekL)} - socket L* ${fmt(R.socketL)} = ${fmt(R.socketDL)}  (bar >= ${BARS.socketDL})`);
   push("lip", R.lipDE !== undefined, R.lipDE, has(R.lipDE) && R.lipDE >= BARS.lipDE,
-    `lip Lab ${R.lipLab ? R.lipLab.map((v) => v.toFixed(0)).join("/") : "n/a"} vs skin ${R.skinLab ? R.skinLab.map((v) => v.toFixed(0)).join("/") : "n/a"}: dE ${fmt(R.lipDE)}  (bar >= ${BARS.lipDE})`);
+    `lip Lab ${R.lipLab ? R.lipLab.map((v) => v.toFixed(0)).join("/") : "n/a"} vs skin ${R.skinLab ? R.skinLab.map((v) => v.toFixed(0)).join("/") : "n/a"}: hue ${fmt(R.lipDH)} deg apart, dE of hue ${fmt(R.lipDE)}  (bar >= ${BARS.lipDE})`);
   for (const e of R.eyes) {
     if (e.hidden) continue;
     const s = e.scleraL - R.skinL;
@@ -265,12 +274,17 @@ for (const f of files) {
   const lab = labPlanes(img);
   const reg = REG ? (([dx, dy, k]) => ({ dx: Number(dx), dy: Number(dy), k: Number(k) }))(REG.split(",")) : register(CH, lens, lab, card.cls, card.turn);
   const lm = landmarksOnCard(CH, lens, card.cls, card.turn, reg);
-  const R = readCard(img, lm, lab);
+  // A card on which no eye faces the lens (the profile) has NO registration: `register` found nothing to fit, and windows
+  // placed by the rest pose would be 60 px off the head (the authored man's head hangs 55 mm from where the card aims,
+  // and the offset turns with him). Reading them would be measuring the wrong pixels, so the window checks are n/a and
+  // the lattice, which needs no windows, is the one thing read.
+  const registered = REG !== null || reg.found > 0;
+  const R = registered ? readCard(img, lm, lab) : { windows: [], eyes: [] };
   const lattice = measureLattice(img);
   const C = checksOf(R, lattice);
   cards++;
   const label = `${card.cls} ${card.turn}`;
-  console.log(`\n[facecontrast] ${label.padEnd(18)} registered dx ${reg.dx.toFixed(1)} dy ${reg.dy.toFixed(1)} k ${reg.k.toFixed(3)}  (${lm.mmPerPx.toFixed(3)} mm/px)   skin L* ${fmt(R.skinL)}`);
+  console.log(`\n[facecontrast] ${label.padEnd(18)} ${registered ? `registered dx ${reg.dx.toFixed(1)} dy ${reg.dy.toFixed(1)} k ${reg.k.toFixed(3)} on ${REG !== null ? "an override" : `${reg.found} eye(s)`}` : "NOT REGISTERED (no eye faces the lens): window checks n/a, lattice only"}  (${lm.mmPerPx.toFixed(3)} mm/px)   skin L* ${fmt(R.skinL)}`);
   for (const c of C) {
     const fam = c.name.split(" ")[0];
     const t = table.get(fam) ?? { read: 0, failed: 0, cards: [] };

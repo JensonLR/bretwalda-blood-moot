@@ -188,7 +188,7 @@ export function register(CH, lens, lab, cls, turn, opts = {}) {
   const at = (reg) => landmarksOnCard(CH, lens, cls, turn, reg);
   const base = at({ dx: 0, dy: 0, k: 1 });
   const FACE_MIN = 0.35;   // a feature on the far side of the head is not a feature the card can be asked about
-  const eyesSeen = base.eyes.filter((e) => e.iris.facing >= 0.5);
+  const eyesSeen = base.eyes.filter((e) => e.iris.facing >= 0.7);   // the far eye at three-quarter is behind the nose bridge
   const rel = base.eyes.map((e) => e.iris);
   const mid = { x: (rel[0].x + rel[1].x) / 2, y: (rel[0].y + rel[1].y) / 2 };
   const ipd = Math.hypot(rel[0].x - rel[1].x, rel[0].y - rel[1].y);
