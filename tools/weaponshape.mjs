@@ -884,6 +884,9 @@ function shieldReadings() {
   const boards = tris.filter((t) => t.mi.surface === "oak" || t.mi.surface === "lime");
   const zTop = (x, y) => { let best = -Infinity; for (const t of boards) { const z = zOn(t, x, y); if (z !== null && z > best) best = z; } return best; };
   const dish = zTop(0.0, 0.16) - zTop(0.372, 0.0);
+  const sv = (ts) => { let v = 0; for (const t of ts) v += (t.a[0] * (t.b[1] * t.c[2] - t.b[2] * t.c[1]) - t.a[1] * (t.b[0] * t.c[2] - t.b[2] * t.c[0]) + t.a[2] * (t.b[0] * t.c[1] - t.b[1] * t.c[0])) / 6; return v; };
+  const winding = isl.filter((x) => surf(x.t) >= 4e-4);
+  const inside = winding.filter((x) => sv(x.t) < -5e-8);
   // a SLAB is a closed island whose thickness (2V/A) is under 6.5 mm and whose face is over 40x40 mm: a painted quarter cut as a box
   const slabs = isl.filter((x) => x.mi.surface !== "leather" && surf(x.t) > 0.0032 && (2 * vol(x.t)) / surf(x.t) <= 0.0065).length;
   return [
@@ -891,6 +894,7 @@ function shieldReadings() {
     ["at most 3 rim clips (was six 26x44x46 mm iron boxes)", clips <= 3, `${clips} clips`],
     ["dish <= 30 mm from the boss zone to the rim (was 70)", dish <= 0.030, mm(dish)],
     ["zero paint slab boxes (the field is a texture; was seven 4 mm boxes)", slabs === 0, `${slabs} slabs`],
+    ["every solid winds outward (an inside-out piece is culled to nothing)", inside.length === 0, inside.length ? `${inside.length} of ${winding.length} pieces inside out: ${inside.slice(0, 3).map((x) => `${x.mi.surface} ${((x.b.hi[0] - x.b.lo[0]) * 1000).toFixed(0)}x${((x.b.hi[1] - x.b.lo[1]) * 1000).toFixed(0)}x${((x.b.hi[2] - x.b.lo[2]) * 1000).toFixed(0)} mm`).join("; ")}` : `${winding.length} pieces, all outward`],
   ];
 }
 
