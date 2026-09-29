@@ -250,6 +250,27 @@ function islands(tris) {
 }
 
 /**
+ * A piece is CLOSED when every edge of it is shared by exactly two triangles (vertices welded to 0.05 mm, as `islands` does).
+ * Only a closed piece has a volume: the divergence theorem over an open dish or a sleeve returns whatever the origin makes it,
+ * and a sign read off one is not a finding. So the winding check judges the closed pieces and says how many it could not.
+ */
+function isClosed(ts) {
+  const key = (P) => `${Math.round(P[0] * 20000)},${Math.round(P[1] * 20000)},${Math.round(P[2] * 20000)}`;
+  const edges = new Map();
+  for (const t of ts) {
+    const k = [key(t.a), key(t.b), key(t.c)];
+    for (let i = 0; i < 3; i++) {
+      const a = k[i], b = k[(i + 1) % 3];
+      if (a === b) continue;
+      const e = a < b ? `${a}|${b}` : `${b}|${a}`;
+      edges.set(e, (edges.get(e) ?? 0) + 1);
+    }
+  }
+  for (const n of edges.values()) if (n !== 2) return false;
+  return true;
+}
+
+/**
  * The blade section by its ENVELOPES: the highest and lowest surface a ray
  * finds at each x, from the segments of a slice. Two things follow that a
  * shoelace over the segments cannot give, and the first version of this ruler
@@ -367,10 +388,12 @@ const mirrorCheck = (label, tris) => {
  */
 const windingCheck = (label, tris) => {
   const vol = (ts) => { let v = 0; for (const t of ts) v += (t.a[0] * (t.b[1] * t.c[2] - t.b[2] * t.c[1]) - t.a[1] * (t.b[0] * t.c[2] - t.b[2] * t.c[0]) + t.a[2] * (t.b[0] * t.c[1] - t.b[1] * t.c[0])) / 6; return v; };
-  const pieces = islands(tris).filter((ts) => ts.reduce((q, t) => q + t.area, 0) >= 4e-4);
+  const all = islands(tris).filter((ts) => ts.reduce((q, t) => q + t.area, 0) >= 4e-4);
+  const pieces = all.filter(isClosed);
+  const open = all.length - pieces.length;
   const bad = pieces.filter((ts) => vol(ts) < -5e-8);
-  check(`[${label}] every solid winds outward (signed volume >= -50 mm3 on every piece of 4 cm2 or more: an inside-out piece is culled to nothing)`,
-    pieces.length > 0 && bad.length === 0, bad.length ? `${bad.length} of ${pieces.length} pieces inside out, worst ${(Math.min(...bad.map(vol)) * 1e9).toFixed(0)} mm3: ${bad.slice(0, 3).map((ts) => { const b = bboxOf(ts); return `${ts[0].mi.name} at y ${((b.lo[1] + b.hi[1]) / 2).toFixed(3)}, ${((b.hi[0] - b.lo[0]) * 1000).toFixed(0)}x${((b.hi[1] - b.lo[1]) * 1000).toFixed(0)}x${((b.hi[2] - b.lo[2]) * 1000).toFixed(0)} mm`; }).join("; ")}` : `${pieces.length} pieces, all outward`);
+  check(`[${label}] every solid winds outward (signed volume >= -50 mm3 on every CLOSED piece of 4 cm2 or more: an inside-out piece is culled to nothing)`,
+    pieces.length > 0 && bad.length === 0, bad.length ? `${bad.length} of ${pieces.length} pieces inside out, worst ${(Math.min(...bad.map(vol)) * 1e9).toFixed(0)} mm3: ${bad.slice(0, 3).map((ts) => { const b = bboxOf(ts); return `${ts[0].mi.name} at y ${((b.lo[1] + b.hi[1]) / 2).toFixed(3)}, ${((b.hi[0] - b.lo[0]) * 1000).toFixed(0)}x${((b.hi[1] - b.lo[1]) * 1000).toFixed(0)}x${((b.hi[2] - b.lo[2]) * 1000).toFixed(0)} mm`; }).join("; ")}` : `${pieces.length} closed pieces, all outward${open ? ` (${open} open piece${open === 1 ? "" : "s"} not judged: an open dish or sleeve has no volume)` : ""}`);
 };
 
 // ============================================================
@@ -885,7 +908,7 @@ function shieldReadings() {
   const zTop = (x, y) => { let best = -Infinity; for (const t of boards) { const z = zOn(t, x, y); if (z !== null && z > best) best = z; } return best; };
   const dish = zTop(0.0, 0.16) - zTop(0.372, 0.0);
   const sv = (ts) => { let v = 0; for (const t of ts) v += (t.a[0] * (t.b[1] * t.c[2] - t.b[2] * t.c[1]) - t.a[1] * (t.b[0] * t.c[2] - t.b[2] * t.c[0]) + t.a[2] * (t.b[0] * t.c[1] - t.b[1] * t.c[0])) / 6; return v; };
-  const winding = isl.filter((x) => surf(x.t) >= 4e-4);
+  const winding = isl.filter((x) => surf(x.t) >= 4e-4 && isClosed(x.t));
   const inside = winding.filter((x) => sv(x.t) < -5e-8);
   // a SLAB is a closed island whose thickness (2V/A) is under 6.5 mm and whose face is over 40x40 mm: a painted quarter cut as a box
   const slabs = isl.filter((x) => x.mi.surface !== "leather" && surf(x.t) > 0.0032 && (2 * vol(x.t)) / surf(x.t) <= 0.0065).length;
