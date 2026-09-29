@@ -848,8 +848,8 @@ for (const cls of CLASSES) {
       const f = resolve(ART, `warrior-${cls}.glb`);
       if (!existsSync(f)) continue;
       const g = await parse(f);
-      const baked = new Set();
-      g.scene.traverse((o) => { if (o.isMesh && o.material?.name) baked.add(o.material.name); });
+      const baked = [];   // one row per MESH: a cloak part is not drawn at all when he bought no cloak, so it is not compared
+      g.scene.traverse((o) => { if (o.isMesh && o.material?.name) baked.push({ mesh: o.name, mat: o.material.name }); });
       const base = defaultAppearance(cls);
       const variants = [
         ...options("armor").map((v) => ({ label: `finish ${v.toString(16)}`, ap: { ...base, armorColor: v }, team: "none" })),
@@ -862,7 +862,8 @@ for (const cls of CLASSES) {
       for (const v of variants) {
         const proc = procNames(CHM.buildCharacter(cls, v.ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", 13, v.team).group);
         const ctx = DR.authoredDressContext({ cls, appearance: v.ap, team: v.team, faceSeed: 13, materials: RAW });
-        for (const raw of baked) {
+        for (const { mesh, mat: raw } of baked) {
+          if (v.ap.cloak === "none" && /^cloak_\d+$/.test(mesh)) continue;   // `hideBakedRoles` hides it (wearsAuthoredRole)
           const ask = readSurfaceName(raw);
           if (!ask) continue;
           const role = LV.roleOf(cls, ask);
@@ -880,6 +881,53 @@ for (const cls of CLASSES) {
     check("the authored man is dressed in colours the procedural man of the same kit wears", false, haveTable ? "the dress chain did not compile" : "no table to ask");
   }
   if (work) { const { rmSync } = await import("node:fs"); rmSync(work, { recursive: true, force: true }); }
+}
+
+// ---- THE RAZOR: a bought "Shaved" shaves the authored man (CHAR-PLAN CH-05, RENDER-PATHS section B) ----
+//
+// `wearsAuthoredRole` (arena) and `wearsRole` (armoury) each read "none" as bare and NOTHING ELSE, so a 0-gold
+// "Shaved" - `hairStyle: "shaved"` - left `hair` in the worn set, mounted no prop (`propIdOf` says shaved wants no
+// file) and hid nothing: the baked hair shell stayed on his head, and the shop's bare-head cards wore a black cap.
+// `roleIsWorn` (authored.ts) is the one definition now. Asked here of the real function, of the real exports (the
+// baked `hair_N` part must go invisible and nothing else must), and of the two call sites' source (neither may carry
+// its own copy again: two definitions that agree today are the mirrored-definition fault waiting for an edit).
+{
+  console.log("");
+  const A = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+  const have = typeof A.roleIsWorn === "function";
+  check("authored.ts exports roleIsWorn, the one definition of \"is he wearing this\"", have);
+  if (have) {
+    const rows = [
+      ["hair", "shaved", false], ["hair", "short", true], ["hair", "long", true], ["hair", "braids", true], ["hair", "none", false], ["hair", "hair_none", false],
+      ["beard", "none", false], ["beard", "full", true], ["beard", "forked", true], ["helm", "none", false], ["helm", "iron", true], ["helm", "shaved", true],
+      ["cloak", "none", false], ["cloak", "red", true], ["cloak", "shaved", true],
+    ];
+    const bad = rows.filter(([role, v, want]) => A.roleIsWorn({ [role === "cloak" ? "cloak" : `${role}Style`]: v, ...(role === "helm" ? { helm: v } : {}) }, role) !== want);
+    check("shaved is bare for hair and for hair alone; none is bare for helm, beard and cloak; a style is worn", bad.length === 0,
+      bad.length ? `wrong: ${bad.map((r) => r.slice(0, 2).join("=")).join(", ")}` : `${rows.length} rows`);
+    check("ABSENT is not bare (a loadout that mentions no beard is not a man who shaved), and rubbish does not throw",
+      ["helm", "hair", "beard", "cloak"].every((r) => A.roleIsWorn({}, r) && A.roleIsWorn(null, r) && A.roleIsWorn(undefined, r) && A.roleIsWorn({ [`${r}Style`]: 3, [r]: [] }, r)));
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      const ap = { helm: "iron", hairStyle: "shaved", beardStyle: "short", cloak: "red" };
+      const wanted = new Set(AUTHORED_ROLES.filter((r) => A.roleIsWorn(ap, r)));
+      hideBakedRoles(g.scene, wanted);
+      const parts = rolePartsOf(g.scene);
+      const hairGone = (parts.get("hair") ?? []).length > 0 && (parts.get("hair") ?? []).every((p) => !p.visible);
+      const restKept = ["helm", "beard", "cloak"].every((r) => (parts.get(r) ?? []).every((p) => p.visible));
+      check(`${cls}: a shaved man has no baked hair on his head, and keeps his helm, beard and cloak`, hairGone && restKept,
+        `hair x${(parts.get("hair") ?? []).length} hidden ${hairGone}, the rest kept ${restKept}`);
+    }
+  }
+  const { readFileSync: rf } = await import("node:fs");
+  const inline = /v !== "none" && !v\.endsWith\("_none"\)/;
+  for (const [file, what] of [["src/game/client/GameCanvas.tsx", "the arena"], ["src/game/client/armouryStage.ts", "the armoury"]]) {
+    const text = rf(resolve(ROOT, file), "utf8");
+    check(`${what} asks roleIsWorn and carries no copy of its own`, /roleIsWorn\(/.test(text) && !inline.test(text),
+      /roleIsWorn\(/.test(text) ? (inline.test(text) ? "still has the inline none-only test" : "delegates") : "does not call it");
+  }
 }
 
 console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);

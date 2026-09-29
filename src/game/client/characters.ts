@@ -281,8 +281,9 @@ export function migrateAppearance(ap: Appearance): Appearance {
  * finish would be one red mass. That was wrong, and `art/shots/lineup.png` is
  * what disproved it: the warden's lower half is still olive after everything
  * above was wired up. `accents` is not a team colour at all. It is
- * `CLASS_TUNIC[cls]` in `render/anim.ts` — four hard-coded per-class constants,
- * and the warden's is `0x5a6630`, an olive green. There are no teams in it.
+ * `CLASS_TUNIC[cls]` (then in `render/anim.ts`, now beside `tunicDye`, which
+ * re-exports it) — four hard-coded per-class constants, and the warden's WAS
+ * `0x5a6630`, an olive green. There are no teams in it.
  *
  * SO THAT CONSTANT IS THE OWNER'S GREEN LOWER HALF. Not the trousers, which is
  * where I looked first. The tunic is the largest garment on the man, the warden's
@@ -330,32 +331,59 @@ export interface FinishKit {
 /**
  * The seven, keyed by the hex the option already stores so no id, cost or saved
  * profile has to move. Each row is a dye lot and a metal, chosen together.
+ *
+ * RE-GRADED TO AS-WORN VALUES (`docs/LORE` 7, `CHAR-PLAN` 1.5 and U6; the ruler is
+ * `tools/chromabudget.mjs`). Three rules, and each is a number a ruler holds:
+ *
+ *   * WORN CLOTH, LEATHER AND MAIL AT C* 35 OR UNDER; cast metal at 50 (gilt is metal).
+ *     Blood is C* 63-74, and the things that sat closest to it were a finish's
+ *     mail: Bretwalda Gold at C* 46.7 and Madder and Brass at 38.0, and three tunic
+ *     and harness cells the plan did not enumerate (Crimson's tunic 41.4, Gold's
+ *     tunic 40.2 and buff 43.1, Gold's wraps 35.6, Bronze's buff 36.5). Real as-worn
+ *     wool is C* 15-42 and faded, not fresh (light and soil dull every dye).
+ *   * THE LEG WRAPS ARE L* 44-50 AND C* 14 OR UNDER in every finish. They were the
+ *     brightest cloth on the man in six of the seven rows (L* 52.6 issued, 77.0 in
+ *     Gold) - brighter than his face, which is what read as "cream puttees" and
+ *     "yellow gaiters" and as a greave in the lore's own trap list. Real wraps were
+ *     undyed grey-fawn or dyed like the rest. The face, the hands and the steel are
+ *     the brightest things on a man; a wrap is never the brightest cloth.
+ *   * THE ISSUED MAIL IS NEUTRAL IRON, #64666a (L* 43.1, C* 2.5), not #5f6b7a
+ *     (h 264: blue), and the issued fittings are cast bronze, #a07c45 (L* 54.4),
+ *     not the #bfa25c (L* 67.8, C* 40.1) that read as yellow plastic on every man.
+ *
+ * The row KEYS are the stored option hexes and do not move, so the mail of the
+ * first row is no longer its own key; nothing reads the key as a colour.
  */
 export const FINISH_KIT: Record<number, FinishKit> = {
   // Rough Iron — what a man is issued. Undyed wool in the fleece's own colours,
-  // oiled harness leather, cast bronze. This row is the old constants, so the
-  // free finish looks exactly as it did and the ladder starts where it started.
-  0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  // oiled harness leather, cast bronze. The wrap is moorit-fawn (LORE 4.3), the
+  // mail is bare iron and the fittings are bronze: three cells re-graded, and the
+  // rest of the row is the old constants.
+  0x5f6b7a: { mail: 0x64666a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x7a6d58, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xa07c45 },
   // Polished Steel — everything on him goes cool and a shade brighter. Slate
-  // wool, bleached wraps, tinned-bronze fittings that match the shirt.
-  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  // wool, undyed grey wraps, tinned-bronze fittings that match the shirt.
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0x717069, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
   // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
   // fittings go to dark iron; brass buttons would undo the whole finish.
-  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x706a5f, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
   // Bronze Scales — the warm end. Walnut-dyed trousers, oat wraps, tan harness
   // and true cast bronze, so the whole man reads as one metal's worth of warmth.
-  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0x7c715c, hide: 0x513418, buff: 0x8d6b3c, fitting: 0xc79a4a },
   // Crimson Warplate — madder. The dyestuff that actually made a Dark Age man
-  // look rich, on the trousers and pulled through the leather; wraps stay a
-  // pale rose-grey so the legs still break into two values at fight distance.
-  0x7a2f2a: { mail: 0x7a2f2a, tunic: 0x8a3730, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  // look rich, on the tunic and the trousers and pulled through the leather; wraps
+  // stay a rose-grey so the legs still break into two values at fight distance.
+  // As worn madder is #743a30 on the mail (LORE 7.1 "deep", L* 31.7, C* 30.2) and
+  // #85453a on the tunic (L* 37.0, C* 32.3): a brick, not a blood.
+  0x7a2f2a: { mail: 0x743a30, tunic: 0x85453a, trouser: 0x5d2d29, wrap: 0x7f6b66, hide: 0x46201a, buff: 0x8a5241, fitting: 0xa07c45 },
   // Sea Queen's Gift — woad, the other expensive vat, and the only cold blue on
   // the roster. Fittings go pewter rather than gold for the same reason.
-  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x69737b, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
   // Bretwalda Gold — weld yellow over everything and fire-gilt fittings. The top
   // of the ladder, and now the only finish where the trousers, the wraps, the
-  // belt and the brooch are all saying the same thing.
-  0x9a7a2a: { mail: 0x9a7a2a, tunic: 0x8a6f2c, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
+  // belt and the brooch are all saying the same thing. Weld as worn is the DULL
+  // one, #a89357 (LORE 7.1: L* 61.6, C* 34.5): the fresh weld the row used to carry
+  // at C* 46.7 is a colour that fades in a season, and the gold is in the gilt.
+  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x78705d, hide: 0x4d3a14, buff: 0x957844, fitting: 0xdcc164 },
 };
 
 /**
@@ -413,6 +441,67 @@ export function tunicDye(lot: number, accent: number): number {
   const l = Math.min(0.55, Math.max(0.09, a.l * (0.74 + b.l * 1.1)));
   return new THREE.Color().setHSL(h, s, l).getHex();
 }
+
+/**
+ * Tunic accent per class — the fastest read of who you are fighting.
+ *
+ * MOVED HERE FROM `render/anim.ts` (which re-exports it, so every importer still
+ * finds it there). The authored man is dressed by `render/authoredLivery.ts`,
+ * which has to reproduce `buildCharacter`'s tunic - `tunicDye(kit.tunic, accent)` -
+ * and the accent is the one argument the builder's CALLER used to hold. The seam
+ * file may import this module and nothing heavier, and `tools/dresschain.mjs`
+ * compiles it alone.
+ *
+ * Exported because `tools/teamread.mjs` builds warriors the way `anim.ts` does and
+ * must not keep its own copy of this table: this file records the mirrored-
+ * definition fault four times, and a harness holding a stale accent would grade a
+ * tunic nobody is wearing. It is the accent the REAL rig passes, or it is not a
+ * measurement of the game.
+ *
+ * In a team mode, or under a people's livery, the accent no longer reaches the
+ * tunic's hue - see the precedence note over `TeamField`. It still reaches
+ * nothing else.
+ *
+ * THE WARDEN IS OFF THE YELLOW-GREEN AXIS, and this is the last live half of
+ * `COSMETICS-AUDIT.md` §4.1's fourth fault: "warden defaults to a red cloak over a
+ * `0x5a6630` yellow-green tunic — the Roman colourway." Woad over weld gives a
+ * green wool the period actually had, and taking it cool moves the warden off the
+ * olive without moving him onto anybody: the huscarl is walnut-brown, the berserker
+ * madder, the runekeeper an indigo-grey. It also keeps the promise the `tunicDye`
+ * note makes about him - that he stays "the coolest of the four".
+ *
+ * RE-GRADED (LORE 7.2): the runekeeper's `#3d3a5c` (h 297) passed the chroma cap
+ * and was still a hue neither dyestuff makes - woad is h 264-276, lichen purple
+ * h 336-338 - so it is `#39405a`, an indigo-grey (L* 27.5, C* 17.0, h 285); and
+ * the berserker's `#6e2b26` was AT the cap (C* 34.6), so it is `#743a30`, madder as
+ * worn (L* 31.7, C* 30.2).
+ */
+export const CLASS_TUNIC: Record<string, number> = {
+  huscarl: 0x6a5636,
+  warden: 0x565a55,
+  runekeeper: 0x39405a,
+  berserker: 0x743a30,
+};
+
+/**
+ * THE SURFACES THAT ARE DYED BUT ARE IN NO ARMOURY OPTION, given names so the
+ * builder and the authored man's role table read ONE number. They were literals
+ * typed at their call sites (`wornBy(0xc2b69c, ...)`), and a colour the authored
+ * path must know cannot live inside a function it cannot call.
+ *
+ *   LINEN  the shirt and sleeves. Unbleached; the lore's ceiling is #e4dcc6 and pure
+ *          white does not exist. It is also the game's own definition of "undyed"
+ *          (`UNDYED_SAT` reads it).
+ *   PELT   the berserker's wolf-skin ruff, hanging locks and shoulder box.
+ *   HOOD   the runekeeper's cowl cloth: undyed dark wool, the same on every class
+ *          and at every price of cloak.
+ */
+export const LINEN_HEX = 0xc2b69c;
+export const PELT_HEX = 0x8a7050;
+export const HOOD_HEX = 0x2a2521;
+/** Cast bronze, not a bezel: `M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS)`. See `brass` in `buildCharacter`. */
+export const BRASS_ROUGHNESS = 0.46;
+export const BRASS_METALNESS = 0.78;
 
 // ============================================================
 // TEAM COLOUR — the precedence rule
@@ -1481,7 +1570,7 @@ const ROSE_LIT = 0.44;
  */
 const UNDYED_SAT = (() => {
   const t = { h: 0, s: 0, l: 0 };
-  new THREE.Color(0xc2b69c).getHSL(t);
+  new THREE.Color(LINEN_HEX).getHSL(t);
   return t.s;
 })();
 /**
@@ -2545,9 +2634,72 @@ const SKIN_TONES: SkinTone[] = [
 // ==== CLOAK COLOURS (owner: U6) ====
 
 
+/**
+ * The four cloaks, AS WORN (LORE 4.4 and 7.2, `tools/chromabudget.mjs`).
+ *
+ *   brown  #5a4030  walnut, as it was (L* 29.5, C* 16.8)
+ *   red    #8f4c3f  madder as worn, was `#7a2020` (L* 40.2, C* 33.6; it was C* 45.0, the
+ *                   hottest garment in the game after blood, which is C* 63-74). Lighter and
+ *                   greyer, so blood now reads hotter than the cloak beside it.
+ *   blue   #24386a  the Sea-Wolf's woad, as it was (L* 24.5, C* 33.1). LORE calls it 1.6-2x
+ *                   the chroma of real deep woad and offers `#3f5a7c`; it is inside the budget
+ *                   and is left alone, because a blue that is only just a colour at 6.8 m
+ *                   would take the side's own field away from the team read's neighbours.
+ *   gold   #b29e62  weld-ochre, was `#a8842a` (L* 65.6, C* 34.0; it was C* 51.3, school-bus
+ *                   yellow at the front of the shop). The lore proposes `#b5a05e`, which
+ *                   measures C* 37.1 against the lore's own budget of 35 (a disagreement of
+ *                   the doc with itself, docs/PROCESS.md R10); this is the same lightness and
+ *                   hue taken to the bar. The gilt lives on the brooch, where the lore puts it.
+ */
 export const CLOAK_COLORS: Record<string, number> = {
-  brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
+  brown: 0x5a4030, red: 0x8f4c3f, blue: 0x24386a, gold: 0xb29e62, none: 0x5a4030,
 };
+
+/**
+ * WHAT A MAN IS WORN IN, resolved once — the colour of every dyed surface the
+ * procedural builder and the authored man's role table both dress him in.
+ *
+ * ONE FUNCTION, TWO CALLERS, AND THAT IS THE POINT. `buildCharacter` used to
+ * compute these inline, at five call sites, and `render/authoredLivery.ts` has to
+ * reproduce them for a man whose material NAMES carry the issued colours: two
+ * implementations of "what colour is his tunic in a war band" is the
+ * mirrored-definition fault (`docs/PROCESS.md` part 1 §3) with a new address. The
+ * `roletable` claim in `tools/authoredtest.mjs` builds both men for every finish,
+ * cloak, people and side and requires the authored man's colours to be names the
+ * procedural man carries.
+ *
+ * `kit` is `kitFor(finishKit(armorColor), team, people)`: the precedence in one
+ * call (team beats people beats what he bought). `tunic` is the finish's dye lot
+ * shifted by the class accent, and the accent LETS GO of the hue in a war band or
+ * under a livery - a fifth of the way towards olive is exactly enough to take the
+ * largest garment on a red man off red. The rest are surfaces no armoury option
+ * controls, dyed by their own kind of vat; the cloak takes `cloakFor`, flat.
+ */
+export interface WornColours {
+  kit: FinishKit;
+  tunic: number;
+  linen: number;
+  pelt: number;
+  hood: number;
+  cloak: number;
+}
+export function wornColours(
+  ap: { armorColor: number; cloak: string },
+  accent: number,
+  team: TeamSide,
+  people: Allegiance,
+): WornColours {
+  const kit = kitFor(finishKit(ap.armorColor), team, people);
+  const dyed = team !== "none" || people !== "none";
+  return {
+    kit,
+    tunic: dyed ? kit.tunic : tunicDye(kit.tunic, accent),
+    linen: wornBy(LINEN_HEX, team, people, "linen"),
+    pelt: wornBy(PELT_HEX, team, people, "leather"),
+    hood: wornBy(HOOD_HEX, team, people, "cloth"),
+    cloak: cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people),
+  };
+}
 
 /**
  * HOW EACH CLOAK IS CUT — and the reason this table exists at all.
@@ -13421,8 +13573,12 @@ export function buildCharacter(
   // it was and `tools/teamread.mjs` cannot move. `dyed` is the two cases
   // together: whenever a band or a people owns the hue, the class accent lets
   // go of it — see the tunic below.
-  const dyed = team !== "none" || people !== "none";
-  const kit = kitFor(finishKit(ap.armorColor), team, people);
+  // `wornColours` is the ONE place that says what colour each dyed surface is, for
+  // this man in this side and this livery; the authored man's role table reads the
+  // same function (`render/authoredLivery.ts`), and a whole `dyed` flag lived here
+  // until it moved in with it.
+  const colours = wornColours(ap, accents, team, people);
+  const kit = colours.kit;
   const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
@@ -13453,7 +13609,7 @@ export function buildCharacter(
   // stature, hem length, layer count and silhouette, which is what `BUILD` and
   // the kit are for — but hue is the side's channel and the class does not get
   // to borrow it. This is the precedence rule at its narrowest point.
-  const wool = cloth(dyed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
+  const wool = cloth(colours.tunic, bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
@@ -13471,7 +13627,7 @@ export function buildCharacter(
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
   // in the set, where a visible tile costs most.
   const flax = (girth: number) =>
-    thrifty ? wool : M.tinted("linen", wornBy(0xc2b69c, team, people, "linen"), { repeat: clothRepeat(girth) });
+    thrifty ? wool : M.tinted("linen", colours.linen, { repeat: clothRepeat(girth) });
   const linen = flax(bodyGirth);
   const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
@@ -13499,7 +13655,7 @@ export function buildCharacter(
   // studs — so it is the surface that makes a finish visible on a berserker, who
   // owns no mail at all. Roughness and metalness are unchanged and stay argued
   // above: only the albedo moves.
-  const brass = M.standard(kit.fitting, 0.46, 0.78);
+  const brass = M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS);
   // The Sutton Hoo palette. Three substances that exist nowhere else on a
   // warrior, so the most expensive thing in the shop is not a recolour of the
   // second most expensive — and minted only for the helm that wears them, which
@@ -13868,7 +14024,7 @@ export function buildCharacter(
   // a seam, which on a 90 mm lock would be most of the lock.
   const PELT_TILE = 0.25;
   const pelt = (girth: number) =>
-    M.tinted("wool", wornBy(0x8a7050, team, people, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+    M.tinted("wool", colours.pelt, { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
   const ruffX = S.chestHW + 0.062;
   const ruffZ = S.chestHD + 0.062;
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
@@ -13876,7 +14032,7 @@ export function buildCharacter(
   const furPelt = pelt(0.3);
   const dark = M.standard(0x1a1310, 0.42);
   const rune = M.get("runeGlow");
-  const cloakMat = cloth(cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people), bodyGirth * 1.4);
+  const cloakMat = cloth(colours.cloak, bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
   //
   // The hood, its mantle, its point and its shoulder drape were all raised on
@@ -13899,7 +14055,7 @@ export function buildCharacter(
   // at a tighter pitch than a cloak because a hood is a smaller garment and the
   // weave has to scale with the thing it is woven into. `hide` stops being the
   // unrobed fallback for the same reason — a hood is cloth on everybody.
-  const hoodCloth = cloth(wornBy(0x2a2521, team, people, "cloth"), bodyGirth * 0.62);
+  const hoodCloth = cloth(colours.hood, bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its

@@ -9,11 +9,13 @@
 // Two engineers are writing those handlers in parallel and neither may edit the closures, so this is the ruler they
 // share. It asks three questions and each one is about a way the seam can go wrong quietly:
 //
-//   1. WITH THE THREE STUBS AS COMMITTED THE CHAIN IS THE OLD CLOSURE. Every ask, every mesh, every man: the material
-//      that comes back is the very object `materials.tinted(surface, color)` / `standard(color)` returned. This is
-//      the claim that keeps "a pass-through" true while the handlers are written, and it fails the day a stub claims
-//      something it should have left alone. (`authoredtest` and the arena frames hold the same claim on real GLBs
-//      and real pixels; this one holds it on the whole ask space in a second.)
+//   1. WITH THREE PASS-THROUGH HANDLERS THE CHAIN IS THE OLD CLOSURE. Every ask, every mesh, every man: the material
+//      that comes back is the very object `materials.tinted(surface, color)` / `standard(color)` returned. This is a
+//      property of the SEAM and not of whatever is written into it, so the three handlers are overwritten with
+//      pass-throughs before it is asked (it used to run against the committed stubs, and went red the day the first
+//      real handler was written: a claim about the wiring that fails when somebody uses the wiring is a claim about
+//      the wrong thing). 1b then puts the REAL livery handler back and holds it to its half of the contract:
+//      it answers what it owns without throwing and returns null for everything it does not.
 //   2. THE CHAIN'S SEMANTICS, on handlers written for the purpose: the first claim wins and the later handlers are
 //      never asked; a null passes; a handler that THROWS costs only itself and is logged once; `base()` is computed
 //      once per ask however often it is called and only if someone calls it; the mesh the handler sees is the mesh
@@ -97,7 +99,15 @@ console.log("\n[dresschain] the authored-material seam, against its contract\n")
 // ---------------------------------------------------------------------------------------------------------------
 // 1. THE STUBS AS COMMITTED
 // ---------------------------------------------------------------------------------------------------------------
+// The three handlers as the code holds them, before anything below overwrites the compiled files.
+const REAL = { Skin: readFileSync(find("authoredSkin.js"), "utf8"), Livery: readFileSync(find("authoredLivery.js"), "utf8"), Hair: readFileSync(find("authoredHair.js"), "utf8") };
+const PASS = {
+  Skin: "export const dressSkin = () => null;",
+  Livery: "export const EXCEPTIONS = []; export const dressLivery = () => null;",
+  Hair: "export const dressHair = () => null;",
+};
 {
+  for (const n of ["Skin", "Livery", "Hair"]) drop(`authored${n}.js`, PASS[n]);
   const D = await fresh();
   let asked = 0, same = 0, bad = "";
   for (const cls of CLASSES) for (const team of ["none", "red", "blue"]) for (const people of ["none", "saxon", "norse", "briton", "pict"]) {
@@ -120,6 +130,54 @@ console.log("\n[dresschain] the authored-material seam, against its contract\n")
     const boom = { tinted() { throw new Error("no such surface"); }, standard: () => ({}) };
     try { D.resolveAuthoredMaterial({ surface: "nope", color: 1 }, HEAD, D.authoredDressContext({ cls: "huscarl", materials: boom })); return false; } catch { return true; }
   })());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 1b. THE REAL LIVERY HANDLER, AT THE SEAM (skin and hair stay pass-throughs so nothing else is being asked)
+// ---------------------------------------------------------------------------------------------------------------
+// The half of the contract this file can hold for `authoredLivery.ts` without a browser or a GLB: it ANSWERS what
+// the role table owns (a material, not a throw: a throw is logged and skipped, and the man would be dressed by the
+// library in the colour the file baked, which is the defect) and it PASSES every ask it does not own (the skin, the
+// hair, the fixed steel, a hex nobody knows) so that the library's own object comes back. What the answer IS - the
+// colour, per finish, cloak, people and side - is `authoredtest`'s roletable claim, which builds the procedural man
+// beside it. The library here is a richer stub: the handler calls `armour` and `hide`, as the builder does.
+{
+  drop("authoredSkin.js", PASS.Skin);
+  drop("authoredLivery.js", REAL.Livery);
+  drop("authoredHair.js", PASS.Hair);
+  const D = await fresh();
+  const LV = await import(pathToFileURL(find("authoredLivery.js")).href + "?v=" + generation);
+  const rich = () => {
+    const lib = stubLibrary();
+    const mint = (k) => lib.tinted(k.split(":")[0], parseInt(k.split(":")[1], 16));
+    lib.armour = (c) => mint(`mail:${c.toString(16)}`);
+    lib.hide = (c) => mint(`leather:${c.toString(16)}`);
+    return lib;
+  };
+  const warn = console.warn; const warned = []; console.warn = (...a) => warned.push(a.join(" "));
+  const ALL = [...ASKS, { surface: "wool", color: 0x8b7c5c }, { surface: "wool", color: 0x504a3e }, { surface: "leather", color: 0x4a3524 },
+    { surface: "leather", color: 0x7a5b38 }, { surface: "linen", color: 0xc2b69c }, { surface: "steel", color: 0xb6bfca }, { surface: "bone", color: 0xd8cfb4 },
+    { surface: "wool", color: 0x123456 }, { surface: null, color: 0x655d50 }, { surface: "skin", color: 0x7c4936 }];
+  let owned = 0, ownedAnswered = 0, others = 0, othersPassed = 0, firstStray = "";
+  for (const cls of CLASSES) for (const team of ["none", "red", "blue"]) for (const people of ["none", "saxon", "norse"]) {
+    const lib = rich();
+    const ctx = D.authoredDressContext({ cls, team, faceSeed: 7, materials: lib, appearance: { ...defaultOf(D, cls), people } });
+    for (const ask of ALL) {
+      const role = LV.roleOf(cls, ask);
+      const got = D.resolveAuthoredMaterial(ask, HAND, ctx);
+      if (role) { owned++; if (got && got.isMaterial) ownedAnswered++; }
+      else {
+        others++;
+        const want = ask.surface ? lib.tinted(ask.surface, ask.color) : lib.standard(ask.color);
+        if (got === want) othersPassed++; else if (!firstStray) firstStray = `${cls} ${ask.surface}:${ask.color.toString(16)}`;
+      }
+    }
+  }
+  console.warn = warn;
+  check("the real livery handler answers every ask the role table owns, without throwing", owned > 200 && ownedAnswered === owned && warned.length === 0,
+    `${ownedAnswered}/${owned} answered${warned.length ? `; it threw: ${warned[0]}` : ""}`);
+  check("...and returns the library's own object for every ask it does not own (skin, fixed steel, bone, hair, a hex nobody knows)", others > 100 && othersPassed === others,
+    `${othersPassed}/${others} passed through${firstStray ? `; first stray ${firstStray}` : ""}`);
 }
 
 function defaultOf(D, cls) { return D.authoredDressContext({ cls, materials: stubLibrary() }).appearance; }
