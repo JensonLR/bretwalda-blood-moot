@@ -45,6 +45,13 @@ exists because something was shipping unmeasured:
 | `npm run crownnews` | the crowning latch, over two simulated visits. A one-render assertion cannot see "the visit that shows you the news is the visit after which it stops being news" |
 | `npm run storeclaims` | the Steam page's nouns, against the modules that own them. It was written after the copy claimed five warrior classes and named a Burhweard |
 | `npm run marktest` | the 24-glyph set: sourcing, unlock ladder, and that the server narrows a stored mark against the row's own record |
+
+One more, added with the weapons pass (U7), CPU, ~10 seconds:
+
+| ruler | answers |
+|---|---|
+| `node tools/weaponshape.mjs` | whether each held weapon is the OBJECT the lore says it is, in every one of the six finishes. 385 checks read off the triangles the builders emit (plane slices, envelopes, connected islands, the materials' own values), never off a station table: a sword's guard is 124 mm across and its pommel one shell with three lobes, a seax has a broken back and brass wire and nothing that glows, a Dane axe's bit is bright steel on dark cheeks, a spear head is 117 mm across its wings and 86 mm across its leaf, no steel is a mirror (CH-24), and every grip is still the radius the baked fists close on. `--mutant=[weapon:]name` builds nine deliberately wrong weapons (the header of the file lists them) and requires the ruler to catch each; `--shield` gates the board, which is W-B's and is only read out until then |
+
 This is the loop. Iterate here. It catches type errors, geometry punching
 through skin, silhouette failures, and cosmetics that do not differ.
 

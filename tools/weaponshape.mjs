@@ -4,8 +4,12 @@
 //
 //   node tools/weaponshape.mjs              every weapon, every finish, gated
 //   node tools/weaponshape.mjs --shield     also GATE the shield (W-B's parts)
-//   node tools/weaponshape.mjs --mutant=NAME  build a deliberately wrong weapon
-//                                           and require the ruler to catch it
+//   node tools/weaponshape.mjs --mutant=[weapon:]NAME  build a deliberately wrong weapon
+//                                           and require the ruler to catch it. Nine of them:
+//                                           sword: hoop-and-balls, wide-guard-pommel
+//                                           spear: fat-leaf, wingless, oak-broomstick
+//                                           seax:  emissive-runes, no-runes
+//                                           axe:   same-iron-bit, long-edge
 //   node tools/weaponshape.mjs --only=sword|seax|axe|spear|shield
 //
 // WHY THIS EXISTS. `docs/PROCESS.md` failure mode 1: a harness that measures
@@ -96,8 +100,10 @@ const flagVal = (name, dflt = null) => {
   return hit ? hit.slice(name.length + 3) : dflt;
 };
 const has = (name) => argv.includes(`--${name}`);
-const ONLY = flagVal("only");
+const ONLY = flagVal("only") ?? (() => { const m = flagVal("mutant"); if (!m) return null; const w = m.includes(":") ? m.slice(0, m.indexOf(":")) : "sword"; return w === "dane" || w === "hand" ? "axe" : w; })();
 const MUTANT = flagVal("mutant");
+// `--mutant=weapon:name`; a bare name is a sword mutant, as it always was. A mutant run reads ONE weapon.
+const [MUT_WEAPON, MUT_NAME] = MUTANT ? (MUTANT.includes(":") ? [MUTANT.slice(0, MUTANT.indexOf(":")), MUTANT.slice(MUTANT.indexOf(":") + 1)] : ["sword", MUTANT]) : [null, null];
 const GATE_SHIELD = has("shield");
 const VERBOSE = has("v");
 
@@ -355,36 +361,86 @@ const mirrorCheck = (label, tris) => {
 // ============================================================
 // MUTANTS - deliberately wrong weapons, to show a check is not vacuous (R3)
 // ============================================================
-/** Applies a named wrongness to a built sword group. Returns a note. */
-function mutateSword(group, name) {
+/**
+ * Applies the requested wrongness to a built weapon group, or nothing when the mutant is for another weapon.
+ * Returns a note for the verdict line. Every mutant is a THING A LAZY FIX WOULD DO: the right numbers on the
+ * wrong object, or a check's own quantity satisfied by a shortcut.
+ */
+function mutate(weapon, group) {
+  if (MUT_WEAPON === null || !(MUT_WEAPON === weapon || (MUT_WEAPON === "axe" && (weapon === "dane" || weapon === "hand")))) return "";
+  const name = MUT_NAME;
   const meshes = []; group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  const grow = (geo, fx, fy, fz, y0) => {
-    const p = geo.attributes.position;
+  const surf = (m) => matInfo(m.material).surface;
+  const stretch = (mesh, fx, fy, fz, when) => {
+    const p = mesh.geometry.attributes.position;
     for (let i = 0; i < p.count; i++) {
-      if (y0 !== undefined && !(p.getY(i) <= y0)) continue;
+      if (when && !when(p.getX(i), p.getY(i), p.getZ(i))) continue;
       p.setXYZ(i, p.getX(i) * fx, p.getY(i) * fy, p.getZ(i) * fz);
     }
     p.needsUpdate = true;
   };
-  if (name === "hoop-and-balls") {
-    // The right numbers, the wrong object: a 68 mm pommel that is a plain cap with three balls stacked on it.
-    const mat = meshes[0].material;
-    for (const lx of [-0.021, 0, 0.021]) {
-      const geo = new THREE.SphereGeometry(0.012, 8, 5);
-      geo.translate(lx, -0.120, 0);
-      const mesh = new THREE.Mesh(geo, mat);
-      group.add(mesh);
+  const dropTris = (mesh, pred) => {
+    const G = mesh.geometry, P = G.attributes.position, I = G.index, keep = [];
+    const n = I ? I.count : P.count;
+    for (let t = 0; t < n; t += 3) {
+      const ids = [0, 1, 2].map((k) => (I ? I.getX(t + k) : t + k));
+      if (!pred(ids.map((i) => [P.getX(i), P.getY(i), P.getZ(i)]))) keep.push(...ids);
     }
-    return "three loose balls added under the butt";
+    G.setIndex(keep);
+  };
+  if (weapon === "sword") {
+    if (name === "hoop-and-balls") {
+      // The right numbers, the wrong object: a 68 mm pommel that is a plain cap with three balls stacked on it.
+      const mat = meshes[0].material;
+      for (const lx of [-0.021, 0, 0.021]) {
+        const geo = new THREE.SphereGeometry(0.012, 8, 5);
+        geo.translate(lx, -0.120, 0);
+        group.add(new THREE.Mesh(geo, mat));
+      }
+      return "three loose balls added under the butt";
+    }
+    if (name === "wide-guard-pommel") {
+      for (const m of meshes) stretch(m, 1.9, 1, 1, (x, y) => y <= 0.02);
+      return "every hilt vertex below y=0.02 stretched 1.9x in x";
+    }
+    if (name === "rhombus") return "no geometry change: the HEAD sword IS the rhombic mutant";
   }
-  if (name === "wide-guard-pommel") {
-    for (const m of meshes) grow(m.geometry, 1.9, 1, 1, 0.02);
-    return "every hilt vertex below y=0.02 stretched 1.9x in x";
+  if (weapon === "spear") {
+    if (name === "fat-leaf") {
+      for (const m of meshes) if (STEELS.has(surf(m))) stretch(m, 1.55, 1, 1, (x, y) => y > 1.12);
+      return "every steel vertex above y 1.12 stretched 1.55x across: a 133 mm leaf, the wings lost in it";
+    }
+    if (name === "wingless") {
+      for (const m of meshes) if (surf(m) === "iron") dropTris(m, (pts) => pts.every(([x, y]) => Math.abs(x) > 0.0235 && y > 1.03 && y < 1.18));
+      return "the wing plates deleted: a leaf on a socket";
+    }
+    if (name === "oak-broomstick") {
+      for (const m of meshes) if (surf(m) === "ash") stretch(m, 1.3, 1, 1.3, (x, y) => y < 0.95);
+      return "the ash shaft thickened 1.3x: a 40 mm pole";
+    }
   }
-  if (name === "rhombus") {
-    return "no geometry change: the HEAD sword IS the rhombic mutant";
+  if (weapon === "seax") {
+    if (name === "emissive-runes") {
+      for (const m of meshes) if (isBrass(matInfo(m.material))) { m.material = m.material.clone(); m.material.emissive.setRGB(1, 0.8, 0.4); m.material.emissiveIntensity = 1; }
+      return "the brass wire made to glow: the runeGlow the game's one fantasy-magic trap was";
+    }
+    if (name === "no-runes") {
+      for (const m of meshes) if (isBrass(matInfo(m.material))) dropTris(m, () => true);
+      return "the wire deleted: a blade with an empty fuller";
+    }
   }
-  return `unknown mutant ${name}`;
+  if (weapon === "dane" || weapon === "hand") {
+    if (name === "same-iron-bit") {
+      const iron = meshes.find((m) => surf(m) === "iron");
+      for (const m of meshes) if (STEELS.has(surf(m))) m.material = iron.material;
+      return "the bit and the mounts in the cheeks' iron: one dark value from haft to edge";
+    }
+    if (name === "long-edge") {
+      for (const m of meshes) stretch(m, 1.3, 1, 1, (x) => Math.abs(x) > 0.03);
+      return "everything more than 30 mm off the haft stretched 1.3x along the cut: the 307 mm edge it was";
+    }
+  }
+  return `unknown mutant ${weapon}:${name}`;
 }
 
 // ============================================================
@@ -392,7 +448,7 @@ function mutateSword(group, name) {
 // ============================================================
 function swordChecks(styleId) {
   const g = build.sword(styleId);
-  const note = MUTANT ? mutateSword(g, MUTANT) : "";
+  const note = mutate("sword", g);
   const tris = collect(g);
   const bb = bboxOf(tris);
   const label = styleId;
@@ -550,10 +606,11 @@ const medianOf = (a) => { const s = a.filter(Number.isFinite).sort((x, y) => x -
 // ============================================================
 function seaxChecks(styleId) {
   const g = build.seax(styleId);
+  const note = mutate("seax", g);
   const tris = collect(g);
   const bb = bboxOf(tris);
   const label = styleId;
-  console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
+  console.log(`\n  -- ${label}${note ? `  [MUTANT: ${note}]` : ""}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 0.5`, Math.abs(bb.hi[1] - 0.5) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("runekeeper").main);
   mirrorCheck(label, tris);
@@ -675,11 +732,12 @@ function zOn(t, x, y) {
 // ============================================================
 function axeChecks(form, styleId) {
   const g = build[form](styleId);
+  const note = mutate(form, g);
   const tris = collect(g);
   const bb = bboxOf(tris);
   const label = `${form} ${styleId}`;
   const lock = form === "dane" ? 0.997 : 0.401;
-  console.log(`\n  -- ${label}  ${tris.length} triangles, top y ${bb.hi[1].toFixed(4)}`);
+  console.log(`\n  -- ${label}${note ? `  [MUTANT: ${note}]` : ""}  ${tris.length} triangles, top y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: the head's top is where anim.ts reads rig.reach (${lock})`, Math.abs(bb.hi[1] - lock) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, form === "hand" ? CH.gripsFor("berserker", "hand_axes").main : CH.gripsFor("berserker").main);
   mirrorCheck(label, tris);
@@ -734,10 +792,11 @@ function edgeTable(tris, y0, y1) {
 // ============================================================
 function spearChecks(styleId) {
   const g = build.spear(styleId);
+  const note = mutate("spear", g);
   const tris = collect(g);
   const bb = bboxOf(tris);
   const label = styleId;
-  console.log(`\n  -- ${label}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
+  console.log(`\n  -- ${label}${note ? `  [MUTANT: ${note}]` : ""}  ${tris.length} triangles, tip y ${bb.hi[1].toFixed(4)}`);
   check(`[${label}] reach lock: rig.reach = 1.44`, Math.abs(bb.hi[1] - 1.44) < 0.0006, `max y ${bb.hi[1].toFixed(4)}`);
   gripCheck(label, tris, CH.gripsFor("warden").main);
   mirrorCheck(label, tris);

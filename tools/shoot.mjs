@@ -520,6 +520,18 @@ const SHEETS = {
         label: `${cls} · ${turn === 90 ? "profile 90°" : "3/4 −35°"}`, turn, cls,
       }))),
   },
+  // The paid finishes on the weapons that are not the sword. `weaponcards` dresses the huscarl's sword in
+  // all six; the spear, the seax and the axe take the same `weapon` slot and nothing photographed them in
+  // it, so the dark finish (its edges must stay bright) and the two pattern ones (the pattern lives in a
+  // fuller the spear and the axe do not have) were untested on three of the four weapons.
+  weaponfinish: {
+    file: "weapon-finish.png", card: "kitcard", cols: 3,
+    title: "THE PAID FINISHES · spear, seax, axe · portrait scale, three-quarter −35° · pattern-welded above, oil-blackened, serpent-marked below",
+    shots: ["weapon_welded", "weapon_blued", "weapon_serpent"].flatMap((weapon) =>
+      ["warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${weapon.replace("weapon_", "")}`, turn: QUARTER, cls, dress: { weapon },
+      }))),
+  },
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 

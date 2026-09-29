@@ -12189,7 +12189,7 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
  * a socket like a cup, which reads as a garden fork's cousin at fifty metres; the finds are a
  * long slim leaf (it stays 310 mm, tip at y 1.44, where `rig.reach` reads it) on a socket with
  * two LUGS, the wings, that turn a thrust that would slide down the shaft and give the head its
- * cross at the fight lens: 116 mm across the wings against 86 mm across the leaf.
+ * cross at the fight lens: 118 mm across the wings against 86 mm across the leaf.
  *
  *   THE LEAF is `forgedBlade` with its fuller run backwards: a raised MIDRIB, a wide bevel to each
  *   edge and a rounded ogive point, in bright steel with brighter bevels. The head is bright where
@@ -12221,7 +12221,7 @@ export function buildSpear(materials?: CharacterMaterials, styleId?: string): TH
     { y: 0.4, hw: 0.0150, hd: 0.0150 },
     { y: -0.2, hw: 0.0155, hd: 0.0155 },
     { y: -0.55, hw: 0.0135, hd: 0.0135 },
-  ], 10, { capTop: true, capBottom: true }), ash);
+  ], 12, { capTop: true, capBottom: true }), ash);
 
   // The leaf: 310 mm from the socket's mouth to the point, 86 mm across at the belly (y 1.25), an
   // ogive from y 1.36. Wide bevels (62% of the half width) and a thin flat, so the section is a
@@ -12267,11 +12267,13 @@ export function buildSpear(materials?: CharacterMaterials, styleId?: string): TH
     part.add(wfPlate(RIVET, 0.0026, 0.78), silver, xf(0, y, s * (0.0209 + (y - 1.056) * 0.0005)));
   }
 
-  // The wings: two lugs in the blade's own plane, springing from the socket's sides at y 1.04 and
-  // turning up toward the leaf's root, 117 mm across in all. Flat plates 3.6 mm thick, dark iron.
+  // The wings: two swept, pointed lugs in the blade's own plane, 59 mm long (y 1.098-1.157) and standing
+  // 33 mm proud of the socket, their tips turned up toward the leaf, 120 mm across in all. Flat plates
+  // 3.6 mm thick, dark iron. (The first cut was 105 mm tall and read as rocket fins, the second was
+  // rounded and read as ears; a lug has a point.)
   const WING: Array<[number, number]> = [
-    [0.0205, 1.046], [0.0330, 1.040], [0.0470, 1.050], [0.0570, 1.070], [0.0585, 1.092],
-    [0.0540, 1.116], [0.0450, 1.134], [0.0340, 1.146], [0.0240, 1.146], [0.0205, 1.100],
+    [0.0212, 1.098], [0.0300, 1.101], [0.0420, 1.110], [0.0540, 1.124], [0.0598, 1.144],
+    [0.0500, 1.148], [0.0400, 1.153], [0.0300, 1.157], [0.0226, 1.156], [0.0208, 1.128],
   ];
   for (const s of [-1, 1]) {
     const outline: Array<[number, number]> = s === 1 ? WING : WING.map(([x, y]) => [-x, y] as [number, number]).reverse();
@@ -12761,12 +12763,14 @@ export function buildOffhandFor(cls: WarriorClass, materials?: CharacterMaterial
  * carries nothing.
  *
  * Every number is read off the geometry above at y = 0, which is where the mount
- * is: sword 16 mm over the cord, seax 14, shield bar 17 across its narrow face,
- * axe 21 over the binding, spear 24 over its hand-hold. They are here rather
- * than in the builders because the *hand* is what needs them and a hand is built
- * before a weapon is chosen. Re-measure when a grip is re-cut; a stale number
- * here does not break anything, it just puts the fingers a few millimetres off
- * the leather.
+ * is: sword 16 mm (the half width of its leather oval), seax 14 (its horn grip),
+ * shield bar 17 across its narrow face, axe 21 over the binding, spear 24 over its
+ * hand-hold. `tools/weaponshape.mjs` reads the section at y = 0 off the emitted
+ * triangles and holds every weapon within -2.5/+4 mm of these, so a re-cut grip that
+ * moves one is a red check and not a stale number. They are here rather than in the
+ * builders because the *hand* is what needs them and a hand is built before a weapon
+ * is chosen. (A stale number here breaks nothing at runtime; it puts the fingers a few
+ * millimetres off the leather, and that is what the ruler is for.)
  *
  * `off` mirrors what `anim.ts` mounts — the runekeeper fights with a seax in each
  * hand and the huscarl's left fist closes on the shield's centre bar, while the
@@ -12776,9 +12780,9 @@ export function buildOffhandFor(cls: WarriorClass, materials?: CharacterMaterial
  * second edit.
  */
 const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
-  // Between the sword's 16 mm core and the 21 mm crest of its cord helix, which
-  // is where a hand on a corded grip actually sits — proud of the wood, sunk into
-  // the binding.
+  // The sword's grip is a leather-wrapped oval, 16.3 mm across at the hand mount
+  // and 17.5 at the pommel end; the fist closes at 17, the wide end of it, which is
+  // where a hand on a swelling grip actually sits.
   huscarl: { main: 0.017, off: 0.017 },
   warden: { main: 0.024, off: null },
   runekeeper: { main: 0.014, off: 0.014 },

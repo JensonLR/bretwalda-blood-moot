@@ -7,6 +7,7 @@
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --all         all four classes at 0 and -35
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --only=huscarl:0,warden:0
 //   /tmp/claude-0/cap node tools/bladevalue.mjs --mutant=whiteout|flat|blackout
+//   /tmp/claude-0/cap node tools/bladevalue.mjs --lever=metalness:1,roughness:0.2
 //
 // WHY THIS EXISTS. CHAR-PLAN CH-24: "Steel is a mirror: blades are the darkest
 // thing on the man". `steel` was metalness 1, roughness 0.18-0.22, and a metal
@@ -69,6 +70,9 @@ const argv = process.argv.slice(2);
 const flagVal = (name, dflt = null) => { const h = argv.find((a) => a.startsWith(`--${name}=`)); return h ? h.slice(name.length + 3) : dflt; };
 const has = (n) => argv.includes(`--${n}`);
 const MUTANT = flagVal("mutant");
+// R1, pull the lever: `--lever=metalness:1,roughness:0.2` sets those on every steel in the weapon, in the page, on
+// the build as it stands, so a run says whether the number the ruler reports MOVES when the thing it is about moves.
+const LEVER = (() => { const v = flagVal("lever"); if (!v) return null; const o = {}; for (const kv of v.split(",")) { const [k, x] = kv.split(":"); o[k] = Number(x); } return o; })();
 const OUT = resolve(ROOT, flagVal("out", "art/bladevalue"));
 const PORT = parseInt(process.env.PORT || String(3300 + (process.pid % 300)), 10);
 const KIT = { w: 700, h: 900 }; // CARDS.kitcard in src/app/shot/page.tsx; asked of /shot?roster=1 below
@@ -115,8 +119,8 @@ mkdirSync(OUT, { recursive: true });
 
 // ---- the page-side passes ---------------------------------------------------
 /** In the page: find the game's camera, apply a mutant, and freeze the loop. */
-async function preparePage(page, mutant) {
-  return page.evaluate(async (mut) => {
+async function preparePage(page, mutant, lever) {
+  return page.evaluate(async ([mut, lev]) => {
     const scene = window.__bretwaldaScene, renderer = window.__bretwaldaRenderer;
     if (!scene || !renderer) return { error: "the page publishes no __bretwaldaScene / __bretwaldaRenderer" };
     const weapons = [];
@@ -138,6 +142,17 @@ async function preparePage(page, mutant) {
         o.material = m;
       });
     }
+    if (lev) {
+      weapons[0].traverse((o) => {
+        if (!o.isMesh || !o.material || !/^(steel|weldsteel|serpentsteel)/.test(o.material.name || "")) return;
+        const m = o.material.clone();
+        // a scalar means nothing under a map that multiplies it: take the maps out so the lever is the whole story
+        if ("metalness" in lev) { m.metalness = lev.metalness; m.metalnessMap = null; }
+        if ("roughness" in lev) { m.roughness = lev.roughness; m.roughnessMap = null; }
+        m.needsUpdate = true;
+        o.material = m;
+      });
+    }
     const cams = new Set();
     const orig = renderer.render;
     renderer.render = function (s, c) { if (c && c.isPerspectiveCamera) cams.add(c); return orig.call(this, s, c); };
@@ -149,7 +164,7 @@ async function preparePage(page, mutant) {
     // Freeze: no further frame is scheduled. One may already be in flight; the caller waits it out.
     window.requestAnimationFrame = () => 0;
     return { fov: cam.fov, near: cam.near, far: cam.far, aspect: cam.aspect, frame: renderer.info.render.frame };
-  }, mutant);
+  }, [mutant, lever]);
 }
 
 /** In the page, after the screenshot: redraw the same scene with class colours and read it back. */
@@ -203,15 +218,29 @@ async function classPass(page) {
       else { o.material = M.world; counts.world++; }
     });
     scene.background = null; scene.fog = null; scene.environment = null;
-    renderer.toneMapping = 0;
-    renderer.setRenderTarget(null);
-    renderer.setClearColor(0x000000, 1);
-    renderer.autoClear = true;
-    renderer.render(scene, cam);
-    const gl = renderer.getContext();
-    const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-    const buf = new Uint8Array(w * h * 4);
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    const w = renderer.getContext().drawingBufferWidth, h = renderer.getContext().drawingBufferHeight;
+    // A SECOND RENDERER, on a canvas of its own, with a drawing buffer that is kept: the game's own
+    // framebuffer belongs to the game (its post chain, its clears, a buffer the compositor may have
+    // presented and emptied), and nothing that is read back from it is a measurement. Same scene, same
+    // camera, same skeletons: only the materials are ours.
+    let buf = null, method = "";
+    try {
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      const R2 = new renderer.constructor({ canvas: cv, antialias: false, alpha: false, preserveDrawingBuffer: true });
+      R2.setPixelRatio(1); R2.setSize(w, h, false); R2.toneMapping = 0; R2.setClearColor(0x000000, 1);
+      R2.render(scene, cam);
+      const g2 = R2.getContext(); buf = new Uint8Array(w * h * 4);
+      g2.readPixels(0, 0, w, h, g2.RGBA, g2.UNSIGNED_BYTE, buf);
+      method = "second renderer";
+      R2.dispose();
+    } catch (e) {
+      const gl = renderer.getContext();
+      renderer.toneMapping = 0; renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 1); renderer.autoClear = true;
+      renderer.render(scene, cam);
+      buf = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      method = `the game's renderer (a second one threw: ${String(e).slice(0, 80)})`;
+    }
     const cls = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
       const sy = h - 1 - y;
@@ -224,7 +253,7 @@ async function classPass(page) {
     let s = "";
     const CH = 0x8000;
     for (let i = 0; i < cls.length; i += CH) s += String.fromCharCode.apply(null, cls.subarray(i, i + CH));
-    return { w, h, counts, b64: btoa(s) };
+    return { w, h, counts, method, b64: btoa(s) };
   });
 }
 
@@ -344,7 +373,7 @@ try {
   for (const [cls, turn] of FRAMES) {
     const kind = KIND[cls];
     const tag = `${cls}${turn < 0 ? "m" : ""}${Math.abs(turn)}`;
-    console.log(`\n[bladevalue] ${cls} (${kind}) at ${turn} deg${MUTANT ? `  [MUTANT ${MUTANT}]` : ""}`);
+    console.log(`\n[bladevalue] ${cls} (${kind}) at ${turn} deg${MUTANT ? `  [MUTANT ${MUTANT}]` : ""}${LEVER ? `  [LEVER ${JSON.stringify(LEVER)}]` : ""}`);
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
@@ -356,7 +385,7 @@ try {
     { const t0 = Date.now(); let last = -1, quiet = 0;
       while (Date.now() - t0 < 90000) { const n = await page.evaluate(() => (window.__authoredHeads ?? []).length); quiet = n === last ? quiet + 1 : 0; last = n; if (n > 0 && quiet >= 6) break; await page.waitForTimeout(500); }
       console.log(`  authored men drawn ${last}`); }
-    const prep = await preparePage(page, MUTANT);
+    const prep = await preparePage(page, MUTANT, LEVER);
     if (prep.error) { console.log(`  ${prep.error}`); await page.close(); notMeasurable.push(tag); continue; }
     // wait out the frame that may already be in flight
     { const t0 = Date.now(); let f = await page.evaluate(() => window.__bretwaldaRenderer.info.render.frame), still = 0;
@@ -368,7 +397,7 @@ try {
     const W = png.info.width, H = png.info.height;
     const cbuf = Buffer.from(cp.b64, "base64");
     const res = analyse({ data: png.data, channels: png.info.channels }, W, H, { data: cbuf, w: cp.w, h: cp.h }, kind);
-    console.log(`  camera fov ${prep.fov.toFixed(2)} aspect ${prep.aspect.toFixed(3)}; meshes by class ${JSON.stringify(cp.counts)}; frame ${W}x${H}, class map ${cp.w}x${cp.h}`);
+    console.log(`  camera fov ${prep.fov.toFixed(2)} aspect ${prep.aspect.toFixed(3)}; meshes by class ${JSON.stringify(cp.counts)}; frame ${W}x${H}, class map ${cp.w}x${cp.h} by ${cp.method}`);
     // R5: the pictures, so the class map can be looked at as well as believed
     writeFileSync(resolve(OUT, `${tag}.png`), shot);
     if (res.C) {
