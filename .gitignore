@@ -245,3 +245,4 @@ tools/blender/**/__pycache__/
 .authoredtest/
 # tools/chromabudget.mjs likewise
 .chromabudget/
+.hairauthored/

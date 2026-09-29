@@ -761,15 +761,15 @@ for (const cls of CLASSES) {
 {
   console.log("");
   const { emitClient } = await import("./lib/clientmodule.mjs");
-  let LV = null, DR = null, CHM = null, ANIMM = null, why = "";
+  let LV = null, DR = null, CHM = null, ANIMM = null, PROPS = null, why = "";
   let work = null;
   try {
     globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
     globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
     globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
-    const em = await emitClient(ROOT, ["src/game/client/render/authoredLivery.ts", "src/game/client/render/authoredDress.ts", "src/game/client/render/anim.ts"], ".authoredtest");
+    const em = await emitClient(ROOT, ["src/game/client/render/authoredLivery.ts", "src/game/client/render/authoredDress.ts", "src/game/client/render/authoredProps.ts", "src/game/client/render/anim.ts"], ".authoredtest");
     work = em.work;
-    [LV, DR, CHM, ANIMM] = await Promise.all([em.byName("authoredLivery.js"), em.byName("authoredDress.js"), em.byName("characters.js"), em.byName("anim.js")]);
+    [LV, DR, CHM, ANIMM, PROPS] = await Promise.all([em.byName("authoredLivery.js"), em.byName("authoredDress.js"), em.byName("characters.js"), em.byName("anim.js"), em.byName("authoredProps.js")]);
   } catch (e) { why = String(e?.message ?? e).split("\n")[0].slice(0, 200); }
   const haveTable = !!LV && typeof LV.roleOf === "function" && Array.isArray(LV.EXCEPTIONS) && typeof LV.bakedRoles === "function";
   check("the role table is exported (roleOf, bakedRoles, EXCEPTIONS) by authoredLivery.ts", haveTable,
@@ -879,6 +879,51 @@ for (const cls of CLASSES) {
       wrong.length ? `${wrong.length} differ; first: ${wrong.slice(0, 3).join(" | ")}` : `${compared} of ${compared}`);
   } else {
     check("the authored man is dressed in colours the procedural man of the same kit wears", false, haveTable ? "the dress chain did not compile" : "no table to ask");
+  }
+
+  // ---- 4. THE HAIR'S COLOUR IS WHERE A RENDERER WILL READ IT ----
+  //
+  // Blender's glTF exporter writes a prop's FIRST colour attribute as COLOR_0 (an unset, all-white one) and the strand
+  // colour `strands.py` computed as COLOR_1, which no glTF material reads: so the ribbons rendered #e7e7e7 whatever they
+  // were dressed in (CH-05). `adoptStrandColours` moves it (authoredProps.ts) and `dressAuthoredHead` must call it. Asked of
+  // every hair and beard prop in the set under test, so a re-export that changes where the colour lives goes red here
+  // and not into a man with black hair.
+  if (PROPS && typeof PROPS.adoptStrandColours === "function") {
+    const THREEM = await import("three");
+    const rows = [];
+    for (const f of readdirSync(ART).filter((x) => /^(hair|beard)-.*\.glb$/.test(x))) {
+      const g = await parse(resolve(ART, f));
+      g.scene.traverse((o) => {
+        if (!o.isMesh || !/__strands$/.test(o.name)) return;
+        const geo = o.geometry.clone();
+        const before = geo.getAttribute("color");
+        const white = (a) => { for (let i = 0; i < a.count; i += 97) for (let k = 0; k < 3; k++) if (Math.abs(a.getComponent(i, k) - 1) > 1e-3) return false; return true; };
+        const beforeWhite = !!before && white(before);
+        const moved = PROPS.adoptStrandColours(geo);
+        const after = geo.getAttribute("color");
+        rows.push({ f, beforeWhite, moved, afterWhite: !!after && white(after), hasC1: !!o.geometry.getAttribute("color_1") });
+      });
+    }
+    const dead = rows.filter((r) => r.afterWhite || !r.moved && r.beforeWhite);
+    check(`every strand prop's colour is readable after adoptStrandColours (${rows.length} of ${readdirSync(ART).filter((x) => /^(hair|beard)-/.test(x)).length} props carry ribbons)`,
+      rows.length > 0 && dead.length === 0,
+      dead.length ? `${dead.length} still white: ${dead.slice(0, 3).map((r) => r.f).join(", ")}` : `${rows.filter((r) => r.hasC1).length} carry the hair in COLOR_1, ${rows.filter((r) => !r.hasC1).length} in COLOR_0 already`);
+    const propsSrc = readFileSync(resolve(ROOT, "src/game/client/render/authoredProps.ts"), "utf8");
+    check("dressAuthoredHead calls adoptStrandColours on the props it mounts", /adoptStrandColours\(g\)/.test(propsSrc.slice(propsSrc.indexOf("export async function dressAuthoredHead"))));
+    // the handler itself: a ribbon is dressed in the man's colour, on both sides, and a cap is not a metal
+    if (DR && CHM) {
+      const { RAW, defaultAppearance } = CHM;
+      const mk = (hairColor) => DR.authoredDressContext({ cls: "huscarl", appearance: { ...defaultAppearance("huscarl"), hairColor, beardColor: 0x1c1712 }, materials: RAW });
+      const ribbon = (ctx, mesh) => DR.resolveAuthoredMaterial({ surface: "hairstrand", color: 0x4a3220 }, { name: mesh, dominantBone: "Head", isHead: true }, ctx);
+      const cap = (ctx, mesh) => DR.resolveAuthoredMaterial({ surface: "hairunder", color: 0x4a3220 }, { name: mesh, dominantBone: "Head", isHead: true }, ctx);
+      const a = ribbon(mk(0xb8a14e), "hair__strands"), b = ribbon(mk(0xb8a14e), "beard__strands"), c = cap(mk(0xb8a14e), "hair-huscarl-short_1");
+      const lum = (m) => 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b;
+      check("a hair ribbon takes hairColor and a beard ribbon takes beardColor (told apart by the mesh's own name)",
+        !!a && !!b && lum(a) > lum(b) * 4, a && b ? `hair ribbon ${lum(a).toFixed(2)}, beard ribbon ${lum(b).toFixed(2)} (a fair head over a raven beard)` : "no material");
+      check("...the ribbon is a dielectric drawn on both sides with the vertex colour on, and the cap is a dielectric",
+        !!a && a.vertexColors === true && a.side === THREEM.DoubleSide && a.metalness === 0 && !!c && c.metalness === 0,
+        a && c ? `ribbon vertexColors ${a.vertexColors} side ${a.side} metal ${a.metalness}; cap metal ${c.metalness}` : "no material");
+    }
   }
   if (work) { const { rmSync } = await import("node:fs"); rmSync(work, { recursive: true, force: true }); }
 }
