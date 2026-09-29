@@ -35,6 +35,25 @@ export const SKIN = { hue: [15, 35], sat: [0.2, 0.6], val: 0.25 };
 /** The turntable bearing (radians) inside which a man is looking at the lens. */
 export const FACING = 1.2;
 
+/**
+ * THE BARS, ONE TABLE for every tool that asks (`stagehead`, `uishots`, `armourycard`):
+ * the smallest fraction of the crown window that may be skin-hue on a man facing the
+ * lens, per lens. A fraction and not a pixel count, because the same window is ~430
+ * px tall in the portrait lens on a desktop and ~20 in the fight lens on a phone; a
+ * floor of 6 pixels stops a fraction of a hundred-pixel window from being a fraction
+ * of nothing. Set from the measured populations (docs/GATES.md, "stagehead"): the
+ * smallest a healthy man reads, and the largest the headless man reads, with the bar
+ * between them.
+ */
+export const BARS = {
+  face: { skinFrac: 0.03 },
+  bust: { skinFrac: 0.03 },
+  figure: { skinFrac: 0.03 },
+  fight: { skinFrac: 0.03 },
+};
+/** The fewest skin-hue pixels a window may hold, whatever its fraction. */
+export const MIN_SKIN_PX = 6;
+
 export function hsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
@@ -78,7 +97,7 @@ export async function readHead(page) {
     const st = window.__armouryStage;
     if (!st) return null;
     const win = st.headWindow();
-    const base = { lens: st.lens, slot: st.slot ?? null, turn: st.turn, crown: st.crown, ready: st.ready };
+    const base = { lens: st.lens, slot: st.slot ?? null, turn: st.turn, crown: st.crown, ready: st.ready, settled: st.settled ?? st.ready, cls: st.cls ?? null };
     const a = window.__authored ?? null;
     const authored = a && {
       cls: a.cls, ok: a.ok !== false, refused: !!a.refused, why: a.why ?? null,
@@ -119,29 +138,26 @@ export function describe(r) {
 /**
  * Judge a reading. Returns the list of things wrong, empty when there is a head.
  *
- * `bars.skinFrac` is the smallest fraction of the window that may be skin on a
- * man facing the lens, per lens (the window is 27 cm tall at 20 px in the fight
- * lens and ~430 px in the portrait, so a fraction is the only fair unit; the
- * absolute floor `bars.skinPx` covers the fight lens where a fraction of 150 px
- * is a dozen). Both come from `stagehead`'s calibration table.
+ * `bars` is `BARS` (or a stricter one): per lens, the smallest fraction of the
+ * window that may be skin on a man facing the lens, with `MIN_SKIN_PX` as the floor.
  */
-export function judge(r, bars, { requireAuthored = true } = {}) {
+export function judge(r, bars, { requireAuthored = true, allowRefused = false } = {}) {
   const bad = [];
   if (!r) return ["no stage is mounted (window.__armouryStage is absent)"];
   if (!r.win) return [`the head window is off the canvas (crown ${r.crown})`];
   const facing = Math.abs(((r.turn + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI) <= FACING;
   const b = bars[r.lens];
   if (facing && b) {
-    if (r.m.skinFrac < b.skinFrac) bad.push(`skin-hue pixels are ${(r.m.skinFrac * 100).toFixed(1)}% of the crown window, under ${(b.skinFrac * 100).toFixed(1)}% (${r.lens})`);
-    if (r.m.skin < b.skinPx) bad.push(`only ${r.m.skin} skin-hue pixels in the crown window, under ${b.skinPx} (${r.lens})`);
+    const need = Math.max(MIN_SKIN_PX, Math.ceil(b.skinFrac * r.m.n));
+    if (r.m.skin < need) bad.push(`${r.m.skin} skin-hue pixels (${(r.m.skinFrac * 100).toFixed(1)}%) in the ${r.win.w}x${r.win.h} crown window, under ${need} (${(b.skinFrac * 100).toFixed(1)}%, ${r.lens})`);
   }
   const a = r.authored;
+  // A REFUSED man is a failure wherever it is met (the frame then shows the procedural man, and passes
+  // the pixel test on a build whose authored path is broken) unless the run is the one proving the net fires.
+  if (a?.refused && !allowRefused) bad.push(`the head net REFUSED the authored man: ${a.why}`);
   if (requireAuthored) {
     if (!a) bad.push("no authored man reported on window.__authored");
-    else {
-      if (a.refused) bad.push(`the head net REFUSED the authored man: ${a.why}`);
-      else if (!a.ok) bad.push(`the authored swap did not land: ${a.why}`);
-    }
+    else if (!a.refused && !a.ok) bad.push(`the authored swap did not land: ${a.why}`);
   }
   if (a?.head) {
     const h = a.head;
@@ -151,4 +167,27 @@ export function judge(r, bars, { requireAuthored = true } = {}) {
     if (h.scale?.some((c) => !(c >= 0.5))) bad.push(`a head.scale component < 0.5 (${JSON.stringify(h.scale)})`);
   }
   return bad;
+}
+
+/**
+ * Wait until the stage has settled AND, when an authored man is expected, has
+ * reported on THE MAN ON STAGE. A frame read before the swap lands is a picture
+ * of the procedural man, who has a head, and certifies nothing about the man the
+ * default player sees — which is exactly how a defect in the authored one got
+ * certified (`armourycard.mjs`, the paragraph above `CLASSES`).
+ */
+export async function untilSettled(page, { expectAuthored, budgetMs = 90000 } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    const st = await page.evaluate(() => {
+      const p = window.__armouryStage;
+      if (!p) return null;
+      const a = window.__authored;
+      return { settled: p.settled ?? p.ready, cls: p.cls ?? null, reported: !!a && (p.cls == null || a.cls === p.cls) };
+    });
+    if (!st) return { present: false, waitedMs: Date.now() - t0 };
+    if (st.settled && (!expectAuthored || st.reported)) return { present: true, ...st, waitedMs: Date.now() - t0 };
+    if (Date.now() - t0 > budgetMs) return { present: true, ...st, timedOut: true, waitedMs: Date.now() - t0 };
+    await page.waitForTimeout(400);
+  }
 }

@@ -16,12 +16,12 @@
 // photographs as a tasteful gradient and reads as a design choice.
 // ============================================================
 import { chromium } from "playwright";
-import { launchOptions, watchBoot } from "./lib/browser.mjs";
-import { spawn } from "child_process";
-import { mkdirSync, existsSync } from "fs";
+import { launchOptions } from "./lib/browser.mjs";
+import { mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { requireFreshBuild } from "./lib/freshbuild.mjs";
+import { serveProduction, settleShop, CLASS_BUTTON } from "./lib/armoury.mjs";
+import * as W from "./lib/crownwindow.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/ui");
@@ -46,73 +46,15 @@ const NAME = flag("name", "armourycard");
 // its class) and `window.__authoredProps` (the dressed head) are what is waited on.
 const CLASSES = flag("classes", null)?.split(",") ?? null;
 const LENSES = flag("lenses", null)?.split(",") ?? null;
-const CLASS_BUTTON = { huscarl: "HUSCARL", warden: "WEARD", runekeeper: "WRECCA", berserker: "BERSERKER" };
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 mkdirSync(OUT, { recursive: true });
 
-function waitForServer(url, timeoutMs = 180000) {
-  const started = Date.now();
-  return new Promise((ok, fail) => {
-    const poll = async () => {
-      try { const r = await fetch(url); if (r.ok || r.status === 404) return ok(); } catch { /* wait */ }
-      if (Date.now() - started > timeoutMs) return fail(new Error(`server never came up at ${url}`));
-      setTimeout(poll, 700);
-    };
-    poll();
-  });
-}
+/** The shop's settle, from the shared lib (one idea of "the shop has settled" for every tool). */
+const settle = (page) => settleShop(page, "card");
 
-/**
- * Waits until every visible card carries a picture and the mannequin has drawn
- * a few frames since, or gives up and says so. Returns what it saw.
- */
-async function settle(page, budgetMs = 150000) {
-  const started = Date.now();
-  let last = null;
-  for (;;) {
-    const now = await page.evaluate(() => {
-      const tiles = document.querySelectorAll("button .aspect-square").length;
-      const imgs = document.querySelectorAll("button img").length;
-      const st = window.__armouryStats ?? null;
-      return { tiles, imgs, frames: st ? st.frames : 0, mounted: !!st };
-    });
-    last = now;
-    if (now.mounted && now.tiles > 0 && now.imgs >= now.tiles) break;
-    if (Date.now() - started > budgetMs) {
-      console.log(`[card] settle GAVE UP after ${((Date.now() - started) / 1000).toFixed(0)} s: ${now.imgs}/${now.tiles} cards drawn, mounted=${now.mounted}`);
-      break;
-    }
-    await page.waitForTimeout(500);
-  }
-  // A beat past the last picture, so the mannequin is drawn over the corner
-  // the last thumbnail was taken in.
-  await page.waitForTimeout(1200);
-  return last;
-}
-
-let server;
+let served;
 async function startServer() {
-  try {
-    await fetch(`${BASE()}/api/health`, { signal: AbortSignal.timeout(1500) });
-    console.error(`[card] something is already serving ${BASE()} — pass --port`);
-    process.exit(2);
-  } catch { /* free, good */ }
-  // A MISSING build and a build from before your edit are the same problem.
-  requireFreshBuild(ROOT, "card");
-  const built = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  if (!built) {
-    console.error("[card] no production build found — run `npm run build` first");
-    process.exit(2);
-  }
-  server = spawn("node", ["custom-server.mjs"], {
-    cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  watchBoot(server, "armourycard");
-  server.stdout.on("data", () => {});
-  server.stderr.on("data", (d) => process.stderr.write(`[srv] ${d}`));
-  await waitForServer(`${BASE()}/api/health`);
-  console.log(`[card] serving the production build on ${PORT}`);
+  served = await serveProduction(ROOT, "card", PORT);
 }
 
 const VIEWPORTS = has("desktop-only")
@@ -226,9 +168,17 @@ async function main() {
             if (f - f1 >= 3) break;
             await page.waitForTimeout(500);
           }
+          // THE HEAD, in the pixels the stage drew (`tools/lib/crownwindow.mjs`): the owner's
+          // "a torso ending in a neck stump" was the one thing this tool photographed eight times
+          // and never asked about. Waited on so the frame and the read are the same settled man.
+          await W.untilSettled(page, { expectAuthored: true, budgetMs: 30000 });
+          const head = await W.readHead(page);
+          const problems = W.judge(head, W.BARS, { requireAuthored: true });
           const out = `${NAME}-${cls ?? "class"}-${slug(lens ?? "lens")}-${vp.tag}`;
           await page.screenshot({ path: resolve(OUT, `${out}.png`) });
           console.log(`[card] ${out}`);
+          console.log(`[card]   HEAD ${problems.length ? "FAIL" : "ok"}: ${W.describe(head)}${problems.length ? " — " + problems.join("; ") : ""}`);
+          if (problems.length) bad++;
         }
       }
       await ctx.close();
@@ -269,9 +219,9 @@ async function main() {
   }
 
   await browser.close();
-  if (server && !server.killed) server.kill("SIGTERM");
+  if (served) served.stop();
   console.log(`[card] FINAL: ${bad} console/page errors across ${VIEWPORTS.length} viewport(s)`);
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); if (server && !server.killed) server.kill("SIGTERM"); process.exit(1); });
+main().catch((e) => { console.error(e); if (served) served.stop(); process.exit(1); });

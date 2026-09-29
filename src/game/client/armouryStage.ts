@@ -1221,6 +1221,8 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
 
   const probe: StageProbe = {
     get ready() { return ready; },
+    get settled() { return ready && settledFrames >= 3; },
+    get cls() { return loadout.warriorClass; },
     get lens() { return lens; },
     get slot() { return slot; },
     get turn() { return turn; },
@@ -1469,6 +1471,10 @@ function publishStats(): void {
  */
 export interface StageProbe {
   readonly ready: boolean;
+  /** `ready`, and the lens, slot and man have held still for a few frames: the frame a harness may trust. */
+  readonly settled: boolean;
+  /** The class of the man on stage. A harness waits for THIS class's authored report, not the last man's. */
+  readonly cls: string;
   readonly lens: string;
   readonly slot: string | undefined;
   /** The turntable bearing, radians. */

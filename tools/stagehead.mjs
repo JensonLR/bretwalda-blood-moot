@@ -63,17 +63,6 @@ const VPS = has("desktop-only") ? [A.VIEWPORTS.desktop] : has("phone-only") ? [A
 const NAME = flag("name", "stagehead");
 mkdirSync(OUT, { recursive: true });
 
-/**
- * THE BARS. The smallest a HEALTHY man reads, times a margin; measured (see the
- * calibration table in docs/GATES.md), and nothing here is a guess. Skin
- * fraction of the crown window, and an absolute pixel floor, per lens.
- */
-const BARS = {
-  face: { skinFrac: 0.03, skinPx: 200 },
-  bust: { skinFrac: 0.03, skinPx: 200 },
-  figure: { skinFrac: 0.03, skinPx: 60 },
-  fight: { skinFrac: 0.03, skinPx: 8 },
-};
 /** Full-kit framing (UI-PLAN U-M M3): where the crown and the boots land, fractions of the canvas from the top. */
 const FRAMING = { figure: { crown: [0.03, 0.14], boots: [0.84, 0.96] } };
 
@@ -118,8 +107,9 @@ async function main() {
           await A.framesMore(page, 8);
           await A.toTop(page);
           await A.framesMore(page, 3);
+          await W.untilSettled(page, { expectAuthored: false, budgetMs: 30000 });
           const r = await W.readHead(page);
-          const problems = W.judge(r, BARS, { requireAuthored: !ALLOW_REFUSED });
+          const problems = W.judge(r, W.BARS, { requireAuthored: !ALLOW_REFUSED, allowRefused: ALLOW_REFUSED });
           if (!NO_NET && !ALLOW_REFUSED && r && !r.authored?.net) problems.push("no head net verdict on window.__authored (this tree has no head net)");
           if (r?.win && FRAMING[lens]) {
             const f = FRAMING[lens];
@@ -151,7 +141,7 @@ async function main() {
     if (!rs.length) continue;
     const lo = rs.reduce((a, b) => (b.skinFrac < a.skinFrac ? b : a));
     const hi = rs.reduce((a, b) => (b.skinFrac > a.skinFrac ? b : a));
-    console.log(`[stagehead] ${lens.padEnd(6)} skin fraction ${(lo.skinFrac * 100).toFixed(1)}% (${lo.cls}/${lo.vp}, ${lo.skin} px of ${lo.n}) .. ${(hi.skinFrac * 100).toFixed(1)}% (${hi.cls}/${hi.vp})   bar ${(BARS[lens].skinFrac * 100).toFixed(1)}% / ${BARS[lens].skinPx} px`);
+    console.log(`[stagehead] ${lens.padEnd(6)} skin fraction ${(lo.skinFrac * 100).toFixed(1)}% (${lo.cls}/${lo.vp}, ${lo.skin} px of ${lo.n}) .. ${(hi.skinFrac * 100).toFixed(1)}% (${hi.cls}/${hi.vp})   bar ${(W.BARS[lens].skinFrac * 100).toFixed(1)}% (floor ${W.MIN_SKIN_PX} px)`);
   }
   const total = rows.length;
   const failed = rows.filter((x) => x.failed).length;
