@@ -533,6 +533,13 @@ const SHEETS = {
       label: `berserker · ${arms.replace("_", " ")}`, turn: QUARTER, cls: "berserker", query: `taken=berserker:${arms}`,
     })),
   },
+  // The seax's own close-up. The weapon card is aimed at the huscarl's fist and the runekeeper carries his at his
+  // hips, so this may miss; it is one frame to find out, and the runes are a millimetre wide.
+  weaponseax: {
+    file: "weapon-seax.png", card: "weaponcard", cols: 2,
+    title: "THE SEAX · weapon-card lens on the runekeeper · front 0° and three-quarter −35°",
+    shots: [0, QUARTER].map((turn) => ({ label: `runekeeper · ${turn === 0 ? "front 0°" : "3/4 −35°"}`, turn, cls: "runekeeper" })),
+  },
   weaponfinish: {
     file: "weapon-finish.png", card: "kitcard", cols: 3,
     title: "THE PAID FINISHES · spear, seax, axe · portrait scale, three-quarter −35° · pattern-welded above, oil-blackened, serpent-marked below",
