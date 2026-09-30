@@ -2755,29 +2755,48 @@ export const RAW: CharacterMaterials = {
 // cheat, but it is the same cheat every hand-painted game character has used for
 // twenty years, and it survives a night key that a subsurface shader would not.
 //
-// The `base`→`shade` gap widened this pass and that is not decoration. The rig a
-// warrior stands in is ambient 0.85 + hemisphere 0.62 + a `bounce` directional
-// aimed along (0, −4, 9) at 1.7 — for a front-facing plane that is roughly 60% of
-// the light on the face arriving either omnidirectionally or straight down the
-// camera axis, and light along the view axis carries *no* form information. Only
-// the key at (12, 26, 9) shades, and it shades up/down-facing relief. So a face
-// lit front-on in this arena cannot be shaded into legibility by geometry alone at
-// portrait size; some of the break has to be in the albedo. `shade` is now about
-// 0.72 of `base` rather than 0.85: the old pair was inside a quarter-stop of each
-// other, so putting it on the socket and the jaw shelf changed nothing a viewer
-// could see.
-interface SkinTone { base: number; shade: number; warm: number; sclera: number }
+// The `base`→`shade` gap is not decoration. The rig a warrior stands in is ambient
+// 0.85 + hemisphere 0.62 + a `bounce` directional aimed along (0, −4, 9) at 1.7 —
+// for a front-facing plane that is roughly 60% of the light on the face arriving
+// either omnidirectionally or straight down the camera axis, and light along the
+// view axis carries *no* form information. Only the key at (12, 26, 9) shades, and
+// it shades up/down-facing relief. So a face lit front-on in this arena cannot be
+// shaded into legibility by geometry alone at portrait size; some of the break has
+// to be in the albedo. `shade` is 0.80 of `base` per channel (it was 0.72: the
+// complexion field now digs the sockets and the jaw itself, so the material only
+// has to say "the form turns away" and no longer has to say it alone).
+//
+// EXPORTED because the authored man is dressed from the same table: the GLBs carry
+// the hexes of the man who was baked (identity 0), and `render/authoredSkin.ts`
+// swaps them for the tone of the man who is actually standing there.
+export interface SkinTone { base: number; shade: number; warm: number; sclera: number }
 
 // Four complexions, quantised on purpose: the material library caches by colour,
 // so a field of eight warriors costs at most sixteen flesh programs instead of
-// thirty-two. Ordered pale → weathered → tanned → dark. Every `base` came down
-// about 8% this pass as well — at 0xe0b590 the face was the brightest large
-// surface on the warrior and it blew flat against the helm.
-const SKIN_TONES: SkinTone[] = [
-  { base: 0xd4a884, shade: 0x9b7456, warm: 0xc4816a, sclera: 0xa89b88 },
-  { base: 0xc99d75, shade: 0x917050, warm: 0xb87256, sclera: 0x9a8e7c },
-  { base: 0xb08157, shade: 0x7f5c3c, warm: 0xa25f47, sclera: 0x847a6a },
-  { base: 0x8d6444, shade: 0x65472e, warm: 0x7c4936, sclera: 0x655d50 },
+// thirty-two. Ordered fair → weathered → tanned → dark.
+//
+// RE-GRADED against the accuracy authority (docs LORE 2.7, CHAR-PLAN 1.4), and the
+// reason is one measurement: the baked default was 0x8d6444, L* 46 C* 28, the DARKEST
+// of the old four, on all four classes, and the grade turned it into L* 44-53 C* 43-48
+// on the frame. Fair is #c9a482 (L* 70 C* 24), weathered #b58562 (L* 59 C* 30),
+// tanned #a07458 (L* 53 C* 26), dark #7c5a44 (L* 42 C* 21): the chroma comes DOWN
+// because the arena's grade hands back about half of it again, and the rendered skin
+// is held at C* 35 or under so that blood (C* 63-74) stays the hottest thing on the
+// field. Hue is no longer one hue: it runs h 69 (fair) to h 58 (tanned).
+//
+// `sclera` is the white of the eye and it is a complexion property, and this table
+// REVERSES what it used to say. The old comment argued that a sclera brighter than
+// its skin is the CG tell ("two lamps set in a mask") and put it at 0.86 of the skin's
+// luma, which measured L* 19-35 on the frame against skin L* 46-53: a grey mud the eye
+// reads as a dead man's. A living eye's white IS lighter than the skin round it, by
+// something like 5 to 25 L*, and it is warm, never blue. So it is an off-white
+// (L* 72-80, C* 12) that the socket's shadow, the lid's cast shade and the canthal
+// darkening in `render/faceMap.ts` then bring back down to where the frame wants it.
+export const SKIN_TONES: SkinTone[] = [
+  { base: 0xc9a482, shade: 0xa18268, warm: 0xcf9276, sclera: 0xd0c6b2 },
+  { base: 0xb58562, shade: 0x91694e, warm: 0xba7659, sclera: 0xcbc0ab },
+  { base: 0xa07458, shade: 0x805c46, warm: 0xa56750, sclera: 0xc4b9a4 },
+  { base: 0x7c5a44, shade: 0x634736, warm: 0x80503e, sclera: 0xb9ae99 },
 ];
 
 
@@ -3042,12 +3061,42 @@ function clothRepeat(girth: number): number {
 // ==== IRIS COLOURS (owner: U5) ====
 
 
-// Iris colours. Dark eyes are the honest majority, but an eye only reads at all
-// because the iris is *darker than the sclera around it* — so the pale two exist
-// for contrast against a helmet's shadow, not for ethnographic spread. All five
-// came down a step this pass, because the sclera came down further — see the
-// `sclera` field on `SkinTone`, which is now per complexion.
-const IRIS_COLORS = [0x33241a, 0x241810, 0x3d4a44, 0x4a5c66, 0x5a4528];
+/**
+ * The head's skin tile, in metres: 2.2 mm.
+ *
+ * It was a `const` inside `buildCharacter`, a hundred lines under the note that argues for it,
+ * and `render/authoredSkin.ts` needs the same number for the authored head: the export
+ * bakes the skin as a 35 mm cube projection, and the head's own texture repeat is set from
+ * THIS so the two men wear one grain. The argument for 2.2 mm is where it always was (the
+ * FACE_TILE note in `buildCharacter`: an FFT of a portrait frame returns the tile itself, so
+ * the repeat has to be under the resolving limit, and the variation that costs comes back in
+ * `faceComplexion`).
+ */
+export const FACE_TILE = 0.0022;
+
+/** The colour of the dark in an eye's opening: pupil, limbal ring, lid shadow, mouth slot, nostril. Hoisted for the authored eye's remap. */
+export const FACE_DARK = 0x1a1310;
+
+// Iris colours, as ALBEDO. Five, and they are all at L* 28 or more.
+//
+// The five that stood here were 0x33241a, 0x241810, 0x3d4a44, 0x4a5c66, 0x5a4528
+// (L* 9 to 38), argued from "an eye only reads at all because the iris is darker
+// than the sclera around it, so the pale two exist for contrast against a
+// helmet's shadow". The argument was right and the numbers were wrong twice: the
+// sclera it was set against was a mud at L* 40, and the baked default (0x241810,
+// L* 9.5) rendered at L* 5.8 on the frame — an iris that is a black bead, which is
+// the "dead eyes" the owner reported. An iris has a hue and a value of its own and
+// the frame has to show it at portrait range, where it is 15 px across. Lore
+// (CHAR-PLAN 1.2): huscarl grey-blue, warden hazel-green, berserker pale grey; the
+// two browns are the honest majority of the Insular population and are lifted to
+// where a brown reads as brown and not as a hole.
+//
+//   0x5b7180 grey-blue  L* 46   0x6b6a3f hazel-green  L* 44   0x8b9aa0 pale grey  L* 63
+//   0x6a4a32 brown      L* 34   0x54402f dark brown   L* 29
+//
+// EXPORTED for the same reason `SKIN_TONES` is: the authored man is dressed from
+// this table by `render/authoredSkin.ts`, indexed by `faceTraits(seed).iris`.
+export const IRIS_COLORS = [0x5b7180, 0x6b6a3f, 0x8b9aa0, 0x6a4a32, 0x54402f];
 
 // ============================================================
 // Geometry toolkit
@@ -4422,7 +4471,7 @@ const lat = (y: number) => Math.asin(clamp01((y + 1) * 0.5) * 2 - 1);
  * stop fitting, because they are swept off the same field — so the variation that
  * carries the read is in the *features*, where it is free.
  */
-interface FaceTraits {
+export interface FaceTraits {
   wide: number; deep: number; tall: number;
   brow: number; deepSet: number;
   nose: number; bridge: number; nostril: number;
@@ -4454,7 +4503,7 @@ interface FaceTraits {
  * fraction is accepted and folded up to one, because that is the number `anim.ts`
  * already has to hand and a crash on a float would be a nasty surprise later.
  */
-function faceTraits(raw: number): FaceTraits {
+export function faceTraits(raw: number): FaceTraits {
   const seed = Number.isInteger(raw) ? Math.abs(raw) : Math.abs(Math.round(raw * 4096));
   return {
     // Halved, and the reason is S5 rather than the face. The neck is a per-class
@@ -4515,7 +4564,7 @@ function faceTraits(raw: number): FaceTraits {
  * the *same* field, and threading two arguments through every one of those calls
  * is how a helm ends up fitting a face it was not cut for.
  */
-interface Skull {
+export interface Skull {
   R: { x: number; y: number; z: number };
   F: FaceTraits;
 }
@@ -5433,6 +5482,283 @@ export function headMesh(cls: WarriorClass, seed: number, nu = 96, nv = 64): {
   }
   return { positions, normals, quads };
 }
+
+// ==== BAKED HEAD (owner: U5) ====
+
+
+/**
+ * THE BROW'S CENTRE LINE AND ITS HALF-HEIGHT, at module scope.
+ *
+ * They were three closures inside `emit("head")`, the only place that knew where
+ * the brow is, and the lid ruler and the face-contrast ruler each needed to find it.
+ * A landmark list that re-derived `Y_EYE + 0.170 + ...` would agree with the brow
+ * until the brow moved. `arc(u)` is the brow's latitude in RADIANS at bearing `|u|`,
+ * `half(u)` its half-height in the same unit, `along(u)` how far out along it the
+ * bearing is (0 at the inner end, 1 at the tail). Nothing about the shape moved in
+ * the hoist; the arguments for each term are in `emit("head")`, where the brow is
+ * built.
+ */
+const BROW = {
+  along: (u: number) => clamp01((Math.abs(u) - 0.09) / 0.47),
+  at: (t: number) => lat(Y_EYE + 0.170 + 0.030 * Math.sin(Math.PI * Math.pow(clamp01(t), 0.80)) - 0.010 * t * t),
+  arc: (u: number) => BROW.at(BROW.along(u)),
+  half: (u: number) => {
+    const t = BROW.along(u);
+    return 0.044 * (1 - 0.74 * Math.pow(t, 1.5)) * smooth(0, 0.13, t);
+  },
+};
+
+
+/**
+ * THE HEAD THE EXPORTER BAKED, AS A FIELD.
+ *
+ * Every authored warrior carries ONE face: `tools/blender/exportrig.mjs` builds him
+ * through `createWarriorRig` with no `appearance`, and the rig hands `buildCharacter`
+ * an interned face identity of 0 (`faceIdentity` in `render/anim.ts`), so each of the
+ * four GLBs is the class's own skull with identity 0's traits on it. The complexion
+ * that made it read as a man was per-vertex colour and the export threw it away
+ * (`COLOR_0` is absent from all four). `render/faceMap.ts` gets it back at texel
+ * rate, and to do that it has to evaluate the SAME field on the SAME head — which is
+ * private to this file. This is the door: the skull, the surface sampler, the
+ * complexion and the neck's own sections, for one class and one identity.
+ *
+ * THE STATURE STEP is the one line that mirrors `buildCharacter`: stature is
+ * quantised to three steps by `hash(identity, 31)` and the head is built on THAT
+ * skeleton. It is written out here rather than shared because the shared statement
+ * sits in the middle of the builder's preamble, a hunk two other units are editing;
+ * `tools/facemap.mjs` holds the two together by building the real man and reading the
+ * head's own vertices back against `surface`, so a drift is a red gate and not a face
+ * that quietly slides off its map.
+ *
+ * Frames. `surface` is in the HEAD's frame (origin at the skull centre, +z out of
+ * the face, +x the way `buildCharacter` builds it). `complexion` and `neckAt` take
+ * the BODY's frame with `y` in metres from the ground, as the GLB does, EXCEPT that
+ * x is the builder's and not the export's: the exporter negates x on every vertex
+ * (`exportrig.mjs`, `MIRROR`), so a caller reading a GLB flips it back first.
+ */
+export interface FaceField {
+  readonly cls: WarriorClass;
+  readonly identity: number;
+  readonly K: Skull;
+  readonly toneIndex: number;
+  readonly irisIndex: number;
+  /** Body-space y of the skull's centre: the head's own y plus this is the GLB's y. */
+  readonly headY: number;
+  /** The head pivot's y, i.e. where the neck ends and the head hangs. */
+  readonly neckTop: number;
+  /** A point on the skin at azimuth `w` and latitude `v` (radians), head frame. `sin(v)` is the field's own `y`. */
+  surface(w: number, v: number, out: THREE.Vector3): THREE.Vector3;
+  /**
+   * The complexion multiplier at a body-frame point, into `out`. `fyHint` is the
+   * point's field latitude when the caller has it exactly (the head grid does).
+   * Carries no war paint and no whiskers: an authored man has neither baked, and
+   * both are per-man colours a multiplier map cannot hold.
+   */
+  complexion(x: number, y: number, z: number, out: THREE.Color, fyHint?: number): void;
+  /**
+   * What the complexion field does not paint and the authored head needs painted, at azimuth `w` and latitude `v` (radians):
+   * the brow, the lips and the line between them. Coverages, not colours: the colour is the man's (his hair, his skin) and
+   * `render/faceMap.ts` mixes it in.
+   */
+  detail(w: number, v: number, out: FaceDetail): FaceDetail;
+  /** The neck's section at a body-frame height: half-breadths and the centre's z. */
+  neckAt(y: number): { hw: number; hd: number; z: number };
+  /** The neck shell's own extent, body-frame y. */
+  readonly neckSpan: { readonly top: number; readonly bottom: number };
+}
+
+/** What `FaceField.detail` returns: coverages in 0..1. */
+export interface FaceDetail {
+  /** the brow's hair */
+  brow: number;
+  /** the vermilion, upper lip */
+  upper: number;
+  /** the vermilion, lower lip */
+  lower: number;
+  /** the line where the lips meet, and its corners */
+  line: number;
+}
+
+const _fieldMemo = new Map<string, FaceField>();
+
+export function faceFieldOf(cls: WarriorClass, identity = 0): FaceField {
+  const key = `${cls}|${identity}`;
+  const hit = _fieldMemo.get(key);
+  if (hit) return hit;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const face = faceTraits(identity);
+  const step = Math.round(hash(identity, 31) * 2) - 1;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const K: Skull = { R: S.headR, F: face };
+  const field = faceComplexion(K, S.headY, SKIN_TONES[face.tone], "none", null, { mottle: 0, lips: false });
+  const ST = neckStations(S);
+  const d = new THREE.Vector3();
+  const f: FaceField = {
+    cls, identity, K,
+    toneIndex: face.tone, irisIndex: face.iris,
+    headY: S.headY, neckTop: S.neckTop,
+    surface: (w, v, out) => faceSurface(K, dirOf(w, v, d), out),
+    complexion: (x, y, z, out, fyHint) => field(x, y, z, out, fyHint),
+    detail: (w, v, out) => faceDetailAt(K, w, v, out),
+    neckAt: (y) => { const st = neckSectionAt(ST, y); return { hw: st.hw, hd: st.hd, z: st.z ?? 0 }; },
+    neckSpan: { top: ST[0]!.y, bottom: ST[ST.length - 1]!.y },
+  };
+  _fieldMemo.set(key, f);
+  return f;
+}
+
+/**
+ * THE BROW AND THE MOUTH, AS COVERAGE (see `FaceField.detail`).
+ *
+ * The brow is the SAME brow the procedural head is built with (`BROW`: the arc, the half-height, the taper), so it lies where
+ * the baked ribbon lies; the ribbon is ink (L* 3, darker than the hair it is baked in) and `render/authoredSkin.ts` hides it
+ * and lets this stand in, in the man's own hair colour. It is feathered at both edges and thins toward the tail, and
+ * `render/faceMap.ts` breaks it up with hair-like noise; here it is only a shape.
+ *
+ * The mouth is two lips and a line. The soft oval the complexion used to carry read as a brown smear (no edge, one mass, one
+ * hue): a lip is a defined shape with an edge, the upper thinner and turned in, the lower fuller, a dark line where they meet
+ * that is darkest at the corners. Sizes are the real ones, in the field's own units (0.01 of latitude is 1.2-1.3 mm on this
+ * head): an upper vermilion 8 mm at the middle, a lower 11, a mouth 61 mm across at the corners (`F.mouth`), an edge about a
+ * millimetre wide. The colours are `faceMap.ts`'s.
+ */
+function faceDetailAt(K: Skull, w: number, v: number, out: FaceDetail): FaceDetail {
+  const a = Math.abs(w);
+  // ---- the brow ----
+  out.brow = 0;
+  if (a > 0.05 && a < 0.58) {
+    const half = BROW.half(a);
+    if (half > 1e-4) {
+      const d = Math.abs(v - BROW.arc(a)) / half;
+      const t = BROW.along(a);
+      // the ribbon ends at bearing 0.56 and so does this: feathered at both ends, thinning toward the tail
+      out.brow = clamp01((1 - smooth(0.55, 1.05, d)) * (0.40 + 0.60 * (1 - smooth(0.70, 1.0, t))) * (1 - smooth(0.52, 0.575, a)));
+    }
+  }
+  // ---- the mouth ----
+  out.upper = 0; out.lower = 0; out.line = 0;
+  const mw = 0.29 * K.F.mouth;
+  const x = a / mw;                       // 0 at the middle of the mouth, 1 at a corner
+  if (x < 1.12) {
+    const dy = Math.sin(v) - Y_LIP;       // latitude sine: up is positive
+    const ew = 0.0075;                    // the edge, about a millimetre
+    const hu = 0.064 * (1 - Math.pow(Math.min(1, x), 2.1)) + 0.004;
+    const hl = 0.088 * (1 - Math.pow(Math.min(1, x), 1.8)) + 0.004;
+    const along = 1 - smooth(0.90, 1.06, x);
+    out.upper = clamp01(smooth(0.0, ew, dy) * (1 - smooth(hu - ew, hu + ew, dy)) * along);
+    out.lower = clamp01(smooth(0.0, ew, -dy) * (1 - smooth(hl - ew, hl + ew, -dy)) * along);
+    // the line: thin at the middle, deepening to the corners where the lips meet and turn in
+    const th = 0.0046 + 0.0028 * smooth(0.55, 1.0, x);
+    out.line = clamp01(Math.exp(-((dy / th) ** 2)) * (1 - smooth(0.98, 1.12, x)) * (0.72 + 0.28 * smooth(0.3, 1.0, x)));
+  }
+  return out;
+}
+
+/**
+ * WHERE THE FACE'S PARTS ARE, in the body's frame, for a ruler that has to find
+ * them in a photograph.
+ *
+ * `tools/facecontrast.mjs` reads a captured card and must know which pixels are the
+ * sclera, the iris, a brow, a lip and the skin beside each. It gets them here, off
+ * the SAME functions the head is built from (`orbitOf`, `lidMarginPoint`, `browArc`,
+ * `faceSurface`), so a landmark cannot drift from the feature it names: the failure
+ * mode `docs/PROCESS.md` records as "a ruler that reimplements the formula it is
+ * checking" is a ruler that ends up measuring a face that is not on the frame.
+ *
+ * Every point is `[x, y, z]` in the builder's body frame (y from the ground, +z out
+ * of the face; a GLB's x is the negative of this). Cheap: a few hundred field reads.
+ */
+export interface FaceLandmarks {
+  readonly headY: number;
+  readonly eyes: readonly {
+    readonly side: number;
+    readonly centre: readonly number[];
+    readonly iris: readonly number[];
+    readonly irisR: number;
+    readonly medial: readonly number[];
+    readonly lateral: readonly number[];
+    /** Sclera sample points, the middle of the white each side of the iris. */
+    readonly sclera: readonly (readonly number[])[];
+    /** The aperture, closed: upper margin left to right then lower margin back. */
+    readonly aperture: readonly (readonly number[])[];
+  }[];
+  readonly brows: readonly { readonly side: number; readonly points: readonly (readonly number[])[] }[];
+  readonly nostrils: readonly (readonly number[])[];
+  readonly mouth: {
+    readonly stomion: readonly number[];
+    readonly corners: readonly (readonly number[])[];
+    readonly upper: readonly number[];
+    readonly lower: readonly number[];
+  };
+  /** Bare skin windows, each with the side it is on: cheek, under-eye, brow-to-eye socket, forehead, chin. */
+  readonly skin: readonly { readonly name: string; readonly side: number; readonly at: readonly number[] }[];
+}
+
+export function faceLandmarks(cls: WarriorClass, identity = 0): FaceLandmarks {
+  const F = faceFieldOf(cls, identity);
+  const K = F.K;
+  const out: THREE.Vector3[] = [];
+  const P = (v: THREE.Vector3): number[] => [v.x, v.y + F.headY, v.z];
+  const on = (u: number, fy: number) => P(faceSurface(K, dirOf(u, lat(fy), new THREE.Vector3()), new THREE.Vector3()));
+  void out;
+  const eyes: FaceLandmarks["eyes"][number][] = [];
+  for (const side of [-1, 1]) {
+    const f = eyeFrame(K, side);
+    const v = new THREE.Vector3();
+    const lid = (upper: boolean, t: number) => P(lidMarginPoint(f, upper, t, v).clone());
+    const aperture: number[][] = [];
+    for (let i = 0; i <= 24; i++) aperture.push(lid(true, i / 24));
+    for (let i = 24; i >= 0; i--) aperture.push(lid(false, i / 24));
+    const scl = (x: number) => {
+      const y = f.tilt * (x / f.wA);
+      const zz = Math.sqrt(Math.max(1e-8, GLOBE * GLOBE - x * x - y * y));
+      return P(f.c.clone().addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz));
+    };
+    // The iris sits where the GAZE puts it and the lids sit where the SOCKET puts them, and the socket's axis is splayed
+    // outward from the gaze's by about 20 degrees, so the iris is nearer the medial corner than the middle of the
+    // aperture (measured off the huscarl card: white 5.6 mm nasal of it, 11.3 lateral). The middle of the white each
+    // side of the iris is therefore not at plus and minus a fixed distance from the globe's centre; it is halfway
+    // between the iris's edge and the corner, on each side of where the iris actually is.
+    const xi = f.gaze.fwd.dot(f.lat) * (GLOBE + 0.0005);
+    eyes.push({
+      side,
+      centre: P(f.c),
+      iris: P(f.c.clone().addScaledVector(f.gaze.fwd, GLOBE + 0.0005)),
+      irisR: 0.0061,
+      // `lat` is the skull's +x on both eyes, so the medial canthus is the one nearer
+      // the midline: the −x end of the +x eye and the +x end of the −x eye.
+      medial: side > 0 ? lid(true, 0) : lid(true, 1),
+      lateral: side > 0 ? lid(true, 1) : lid(true, 0),
+      sclera: [scl((-f.wA + xi - 0.0061) * 0.5), scl((xi + 0.0061 + f.wA) * 0.5)],
+      aperture,
+    });
+  }
+  const brows = [-1, 1].map((side) => ({
+    side,
+    points: Array.from({ length: 9 }, (_, i) => {
+      const u = 0.09 + (0.56 - 0.09) * (i / 8);
+      return P(faceSurface(K, dirOf(side * u, BROW.arc(u), new THREE.Vector3()), new THREE.Vector3()));
+    }),
+  }));
+  const sub = faceSurface(K, dirOf(0, lat(Y_NOSE + 0.030), new THREE.Vector3()), new THREE.Vector3());
+  const nostrils = [-1, 1].map((s) => [s * 0.0098 + K.F.asym, F.headY + sub.y - 0.0012, sub.z - 0.0062]);
+  const mw = 0.29 * K.F.mouth;
+  const mouth = {
+    stomion: on(0, Y_LIP),
+    corners: [on(-mw, Y_LIP), on(mw, Y_LIP)],
+    upper: on(0, Y_LIP + 0.030),
+    lower: on(0, Y_LIP - 0.050),
+  };
+  const skin: { name: string; side: number; at: number[] }[] = [];
+  for (const side of [-1, 1]) {
+    skin.push({ name: "cheek", side, at: on(side * 0.62, Y_EYE - 0.13) });
+    skin.push({ name: "underEye", side, at: on(side * 0.375, Y_EYE - 0.085) });
+    skin.push({ name: "socket", side, at: on(side * 0.30, Y_EYE + 0.075) });
+  }
+  skin.push({ name: "forehead", side: 0, at: on(0, Y_BROW + 0.24) });
+  skin.push({ name: "chin", side: 0, at: on(0, Y_CHIN + 0.06) });
+  return { headY: F.headY, eyes, brows, nostrils, mouth, skin };
+}
+
 
 export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   const S = skeleton(BUILD[cls]);
@@ -10024,10 +10350,19 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
  * function can be handed the skull, a lid, a lip band, an ear or the throat
  * shell and put all five on one continuous map.
  */
-function faceComplexion(
+export function faceComplexion(
   K: Skull, y0: number, tone: SkinTone, paint: string,
   whiskers: { color: number; full: boolean } | null,
-): (x: number, y: number, z: number, out: THREE.Color) => void {
+  /**
+   * Two terms the AUTHORED head paints for itself and so turns off here (`faceFieldOf`, the door for `render/faceMap.ts`); every
+   * caller that builds a procedural head passes nothing and gets both, exactly as before. `mottle` scales the three cosines (they
+   * are periodic, and a periodic pattern read at the pixel scale is the lattice `tools/lattice.mjs` measures: the map has aperiodic
+   * noise in its place); `lips` is the soft vermilion oval (the map paints a defined mouth: two lips, a line between them).
+   */
+  opts?: { mottle?: number; lips?: boolean },
+): (x: number, y: number, z: number, out: THREE.Color, fyHint?: number) => void {
+  const mottleAmp = opts?.mottle ?? 1;
+  const lipsOn = opts?.lips !== false;
   const R = K.R;
   const F = K.F;
   const chosen = WAR_PAINT[paint];
@@ -10090,8 +10425,13 @@ function faceComplexion(
   };
   const gs = (d: number, w: number) => Math.exp(-(d * d) / (w * w));
 
-  return (px, py, pz, out) => {
-    const fy = fieldY(py - y0);
+  // `fyHint` is for a caller that already KNOWS the field latitude of the point —
+  // `render/faceMap.ts` rasterises this field on the head's own (azimuth, latitude)
+  // grid, where the latitude is the row and is exact by construction, and the
+  // bisection above is 24 spline reads a texel for an answer it already has. Absent,
+  // and for every vertex this file paints, the answer is the bisection's, as before.
+  return (px, py, pz, out, fyHint) => {
+    const fy = fyHint ?? fieldY(py - y0);
     const hw = Math.max(1e-4, ev(S_W, fy) * MM * sc * F.wide * widthGain(F, fy));
     const zc = ev(S_ZC, fy) * MM * sc;
     const s = Math.abs(px) / hw;
@@ -10247,8 +10587,8 @@ function faceComplexion(
     // latitude lands at 0.34 of the half-breadth.
     const lipW = 0.44 * F.mouth;
     const lipHalf = 0.078 * (1 - Math.pow(clamp01(s / lipW), 2.2)) + 0.012;
-    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
-      * (1 - smooth(lipW * 0.78, lipW, s))) * front;
+    const lip = lipsOn ? clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
+      * (1 - smooth(lipW * 0.78, lipW, s))) * front : 0;
 
     // Shadow goes cool as well as dark, which is what separates it from dirt;
     // flush goes red without going bright, because the specular term does not
@@ -10274,10 +10614,10 @@ function faceComplexion(
       0.55 * Math.cos(dy * 6.1 + dx * 3.7)
       + 0.30 * Math.cos(dx * 9.4 - dz * 5.3 + 1.7)
       + 0.15 * Math.cos(dz * 14.9 + dy * 11.2 + 3.1);
-    const tint = 1 + 0.040 * mottle;
+    const tint = 1 + 0.040 * mottle * mottleAmp;
     // Blood sits under the surface, so the darker half of the mottle goes red
     // rather than grey — the same reason the tone's `warm` channel exists.
-    const flush = 0.028 * clamp01(-mottle);
+    const flush = 0.028 * clamp01(-mottle) * mottleAmp;
 
     // The lip factors went 0.10/0.36/0.44 → 0.14/0.42/0.50 for backlog 1.7's
     // "lips need work": at those depths the vermilion read flat-lit but the
@@ -14662,7 +15002,6 @@ export function buildCharacter(
   // `faceComplexion`, which is the right home for it anyway: it is written in the
   // skull's own direction space, it is on no lattice at all, and it is already
   // where every other thing that varies across a face lives.
-  const FACE_TILE = 0.0022;
   const faceTile = (color: number, roughness: number) => {
     if (thrifty) return skin;
     const m = M.tinted("skin", color, { roughness, tile: FACE_TILE });
@@ -14833,7 +15172,7 @@ export function buildCharacter(
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
   const furLock = pelt(2 * Math.PI * 0.024);
   const furPelt = pelt(0.3);
-  const dark = M.standard(0x1a1310, 0.42);
+  const dark = M.standard(FACE_DARK, 0.42);
   const rune = M.get("runeGlow");
   const cloakMat = cloth(colours.cloak, bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
@@ -18145,9 +18484,10 @@ export function buildCharacter(
       // 32 mm above the eye line, which on this head is the middle of the
       // forehead — hence two dark chevrons floating on a bald dome with nothing
       // between them and the eyes.
-      const browAt = (t: number) => lat(Y_EYE + 0.170 + 0.030 * Math.sin(Math.PI * Math.pow(clamp01(t), 0.80)) - 0.010 * t * t);
-      const along = (u: number) => clamp01((Math.abs(u) - 0.09) / 0.47);
-      const arc = (u: number) => browAt(along(u));
+      // (`browAt`, `along`, `arc` and `half` are `BROW` at module scope now: the ruler
+      // that finds the brow in a photograph reads the same functions the brow is
+      // swept from — see `faceLandmarks`.)
+      const { arc, along } = BROW;
       // Tapered at *both* ends, not just the temple one. Held full height at the
       // inner end, a brow is a bar with a squared-off inboard corner sitting 4 mm
       // proud of the forehead — two dark slabs, which is what the render showed —
@@ -18159,10 +18499,7 @@ export function buildCharacter(
       // latitude is 10 mm of brow, which is life on a head this size, and the
       // pair of them are the strongest dark shape on the face — worth having at
       // full weight where the ridge is and worth nothing at all past it.
-      const half = (u: number) => {
-        const t = along(u);
-        return 0.044 * (1 - 0.74 * Math.pow(t, 1.5)) * smooth(0, 0.13, t);
-      };
+      const half = BROW.half;
       // Twelve columns and two rows, and the lift dies at all four boundaries.
       //
       // At seven columns and one row this was a *ribbon* — two lines of vertices
@@ -23050,7 +23387,11 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     if (!pos) return;
     if (name === `${RIG_TAG}torso`) { torsoMesh.push(mesh); return; }
     if (name === `${RIG_TAG}neck`) { neckMesh.push(mesh); return; }
-    if (name === `${RIG_TAG}head` && hex === "c99d75") {
+    // The head's skin, by being ANY tone's base and not by being one literal: this said `hex === "c99d75"`, which was the base
+    // of the tone this seed happened to draw before the table was re-graded, and after it no head matched, `mentonY` stayed
+    // at infinity, every beard vertex counted as hanging below a menton that did not exist, and sixteen rungs read 45-58 mm
+    // "in the neck" (wearmeasure section 7 and the block of cosmetictest that quotes it).
+    if (name === `${RIG_TAG}head` && hex && SKIN_TONES.some((t) => t.base.toString(16).padStart(6, "0") === hex)) {
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
         if (v.y < mentonY) mentonY = v.y;

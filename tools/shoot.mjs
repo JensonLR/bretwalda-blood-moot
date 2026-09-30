@@ -570,6 +570,30 @@ const SHEETS = {
     ],
   },
 };
+// THE FOUR BARE HEADS AT THE THREE BEARINGS THE FACE RULERS READ (H1, `tools/facecontrast.mjs`, `tools/lattice.mjs`).
+// One invocation, one server boot and one lock, for the twelve cards that `facecard --cls C --turn T` would take
+// twelve invocations and twelve waits for. Bare on purpose (no helm, shaved, no beard, no paint): the face is
+// what is being judged, and `wearsAuthoredRole` treats `shaved` as bare, so what is on the frame is skin.
+SHEETS.facecards = {
+  file: "face-cards.png", card: "facecard", cols: 3,
+  title: "FACE CARDS · four classes down, front / three-quarter −35° / profile −90° across · bare · the rig fixed, the man turns",
+  shots: ["huscarl", "warden", "runekeeper", "berserker"].flatMap((cls) =>
+    [["front 0°", 0], ["three-quarter −35°", QUARTER], ["profile −90°", -90]].map(([label, turn]) => ({
+      label: `${cls} · ${label}`, turn, cls,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+    }))),
+};
+// THE FOUR CARDS AN ITERATION NEEDS (H1): the huscarl at the two bearings the eyes and the mouth are read at, and the two other
+// heads that differ most in scale from him, front. One server boot for the four; the twelve above are for the gate, these are for
+// looking at while the face is being made.
+SHEETS.facecheck = {
+  file: "face-check.png", card: "facecard", cols: 2,
+  title: "FACE CHECK · huscarl front and three-quarter, warden and runekeeper front · bare",
+  shots: [["huscarl", "front 0°", 0], ["huscarl", "three-quarter −35°", QUARTER], ["warden", "front 0°", 0], ["runekeeper", "front 0°", 0]].map(([cls, label, turn]) => ({
+    label: `${cls} · ${label}`, turn, cls,
+    dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+  })),
+};
 const SHEET_NAMES = Object.keys(SHEETS);
 
 /**
