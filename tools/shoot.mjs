@@ -504,6 +504,17 @@ SHEETS.facecards = {
       dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
     }))),
 };
+// THE FOUR CARDS AN ITERATION NEEDS (H1): the huscarl at the two bearings the eyes and the mouth are read at, and the two other
+// heads that differ most in scale from him, front. One server boot for the four; the twelve above are for the gate, these are for
+// looking at while the face is being made.
+SHEETS.facecheck = {
+  file: "face-check.png", card: "facecard", cols: 2,
+  title: "FACE CHECK · huscarl front and three-quarter, warden and runekeeper front · bare",
+  shots: [["huscarl", "front 0°", 0], ["huscarl", "three-quarter −35°", QUARTER], ["warden", "front 0°", 0], ["runekeeper", "front 0°", 0]].map(([cls, label, turn]) => ({
+    label: `${cls} · ${label}`, turn, cls,
+    dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+  })),
+};
 const SHEET_NAMES = Object.keys(SHEETS);
 
 /**
