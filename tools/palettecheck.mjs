@@ -279,8 +279,14 @@ if (built) {
   // reading taken through them would grade the special case and not the page everyone gets. (The first version of this read
   // them, and a lever pulled on `--ramp-warm-500` resolved to the contrast override's value and passed; see the F1 commit.)
   const cvars = new Map();
+  // ...AND RULES SCOPED TO A SILVER PLATE ARE LEFT OUT FOR THE SAME REASON. `.plate-silver`, the enabled `.btn-primary` and
+  // `.kbd` deliberately INVERT the ink and warm ramps inside themselves (ink-on-silver: --ramp-warm-200 becomes the niello),
+  // and the build declares them after the page-level tokens, so last-wins read the inverted value as if it were the page's and
+  // graded every `text-amber-*` step as near-black on dark (20 of 20 "under 4.5:1"). The gate was reading a scope, not the page.
+  const SILVER_SCOPE = /\.plate-silver|\.btn-primary|\.kbd/;
   for (const r of rules) {
     if (r.stack.some((a) => /^@media/.test(a))) continue;
+    if (SILVER_SCOPE.test(r.sel)) continue;
     for (const d of r.body.matchAll(/(--[a-zA-Z][\w-]*):([^;}]+)/g)) cvars.set(d[1], d[2].trim());
   }
 
