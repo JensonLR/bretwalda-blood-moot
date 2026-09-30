@@ -80,7 +80,7 @@ import { severAuthoredZone } from "./authoredSever";
 import { drivePivot, driveRest, nudgeAbout, foldBoard, type AuthoredRest } from "./authored";
 import {
   buildCharacter, buildWeaponForClass, buildOffhandFor, buildShield, shieldBoard, peopleOf,
-  defaultAppearance, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
+  defaultAppearance, CLASS_TUNIC, ELBOW_ALONG, KNEE_ALONG, GRIP_ALONG, GRIP_PITCH,
   type Appearance, type BuiltCharacter, type SeamId, type Severance,
   type TeamSide, reachOf } from "../characters";
 import { getHandedness, subscribeHandedness } from "../input";
@@ -172,35 +172,14 @@ function reportHand(rig: WarriorRig, mirrorSign: number): void {
 /**
  * Tunic accent per class — the fastest read of who you are fighting.
  *
- * Exported because `tools/teamread.mjs` builds warriors the way this file does
- * and must not keep its own copy of this table: `characters.ts` records the
- * mirrored-definition fault four times, and a harness holding a stale accent
- * would grade a tunic nobody is wearing. It is the accent the REAL rig passes,
- * or it is not a measurement of the game.
- *
- * In a team mode the accent no longer reaches the tunic's hue — see the
- * precedence note in `characters.ts`. It still reaches nothing else, so this
- * table is unchanged and free-for-all is exactly as it was.
+ * The table now lives in `characters.ts`, beside `tunicDye`, because the authored
+ * man's role table (`render/authoredLivery.ts`) must reproduce the tunic the
+ * builder dresses and cannot import this module (see `CLASS_TUNIC` there). It is
+ * re-exported here, under the same name, so every importer - `armouryStage.ts`, and
+ * `tools/teamread`, `factionread`, `vatprobe` and `gradesplit`, which read it off
+ * this module's emit - finds it where it always was.
  */
-export const CLASS_TUNIC: Record<string, number> = {
-  huscarl: 0x6a5636,
-  // THE WARDEN IS OFF THE YELLOW-GREEN AXIS, and this is the last live half of
-  // `COSMETICS-AUDIT.md` §4.1's fourth fault: "warden defaults to a red cloak
-  // over a `0x5a6630` yellow-green tunic — the Roman colourway." Three of that
-  // item's four faults were fixed and the row never updated; this constant was
-  // the one still sitting exactly as the audit found it, and it is the largest
-  // garment on the man — his hem is the shortest on the roster, so the olive
-  // landed squarely at mid-thigh where his shield does not cover him.
-  //
-  // Woad over weld gives a green wool the period actually had, and taking it
-  // cool moves the warden off the olive without moving him onto anybody: the
-  // huscarl is walnut-brown, the berserker madder, the runekeeper a violet
-  // indigo. It also keeps the promise the `tunicDye` note makes about him —
-  // that he stays "the coolest of the four".
-  warden: 0x565a55,
-  runekeeper: 0x3d3a5c,
-  berserker: 0x6e2b26,
-};
+export { CLASS_TUNIC };
 
 export interface RigPivots {
   rightArm: THREE.Group;

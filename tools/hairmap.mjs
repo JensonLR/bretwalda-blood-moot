@@ -3,6 +3,9 @@
 // HAIRMAP — does the hair substance actually carry a lay?
 //
 //   node tools/hairmap.mjs            (or: npm run hairmap)
+//   node tools/hairmap.mjs --authored     also: the hair and beard the DEFAULT build draws (the shipped prop GLBs,
+//                                         dressed by the real resolver chain) - value, lay and colour. CPU, ~20 s.
+//   node tools/hairmap.mjs --authored --off   the control: the props exactly as the files ship them (HEAD). MUST fail.
 //
 // WHY THIS EXISTS. `characters.ts` dressed every beard, every hairstyle and
 // both brows in `wool` for the whole life of this project, under a comment that
@@ -170,6 +173,131 @@ if (DECLARED === undefined) {
 } else {
   console.log(`[hair] PASS the declared mean: RECIPES.hair.roughness ${DECLARED.toFixed(3)}`
     + ` matches the built map's ${measured.toFixed(3)} within ${TOL}`);
+}
+
+// ---- 4. THE AUTHORED HAIR (--authored): what the default build draws ------------------------------------
+//
+// Every check above measures the `hair` SUBSTANCE, which the authored man never wore: his hair and beard are Blender's
+// ribbons over an under-cap (`hair-<cls>-<style>.glb`, `beard-...`), and `hairStrand` / `hairUnder` are not surface
+// names, so the client's `tinted()` threw inside the swap's swallowed catch and they kept the glTF's own materials
+// (PROCESS.md failure mode 1, instance ten - AGAIN). Measured on the shipped files: the ribbons are base 0.8 x COLOR_0
+// and COLOR_0 is white on every vertex (the hair is in COLOR_1, which nothing reads), so they render #e7e7e7; the
+// under-cap has metallicFactor and roughnessFactor absent, which glTF defaults to 1 and 1, and no environment map, so
+// it is a mirror with nothing to reflect: black. "A black slab with white frost" (CH-05).
+//
+// WHAT IS MEASURED, on the props dressed by `authoredResolver(authoredDressContext(..))` with the headless library (a
+// material's `color` is the colour it asked for): each ribbon vertex's EFFECTIVE DIFFUSE ALBEDO - `material.color`
+// x the vertex colour the material actually reads (`vertexColors` on: the geometry's `color`) x (1 - metalness), a metal
+// having no diffuse - as CIELAB L*, and the cap's.
+//   value    strand p95 L* <= 65 (the plan's bar: the ribbons are never the brightest thing on a dark head), cap L* >= 14.
+//   lay      the ribbons keep a ROOT-DARK to TIP-LIGHT ramp (mean L* of the top of a strand over its root, by UV v), and
+//            the shade varies from strand to strand: a mass of parallel strands each its own value is what hair is.
+//   colour   the strands follow the man's `hairColor`: a blond head is lighter than a black one by a wide margin (R1).
+//   physics  no metal in hair, and the ribbons are drawn on both sides (the glTF asked for that).
+// NOT MEASURED, on the verdict line (R4): no light and no grade (albedo only); the beard does not fade into the skin at
+// the growth line; there is no anisotropic highlight; the ribbons' alpha edge is not in the file.
+if (process.argv.includes("--authored")) {
+  const OFF = process.argv.includes("--off");
+  const { emitClient } = await import("./lib/clientmodule.mjs");
+  const THREEM = await import("three");
+  const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+  const { readFileSync, existsSync } = await import("fs");
+  globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
+  globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
+  globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
+  const em = await emitClient(ROOT, ["src/game/client/render/authoredDress.ts", "src/game/client/render/authoredProps.ts", "src/game/client/render/authored.ts"], ".hairauthored");
+  const [DR, PR, AU, CHM] = await Promise.all([em.byName("authoredDress.js"), em.byName("authoredProps.js"), em.byName("authored.js"), em.byName("characters.js")]);
+  console.log("");
+  console.log(`[hair] === 4. THE AUTHORED HAIR AND BEARD${OFF ? "  (CONTROL: the props as the files ship them)" : ""} ===`);
+  console.log("");
+  const lab = (c) => {
+    // linear -> CIELAB L*
+    const Y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    return Y > 0.008856 ? 116 * Math.cbrt(Y) - 16 : 903.3 * Y;
+  };
+  const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(q * b.length))]; };
+  const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
+  const ART = resolve(ROOT, "public/authored");
+  const parse = (f) => new Promise((ok, no) => { const b = readFileSync(resolve(ART, f)); new GLTFLoader().parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), "", ok, no); });
+  const measure = async (file, cls, hairColor) => {
+    const g = await parse(file);
+    const node = g.scene.clone(true);
+    if (!OFF) {
+      node.traverse((c) => { if (c.geometry && /__strands$/.test(c.name)) PR.adoptStrandColours(c.geometry); });
+      const ap = { ...CHM.defaultAppearance(cls), hairColor, beardColor: hairColor };
+      const resolver = DR.authoredResolver(DR.authoredDressContext({ cls, appearance: ap, materials: CHM.RAW }));
+      AU.dressFromSurfaceNames(node, resolver, "Head");
+    }
+    const out = { strands: [], root: [], tip: [], rootY: [], tipY: [], cap: [], metal: 0, single: 0, meshes: 0 };
+    node.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = o.material, name = m?.name ?? "";
+      const isStrand = /__strands$/.test(o.name), isCap = /^(hair|beard)-.*_1$/.test(o.name);
+      if (!isStrand && !isCap) return;
+      out.meshes++;
+      const k = 1 - (m.metalness ?? 0);
+      if ((m.metalness ?? 0) > 0.2) out.metal++;
+      if (isStrand && m.side !== THREEM.DoubleSide) out.single++;
+      const col = m.vertexColors ? o.geometry.getAttribute("color") : null;
+      const uv = o.geometry.getAttribute("uv");
+      const c = new THREEM.Color();
+      if (isCap) { c.copy(m.color).multiplyScalar(k); out.cap.push(lab(c)); return; }
+      const n = o.geometry.getAttribute("position").count;
+      for (let i = 0; i < n; i += 3) {
+        c.copy(m.color);
+        if (col) c.multiply(new THREEM.Color().setRGB(col.getComponent(i, 0), col.getComponent(i, 1), col.getComponent(i, 2)));
+        c.multiplyScalar(k);
+        const L = lab(c);
+        out.strands.push(L);
+        // glTF's v runs DOWN the image, and `strands.py` wrote the ribbon's t (0 at the root, 1 at the tip) as the
+        // Blender v: so in three.js the ROOT is v near 1 and the TIP is v near 0. (Labelled the other way round the
+        // first cut of this read a tip darker than its root and failed a ramp that was there.)
+        const v = uv ? uv.getY(i) : 0.5;
+        const Y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        if (v > 0.75) { out.root.push(L); out.rootY.push(Y); } else if (v < 0.25) { out.tip.push(L); out.tipY.push(Y); }
+      }
+    });
+    return out;
+  };
+  const mean2 = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
+  const rows = [];
+  for (const cls of CLASSES) for (const [role, styles] of [["hair", ["short", "long", "braids"]], ["beard", ["short", "full", "forked", "braided"]]]) {
+    for (const style of styles) {
+      const f = `${role}-${cls}-${style}.glb`;
+      if (!existsSync(resolve(ART, f))) continue;
+      rows.push({ f, cls, role, ...(await measure(f, cls, 0x4a3220)) });
+    }
+  }
+  const allS = rows.flatMap((r) => r.strands), allCap = rows.flatMap((r) => r.cap);
+  const p95 = pct(allS, 0.95), p50 = pct(allS, 0.5), p05 = pct(allS, 0.05);
+  const capMin = Math.min(...allCap);
+  const root = mean2(rows.flatMap((r) => r.root)), tip = mean2(rows.flatMap((r) => r.tip));
+  const rootY = mean2(rows.flatMap((r) => r.rootY)), tipY = mean2(rows.flatMap((r) => r.tipY));
+  const spreadStr = pct(allS, 0.9) - pct(allS, 0.1);
+  console.log(`[hair] ${rows.length} props (${CLASSES.length} classes x hair and beard styles), hair colour 0x4a3220 (the class default)`);
+  console.log(`[hair] ribbons  effective diffuse albedo L*   p05 ${p05.toFixed(1)}   p50 ${p50.toFixed(1)}   p95 ${p95.toFixed(1)}   root ${root.toFixed(1)}   tip ${tip.toFixed(1)}   p10-p90 spread ${spreadStr.toFixed(1)}`);
+  console.log(`[hair] caps     effective diffuse albedo L*   min ${capMin.toFixed(1)}   mean ${mean2(allCap).toFixed(1)}`);
+  const STRAND_P95 = 65, CAP_MIN = 14, RAMP_MIN = 1.5, SPREAD_MIN = 5;
+  const rep = (ok, name, detail) => { console.log(`[hair] ${ok ? "PASS" : "FAIL"} ${name} — ${detail}`); if (!ok) bad++; };
+  rep(p95 <= STRAND_P95, `the ribbons are never the brightest thing on the head: strand p95 L* <= ${STRAND_P95}`, `p95 ${p95.toFixed(1)}${OFF ? " (the white COLOR_0 x 0.8: #e7e7e7)" : ""}`);
+  rep(capMin >= CAP_MIN, `the under-cap is hair and not a hole: cap L* >= ${CAP_MIN}`, `min ${capMin.toFixed(1)}${OFF ? " (metallic 1, roughness 1, no environment: black)" : ""}`);
+  // In LINEAR luma, because that is what the light multiplies and what a dark head compresses in L*: the file's own ramp is
+  // 0.45 at the root to 0.95 at the tip (x2.1), and the quartile means land at about x1.7; the bar is x1.5.
+  rep(tipY / rootY >= RAMP_MIN, `the lay keeps its ramp: the tip of a strand carries ${RAMP_MIN}x the light of its root, or more`, `root L* ${root.toFixed(1)}, tip L* ${tip.toFixed(1)}, tip/root luma ${(tipY / rootY).toFixed(2)}x`);
+  rep(spreadStr >= SPREAD_MIN, `every strand is its own value (p10-p90 spread >= ${SPREAD_MIN} L*)`, `${spreadStr.toFixed(1)}`);
+  rep(rows.every((r) => r.metal === 0) && rows.every((r) => r.single === 0), "no metal in hair, and every ribbon is drawn on both sides",
+    `${rows.reduce((n, r) => n + r.metal, 0)} metallic meshes, ${rows.reduce((n, r) => n + r.single, 0)} single-sided ribbon meshes over ${rows.reduce((n, r) => n + r.meshes, 0)}`);
+  // R1: the lever. The same prop, three colours: the ribbons must follow the man.
+  {
+    const f = "hair-huscarl-short.glb";
+    const dark = await measure(f, "huscarl", 0x1c1712), mid = await measure(f, "huscarl", 0x4a3220), fair = await measure(f, "huscarl", 0xb8a14e);
+    const m3 = [mean2(dark.strands), mean2(mid.strands), mean2(fair.strands)];
+    rep(m3[0] + 8 < m3[1] && m3[1] + 8 < m3[2], "R1 the ribbons follow hairColor: Raven Black < Oak Brown < Norse Gold by 8 L* or more each",
+      `mean ribbon L* ${m3.map((x) => x.toFixed(1)).join(" < ")}`);
+  }
+  console.log(`[hair] NOT MEASURED: no light and no grade (albedo only); the beard does not fade into the skin at the growth line; no anisotropic highlight; the ribbons' alpha edge is not in the file — a deferral, not a clean sheet`);
+  const { rmSync: rm2 } = await import("fs");
+  rm2(em.work, { recursive: true, force: true });
 }
 
 console.log("");

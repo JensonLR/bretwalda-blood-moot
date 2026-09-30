@@ -30,7 +30,7 @@ import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/cam
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, WOUNDING, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
+import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, roleIsWorn, type AuthoredRole } from "./render/authored";
 import { createClipDriver } from "./render/clipDriver";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
 import { authoredResolver, authoredDressContext } from "./render/authoredDress";
@@ -325,11 +325,9 @@ function wearsWarPaint(p: GamePlayer): boolean {
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
 function wearsAuthoredRole(p: GamePlayer, role: AuthoredRole): boolean {
-  const ap = (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance;
-  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
-  // ABSENT is not "none": a loadout that does not mention beards is not a man
-  // who shaved, and keeps whatever the export baked in.
-  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+  // `roleIsWorn` is the one definition (`render/authored.ts`): it reads "shaved" as
+  // bare, which this function did not, so a bought razor left the baked hair on him.
+  return roleIsWorn((p as GamePlayer & { appearance?: Record<string, unknown> }).appearance, role);
 }
 
 interface WarriorSlot {

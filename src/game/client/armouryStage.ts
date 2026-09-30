@@ -34,7 +34,7 @@ import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, type SwapResult, AUTHORED_ROLES } from "./render/authored";
+import { upgradeRigToAuthored, hideBakedRoles, roleIsWorn, type AuthoredRole, type SwapResult, AUTHORED_ROLES } from "./render/authored";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
 import { authoredResolver, authoredDressContext } from "./render/authoredDress";
 import { armHeadNet, type HeadNet, type HeadNetRig } from "./render/authoredHead";
@@ -758,12 +758,11 @@ function authoredWanted(): boolean {
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
 function wearsRole(loadout: StageLoadout, role: AuthoredRole): boolean {
-  const ap = loadout.appearance as unknown as Record<string, unknown> | undefined;
-  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
-  // "none" is the armoury's word for a slot nobody bought, and an ABSENT value
-  // is not the same thing — a loadout that does not mention beards is not a man
-  // who shaved. Absent keeps whatever the export baked in.
-  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+  // `roleIsWorn` is the one definition (`render/authored.ts`), shared with the arena. It
+  // reads "shaved" as bare, which this did not: the shop's own bare-head cards wore the
+  // baked hair. "none" is the armoury's word for a slot nobody bought and an ABSENT
+  // value is not the same thing (see there).
+  return roleIsWorn(loadout.appearance as unknown as Record<string, unknown> | undefined, role);
 }
 
 /**

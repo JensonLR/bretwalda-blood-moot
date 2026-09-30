@@ -110,6 +110,7 @@ export type SurfaceName =
   | "hair"      // parallel strands in locks — anisotropic, v runs down the fall
   | "linen"     // fine plain weave with slubs
   | "leather"   // tanned hide: pebbled grain and stretch creases
+  | "tablet"    // tablet-woven braid: a two-colour diamond chain between selvedge cords
   | "rope"      // three-strand twisted hemp
   // timber and roof
   | "oak"       // flat-sawn cathedral figure with knots
@@ -996,12 +997,12 @@ function buildMail(g: Gen): void {
   const INNER = (1 - band) * (1 - band);
   const OUTER = (1 + band) * (1 + band);
 
-  const wire = col(0x5c636c);
-  const crown = col(0xa8b0ba);
-  const shadow = col(0x22262b);
+  const wire = col(0x5f6266);
+  const crown = col(0xb4b6b8);
+  const shadow = col(0x232426);
   const rivetCol = col(0xbdae87);
   const gambeson = col(0x2b2521);
-  const rust = col(0x6d4326);
+  const rust = col(0x5a3c28);
 
   forEachTexel(size, (i, u, v) => {
     let best = 0;
@@ -1051,13 +1052,13 @@ function buildMail(g: Gen): void {
       return;
     }
 
-    const rusty = smoothstep(0.62, 0.92, sampleField(bank.soft, u * 2, v * 2)) * 0.9;
+    const rusty = smoothstep(0.62, 0.92, sampleField(bank.soft, u * 2, v * 2)) * 0.45;
     const grime = sampleField(bank.grain, u * 5, v * 5);
     h[i] = clamp01(best + (grime - 0.5) * 0.05 + (fuzz - 0.5) * 0.02);
     // The crown of an over-ring is what a torch catches; the under-rings stay
     // dark. That split is the whole read — flatten it and this is a doily.
     mix(c, i, wire, crown, clamp01((bestP - 0.25) * 1.7) * (0.22 + 0.78 * bestOver));
-    toward(c, i, shadow, clamp01(1 - bestP * 1.6) * (bestOver ? 0.35 : 0.65));
+    toward(c, i, shadow, clamp01(1 - bestP * 1.6) * (bestOver ? 0.35 : 0.5));
     toward(c, i, rivetCol, bestRivet * 0.85);
     toward(c, i, rust, rusty * (0.3 + 0.55 * (1 - bestP)));
     gain(c, i, 0.84 + grime * 0.3);
@@ -1584,7 +1585,15 @@ function buildWool(g: Gen): void {
     // only reason it is safe at two cycles per tile is that it has no cross-axis
     // structure to be a cell of — so it is sized against the dye rather than
     // against the relief, which can afford to be louder.
-    gain(c, i, 0.8 + dye * 0.5 + (tooth - 0.5) * 0.12 + (drape - 0.5) * 0.5);
+    // ABRASH: the streak a vat leaves when one hank took the dye a little differently from the next. It runs down the
+    // warp (constant in v, wandering with the nap's own sway) and is worth +-8% of the value the eye reads (L*), which is +-11% of the channel: what says "dyed by hand"
+    // rather than "printed", and a directional term the isotropic blotch above cannot supply.
+    // Two sines of the lattice's own integer frequencies (3 and 7 to the tile, neither of them the streaks' 2 and 5, so
+    // they never lock into one pitch) rather than a tap of a noise field: `soft` piles up around one half, and sampled
+    // along a single row it moved the value by a third of a percent where the recipe wants eight.
+    const ax = u + sway * 0.5;
+    const abrash = 0.5 + 0.3 * Math.sin(Math.PI * 2 * 3 * ax + 0.9) + 0.2 * Math.sin(Math.PI * 2 * 7 * ax + 3.4);
+    gain(c, i, (0.8 + dye * 0.5 + (tooth - 0.5) * 0.12 + (drape - 0.5) * 0.5) * (1 + (abrash - 0.5) * 0.22));
     // Felt is the most light-absorbing thing in the frame, but a fulled nap is
     // not uniformly matte — the crowns of the lay are combed flat and take a
     // soft directional sheen, which is most of what says "wool" rather than
@@ -1946,6 +1955,56 @@ function buildLeather(g: Gen): void {
     gain(c, i, 0.84 + patina * 0.32);
     // Rubbed crowns take a shine; the creases stay matte and hold polish.
     r[i] = clamp01(0.68 - clamp01((height - 0.55) * 2.4) * 0.3 + deep * 0.18);
+    m[i] = 0;
+  });
+}
+
+// ---- tablet-woven braid --------------------------------------------------
+// The period's own way of finishing an edge: a band woven on a set of cards, in two or three colours, a diamond or a
+// zigzag between a cord at each selvedge, sewn to a hem, a cuff, a neckline, a cloak edge (Birka, Snape, Taplow, Sutton
+// Hoo). It is NOT wool with a stripe on it, which is what the trims were: one tile of this map is ONE ACROSS-THE-BAND
+// repeat, v running across the band and u along it, and materials.ts projects it at the band's own height, so a 16 mm
+// braid shows one row of diamonds and a 32 mm one shows two.
+//
+//   the cords     the outer sixteenth on each side (2 mm of a 32 mm band): a twisted weft, darker, standing proud (a rounded ridge with the
+//                 twist on the bias)
+//   the ground    the mid wool
+//   the pattern   a diamond chain that touches its neighbours at the tips (a zigzag when read as an edge), in the light
+//                 thread, with a thin dark line where the two threads change over and a small lozenge of ground in the
+//                 heart of each diamond
+//   the weave     cells on the bias, `CELLS` to a tile: at 16 mm that is a cell of about 1.2 mm, a twill and not a plain
+//                 grid, because a card-woven band's structure runs on the diagonal
+function buildTablet(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const ground = col(0x8a8272);
+  const thread = col(0xd8cfb8);
+  const cord = col(0x4a4234);
+  const line = col(0x3b3429);
+  const CELLS = 13;
+
+  forEachTexel(size, (i, u, v) => {
+    const edge = Math.min(v, 1 - v);                        // 0 at a selvedge, 0.5 mid-band
+    const inCord = 1 - smoothstep(0.062, 0.082, edge);      // 1 in the cord, 0 in the field
+    // The pattern: |v - .5| against the diamond's half-height, |u - .5| against its half-width; d < 1 is inside.
+    const d = Math.abs(v - 0.5) / 0.36 + Math.abs(u - 0.5) * 2;
+    const heart = 1 - smoothstep(0.30, 0.36, d);            // the lozenge of ground in the middle
+    const body = (1 - smoothstep(0.90, 0.94, d)) * (1 - heart);
+    const rim = smoothstep(0.80, 0.86, d) * (1 - smoothstep(0.98, 1.03, d));   // the change-over line, outside the thread
+    // The weave, on the bias.
+    const twill = tri(u * CELLS + v * CELLS) * 0.5 + tri(u * CELLS * 2 - v * CELLS) * 0.15;
+    const fuzz = sampleField(bank.fine, u * 6, v * 6);
+    // The cord's twist: ridges on the bias along its length, rounded across its width.
+    const twist = 0.5 + 0.5 * Math.sin(2 * Math.PI * (u * 9 + (v < 0.5 ? v : -v) * 6));
+    const round = Math.sqrt(Math.max(0, 1 - Math.pow((edge / 0.075) * 2 - 1, 2)));
+
+    mix(c, i, ground, thread, body * (1 - inCord));
+    toward(c, i, line, rim * (1 - inCord) * 0.85);
+    toward(c, i, cord, inCord * (0.62 + 0.3 * twist));
+    gain(c, i, 0.9 + twill * 0.16 + (fuzz - 0.5) * 0.1);
+
+    const ridge = inCord * (0.10 + round * 0.22 + twist * 0.08);
+    h[i] = clamp01(0.38 + twill * 0.16 + body * 0.05 - rim * 0.07 + ridge + (fuzz - 0.5) * 0.04);
+    r[i] = clamp01(0.92 - inCord * 0.06 - body * 0.03 + (fuzz - 0.5) * 0.04);
     m[i] = 0;
   });
 }
@@ -3035,7 +3094,7 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   interlace: { detail: "prop", tint: 0x9aa4ad, roughness: 0.34, metalness: 0.95, normalScale: 0.8, aoIntensity: 1.1, bump: 1.6, cavity: 1.15, repeat: 1, build: buildInterlace },
   bronze:  { detail: "prop", tint: 0x9a7038, roughness: 0.38, metalness: 0.92, normalScale: 0.95, aoIntensity: 0.95, bump: 1.7, cavity: 1,   repeat: 2, build: buildBronze },
 
-  wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 1,    aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
+  wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 0.7,  aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
   // `hero` rather than `prop`, and it is the one substance in the set that has
   // to argue for it. Hair is worn on the head — the part of a warrior a player
   // spends the match looking at, the whole subject of the portrait framing, and
@@ -3060,6 +3119,7 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   hair:    { detail: "hero", tint: 0x8b8177, roughness: 0.728, metalness: 0, normalScale: 1.25, aoIntensity: 1.3,  bump: 2.5, cavity: 1.35, repeat: 3, build: buildHair },
   linen:   { detail: "prop", tint: 0xb0a48c, roughness: 0.86, metalness: 0, normalScale: 0.85, aoIntensity: 1,    bump: 1.9, cavity: 1.1,  repeat: 6, build: buildLinen },
   leather: { detail: "prop", tint: 0x64411f, roughness: 0.62, metalness: 0, normalScale: 1.05, aoIntensity: 1,    bump: 2,   cavity: 1,    repeat: 3, build: buildLeather },
+  tablet:  { detail: "prop", tint: 0x8d8478, roughness: 0.91, metalness: 0, normalScale: 0.9, aoIntensity: 1, bump: 1.7, cavity: 1.1, repeat: 1, build: buildTablet },
   rope:    { detail: "prop", tint: 0x9a8455, roughness: 0.95, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.4, cavity: 1.1,  repeat: 4, build: buildRope },
 
   oak:     { detail: "prop", tint: 0x8d6a44, roughness: 0.88, metalness: 0, normalScale: 0.85, aoIntensity: 0.9,  bump: 1.5, cavity: 0.9, repeat: 2, build: buildOak },
@@ -3136,6 +3196,8 @@ export function __probeSubstance(name: SurfaceName, size?: number): Gen {
   return g;
 }
 __probeSubstance.declared = (name: SurfaceName): number => RECIPES[resolve(name)].roughness;
+/** The recipe's own normal-map strength: a plan number (`tools/recipemap.mjs` reads it), not a property of the built pixels. */
+__probeSubstance.normalScale = (name: SurfaceName): number => RECIPES[resolve(name)].normalScale;
 
 const ALIAS: Record<"ground" | "wood" | "stone" | "cloth", BaseSurface> = {
   ground: "dirt",

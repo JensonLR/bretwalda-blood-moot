@@ -1040,6 +1040,29 @@ const BARE_IDS: Readonly<Record<PropRole, readonly string[]>> = {
   helm: ["none"], hair: ["shaved", "none", "bald"], beard: ["none"],
 };
 
+/**
+ * IS HE WEARING THIS ROLE AT ALL — the one definition, for the arena (`GameCanvas.tsx`) and the armoury
+ * (`armouryStage.ts`), which each carried a copy that agreed with the other and with nothing else.
+ *
+ * THE DEFECT (CHAR-PLAN CH-05, RENDER-PATHS section B): both copies read "none" (and any `*_none` id) as bare and
+ * nothing else, so a 0-gold "Shaved" - `hairStyle: "shaved"` - kept the BAKED hair on an authored man: `hair` stayed
+ * in the worn set, no prop mounted (`BARE_IDS` says shaved wants no file), and `hideBakedRoles` hid nothing. The
+ * shop's bare-head cards were black-capped, and the bought razor did not shave. The bare values of a role are the
+ * ones `propIdOf` already refuses to fetch a file for, so they are read from the same table: a man who wants no
+ * `hair-<cls>-shaved.glb` is a man with no hair on him, and the two statements cannot disagree.
+ *
+ * ABSENT is not bare: a loadout that does not mention beards is not a man who shaved, and keeps whatever the
+ * export baked in. The cloak's only bare value is "none" (it is not a prop role, so `BARE_IDS` has no row for it).
+ */
+export function roleIsWorn(appearance: Record<string, unknown> | null | undefined, role: AuthoredRole): boolean {
+  const v = appearance ? appearance[`${role}Style`] ?? appearance[role] : undefined;
+  if (v === undefined) return true;
+  if (typeof v !== "string") return true;
+  if (v.endsWith("_none")) return false;
+  const bare: readonly string[] = role === "cloak" ? ["none"] : BARE_IDS[role];
+  return !bare.includes(v);
+}
+
 /** What he bought in this role, or null if he bought nothing to draw. */
 export function propIdOf(role: PropRole, appearance: Record<string, unknown> | null | undefined): string | null {
   const raw = appearance ? appearance[PROP_FIELD[role]] : null;

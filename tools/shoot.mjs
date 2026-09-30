@@ -548,6 +548,27 @@ const SHEETS = {
         label: `${cls} · ${weapon.replace("weapon_", "")}`, turn: QUARTER, cls, dress: { weapon },
       }))),
   },
+  // ---- the livery on the AUTHORED man (U6 / L1: authoredLivery.ts) ----
+  //
+  // The sheets above photograph whatever man the default build draws, and until the role table landed that was the
+  // issued kit whatever the panel asked for: `finishes` was seven copies of one man on the authored path, and the
+  // four peoples were one man four times. These are the frames the role table has to be judged on. Every panel is
+  // checked against what the page says it built (`expect`), and the tool prints how many AUTHORED men it drew.
+  liveryroster: {
+    file: "livery-roster.png", card: "kitcard", cols: 4,
+    title: "THE FOUR CLASSES x THE FOUR PEOPLES · kit cards, front · the authored man, dressed by the role table",
+    shots: ["huscarl", "warden", "runekeeper", "berserker"].flatMap((cls) =>
+      ["saxon", "norse", "briton", "pict"].map((people) => ({ label: `${cls} · ${people}`, turn: 0, cls, dress: { people } }))),
+  },
+  liverysmoke: {
+    file: "livery-smoke.png", card: "kitcard", cols: 3,
+    title: "LIVERY SMOKE · the issued man, a purchased and sworn man, a Pict",
+    shots: [
+      { label: "huscarl · issued", turn: 0, cls: "huscarl", dress: {} },
+      { label: "huscarl · Norse · gold finish · gold cloak", turn: -35, cls: "huscarl", dress: { people: "norse", armor: "armor_gold", cloak: "cloak_gold" } },
+      { label: "berserker · Pict", turn: 0, cls: "berserker", dress: { people: "pict" } },
+    ],
+  },
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 

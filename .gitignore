@@ -244,3 +244,11 @@ tools/blender/**/__pycache__/
 .bladevalue/
 art/bladevalue/
 .weaponshape-kit/
+
+# tools/authoredtest.mjs compiles the livery table here (the roletable claim) and deletes it again
+.authoredtest/
+# tools/chromabudget.mjs likewise
+.chromabudget/
+.hairauthored/
+# tools/recipemap.mjs compiles textures.ts and characters.ts here and deletes it again
+.recipemap/
