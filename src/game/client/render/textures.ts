@@ -110,9 +110,12 @@ export type SurfaceName =
   | "hair"      // parallel strands in locks — anisotropic, v runs down the fall
   | "linen"     // fine plain weave with slubs
   | "leather"   // tanned hide: pebbled grain and stretch creases
+  | "tablet"    // tablet-woven braid: a two-colour diamond chain between selvedge cords
   | "rope"      // three-strand twisted hemp
   // timber and roof
   | "oak"       // flat-sawn cathedral figure with knots
+  | "ash"       // a spear shaft, an axe haft: pale, straight, quiet grain, no ray fleck
+  | "lime"      // a shield board: pale, near-featureless fine grain under the paint
   | "plank"     // the same board, weathered grey and split
   | "thatch"    // bundled straw in courses
   // ground
@@ -994,12 +997,12 @@ function buildMail(g: Gen): void {
   const INNER = (1 - band) * (1 - band);
   const OUTER = (1 + band) * (1 + band);
 
-  const wire = col(0x5c636c);
-  const crown = col(0xa8b0ba);
-  const shadow = col(0x22262b);
+  const wire = col(0x5f6266);
+  const crown = col(0xb4b6b8);
+  const shadow = col(0x232426);
   const rivetCol = col(0xbdae87);
   const gambeson = col(0x2b2521);
-  const rust = col(0x6d4326);
+  const rust = col(0x5a3c28);
 
   forEachTexel(size, (i, u, v) => {
     let best = 0;
@@ -1049,13 +1052,13 @@ function buildMail(g: Gen): void {
       return;
     }
 
-    const rusty = smoothstep(0.62, 0.92, sampleField(bank.soft, u * 2, v * 2)) * 0.9;
+    const rusty = smoothstep(0.62, 0.92, sampleField(bank.soft, u * 2, v * 2)) * 0.45;
     const grime = sampleField(bank.grain, u * 5, v * 5);
     h[i] = clamp01(best + (grime - 0.5) * 0.05 + (fuzz - 0.5) * 0.02);
     // The crown of an over-ring is what a torch catches; the under-rings stay
     // dark. That split is the whole read — flatten it and this is a doily.
     mix(c, i, wire, crown, clamp01((bestP - 0.25) * 1.7) * (0.22 + 0.78 * bestOver));
-    toward(c, i, shadow, clamp01(1 - bestP * 1.6) * (bestOver ? 0.35 : 0.65));
+    toward(c, i, shadow, clamp01(1 - bestP * 1.6) * (bestOver ? 0.35 : 0.5));
     toward(c, i, rivetCol, bestRivet * 0.85);
     toward(c, i, rust, rusty * (0.3 + 0.55 * (1 - bestP)));
     gain(c, i, 0.84 + grime * 0.3);
@@ -1089,24 +1092,40 @@ function buildIron(g: Gen): void {
   });
 }
 
-// ---- polished, pattern-welded steel ------------------------------------
-// The chevrons are the point: Anglo-Saxon blades were pattern-welded, and a
-// blade with a herringbone in it reads as forged rather than as chrome.
+// ---- the weapons' substances: steel, ash, lime (owner: U7) ----------------
 //
-// `weld` scales how loudly the watering speaks. 1 is the issued steel —
-// "a whisper, not a flag", the rule two comments down. `weldsteel` builds
-// the same map at 3: the Pattern-Welded finish is 240 gold FOR the watering,
-// and a paid pattern you cannot see at the armoury lens is the Shadow-Hood
-// fault in a different slot. The strength rides the colour mix, the
-// roughness band and (past 1) a shallow height groove, so the bands catch
-// the key as relief and not only as paint.
-function buildSteel(g: Gen, weld = 1): void {
+// `texturesWeapons.ts` was reserved for these (CHAR-PLAN 3.0: a unit's builders go in its own file so
+// the shared one stays a line or two of edits), and they are HERE instead, on purpose. `textures.ts` is
+// compiled and imported STANDALONE by tools that cannot follow a relative value import: `hairmap` runs
+// tsc on this one file and imports the emit with Node's own resolver, and `authoredtest` imports the
+// source through Node's type stripping and swallows a failure into `SURFACES: null`. Either would have
+// read a file that imports a sibling as a file with no surfaces.
+//
+// ---- ground steel, and the watering in it -----------------------------------
+//
+// `weld` scales how loudly the watering speaks: 0 is plain honed steel (the
+// issued blade's flats and edges), 3 the Pattern-Welded rung's fuller, 6 the
+// Serpent-Marked rung's etched one. The strength rides the colour mix, the
+// roughness band and (past 1) a shallow height groove, so the bands catch the
+// key as relief and not only as paint.
+//
+// NEUTRAL, and that is the change worth a paragraph. The body, the bright hone
+// streak and the weld tone were all a step of blue (0xb3bcc7 ... 0x878f9a).
+// materials.ts divides a map's own mean out of the colour asked for, so the
+// AVERAGE came out right whatever the map's hue — but the variation around the
+// average did not: a cool herringbone on a neutral blade reads as a blue-black
+// blade with a purple sheen, which is what the kit cards showed. The value
+// structure (a bright bevel, a mid flat, a dark inlay) is laid by the GEOMETRY
+// and the per-band tints in `characters.ts`; this map's job is only to be
+// steel — hone lines, a few nicks, a whisper of tooth — around whatever it is
+// told to average to.
+function buildSteel(g: Gen, weld: number): void {
   const { size, h, r, m, c, bank } = g;
   const LANES = 260;
-  const body = col(0xb3bcc7);
-  const bright = col(0xe4ebf3);
-  const weldTone = col(0x878f9a);
-  const nickCol = col(0x5b636c);
+  const body = col(0xb8bbbf);
+  const bright = col(0xe8eaec);
+  const weldTone = col(0x8c8f93);
+  const nickCol = col(0x5d6064);
 
   forEachTexel(size, (i, u, v) => {
     const lane = v * LANES;
@@ -1117,9 +1136,7 @@ function buildSteel(g: Gen, weld = 1): void {
     const scratch = cut * (1 - smoothstep(0.1, 0.7, across)) * (0.35 + 0.65 * sampleField(bank.fine, u * 3 + seed, v * 40));
 
     // Chevron banding: a stripe field phase-shifted by a triangle wave in v,
-    // then warped so it never reads as a printed zigzag. Pattern welding is a
-    // whisper in the steel, not a flag — anything you can see across the arena
-    // is too strong.
+    // then warped so it never reads as a printed zigzag.
     const chev = tri(u * 13 + tri(v * 4) * 2.4 + sampleField(bank.grain, u * 2, v * 2) * 0.7);
     const weldT = smoothstep(0.25, 0.8, chev);
 
@@ -1127,19 +1144,11 @@ function buildSteel(g: Gen, weld = 1): void {
     const nick = sampleCellId(bank.micro, u * 2, v * 2) > 0.88 ? smoothstep(0.18, 0, nickD) : 0;
     const tooth = sampleField(bank.grain, u * 8, v * 8);
 
-    // A scratch is not geometry at this texel density and must not pretend to be.
-    // 260 lanes on a 512² map is 1.97 texels a lane, and the `fine` tap inside it
-    // runs at forty — so the scratch field was writing a per-texel coin flip into
-    // the *height*, `deriveNormal` was turning it into per-texel random tilt, and
-    // `bandLimit` could only attenuate content that is aliased across the whole
-    // spectrum rather than remove it. The visible bill came due one level down:
-    // steel's normals disagreed with their own neighbours everywhere, `ormMips`
-    // read that disagreement as relief and sanded the polish off every blade and
-    // helm in the frame — the pale, matte bowl in the middle panel of the head A/B.
-    // At 0.02 the lanes still catch the light as *shading*, and where a scratch
-    // physically belongs is where it still is: in the albedo, as a bright streak,
-    // and in the roughness, as scatter. Nicks stay — a nick is a cell field at ×2,
-    // 128 texels across, and it is real geometry that deserves a real normal.
+    // A scratch is not geometry at this texel density and must not pretend to be
+    // (260 lanes on a 512 map is 1.97 texels a lane; see the note this replaced
+    // in textures.ts): at 0.02 the lanes still catch the light as shading, and the
+    // scratch lives in the albedo as a bright streak and in the roughness as
+    // scatter. Nicks stay: a nick is a cell field at x2, 128 texels across.
     h[i] = clamp01(0.78 - scratch * 0.02 - nick * 0.36 + (tooth - 0.5) * 0.03
       - weldT * 0.012 * Math.max(0, weld - 1));
     mix(c, i, body, weldTone, Math.min(0.55, weldT * 0.16 * weld));
@@ -1147,6 +1156,64 @@ function buildSteel(g: Gen, weld = 1): void {
     toward(c, i, nickCol, nick * 0.8);
     r[i] = clamp01(0.1 + weldT * 0.05 * weld + scratch * 0.32 + nick * 0.45 + (tooth - 0.5) * 0.05);
     m[i] = 1 - nick * 0.12;
+  });
+}
+
+// ---- ash: a spear shaft and an axe haft -------------------------------------
+//
+// Straight, quiet, pale. Ash is ring-porous, so a faint darker latewood line
+// marks each year, but on a rived and shaved shaft those lines are long, close
+// and nearly parallel, and there are NO rays: the medullary fleck that makes
+// oak unmistakable (textures.ts `wood`, ray) is exactly what this is not.
+//
+// Every tap is stretched along v because every shaft in the game runs along v
+// (a `shell` sweeps u round it and v down it): u at three across a lattice that
+// peaks at six cycles a field is 18 lines round a 100 mm shaft, and v at one is
+// a streak a fifth of the shaft long. Anisotropy 1:50 and no knots — a pole is
+// cut from clear stock, and a knot on a spear shaft is a broken spear.
+function buildAsh(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const early = col(0xc2a97f);
+  const late = col(0xa1865c);
+  const dry = col(0xcdb790);
+  forEachTexel(size, (i, u, v) => {
+    // a slow sideways drift of the whole figure with v, so the lines wander a little
+    const wu = u + (sampleField(bank.warp, u * 1, v * 1) - 0.5) * 0.05;
+    const ring = sampleField(bank.grain, wu * 3, v * 1);
+    const band = smoothstep(0.46, 0.7, ring);
+    const fibre = sampleField(bank.fine, wu * 2, v * 1);
+    const drift = sampleField(bank.soft, u * 1, v * 1);
+    h[i] = clamp01(0.55 + (fibre - 0.5) * 0.06 - band * 0.05);
+    mix(c, i, early, late, band * 0.5);
+    toward(c, i, dry, smoothstep(0.55, 0.9, drift) * 0.25);
+    gain(c, i, 0.93 + (drift - 0.5) * 0.1 + (fibre - 0.5) * 0.08);
+    r[i] = clamp01(0.7 + (fibre - 0.5) * 0.06 + band * 0.05);
+    m[i] = 0;
+  });
+}
+
+// ---- lime: the shield board -------------------------------------------------
+//
+// Linden is the soft, pale, fine-grained wood a shield board is cut from
+// because it does not split and it is light: L* 70-80 under paint, C* 12-16,
+// and almost no figure. What survives here is a very faint fine grain along v
+// and a slow tonal drift, so a painted field on it reads as paint on a board
+// and not as a flat fill. Oak's fleck and cathedral figure are gone (the tell
+// of the wrong tree, LORE 5.6 and 10 trap 6).
+function buildLime(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const base = col(0xcdbb96);
+  const shade = col(0xb8a37a);
+  forEachTexel(size, (i, u, v) => {
+    const fibre = sampleField(bank.grain, u * 3, v * 1);
+    const fine = sampleField(bank.fine, u * 2, v * 1);
+    const drift = sampleField(bank.soft, u * 1, v * 1);
+    const line = smoothstep(0.5, 0.8, fibre);
+    h[i] = clamp01(0.55 + (fine - 0.5) * 0.05 - line * 0.03);
+    mix(c, i, base, shade, line * 0.35);
+    gain(c, i, 0.95 + (drift - 0.5) * 0.08 + (fine - 0.5) * 0.05);
+    r[i] = clamp01(0.75 + (fine - 0.5) * 0.05);
+    m[i] = 0;
   });
 }
 
@@ -1518,7 +1585,15 @@ function buildWool(g: Gen): void {
     // only reason it is safe at two cycles per tile is that it has no cross-axis
     // structure to be a cell of — so it is sized against the dye rather than
     // against the relief, which can afford to be louder.
-    gain(c, i, 0.8 + dye * 0.5 + (tooth - 0.5) * 0.12 + (drape - 0.5) * 0.5);
+    // ABRASH: the streak a vat leaves when one hank took the dye a little differently from the next. It runs down the
+    // warp (constant in v, wandering with the nap's own sway) and is worth +-8% of the value the eye reads (L*), which is +-11% of the channel: what says "dyed by hand"
+    // rather than "printed", and a directional term the isotropic blotch above cannot supply.
+    // Two sines of the lattice's own integer frequencies (3 and 7 to the tile, neither of them the streaks' 2 and 5, so
+    // they never lock into one pitch) rather than a tap of a noise field: `soft` piles up around one half, and sampled
+    // along a single row it moved the value by a third of a percent where the recipe wants eight.
+    const ax = u + sway * 0.5;
+    const abrash = 0.5 + 0.3 * Math.sin(Math.PI * 2 * 3 * ax + 0.9) + 0.2 * Math.sin(Math.PI * 2 * 7 * ax + 3.4);
+    gain(c, i, (0.8 + dye * 0.5 + (tooth - 0.5) * 0.12 + (drape - 0.5) * 0.5) * (1 + (abrash - 0.5) * 0.22));
     // Felt is the most light-absorbing thing in the frame, but a fulled nap is
     // not uniformly matte — the crowns of the lay are combed flat and take a
     // soft directional sheen, which is most of what says "wool" rather than
@@ -1880,6 +1955,56 @@ function buildLeather(g: Gen): void {
     gain(c, i, 0.84 + patina * 0.32);
     // Rubbed crowns take a shine; the creases stay matte and hold polish.
     r[i] = clamp01(0.68 - clamp01((height - 0.55) * 2.4) * 0.3 + deep * 0.18);
+    m[i] = 0;
+  });
+}
+
+// ---- tablet-woven braid --------------------------------------------------
+// The period's own way of finishing an edge: a band woven on a set of cards, in two or three colours, a diamond or a
+// zigzag between a cord at each selvedge, sewn to a hem, a cuff, a neckline, a cloak edge (Birka, Snape, Taplow, Sutton
+// Hoo). It is NOT wool with a stripe on it, which is what the trims were: one tile of this map is ONE ACROSS-THE-BAND
+// repeat, v running across the band and u along it, and materials.ts projects it at the band's own height, so a 16 mm
+// braid shows one row of diamonds and a 32 mm one shows two.
+//
+//   the cords     the outer sixteenth on each side (2 mm of a 32 mm band): a twisted weft, darker, standing proud (a rounded ridge with the
+//                 twist on the bias)
+//   the ground    the mid wool
+//   the pattern   a diamond chain that touches its neighbours at the tips (a zigzag when read as an edge), in the light
+//                 thread, with a thin dark line where the two threads change over and a small lozenge of ground in the
+//                 heart of each diamond
+//   the weave     cells on the bias, `CELLS` to a tile: at 16 mm that is a cell of about 1.2 mm, a twill and not a plain
+//                 grid, because a card-woven band's structure runs on the diagonal
+function buildTablet(g: Gen): void {
+  const { size, h, r, m, c, bank } = g;
+  const ground = col(0x8a8272);
+  const thread = col(0xd8cfb8);
+  const cord = col(0x4a4234);
+  const line = col(0x3b3429);
+  const CELLS = 13;
+
+  forEachTexel(size, (i, u, v) => {
+    const edge = Math.min(v, 1 - v);                        // 0 at a selvedge, 0.5 mid-band
+    const inCord = 1 - smoothstep(0.062, 0.082, edge);      // 1 in the cord, 0 in the field
+    // The pattern: |v - .5| against the diamond's half-height, |u - .5| against its half-width; d < 1 is inside.
+    const d = Math.abs(v - 0.5) / 0.36 + Math.abs(u - 0.5) * 2;
+    const heart = 1 - smoothstep(0.30, 0.36, d);            // the lozenge of ground in the middle
+    const body = (1 - smoothstep(0.90, 0.94, d)) * (1 - heart);
+    const rim = smoothstep(0.80, 0.86, d) * (1 - smoothstep(0.98, 1.03, d));   // the change-over line, outside the thread
+    // The weave, on the bias.
+    const twill = tri(u * CELLS + v * CELLS) * 0.5 + tri(u * CELLS * 2 - v * CELLS) * 0.15;
+    const fuzz = sampleField(bank.fine, u * 6, v * 6);
+    // The cord's twist: ridges on the bias along its length, rounded across its width.
+    const twist = 0.5 + 0.5 * Math.sin(2 * Math.PI * (u * 9 + (v < 0.5 ? v : -v) * 6));
+    const round = Math.sqrt(Math.max(0, 1 - Math.pow((edge / 0.075) * 2 - 1, 2)));
+
+    mix(c, i, ground, thread, body * (1 - inCord));
+    toward(c, i, line, rim * (1 - inCord) * 0.85);
+    toward(c, i, cord, inCord * (0.62 + 0.3 * twist));
+    gain(c, i, 0.9 + twill * 0.16 + (fuzz - 0.5) * 0.1);
+
+    const ridge = inCord * (0.10 + round * 0.22 + twist * 0.08);
+    h[i] = clamp01(0.38 + twill * 0.16 + body * 0.05 - rim * 0.07 + ridge + (fuzz - 0.5) * 0.04);
+    r[i] = clamp01(0.92 - inCord * 0.06 - body * 0.03 + (fuzz - 0.5) * 0.04);
     m[i] = 0;
   });
 }
@@ -2860,7 +2985,16 @@ function buildSkin(g: Gen): void {
     // ridge field low made a jigsaw; the whole read lives in the high octave.
     const netA = smoothstep(0.5, 0.92, sampleField(bank.ridge, u * 8, v * 8));
     const netB = smoothstep(0.62, 1, sampleField(bank.ridge, u * 16, v * 16));
-    const wrinkle = clamp01(netA * 0.7 + netB * 0.6);
+    // netB was 0.6 and the blush below took 0.55 of `wrinkle`, which printed the crease net in RED:
+    // dashes, in rows, across the face at the 35 mm tile the authored skin is baked at. Now 0.25 and 0.12
+    // (CHAR-PLAN 1.5: "redness from the low-frequency flush field only"). R1, measured by pulling both to
+    // ZERO on the albedo tile read at the portrait lens (`tools/skinlattice.mjs`): the lattice's peak did NOT
+    // move (0.912 -> 0.931) and its texture rms fell 1.81 -> 1.66 L*; what moved it to nothing (rms 0.53 L*,
+    // smooth) was the `flush` blotch below, which repeats at HALF a tile (`u * 2`, a 21 px pitch at the
+    // portrait lens, exactly the pitch the frame's autocorrelation reads). So this change makes the dashes
+    // less red and does NOT remove the lattice; the lattice is removed where the head is dressed
+    // (`render/authoredSkin.ts`, the head's own tile) and remains on the body's skin, where it is the flush.
+    const wrinkle = clamp01(netA * 0.7 + netB * 0.25);
     const flush = sampleField(bank.soft, u * 2, v * 2);
     const mottle = sampleField(bank.grain, u * 6, v * 6);
     const speck = sampleCellId(bank.micro, u * 4, v * 4);
@@ -2870,7 +3004,7 @@ function buildSkin(g: Gen): void {
     set(c, i, mid);
     // Blood sits close under the surface, so the creases and the low-frequency
     // blotching both go red. Flat skin colour is what reads as a mannequin.
-    toward(c, i, blush, clamp01(smoothstep(0.4, 0.85, flush) * 0.8 + wrinkle * 0.55 + (mottle - 0.5) * 0.5));
+    toward(c, i, blush, clamp01(smoothstep(0.4, 0.85, flush) * 0.8 + wrinkle * 0.12 + (mottle - 0.5) * 0.5));
     toward(c, i, pale, clamp01((height - 0.66) * 4) * 0.5);
     toward(c, i, freckle, speck > 0.94 ? pore * 0.6 : 0);
     gain(c, i, 0.94 + (mottle - 0.5) * 0.14);
@@ -2945,19 +3079,22 @@ type BaseSurface = Exclude<SurfaceName, "ground" | "wood" | "stone" | "cloth">;
 const RECIPES: Record<BaseSurface, Recipe> = {
   mail:    { detail: "hero", tint: 0x4a5568, roughness: 0.45, metalness: 0.85, normalScale: 1.15, aoIntensity: 1.1, bump: 2.6, cavity: 1.15, repeat: 3, build: buildMail },
   iron:    { detail: "prop", tint: 0x2f343b, roughness: 0.55, metalness: 0.9,  normalScale: 0.9,  aoIntensity: 0.9, bump: 1.6, cavity: 0.9,  repeat: 2, build: buildIron },
-  steel:   { detail: "hero", tint: 0xb8c0ca, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: buildSteel },
+  // The blades' metal. Neutral (0xb8bbbf, from the bluish 0xb8c0ca) and, at the issued
+  // weld of 0, plain: see `buildSteel`. The scalars are the row's fallbacks for
+  // the low tier and the value `materials.ts` divides its measured means out of; the
+  // weapons ask for their own roughness and a partial metalness explicitly (a blade at
+  // metalness 1 has nothing to show but the sky, and the sky is dark: CH-24).
+  steel:   { detail: "hero", tint: 0xb8bbbf, roughness: 0.18, metalness: 1,    normalScale: 0.6,  aoIntensity: 0.6, bump: 1.1, cavity: 0.7,  repeat: 2, build: (g) => buildSteel(g, 0) },
   // The Pattern-Welded finish's own steel: the same forge at weld 3, so the
-  // watering reads at the armoury lens instead of whispering. Tint a step
-  // greyer than the issued steel — an oiled weld is honestly darker — and the
-  // rest of the row is steel's, because it IS steel.
-  weldsteel: { detail: "hero", tint: 0xaab3bf, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
-  // The Serpent-Marked finish: the same forge at weld 6, where `buildSteel`'s
-  // own 0.55 mix cap becomes the ceiling — the watering as dark as the recipe
-  // allows, which is what an ETCHED weld is against a polished one. The name
-  // is the period's: Beowulf calls the sword wyrm-fah, serpent-marked, and
-  // the serpentine core is what the poem is looking at. Tint another step
-  // down from weldsteel — acid-darkened steel, not oiled.
-  serpentsteel: { detail: "hero", tint: 0x99a2af, roughness: 0.22, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 6) },
+  // watering reads at the armoury lens instead of whispering. It is laid in the
+  // sword's FULLER only; the flats and the bevels are `steel`.
+  weldsteel: { detail: "hero", tint: 0xaeb1b5, roughness: 0.2, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 3) },
+  // The Serpent-Marked finish: the same forge at weld 6, where the recipe's own 0.55
+  // mix cap becomes the ceiling — the watering as dark as the recipe allows, which is
+  // what an ETCHED weld is against a polished one. The name is the period's: Beowulf
+  // calls the sword wyrm-fah, serpent-marked, and the serpentine core is what the poem
+  // is looking at.
+  serpentsteel: { detail: "hero", tint: 0x9ea1a6, roughness: 0.22, metalness: 1, normalScale: 0.7, aoIntensity: 0.6, bump: 1.1, cavity: 0.7, repeat: 2, build: (g) => buildSteel(g, 6) },
   // Roughness and metalness here are the recipe's own measured means, because
   // materials.ts divides a caller's request by them. `normalScale` is under
   // steel's: a stamped foil stands about a third of a millimetre proud and the
@@ -2966,7 +3103,7 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   interlace: { detail: "prop", tint: 0x9aa4ad, roughness: 0.34, metalness: 0.95, normalScale: 0.8, aoIntensity: 1.1, bump: 1.6, cavity: 1.15, repeat: 1, build: buildInterlace },
   bronze:  { detail: "prop", tint: 0x9a7038, roughness: 0.38, metalness: 0.92, normalScale: 0.95, aoIntensity: 0.95, bump: 1.7, cavity: 1,   repeat: 2, build: buildBronze },
 
-  wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 1,    aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
+  wool:    { detail: "prop", tint: 0x8d8478, roughness: 0.95, metalness: 0, normalScale: 0.7,  aoIntensity: 1.15, bump: 2.2, cavity: 1.25, repeat: 4, build: buildWool },
   // `hero` rather than `prop`, and it is the one substance in the set that has
   // to argue for it. Hair is worn on the head — the part of a warrior a player
   // spends the match looking at, the whole subject of the portrait framing, and
@@ -2991,9 +3128,13 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   hair:    { detail: "hero", tint: 0x8b8177, roughness: 0.728, metalness: 0, normalScale: 1.25, aoIntensity: 1.3,  bump: 2.5, cavity: 1.35, repeat: 3, build: buildHair },
   linen:   { detail: "prop", tint: 0xb0a48c, roughness: 0.86, metalness: 0, normalScale: 0.85, aoIntensity: 1,    bump: 1.9, cavity: 1.1,  repeat: 6, build: buildLinen },
   leather: { detail: "prop", tint: 0x64411f, roughness: 0.62, metalness: 0, normalScale: 1.05, aoIntensity: 1,    bump: 2,   cavity: 1,    repeat: 3, build: buildLeather },
+  tablet:  { detail: "prop", tint: 0x8d8478, roughness: 0.91, metalness: 0, normalScale: 0.9, aoIntensity: 1, bump: 1.7, cavity: 1.1, repeat: 1, build: buildTablet },
   rope:    { detail: "prop", tint: 0x9a8455, roughness: 0.95, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.4, cavity: 1.1,  repeat: 4, build: buildRope },
 
   oak:     { detail: "prop", tint: 0x8d6a44, roughness: 0.88, metalness: 0, normalScale: 0.85, aoIntensity: 0.9,  bump: 1.5, cavity: 0.9, repeat: 2, build: buildOak },
+  // A shaft's wood is not the palisade's: pale, straight, quiet, no ray fleck (LORE 5.4, 10 trap 6).
+  ash:     { detail: "prop", tint: 0xb59a72, roughness: 0.7,  metalness: 0, normalScale: 0.6,  aoIntensity: 0.7,  bump: 1.0, cavity: 0.6, repeat: 2, build: buildAsh },
+  lime:    { detail: "prop", tint: 0xc9b48c, roughness: 0.75, metalness: 0, normalScale: 0.5,  aoIntensity: 0.6,  bump: 0.8, cavity: 0.5, repeat: 2, build: buildLime },
   plank:   { detail: "prop", tint: 0x776d5f, roughness: 0.95, metalness: 0, normalScale: 1.1,  aoIntensity: 1,    bump: 2,   cavity: 1,   repeat: 2, build: buildPlank },
   thatch:  { detail: "prop", tint: 0x8d7a52, roughness: 0.98, metalness: 0, normalScale: 1.3,  aoIntensity: 1.25, bump: 2.6, cavity: 1.3, repeat: 3, build: buildThatch },
 
@@ -3015,7 +3156,7 @@ const RECIPES: Record<BaseSurface, Recipe> = {
   mud:     { detail: "prop", tint: 0x4c3e2d, roughness: 0.61, metalness: 0, normalScale: 1.2,  aoIntensity: 1.1,  bump: 2.3, cavity: 1.1, repeat: 6, build: buildMud },
   grass:   { detail: "prop", tint: 0x51672f, roughness: 0.81, metalness: 0, normalScale: 1.15, aoIntensity: 1.15, bump: 2.3, cavity: 1.15, repeat: 4, build: buildGrass },
 
-  skin:    { detail: "hero", tint: 0xd9a97e, roughness: 0.6,  metalness: 0, normalScale: 0.7,  aoIntensity: 0.8,  bump: 1.2, cavity: 0.8, repeat: 1, build: buildSkin },
+  skin:    { detail: "hero", tint: 0xd9a97e, roughness: 0.6,  metalness: 0, normalScale: 0.45, aoIntensity: 0.8,  bump: 0.8, cavity: 0.8, repeat: 1, build: buildSkin },
   bone:    { detail: "prop", tint: 0xcfc2a6, roughness: 0.62, metalness: 0, normalScale: 0.9,  aoIntensity: 0.95, bump: 1.6, cavity: 1,   repeat: 2, build: buildBone },
   blood:   { detail: "prop", tint: 0x4a0a08, roughness: 0.2,  metalness: 0, normalScale: 0.8,  aoIntensity: 0.7,  bump: 1.4, cavity: 0.7, repeat: 1, cutout: true, build: buildBlood },
 };
@@ -3064,6 +3205,8 @@ export function __probeSubstance(name: SurfaceName, size?: number): Gen {
   return g;
 }
 __probeSubstance.declared = (name: SurfaceName): number => RECIPES[resolve(name)].roughness;
+/** The recipe's own normal-map strength: a plan number (`tools/recipemap.mjs` reads it), not a property of the built pixels. */
+__probeSubstance.normalScale = (name: SurfaceName): number => RECIPES[resolve(name)].normalScale;
 
 const ALIAS: Record<"ground" | "wood" | "stone" | "cloth", BaseSurface> = {
   ground: "dirt",

@@ -3,7 +3,7 @@
 import bpy, os, sys, json
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 GROUND = argv[0] if argv else "saxon_village"
-D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
+D = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "art", "blender")
 STEM = f"ground-{GROUND}"
 mats = json.load(open(os.path.join(D, f"{STEM}.materials.json")))
 bpy.ops.wm.read_factory_settings(use_empty=True)

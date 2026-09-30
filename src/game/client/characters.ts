@@ -281,8 +281,9 @@ export function migrateAppearance(ap: Appearance): Appearance {
  * finish would be one red mass. That was wrong, and `art/shots/lineup.png` is
  * what disproved it: the warden's lower half is still olive after everything
  * above was wired up. `accents` is not a team colour at all. It is
- * `CLASS_TUNIC[cls]` in `render/anim.ts` — four hard-coded per-class constants,
- * and the warden's is `0x5a6630`, an olive green. There are no teams in it.
+ * `CLASS_TUNIC[cls]` (then in `render/anim.ts`, now beside `tunicDye`, which
+ * re-exports it) — four hard-coded per-class constants, and the warden's WAS
+ * `0x5a6630`, an olive green. There are no teams in it.
  *
  * SO THAT CONSTANT IS THE OWNER'S GREEN LOWER HALF. Not the trousers, which is
  * where I looked first. The tunic is the largest garment on the man, the warden's
@@ -330,33 +331,99 @@ export interface FinishKit {
 /**
  * The seven, keyed by the hex the option already stores so no id, cost or saved
  * profile has to move. Each row is a dye lot and a metal, chosen together.
+ *
+ * RE-GRADED TO AS-WORN VALUES (`docs/LORE` 7, `CHAR-PLAN` 1.5 and U6; the ruler is
+ * `tools/chromabudget.mjs`). Three rules, and each is a number a ruler holds:
+ *
+ *   * WORN CLOTH, LEATHER AND MAIL AT C* 35 OR UNDER; cast metal at 50 (gilt is metal).
+ *     Blood is C* 63-74, and the things that sat closest to it were a finish's
+ *     mail: Bretwalda Gold at C* 46.7 and Madder and Brass at 38.0, and three tunic
+ *     and harness cells the plan did not enumerate (Crimson's tunic 41.4, Gold's
+ *     tunic 40.2 and buff 43.1, Gold's wraps 35.6, Bronze's buff 36.5). Real as-worn
+ *     wool is C* 15-42 and faded, not fresh (light and soil dull every dye).
+ *   * THE LEG WRAPS ARE L* 44-50 AND C* 14 OR UNDER in every finish. They were the
+ *     brightest cloth on the man in six of the seven rows (L* 52.6 issued, 77.0 in
+ *     Gold) - brighter than his face, which is what read as "cream puttees" and
+ *     "yellow gaiters" and as a greave in the lore's own trap list. Real wraps were
+ *     undyed grey-fawn or dyed like the rest. The face, the hands and the steel are
+ *     the brightest things on a man; a wrap is never the brightest cloth.
+ *     The seven are picked to stay SEVEN: inside that little gamut each pair of wraps
+ *     is at least CIELAB dE 7.1 from every other (moorit-fawn, cool grey, soot, walnut
+ *     tan, rose-grey, woad-grey, weld-grey), the floor the shop's own table had before
+ *     the re-grade (7.18), because `factionread` 5.1b asks whether any two finishes are
+ *     one swatch on a surface and a first pass at this row put two at dE 1.70.
+ *   * THE ISSUED MAIL IS NEUTRAL IRON, #64666a (L* 43.1, C* 2.5), not #5f6b7a
+ *     (h 264: blue), and the issued fittings are cast bronze, #a07c45 (L* 54.4),
+ *     not the #bfa25c (L* 67.8, C* 40.1) that read as yellow plastic on every man.
+ *
+ * The row KEYS are the stored option hexes and do not move, so the mail of the
+ * first row is no longer its own key; nothing reads the key as a colour.
  */
-const FINISH_KIT: Record<number, FinishKit> = {
+export const FINISH_KIT: Record<number, FinishKit> = {
   // Rough Iron — what a man is issued. Undyed wool in the fleece's own colours,
-  // oiled harness leather, cast bronze. This row is the old constants, so the
-  // free finish looks exactly as it did and the ladder starts where it started.
-  0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  // oiled harness leather, cast bronze. The wrap is moorit-fawn (LORE 4.3), the
+  // mail is bare iron and the fittings are bronze: three cells re-graded, and the
+  // rest of the row is the old constants.
+  0x5f6b7a: { mail: 0x64666a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x7a6d58, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xa07c45 },
   // Polished Steel — everything on him goes cool and a shade brighter. Slate
-  // wool, bleached wraps, tinned-bronze fittings that match the shirt.
-  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  // wool, undyed grey wraps, tinned-bronze fittings that match the shirt.
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0x6f787e, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
   // Blackened Steel — fire-blued metal, soot-dyed wool, black harness. The
   // fittings go to dark iron; brass buttons would undo the whole finish.
-  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6b6865, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
   // Bronze Scales — the warm end. Walnut-dyed trousers, oat wraps, tan harness
   // and true cast bronze, so the whole man reads as one metal's worth of warmth.
-  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0x866b5f, hide: 0x513418, buff: 0x8d6b3c, fitting: 0xc79a4a },
   // Crimson Warplate — madder. The dyestuff that actually made a Dark Age man
-  // look rich, on the trousers and pulled through the leather; wraps stay a
-  // pale rose-grey so the legs still break into two values at fight distance.
-  0x7a2f2a: { mail: 0x7a2f2a, tunic: 0x8a3730, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  // look rich, on the tunic and the trousers and pulled through the leather; wraps
+  // stay a rose-grey so the legs still break into two values at fight distance.
+  // As worn madder is #743a30 on the mail (LORE 7.1 "deep", L* 31.7, C* 30.2) and
+  // #85453a on the tunic (L* 37.0, C* 32.3): a brick, not a blood.
+  0x7a2f2a: { mail: 0x743a30, tunic: 0x85453a, trouser: 0x5d2d29, wrap: 0x7d6a69, hide: 0x46201a, buff: 0x8a5241, fitting: 0xa07c45 },
   // Sea Queen's Gift — woad, the other expensive vat, and the only cold blue on
   // the roster. Fittings go pewter rather than gold for the same reason.
-  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x5b6c7e, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
   // Bretwalda Gold — weld yellow over everything and fire-gilt fittings. The top
   // of the ladder, and now the only finish where the trousers, the wraps, the
-  // belt and the brooch are all saying the same thing.
+  // belt and the brooch are all saying the same thing. Weld as worn is the DULL
+  // one, #a89357 (LORE 7.1: L* 61.6, C* 34.5): the fresh weld the row used to carry
+  // at C* 46.7 is a colour that fades in a season, and the gold is in the gilt.
+  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x767769, hide: 0x4d3a14, buff: 0x997e48, fitting: 0xdcc164 },
+};
+
+/**
+ * THE DYE LOT: the seven rows as they stood BEFORE the as-worn re-grade, which is what the four peoples' vats work
+ * from. Frozen, and not a second palette: it is the INPUT of `factionKit`, while `FINISH_KIT` above is what a man
+ * wears when nobody has sworn him to anything.
+ *
+ * WHY THE VATS DO NOT SEE THE RE-GRADED ROWS. A vat does not repaint cloth, it adds dyestuff to what is already
+ * there and snaps the sum onto the field's hue (`factionDye`), so the CHROMA of what comes out is the chroma of what
+ * went in: a saturated weld-yellow leg wrap goes into the woad vat and comes out a strong pale blue, a faded one comes
+ * out a grey. The re-grade took every worn cell under C* 35 and every wrap to L* 44-50; fed to the vats, that moved
+ * `factionread` 1.3 (does every sworn man's hue land nearer his own people's field than any other's?) from 2 readings
+ * more than 5 degrees off the field to 32, measured on the shipped resolver over the whole 1680-reading roster (the
+ * Norse huscarl 11 and warden 5, the Pict berserker 16; in Bretwalda Gold, Blackened Steel and Bronze Scales), and 11
+ * of them, every one the sworn Pict berserker in Bretwalda Gold, more than 100 degrees off. A berserker wears no tunic
+ * and no mail, so the trousers, the wraps and the harness are all a vat has to dye on him, and the wraps were what
+ * carried his chroma. So the peoples keep the colours they were tuned on, byte for byte (1.3 reads 2 again), and the
+ * as-worn re-grade of what a SWORN man wears is the FACTION rows' own (CHAR-PLAN U6, DEFERRED: `tools/chromabudget.mjs`
+ * reports the 63 of 180 vat cells that are still over C* 35 and says so on its verdict line). A team's vat re-dyes from
+ * the worn row (`kitFor`): it keeps a surface's lightness and forces its own chroma, so a war band's read is the
+ * re-graded man's, and `tools/teamread.mjs` measures it.
+ */
+const FINISH_LOT: Record<number, FinishKit> = {
+  0x5f6b7a: { mail: 0x5f6b7a, tunic: 0x6a5b42, trouser: 0x504a3e, wrap: 0x8b7c5c, hide: 0x4a3524, buff: 0x7a5b38, fitting: 0xbfa25c },
+  0x8a97a5: { mail: 0x7a8591, tunic: 0x5c6068, trouser: 0x434b56, wrap: 0xb6b2a4, hide: 0x453c33, buff: 0x8b7c5e, fitting: 0xc3c9d0 },
+  0x2a2f38: { mail: 0x2a2f38, tunic: 0x3a3733, trouser: 0x2f2d2c, wrap: 0x6d665a, hide: 0x241f1b, buff: 0x4e4438, fitting: 0x7f838a },
+  0x8a6a3a: { mail: 0x8a6a3a, tunic: 0x7a5a2e, trouser: 0x5b4527, wrap: 0xc2aa7c, hide: 0x513418, buff: 0x8f6a34, fitting: 0xc79a4a },
+  0x7a2f2a: { mail: 0x7a2f2a, tunic: 0x8a3730, trouser: 0x5d2d29, wrap: 0xbc9c8c, hide: 0x46201a, buff: 0x8a5241, fitting: 0xbfa25c },
+  0x2f4a6a: { mail: 0x2f4a6a, tunic: 0x35506b, trouser: 0x333f52, wrap: 0x93a0aa, hide: 0x2b3138, buff: 0x627083, fitting: 0xaab8c0 },
   0x9a7a2a: { mail: 0x9a7a2a, tunic: 0x8a6f2c, trouser: 0x6b5726, wrap: 0xd2bd7c, hide: 0x4d3a14, buff: 0x9c7c34, fitting: 0xdcc164 },
 };
+/** Row -> its dye lot, by object identity (`finishKit` hands back the very row). A kit that is not a row - a hue-derived one - is its own lot. */
+const LOT_OF = new WeakMap<FinishKit, FinishKit>(
+  Object.keys(FINISH_LOT).map((k) => [FINISH_KIT[Number(k)], FINISH_LOT[Number(k)]] as [FinishKit, FinishKit]),
+);
 
 /**
  * The kit for a stored finish. Anything not in the table — a retired hex that
@@ -400,7 +467,7 @@ export function finishKit(armorColor: number): FinishKit {
  * sends a red accent over an orange dye through the entire spectrum to get
  * there, which is how a warrior ends up green in a bronze finish.
  */
-function tunicDye(lot: number, accent: number): number {
+export function tunicDye(lot: number, accent: number): number {
   const a = { h: 0, s: 0, l: 0 };
   const b = { h: 0, s: 0, l: 0 };
   new THREE.Color(lot).getHSL(a);
@@ -413,6 +480,73 @@ function tunicDye(lot: number, accent: number): number {
   const l = Math.min(0.55, Math.max(0.09, a.l * (0.74 + b.l * 1.1)));
   return new THREE.Color().setHSL(h, s, l).getHex();
 }
+
+/**
+ * Tunic accent per class — the fastest read of who you are fighting.
+ *
+ * MOVED HERE FROM `render/anim.ts` (which re-exports it, so every importer still
+ * finds it there). The authored man is dressed by `render/authoredLivery.ts`,
+ * which has to reproduce `buildCharacter`'s tunic - `tunicDye(kit.tunic, accent)` -
+ * and the accent is the one argument the builder's CALLER used to hold. The seam
+ * file may import this module and nothing heavier, and `tools/dresschain.mjs`
+ * compiles it alone.
+ *
+ * Exported because `tools/teamread.mjs` builds warriors the way `anim.ts` does and
+ * must not keep its own copy of this table: this file records the mirrored-
+ * definition fault four times, and a harness holding a stale accent would grade a
+ * tunic nobody is wearing. It is the accent the REAL rig passes, or it is not a
+ * measurement of the game.
+ *
+ * In a team mode, or under a people's livery, the accent no longer reaches the
+ * tunic's hue - see the precedence note over `TeamField`. It still reaches
+ * nothing else.
+ *
+ * THE WARDEN IS OFF THE YELLOW-GREEN AXIS, and this is the last live half of
+ * `COSMETICS-AUDIT.md` §4.1's fourth fault: "warden defaults to a red cloak over a
+ * `0x5a6630` yellow-green tunic — the Roman colourway." Woad over weld gives a
+ * green wool the period actually had, and taking it cool moves the warden off the
+ * olive without moving him onto anybody: the huscarl is walnut-brown, the berserker
+ * madder, the runekeeper an indigo-grey. It also keeps the promise the `tunicDye`
+ * note makes about him - that he stays "the coolest of the four".
+ *
+ * RE-GRADED (LORE 7.2): the runekeeper's `#3d3a5c` (h 297) passed the chroma cap
+ * and was still a hue neither dyestuff makes - woad is h 264-276, lichen purple
+ * h 336-338 - so it is `#39405a`, an indigo-grey (L* 27.5, C* 17.0, h 285); and
+ * the berserker's `#6e2b26` was AT the cap (C* 34.6), so it is `#743a30`, madder as
+ * worn (L* 31.7, C* 30.2).
+ */
+export const CLASS_TUNIC: Record<string, number> = {
+  huscarl: 0x6a5636,
+  warden: 0x565a55,
+  runekeeper: 0x39405a,
+  berserker: 0x743a30,
+};
+
+/**
+ * THE SURFACES THAT ARE DYED BUT ARE IN NO ARMOURY OPTION, given names so the
+ * builder and the authored man's role table read ONE number. They were literals
+ * typed at their call sites (`wornBy(0xc2b69c, ...)`), and a colour the authored
+ * path must know cannot live inside a function it cannot call.
+ *
+ *   LINEN  the shirt and sleeves. Unbleached; the lore's ceiling is #e4dcc6 and pure
+ *          white does not exist. It is also the game's own definition of "undyed"
+ *          (`UNDYED_SAT` reads it).
+ *   PELT   the berserker's wolf-skin ruff, hanging locks and shoulder box.
+ *   HOOD   the runekeeper's cowl cloth: undyed dark wool, the same on every class
+ *          and at every price of cloak.
+ */
+/** Lozenges along a tablet-woven band: see `tablet` in `buildCharacter`. The authored man's trim asks for the same. */
+export const TABLET_REPEAT = 56;
+export const LINEN_HEX = 0xc2b69c;
+export const PELT_HEX = 0x8a7050;
+export const HOOD_HEX = 0x2a2521;
+/**
+ * Cast bronze, not a bezel: `M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS)`. See `brass` in `buildCharacter`.
+ * The plan's row for bronze fittings (CHAR-PLAN 1.5): roughness 0.52, metalness 0.70. They were 0.46 and 0.78, which
+ * on the old #bfa25c read as yellow plastic on every man; a fitting is a few millimetres of cast metal, not a mirror.
+ */
+export const BRASS_ROUGHNESS = 0.52;
+export const BRASS_METALNESS = 0.70;
 
 // ============================================================
 // TEAM COLOUR — the precedence rule
@@ -580,7 +714,8 @@ export function setTeamContrast(on: boolean): void {
  * silhouette with nothing in it.
  *
  * The band exists because the two ends of that range do not survive dyeing.
- * Blackened Steel's harness is at l 0.09 and Bretwalda Gold's wraps at 0.66;
+ * Blackened Steel's harness is at l 0.09 and Bretwalda Gold's wraps WERE at 0.66
+ * (before the as-worn re-grade, which put every wrap at L* 44-50);
  * below the floor a red is indistinguishable from black at fight distance and
  * above the ceiling it washes to pink, and both of those are the failure this
  * rule exists to prevent.
@@ -1162,18 +1297,27 @@ const HUE_CONE = 0.022;
  * the shop already sells, because that brightness is what the arena's fire key
  * was exposed for:
  *
- *   * a CLOAK is measured against `CLOAK_COLORS` — the four cloaks a player can
- *     buy, of which the 400 gold Gilded War Cloak is the brightest. That is the
- *     control `tools/factionread.mjs` §6 uses, and it is the right comparison
- *     because a cloak is one flat field over the largest single area on a man.
- *   * a KIT surface is measured against `FINISH_KIT` — the seven rungs, whose
- *     brightest surface is Bretwalda Gold's leg wraps. A vat that lifts a
- *     surface past those has stopped dyeing wool and started emitting light.
+ *   * a CLOAK is measured against the cloaks a player can buy, of which the 400 gold
+ *     Gilded War Cloak is the brightest. That is the control `tools/factionread.mjs`
+ *     §6 uses, and it is the right comparison because a cloak is one flat field over
+ *     the largest single area on a man.
+ *   * a KIT surface is measured against the seven rungs, whose brightest surface is
+ *     Bretwalda Gold's leg wraps. A vat that lifts a surface past those has stopped
+ *     dyeing wool and started emitting light.
  *
- * Both are computed from those tables at first use, so a new cloak or a new
- * finish moves the ceiling with it and there is no second number to drift. The
- * bend is asymptotic rather than a clamp, for the reason `softBand` gives: a
- * clamp has zero slope, and zero slope is where paid rungs go to die.
+ * They WERE computed from `FINISH_KIT` and `CLOAK_COLORS` at first use, so that a new
+ * cloak or a new finish moved the ceiling with it and there was no second number to
+ * drift. THAT COUPLING IS CUT, and the reason is the re-grade (`tools/chromabudget.mjs`):
+ * the ceiling is the four vats' envelope, the vats are tuned on the dye lot
+ * (`FINISH_LOT`), and the re-grade moved the numbers it was read from. The brightest
+ * channel on the worn rows is 168 (Gold's mail) where the lot's is 210 (Gold's leg
+ * wraps, which the lore's own rule, that no wrap is the brightest cloth on a man, took
+ * down to L* 44-50), and the dearest cloak went from a channel of 168 to 178 when its
+ * gold was re-graded to weld ochre. So the kit's ceiling is read off the lot and the
+ * cloak's off the reference below: byte for byte the envelope the vats were tuned
+ * under, and a livery's brightness no longer depends on what the shop's re-grade did
+ * to its own rungs. The bend is asymptotic rather than a clamp, for the reason
+ * `softBand` gives: a clamp has zero slope, and zero slope is where paid rungs go to die.
  */
 const SHOP_CEIL_KNEE = 0.06;
 const softCeil = (x: number, cap: number): number =>
@@ -1210,10 +1354,17 @@ function underMaxChannel(hex: number, cap: number): number {
 }
 const maxChannel = (hex: number) => Math.max((hex >> 16) & 255, (hex >> 8) & 255, hex & 255);
 let kitCeil = 0, cloakCeil = 0, kitChan = 0, cloakChan = 0;
-/** The brightest surface any finish in the shop dyes. Memoised; `FINISH_KIT` is above. */
+/**
+ * THE CLOAK REFERENCE THE ENVELOPE IS HELD AT: the brightest cloak the shop sold when the
+ * four vats were tuned, the 400-gold Gilded War Cloak at `0xa8842a` (max channel 168). The
+ * shop's gold cloak is `0xb29e62` now (max channel 178); the people's flat fields are held
+ * where they were, whatever the shop's rungs do.
+ */
+const CLOAK_CEIL_REFERENCE = 0xa8842a;
+/** The brightest surface a livery may hand back on a kit surface: the brightest cell of the dye lot the vats were tuned on. */
 function kitCeiling(): number {
   if (!kitCeil) {
-    for (const kit of Object.values(FINISH_KIT)) {
+    for (const kit of Object.values(FINISH_LOT)) {
       for (const k of ["mail", "tunic", "trouser", "wrap", "hide", "buff"] as const) {
         kitCeil = Math.max(kitCeil, litOf(kit[k]));
         kitChan = Math.max(kitChan, maxChannel(kit[k]));
@@ -1222,17 +1373,17 @@ function kitCeiling(): number {
   }
   return kitCeil;
 }
-/** The brightest single channel any finish in the shop reaches. */
+/** The brightest single channel a livery may hand back on a kit surface. */
 const kitChannel = (): number => { kitCeiling(); return kitChan; };
-/** The brightest cloak the shop sells. Memoised; `CLOAK_COLORS` is declared below this. */
+/** The brightest a people's flat cloak or board may be. */
 function cloakCeiling(): number {
-  if (!cloakCeil) for (const hex of Object.values(CLOAK_COLORS)) {
-    cloakCeil = Math.max(cloakCeil, litOf(hex));
-    cloakChan = Math.max(cloakChan, maxChannel(hex));
+  if (!cloakCeil) {
+    cloakCeil = litOf(CLOAK_CEIL_REFERENCE);
+    cloakChan = maxChannel(CLOAK_CEIL_REFERENCE);
   }
   return cloakCeil;
 }
-/** The brightest single channel any cloak in the shop reaches. */
+/** The brightest single channel a people's flat cloak or board may reach. */
 const cloakChannel = (): number => { cloakCeiling(); return cloakChan; };
 /**
  * A people's flat field AS SOMETHING WORN — the map token brought down into the
@@ -1481,7 +1632,7 @@ const ROSE_LIT = 0.44;
  */
 const UNDYED_SAT = (() => {
   const t = { h: 0, s: 0, l: 0 };
-  new THREE.Color(0xc2b69c).getHSL(t);
+  new THREE.Color(LINEN_HEX).getHSL(t);
   return t.s;
 })();
 /**
@@ -1766,13 +1917,16 @@ export function factionWorn(hex: number, people: Allegiance, kind: DyeKind): num
  */
 export function factionKit(kit: FinishKit, people: Allegiance): FinishKit {
   if (people === "none") return kit;
+  // THE VATS WORK FROM THE DYE LOT, not from what the finish is worn as: see `FINISH_LOT`. The fittings are cast and
+  // are not dyed, so they are the worn row's.
+  const lot = LOT_OF.get(kit) ?? kit;
   return {
-    mail: factionWorn(kit.mail, people, "metal"),
-    tunic: factionWorn(kit.tunic, people, "cloth"),
-    trouser: factionWorn(kit.trouser, people, "cloth"),
-    wrap: factionWorn(kit.wrap, people, "wrap"),
-    hide: factionWorn(kit.hide, people, "leather"),
-    buff: factionWorn(kit.buff, people, "leather"),
+    mail: factionWorn(lot.mail, people, "metal"),
+    tunic: factionWorn(lot.tunic, people, "cloth"),
+    trouser: factionWorn(lot.trouser, people, "cloth"),
+    wrap: factionWorn(lot.wrap, people, "wrap"),
+    hide: factionWorn(lot.hide, people, "leather"),
+    buff: factionWorn(lot.buff, people, "leather"),
     fitting: kit.fitting,
   };
 }
@@ -1839,13 +1993,31 @@ export function cloakFor(hex: number, team: TeamSide, people: Allegiance): numbe
 // ------------------------------------------------------------
 export interface WeaponStyle {
   /**
-   * Channelwise multipliers on the blade steel, and a roughness shift.
-   * `substance` swaps the MAP under the tint — the Pattern-Welded rung rides
-   * `weldsteel`, the same forge with the watering turned up, because a paid
-   * pattern the armoury lens cannot see is the Shadow-Hood fault in a
-   * different slot. Absent, the builder's own steel map stands.
+   * Channelwise multipliers on the blade steel (the flats and the bevels), and a
+   * roughness shift.
+   *
+   * `substance` swaps the MAP under the FULLER, and only the fuller — the
+   * Pattern-Welded rung rides `weldsteel`, the same forge with the watering turned
+   * up, because a paid pattern the armoury lens cannot see is the Shadow-Hood
+   * fault in a different slot. It used to dress the whole blade, and that is what
+   * LORE 5.1 says the finds do NOT show: the pattern lives in the fuller channel
+   * and the edges are plain bright. `fuller` is the colour of the inlay in this
+   * finish; absent, the builder's own dark. A weapon with no fuller wears no
+   * substance at all.
    */
-  blade: { tint: readonly [number, number, number]; dRough: number; substance?: "weldsteel" | "serpentsteel" };
+  blade: {
+    tint: readonly [number, number, number];
+    dRough: number;
+    substance?: "weldsteel" | "serpentsteel";
+    fuller?: number;
+    /**
+     * How much of the untinted steel the honed bevels keep, 0 (they wear the whole tint) to 1
+     * (they wear none). An oiled blade is dark on its flats and bright on the two lines a
+     * whetstone has been at; without this the dark finishes lose the bright edge that makes a
+     * blade read as a blade, on every weapon that has one.
+     */
+    edgeKeep?: number;
+  };
   /** Multiplier on the dark iron (fullers, guards, axe cheeks). */
   iron: { tint: readonly [number, number, number] };
   /** Replacement for the fitting metal, or null to keep the builder's own. */
@@ -1854,9 +2026,10 @@ export interface WeaponStyle {
    * Replacement for the grip leather, or null to keep the builder's own.
    * `substance: "rope"` re-maps the grip as a twisted wrap — the gilt rung's
    * wire-bound grip, which its own name promised and its flat hide never
-   * delivered.
+   * delivered. `substance: "bone"` makes it horn: the Horn and Bronze rung's
+   * grip, which was a dark hide under a name that said horn.
    */
-  grip: { hex: number; substance?: "rope" } | null;
+  grip: { hex: number; substance?: "rope" | "bone" } | null;
   /** Multiplier on the shaft timber. */
   shaft: { tint: readonly [number, number, number] };
 }
@@ -1871,23 +2044,28 @@ const STYLE_ID: WeaponStyle = {
 
 export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
   weapon_issued: STYLE_ID,
-  // Watered steel: the weld pattern already lives in the blade map; what a
-  // polished pattern-weld reads as at arm's length is a slightly greyer,
-  // softer-lit blade over an oiled grip.
+  // Watered steel: the pattern is laid in the FULLER, in `weldsteel`, and the flats and
+  // the bevels keep plain bright steel under a slightly cooler, oiled tint — LORE 5.1:
+  // "confine the pattern to the fuller channel and let the edge be bright". The rung is
+  // what a pattern-weld looks like at arm's length: a dark channel with the herringbone
+  // in it, over an oiled grip.
   weapon_welded: {
-    // [0.78, 0.82, 0.9], not the first cut's [0.88, 0.9, 0.94]: the colour
-    // ladder read that at ΔE 8.9 against the issued steel — a dull rung by
-    // the shop's own 10 bar — and an oiled pattern-weld is honestly darker.
-    // The substance carries the watering itself — see `weldsteel`'s recipe.
-    blade: { tint: [0.78, 0.82, 0.9], dRough: 0.14, substance: "weldsteel" },
+    // The flats' tint is only a step cooler than the issued steel now (the colour
+    // ladder reads it at ΔE ~8, well clear of the 2.3 that makes two rungs one
+    // colour): the rung is carried by the fuller, which is where the substance and
+    // its colour are, and the bar the shop holds is on the ADJACENT rung (bronze).
+    blade: { tint: [0.86, 0.9, 0.98], dRough: 0.06, substance: "weldsteel", fuller: 0x565a62 },
     iron: { tint: [0.9, 0.9, 0.92] },
     fitting: null,
     grip: { hex: 0x1d1410 },
     shaft: { tint: [0.85, 0.82, 0.8] },
   },
-  // Fire-blued: the blade tempered to blue-black, mounts silvered against it.
+  // Oil-blackened (the id stays `weapon_blued`: it is a stored purchase). It was
+  // "Fire-Blued" and LORE 5.8 says why that is wrong: bluing is a heat colour, not a
+  // period finish — blades were polished bright or oiled dark. The blade is oiled to a
+  // dark iron, the fuller a shade darker still, and the mounts silvered against it.
   weapon_blued: {
-    blade: { tint: [0.42, 0.48, 0.66], dRough: 0.06 },
+    blade: { tint: [0.44, 0.46, 0.5], dRough: 0.06, fuller: 0x18191c, edgeKeep: 0.6 },
     iron: { tint: [0.55, 0.58, 0.7] },
     fitting: { hex: 0xc9ced8, rough: 0.3 },
     grip: { hex: 0x15161c },
@@ -1914,7 +2092,7 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     blade: { tint: [0.99, 0.97, 0.93], dRough: 0.02 },
     iron: { tint: [1.0, 0.94, 0.84] },
     fitting: { hex: 0x96763f, rough: 0.44 },
-    grip: { hex: 0x241a11 },
+    grip: { hex: 0x4a3a2a, substance: "bone" },
     shaft: { tint: [0.96, 0.9, 0.83] },
   },
   // Serpent-marked: Beowulf's own word — wyrm-fah, the serpent in the steel.
@@ -1928,7 +2106,7 @@ export const WEAPON_STYLES: Readonly<Record<string, WeaponStyle>> = {
     // under the key light exactly like the issued steel and the etch was
     // invisible — an acid-darkened blade is matte enough to KEEP its own
     // colour in the sun, and that matteness is what lets the watering show.
-    blade: { tint: [0.55, 0.6, 0.7], dRough: 0.16, substance: "serpentsteel" },
+    blade: { tint: [0.55, 0.6, 0.7], dRough: 0.16, substance: "serpentsteel", fuller: 0x2b2f35 },
     iron: { tint: [0.62, 0.62, 0.66] },
     fitting: { hex: 0x3a3d45, rough: 0.5 },
     grip: { hex: 0x16120e },
@@ -1947,34 +2125,93 @@ const tintHex = (hex: number, t: readonly [number, number, number]): number => {
 };
 
 /**
+ * THE STEELS OF A BLADE, ONCE. A blade is three values, and they are geometry's job
+ * to lay side by side (`forgedBlade`, in the WEAPON FORMS section below): a bright ground bevel that
+ * catches the key, a mid flat, and a dark fuller. The shop's colour ladder reads
+ * the flat's hex for its swatches, so the hex is exported and read there instead of
+ * being typed twice (PROCESS R7: a mirrored constant was 0xc4ccd6 in five places).
+ *
+ * `metal` is 0.70, not the substance's 1.0, and that is CH-24. A metalness of 1 has
+ * no diffuse term at all: the blade shows the environment and nothing else, and the
+ * environment here is a dusk sky darker than the turf — the sword's median luma on
+ * the kit card was 35 against a ground of 88, the spear head's 18. At 0.70 the blade
+ * keeps 30% of its albedo as a lit diffuse, which is what the key and the hemisphere
+ * can actually show, and `tools/bladevalue.mjs` reads it back off the frame.
+ */
+export const WEAPON_STEEL = {
+  flat: 0x9ea2a6,
+  edge: 0xd0d3d6,
+  fuller: 0x2a2b2d,
+  metal: 0.70,
+} as const;
+
+/**
  * A builder's substances under a style. Each builder passes ITS OWN base
  * values, so the treatment rides on top of the weapon's identity.
+ *
+ * A blade is three steels (`steel` the flat, `edge` the bevel, `fuller` the dark
+ * inlay) instead of one, and the style's `substance` dresses the fuller only. A
+ * weapon with no fuller (the axe, the spear) has no pattern to show, and that is
+ * right: LORE 5.1 puts the watering in the channel and nowhere else.
  */
 function weaponPalette(M: CharacterMaterials, style: WeaponStyle, base: {
   steel: readonly [number, number];
+  /** A blade's steels are partial metals. Absent: the substance's own metalness, which is the mirror. */
+  metal?: number;
+  edge?: readonly [number, number];
+  fuller?: readonly [number, number];
   iron?: readonly [number, number];
   fitting?: readonly [number, number];
+  /** Silvered and gilt mounts are nearly full metals but not quite; with `metal` set, this is theirs. */
+  fitMetal?: number;
+  niello?: number;
+  wire?: number;
   grip?: number;
+  /** A horn or antler grip, instead of `grip`'s leather, until the style says otherwise. */
+  horn?: number;
   shaft?: number;
 }) {
-  const bladeHex = tintHex(base.steel[0], style.blade.tint);
-  const bladeRough = Math.max(0.05, Math.min(0.95, base.steel[1] + style.blade.dRough));
+  const rough = (r: number) => Math.max(0.05, Math.min(0.95, r + style.blade.dRough));
+  const t = style.blade.tint;
+  const steelAt = (hex: number, r: number) => (base.metal !== undefined
+    ? M.tinted("steel", hex, { roughness: rough(r), metalness: base.metal })
+    : M.blade(hex, rough(r)));
+  const fittingAt = (hex: number, r: number) => (base.metal !== undefined
+    ? M.tinted("steel", hex, { roughness: r, metalness: base.fitMetal ?? 0.85 })
+    : M.blade(hex, r));
+  const keep = style.blade.edgeKeep ?? 0;
+  const edgeTint = t.map((v) => v + (1 - v) * keep) as unknown as readonly [number, number, number];
+  const fullerHex = style.blade.fuller ?? base.fuller?.[0];
   return {
-    steel: style.blade.substance
-      ? M.tinted(style.blade.substance, bladeHex, { roughness: bladeRough })
-      : M.blade(bladeHex, bladeRough),
+    steel: steelAt(tintHex(base.steel[0], t), base.steel[1]),
+    edge: base.edge ? steelAt(tintHex(base.edge[0], edgeTint), base.edge[1]) : undefined,
+    fuller: base.fuller && fullerHex !== undefined
+      ? M.tinted(style.blade.substance ?? "steel", fullerHex, { roughness: rough(base.fuller[1]), metalness: base.metal })
+      : undefined,
     iron: base.iron
       ? M.tinted("iron", tintHex(base.iron[0], style.iron.tint), { roughness: base.iron[1] })
       : undefined,
     fitting: base.fitting
-      ? (style.fitting ? M.blade(style.fitting.hex, style.fitting.rough) : M.blade(base.fitting[0], base.fitting[1]))
+      ? (style.fitting ? fittingAt(style.fitting.hex, style.fitting.rough) : fittingAt(base.fitting[0], base.fitting[1]))
       : undefined,
-    grip: base.grip !== undefined
-      ? (style.grip?.substance
-        ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
-        : M.hide(style.grip ? style.grip.hex : base.grip))
+    // Niello: the black in a silver mount's ground. A dark interlace at an 11 mm world tile, so a
+    // panel 80 mm across carries about seven plaits and the pattern is there at the weapon card's
+    // 0.5 mm a pixel and a value at the kit card's 2.4.
+    niello: base.niello !== undefined
+      ? M.tinted("interlace", base.niello, { tile: 0.011, roughness: 0.45, metalness: 0.6 })
       : undefined,
-    shaft: base.shaft !== undefined ? M.timber(tintHex(base.shaft, style.shaft.tint)) : undefined,
+    // Brass wire is a partial metal too: at 0.9 and 0.25 it reflects the dark sky and the runes vanish into the fuller they are meant to light.
+    wire: base.wire !== undefined ? M.tinted("steel", base.wire, { roughness: 0.35, metalness: 0.75 }) : undefined,
+    grip: style.grip
+      ? (style.grip.substance === "bone"
+        ? M.tinted("bone", style.grip.hex)
+        : style.grip.substance
+          ? M.tinted(style.grip.substance, style.grip.hex, { repeat: 2 })
+          : M.hide(style.grip.hex))
+      : base.horn !== undefined
+        ? M.tinted("bone", base.horn)
+        : base.grip !== undefined ? M.hide(base.grip) : undefined,
+    shaft: base.shaft !== undefined ? M.tinted("ash", tintHex(base.shaft, style.shaft.tint), { repeat: 2 }) : undefined,
   };
 }
 
@@ -2314,17 +2551,18 @@ export const ARMOURY: Array<{ slot: string; label: string; options: ArmouryOptio
       // COMPUTED from the style table so it cannot drift from the render —
       // the sword's blade under the style's own tint, or the replaced gilt
       // fitting. docs/PROCESS.md failure mode 3 is a mirrored constant.
-      { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: 0xc4ccd6 },
+      { id: "weapon_issued", label: "Issued Steel", cost: 0, slot: "weapon", value: "weapon_issued", swatch: WEAPON_STEEL.flat },
       { id: "weapon_bronze", label: "Horn and Bronze", cost: 60, slot: "weapon", value: "weapon_bronze",
         swatch: WEAPON_STYLES.weapon_bronze.fitting!.hex },
       { id: "weapon_welded", label: "Pattern-Welded", cost: 90, slot: "weapon", value: "weapon_welded",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_welded.blade.tint) },
-      { id: "weapon_blued", label: "Fire-Blued", cost: 130, slot: "weapon", value: "weapon_blued",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_blued.blade.tint) },
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_welded.blade.tint) },
+      // Oil-Blackened, once Fire-Blued (LORE 5.8: bluing is a heat colour, not a period finish).
+      { id: "weapon_blued", label: "Oil-Blackened", cost: 130, slot: "weapon", value: "weapon_blued",
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_blued.blade.tint) },
       { id: "weapon_gilt", label: "Gold-Wired Hilt", cost: 160, slot: "weapon", value: "weapon_gilt",
         swatch: WEAPON_STYLES.weapon_gilt.fitting!.hex },
       { id: "weapon_serpent", label: "Serpent-Marked", cost: 190, slot: "weapon", value: "weapon_serpent",
-        swatch: tintHex(0xc4ccd6, WEAPON_STYLES.weapon_serpent.blade.tint) },
+        swatch: tintHex(WEAPON_STEEL.flat, WEAPON_STYLES.weapon_serpent.blade.tint) },
     ],
   },
 ];
@@ -2438,13 +2676,14 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 // list a warrior actually wears.
 export type CharacterSurface =
   | "mail" | "iron" | "steel" | "weldsteel" | "serpentsteel" | "bronze" | "interlace"
-  | "wool" | "hair" | "linen" | "leather" | "rope"
-  | "oak" | "bone" | "skin";
+  | "wool" | "hair" | "linen" | "leather" | "rope" | "tablet"
+  | "oak" | "ash" | "lime" | "bone" | "skin";
 
 export interface CharacterTint {
   roughness?: number;
   metalness?: number;
-  repeat?: number;
+  /** UV repeats: one number for both axes, or a pair `[along u, along v]` for a band. */
+  repeat?: number | readonly [number, number];
   /**
    * The substance's world tile in metres, overriding the library's own. For kit
    * worn at a scale the substance was never sized for: `steel` is drawn at
@@ -2516,34 +2755,120 @@ export const RAW: CharacterMaterials = {
 // cheat, but it is the same cheat every hand-painted game character has used for
 // twenty years, and it survives a night key that a subsurface shader would not.
 //
-// The `base`→`shade` gap widened this pass and that is not decoration. The rig a
-// warrior stands in is ambient 0.85 + hemisphere 0.62 + a `bounce` directional
-// aimed along (0, −4, 9) at 1.7 — for a front-facing plane that is roughly 60% of
-// the light on the face arriving either omnidirectionally or straight down the
-// camera axis, and light along the view axis carries *no* form information. Only
-// the key at (12, 26, 9) shades, and it shades up/down-facing relief. So a face
-// lit front-on in this arena cannot be shaded into legibility by geometry alone at
-// portrait size; some of the break has to be in the albedo. `shade` is now about
-// 0.72 of `base` rather than 0.85: the old pair was inside a quarter-stop of each
-// other, so putting it on the socket and the jaw shelf changed nothing a viewer
-// could see.
-interface SkinTone { base: number; shade: number; warm: number; sclera: number }
+// The `base`→`shade` gap is not decoration. The rig a warrior stands in is ambient
+// 0.85 + hemisphere 0.62 + a `bounce` directional aimed along (0, −4, 9) at 1.7 —
+// for a front-facing plane that is roughly 60% of the light on the face arriving
+// either omnidirectionally or straight down the camera axis, and light along the
+// view axis carries *no* form information. Only the key at (12, 26, 9) shades, and
+// it shades up/down-facing relief. So a face lit front-on in this arena cannot be
+// shaded into legibility by geometry alone at portrait size; some of the break has
+// to be in the albedo. `shade` is 0.80 of `base` per channel (it was 0.72: the
+// complexion field now digs the sockets and the jaw itself, so the material only
+// has to say "the form turns away" and no longer has to say it alone).
+//
+// EXPORTED because the authored man is dressed from the same table: the GLBs carry
+// the hexes of the man who was baked (identity 0), and `render/authoredSkin.ts`
+// swaps them for the tone of the man who is actually standing there.
+export interface SkinTone { base: number; shade: number; warm: number; sclera: number }
 
 // Four complexions, quantised on purpose: the material library caches by colour,
 // so a field of eight warriors costs at most sixteen flesh programs instead of
-// thirty-two. Ordered pale → weathered → tanned → dark. Every `base` came down
-// about 8% this pass as well — at 0xe0b590 the face was the brightest large
-// surface on the warrior and it blew flat against the helm.
-const SKIN_TONES: SkinTone[] = [
-  { base: 0xd4a884, shade: 0x9b7456, warm: 0xc4816a, sclera: 0xa89b88 },
-  { base: 0xc99d75, shade: 0x917050, warm: 0xb87256, sclera: 0x9a8e7c },
-  { base: 0xb08157, shade: 0x7f5c3c, warm: 0xa25f47, sclera: 0x847a6a },
-  { base: 0x8d6444, shade: 0x65472e, warm: 0x7c4936, sclera: 0x655d50 },
+// thirty-two. Ordered fair → weathered → tanned → dark.
+//
+// RE-GRADED against the accuracy authority (docs LORE 2.7, CHAR-PLAN 1.4), and the
+// reason is one measurement: the baked default was 0x8d6444, L* 46 C* 28, the DARKEST
+// of the old four, on all four classes, and the grade turned it into L* 44-53 C* 43-48
+// on the frame. Fair is #c9a482 (L* 70 C* 24), weathered #b58562 (L* 59 C* 30),
+// tanned #a07458 (L* 53 C* 26), dark #7c5a44 (L* 42 C* 21): the chroma comes DOWN
+// because the arena's grade hands back about half of it again, and the rendered skin
+// is held at C* 35 or under so that blood (C* 63-74) stays the hottest thing on the
+// field. Hue is no longer one hue: it runs h 69 (fair) to h 58 (tanned).
+//
+// `sclera` is the white of the eye and it is a complexion property, and this table
+// REVERSES what it used to say. The old comment argued that a sclera brighter than
+// its skin is the CG tell ("two lamps set in a mask") and put it at 0.86 of the skin's
+// luma, which measured L* 19-35 on the frame against skin L* 46-53: a grey mud the eye
+// reads as a dead man's. A living eye's white IS lighter than the skin round it, by
+// something like 5 to 25 L*, and it is warm, never blue. So it is an off-white
+// (L* 72-80, C* 12) that the socket's shadow, the lid's cast shade and the canthal
+// darkening in `render/faceMap.ts` then bring back down to where the frame wants it.
+export const SKIN_TONES: SkinTone[] = [
+  { base: 0xc9a482, shade: 0xa18268, warm: 0xcf9276, sclera: 0xd0c6b2 },
+  { base: 0xb58562, shade: 0x91694e, warm: 0xba7659, sclera: 0xcbc0ab },
+  { base: 0xa07458, shade: 0x805c46, warm: 0xa56750, sclera: 0xc4b9a4 },
+  { base: 0x7c5a44, shade: 0x634736, warm: 0x80503e, sclera: 0xb9ae99 },
 ];
 
-const CLOAK_COLORS: Record<string, number> = {
-  brown: 0x5a4030, red: 0x7a2020, blue: 0x24386a, gold: 0xa8842a, none: 0x5a4030,
+
+// ==== CLOAK COLOURS (owner: U6) ====
+
+
+/**
+ * The four cloaks, AS WORN (LORE 4.4 and 7.2, `tools/chromabudget.mjs`).
+ *
+ *   brown  #5a4030  walnut, as it was (L* 29.5, C* 16.8)
+ *   red    #8f4c3f  madder as worn, was `#7a2020` (L* 40.2, C* 33.6; it was C* 45.0, the
+ *                   hottest garment in the game after blood, which is C* 63-74). Lighter and
+ *                   greyer, so blood now reads hotter than the cloak beside it.
+ *   blue   #24386a  the Sea-Wolf's woad, as it was (L* 24.5, C* 33.1). LORE calls it 1.6-2x
+ *                   the chroma of real deep woad and offers `#3f5a7c`; it is inside the budget
+ *                   and is left alone, because a blue that is only just a colour at 6.8 m
+ *                   would take the side's own field away from the team read's neighbours.
+ *   gold   #b29e62  weld-ochre, was `#a8842a` (L* 65.6, C* 34.0; it was C* 51.3, school-bus
+ *                   yellow at the front of the shop). The lore proposes `#b5a05e`, which
+ *                   measures C* 37.1 against the lore's own budget of 35 (a disagreement of
+ *                   the doc with itself, docs/PROCESS.md R10); this is the same lightness and
+ *                   hue taken to the bar. The gilt lives on the brooch, where the lore puts it.
+ */
+export const CLOAK_COLORS: Record<string, number> = {
+  brown: 0x5a4030, red: 0x8f4c3f, blue: 0x24386a, gold: 0xb29e62, none: 0x5a4030,
 };
+
+/**
+ * WHAT A MAN IS WORN IN, resolved once — the colour of every dyed surface the
+ * procedural builder and the authored man's role table both dress him in.
+ *
+ * ONE FUNCTION, TWO CALLERS, AND THAT IS THE POINT. `buildCharacter` used to
+ * compute these inline, at five call sites, and `render/authoredLivery.ts` has to
+ * reproduce them for a man whose material NAMES carry the issued colours: two
+ * implementations of "what colour is his tunic in a war band" is the
+ * mirrored-definition fault (`docs/PROCESS.md` part 1 §3) with a new address. The
+ * `roletable` claim in `tools/authoredtest.mjs` builds both men for every finish,
+ * cloak, people and side and requires the authored man's colours to be names the
+ * procedural man carries.
+ *
+ * `kit` is `kitFor(finishKit(armorColor), team, people)`: the precedence in one
+ * call (team beats people beats what he bought). `tunic` is the finish's dye lot
+ * shifted by the class accent, and the accent LETS GO of the hue in a war band or
+ * under a livery - a fifth of the way towards olive is exactly enough to take the
+ * largest garment on a red man off red. The rest are surfaces no armoury option
+ * controls, dyed by their own kind of vat; the cloak takes `cloakFor`, flat.
+ */
+export interface WornColours {
+  kit: FinishKit;
+  tunic: number;
+  linen: number;
+  pelt: number;
+  hood: number;
+  cloak: number;
+}
+export function wornColours(
+  ap: { armorColor: number; cloak: string },
+  accent: number,
+  team: TeamSide,
+  people: Allegiance,
+): WornColours {
+  const kit = kitFor(finishKit(ap.armorColor), team, people);
+  const dyed = team !== "none" || people !== "none";
+  return {
+    kit,
+    tunic: dyed ? kit.tunic : tunicDye(kit.tunic, accent),
+    linen: wornBy(LINEN_HEX, team, people, "linen"),
+    pelt: wornBy(PELT_HEX, team, people, "leather"),
+    hood: wornBy(HOOD_HEX, team, people, "cloth"),
+    cloak: cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people),
+  };
+}
 
 /**
  * HOW EACH CLOAK IS CUT — and the reason this table exists at all.
@@ -2732,12 +3057,46 @@ function clothRepeat(girth: number): number {
   return want < 10 ? 8 : want < 15 ? 12 : want < 21 ? 18 : 24;
 }
 
-// Iris colours. Dark eyes are the honest majority, but an eye only reads at all
-// because the iris is *darker than the sclera around it* — so the pale two exist
-// for contrast against a helmet's shadow, not for ethnographic spread. All five
-// came down a step this pass, because the sclera came down further — see the
-// `sclera` field on `SkinTone`, which is now per complexion.
-const IRIS_COLORS = [0x33241a, 0x241810, 0x3d4a44, 0x4a5c66, 0x5a4528];
+
+// ==== IRIS COLOURS (owner: U5) ====
+
+
+/**
+ * The head's skin tile, in metres: 2.2 mm.
+ *
+ * It was a `const` inside `buildCharacter`, a hundred lines under the note that argues for it,
+ * and `render/authoredSkin.ts` needs the same number for the authored head: the export
+ * bakes the skin as a 35 mm cube projection, and the head's own texture repeat is set from
+ * THIS so the two men wear one grain. The argument for 2.2 mm is where it always was (the
+ * FACE_TILE note in `buildCharacter`: an FFT of a portrait frame returns the tile itself, so
+ * the repeat has to be under the resolving limit, and the variation that costs comes back in
+ * `faceComplexion`).
+ */
+export const FACE_TILE = 0.0022;
+
+/** The colour of the dark in an eye's opening: pupil, limbal ring, lid shadow, mouth slot, nostril. Hoisted for the authored eye's remap. */
+export const FACE_DARK = 0x1a1310;
+
+// Iris colours, as ALBEDO. Five, and they are all at L* 28 or more.
+//
+// The five that stood here were 0x33241a, 0x241810, 0x3d4a44, 0x4a5c66, 0x5a4528
+// (L* 9 to 38), argued from "an eye only reads at all because the iris is darker
+// than the sclera around it, so the pale two exist for contrast against a
+// helmet's shadow". The argument was right and the numbers were wrong twice: the
+// sclera it was set against was a mud at L* 40, and the baked default (0x241810,
+// L* 9.5) rendered at L* 5.8 on the frame — an iris that is a black bead, which is
+// the "dead eyes" the owner reported. An iris has a hue and a value of its own and
+// the frame has to show it at portrait range, where it is 15 px across. Lore
+// (CHAR-PLAN 1.2): huscarl grey-blue, warden hazel-green, berserker pale grey; the
+// two browns are the honest majority of the Insular population and are lifted to
+// where a brown reads as brown and not as a hole.
+//
+//   0x5b7180 grey-blue  L* 46   0x6b6a3f hazel-green  L* 44   0x8b9aa0 pale grey  L* 63
+//   0x6a4a32 brown      L* 34   0x54402f dark brown   L* 29
+//
+// EXPORTED for the same reason `SKIN_TONES` is: the authored man is dressed from
+// this table by `render/authoredSkin.ts`, indexed by `faceTraits(seed).iris`.
+export const IRIS_COLORS = [0x5b7180, 0x6b6a3f, 0x8b9aa0, 0x6a4a32, 0x54402f];
 
 // ============================================================
 // Geometry toolkit
@@ -2852,7 +3211,8 @@ interface ShellOptions {
    * At phase 0.5 the two vertices nearest the edge straddle it instead, leaving a
    * land a few tenths of a millimetre deep — invisible as width, and the
    * difference between an edge that holds still and one that crawls. The blade's
-   * width has to be scaled back up to compensate; `bladeSection` does that.
+   * width has to be scaled back up to compensate (`bladeSection` did, and is gone: every blade is
+ * `forgedBlade` now, which carries a quarter-millimetre edge land of its own).
    */
   phase?: number;
   /**
@@ -3394,7 +3754,17 @@ function lensPrism(outline: Array<[number, number]>, thickness: number, inset: n
   fan(front, thickness * 0.5, false);
   fan(back, -thickness * 0.5, true);
 
-  return finish(pos, uv, idx);
+  const g = finish(pos, uv, idx);
+  // The caller's outline may wind either way, and a prism built from a clockwise one is INSIDE OUT: culled to nothing,
+  // silently. The axe's langets were exactly that from the day they were written (their outline runs clockwise), so the
+  // straps down the haft were never drawn. `weaponshape`'s winding check found them; make the volume positive here, once,
+  // as `wfPillow` does, instead of trusting every outline to be counter-clockwise.
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
 }
 
 /**
@@ -4101,7 +4471,7 @@ const lat = (y: number) => Math.asin(clamp01((y + 1) * 0.5) * 2 - 1);
  * stop fitting, because they are swept off the same field — so the variation that
  * carries the read is in the *features*, where it is free.
  */
-interface FaceTraits {
+export interface FaceTraits {
   wide: number; deep: number; tall: number;
   brow: number; deepSet: number;
   nose: number; bridge: number; nostril: number;
@@ -4133,7 +4503,7 @@ interface FaceTraits {
  * fraction is accepted and folded up to one, because that is the number `anim.ts`
  * already has to hand and a crash on a float would be a nasty surprise later.
  */
-function faceTraits(raw: number): FaceTraits {
+export function faceTraits(raw: number): FaceTraits {
   const seed = Number.isInteger(raw) ? Math.abs(raw) : Math.abs(Math.round(raw * 4096));
   return {
     // Halved, and the reason is S5 rather than the face. The neck is a per-class
@@ -4194,7 +4564,7 @@ function faceTraits(raw: number): FaceTraits {
  * the *same* field, and threading two arguments through every one of those calls
  * is how a helm ends up fitting a face it was not cut for.
  */
-interface Skull {
+export interface Skull {
   R: { x: number; y: number; z: number };
   F: FaceTraits;
 }
@@ -5112,6 +5482,283 @@ export function headMesh(cls: WarriorClass, seed: number, nu = 96, nv = 64): {
   }
   return { positions, normals, quads };
 }
+
+// ==== BAKED HEAD (owner: U5) ====
+
+
+/**
+ * THE BROW'S CENTRE LINE AND ITS HALF-HEIGHT, at module scope.
+ *
+ * They were three closures inside `emit("head")`, the only place that knew where
+ * the brow is, and the lid ruler and the face-contrast ruler each needed to find it.
+ * A landmark list that re-derived `Y_EYE + 0.170 + ...` would agree with the brow
+ * until the brow moved. `arc(u)` is the brow's latitude in RADIANS at bearing `|u|`,
+ * `half(u)` its half-height in the same unit, `along(u)` how far out along it the
+ * bearing is (0 at the inner end, 1 at the tail). Nothing about the shape moved in
+ * the hoist; the arguments for each term are in `emit("head")`, where the brow is
+ * built.
+ */
+const BROW = {
+  along: (u: number) => clamp01((Math.abs(u) - 0.09) / 0.47),
+  at: (t: number) => lat(Y_EYE + 0.170 + 0.030 * Math.sin(Math.PI * Math.pow(clamp01(t), 0.80)) - 0.010 * t * t),
+  arc: (u: number) => BROW.at(BROW.along(u)),
+  half: (u: number) => {
+    const t = BROW.along(u);
+    return 0.044 * (1 - 0.74 * Math.pow(t, 1.5)) * smooth(0, 0.13, t);
+  },
+};
+
+
+/**
+ * THE HEAD THE EXPORTER BAKED, AS A FIELD.
+ *
+ * Every authored warrior carries ONE face: `tools/blender/exportrig.mjs` builds him
+ * through `createWarriorRig` with no `appearance`, and the rig hands `buildCharacter`
+ * an interned face identity of 0 (`faceIdentity` in `render/anim.ts`), so each of the
+ * four GLBs is the class's own skull with identity 0's traits on it. The complexion
+ * that made it read as a man was per-vertex colour and the export threw it away
+ * (`COLOR_0` is absent from all four). `render/faceMap.ts` gets it back at texel
+ * rate, and to do that it has to evaluate the SAME field on the SAME head — which is
+ * private to this file. This is the door: the skull, the surface sampler, the
+ * complexion and the neck's own sections, for one class and one identity.
+ *
+ * THE STATURE STEP is the one line that mirrors `buildCharacter`: stature is
+ * quantised to three steps by `hash(identity, 31)` and the head is built on THAT
+ * skeleton. It is written out here rather than shared because the shared statement
+ * sits in the middle of the builder's preamble, a hunk two other units are editing;
+ * `tools/facemap.mjs` holds the two together by building the real man and reading the
+ * head's own vertices back against `surface`, so a drift is a red gate and not a face
+ * that quietly slides off its map.
+ *
+ * Frames. `surface` is in the HEAD's frame (origin at the skull centre, +z out of
+ * the face, +x the way `buildCharacter` builds it). `complexion` and `neckAt` take
+ * the BODY's frame with `y` in metres from the ground, as the GLB does, EXCEPT that
+ * x is the builder's and not the export's: the exporter negates x on every vertex
+ * (`exportrig.mjs`, `MIRROR`), so a caller reading a GLB flips it back first.
+ */
+export interface FaceField {
+  readonly cls: WarriorClass;
+  readonly identity: number;
+  readonly K: Skull;
+  readonly toneIndex: number;
+  readonly irisIndex: number;
+  /** Body-space y of the skull's centre: the head's own y plus this is the GLB's y. */
+  readonly headY: number;
+  /** The head pivot's y, i.e. where the neck ends and the head hangs. */
+  readonly neckTop: number;
+  /** A point on the skin at azimuth `w` and latitude `v` (radians), head frame. `sin(v)` is the field's own `y`. */
+  surface(w: number, v: number, out: THREE.Vector3): THREE.Vector3;
+  /**
+   * The complexion multiplier at a body-frame point, into `out`. `fyHint` is the
+   * point's field latitude when the caller has it exactly (the head grid does).
+   * Carries no war paint and no whiskers: an authored man has neither baked, and
+   * both are per-man colours a multiplier map cannot hold.
+   */
+  complexion(x: number, y: number, z: number, out: THREE.Color, fyHint?: number): void;
+  /**
+   * What the complexion field does not paint and the authored head needs painted, at azimuth `w` and latitude `v` (radians):
+   * the brow, the lips and the line between them. Coverages, not colours: the colour is the man's (his hair, his skin) and
+   * `render/faceMap.ts` mixes it in.
+   */
+  detail(w: number, v: number, out: FaceDetail): FaceDetail;
+  /** The neck's section at a body-frame height: half-breadths and the centre's z. */
+  neckAt(y: number): { hw: number; hd: number; z: number };
+  /** The neck shell's own extent, body-frame y. */
+  readonly neckSpan: { readonly top: number; readonly bottom: number };
+}
+
+/** What `FaceField.detail` returns: coverages in 0..1. */
+export interface FaceDetail {
+  /** the brow's hair */
+  brow: number;
+  /** the vermilion, upper lip */
+  upper: number;
+  /** the vermilion, lower lip */
+  lower: number;
+  /** the line where the lips meet, and its corners */
+  line: number;
+}
+
+const _fieldMemo = new Map<string, FaceField>();
+
+export function faceFieldOf(cls: WarriorClass, identity = 0): FaceField {
+  const key = `${cls}|${identity}`;
+  const hit = _fieldMemo.get(key);
+  if (hit) return hit;
+  const B = BUILD[cls] ?? BUILD.warden;
+  const face = faceTraits(identity);
+  const step = Math.round(hash(identity, 31) * 2) - 1;
+  const S = skeleton({ ...B, stature: B.stature * (1 + step * 0.022) });
+  const K: Skull = { R: S.headR, F: face };
+  const field = faceComplexion(K, S.headY, SKIN_TONES[face.tone], "none", null, { mottle: 0, lips: false });
+  const ST = neckStations(S);
+  const d = new THREE.Vector3();
+  const f: FaceField = {
+    cls, identity, K,
+    toneIndex: face.tone, irisIndex: face.iris,
+    headY: S.headY, neckTop: S.neckTop,
+    surface: (w, v, out) => faceSurface(K, dirOf(w, v, d), out),
+    complexion: (x, y, z, out, fyHint) => field(x, y, z, out, fyHint),
+    detail: (w, v, out) => faceDetailAt(K, w, v, out),
+    neckAt: (y) => { const st = neckSectionAt(ST, y); return { hw: st.hw, hd: st.hd, z: st.z ?? 0 }; },
+    neckSpan: { top: ST[0]!.y, bottom: ST[ST.length - 1]!.y },
+  };
+  _fieldMemo.set(key, f);
+  return f;
+}
+
+/**
+ * THE BROW AND THE MOUTH, AS COVERAGE (see `FaceField.detail`).
+ *
+ * The brow is the SAME brow the procedural head is built with (`BROW`: the arc, the half-height, the taper), so it lies where
+ * the baked ribbon lies; the ribbon is ink (L* 3, darker than the hair it is baked in) and `render/authoredSkin.ts` hides it
+ * and lets this stand in, in the man's own hair colour. It is feathered at both edges and thins toward the tail, and
+ * `render/faceMap.ts` breaks it up with hair-like noise; here it is only a shape.
+ *
+ * The mouth is two lips and a line. The soft oval the complexion used to carry read as a brown smear (no edge, one mass, one
+ * hue): a lip is a defined shape with an edge, the upper thinner and turned in, the lower fuller, a dark line where they meet
+ * that is darkest at the corners. Sizes are the real ones, in the field's own units (0.01 of latitude is 1.2-1.3 mm on this
+ * head): an upper vermilion 8 mm at the middle, a lower 11, a mouth 61 mm across at the corners (`F.mouth`), an edge about a
+ * millimetre wide. The colours are `faceMap.ts`'s.
+ */
+function faceDetailAt(K: Skull, w: number, v: number, out: FaceDetail): FaceDetail {
+  const a = Math.abs(w);
+  // ---- the brow ----
+  out.brow = 0;
+  if (a > 0.05 && a < 0.58) {
+    const half = BROW.half(a);
+    if (half > 1e-4) {
+      const d = Math.abs(v - BROW.arc(a)) / half;
+      const t = BROW.along(a);
+      // the ribbon ends at bearing 0.56 and so does this: feathered at both ends, thinning toward the tail
+      out.brow = clamp01((1 - smooth(0.55, 1.05, d)) * (0.40 + 0.60 * (1 - smooth(0.70, 1.0, t))) * (1 - smooth(0.52, 0.575, a)));
+    }
+  }
+  // ---- the mouth ----
+  out.upper = 0; out.lower = 0; out.line = 0;
+  const mw = 0.29 * K.F.mouth;
+  const x = a / mw;                       // 0 at the middle of the mouth, 1 at a corner
+  if (x < 1.12) {
+    const dy = Math.sin(v) - Y_LIP;       // latitude sine: up is positive
+    const ew = 0.0075;                    // the edge, about a millimetre
+    const hu = 0.064 * (1 - Math.pow(Math.min(1, x), 2.1)) + 0.004;
+    const hl = 0.088 * (1 - Math.pow(Math.min(1, x), 1.8)) + 0.004;
+    const along = 1 - smooth(0.90, 1.06, x);
+    out.upper = clamp01(smooth(0.0, ew, dy) * (1 - smooth(hu - ew, hu + ew, dy)) * along);
+    out.lower = clamp01(smooth(0.0, ew, -dy) * (1 - smooth(hl - ew, hl + ew, -dy)) * along);
+    // the line: thin at the middle, deepening to the corners where the lips meet and turn in
+    const th = 0.0046 + 0.0028 * smooth(0.55, 1.0, x);
+    out.line = clamp01(Math.exp(-((dy / th) ** 2)) * (1 - smooth(0.98, 1.12, x)) * (0.72 + 0.28 * smooth(0.3, 1.0, x)));
+  }
+  return out;
+}
+
+/**
+ * WHERE THE FACE'S PARTS ARE, in the body's frame, for a ruler that has to find
+ * them in a photograph.
+ *
+ * `tools/facecontrast.mjs` reads a captured card and must know which pixels are the
+ * sclera, the iris, a brow, a lip and the skin beside each. It gets them here, off
+ * the SAME functions the head is built from (`orbitOf`, `lidMarginPoint`, `browArc`,
+ * `faceSurface`), so a landmark cannot drift from the feature it names: the failure
+ * mode `docs/PROCESS.md` records as "a ruler that reimplements the formula it is
+ * checking" is a ruler that ends up measuring a face that is not on the frame.
+ *
+ * Every point is `[x, y, z]` in the builder's body frame (y from the ground, +z out
+ * of the face; a GLB's x is the negative of this). Cheap: a few hundred field reads.
+ */
+export interface FaceLandmarks {
+  readonly headY: number;
+  readonly eyes: readonly {
+    readonly side: number;
+    readonly centre: readonly number[];
+    readonly iris: readonly number[];
+    readonly irisR: number;
+    readonly medial: readonly number[];
+    readonly lateral: readonly number[];
+    /** Sclera sample points, the middle of the white each side of the iris. */
+    readonly sclera: readonly (readonly number[])[];
+    /** The aperture, closed: upper margin left to right then lower margin back. */
+    readonly aperture: readonly (readonly number[])[];
+  }[];
+  readonly brows: readonly { readonly side: number; readonly points: readonly (readonly number[])[] }[];
+  readonly nostrils: readonly (readonly number[])[];
+  readonly mouth: {
+    readonly stomion: readonly number[];
+    readonly corners: readonly (readonly number[])[];
+    readonly upper: readonly number[];
+    readonly lower: readonly number[];
+  };
+  /** Bare skin windows, each with the side it is on: cheek, under-eye, brow-to-eye socket, forehead, chin. */
+  readonly skin: readonly { readonly name: string; readonly side: number; readonly at: readonly number[] }[];
+}
+
+export function faceLandmarks(cls: WarriorClass, identity = 0): FaceLandmarks {
+  const F = faceFieldOf(cls, identity);
+  const K = F.K;
+  const out: THREE.Vector3[] = [];
+  const P = (v: THREE.Vector3): number[] => [v.x, v.y + F.headY, v.z];
+  const on = (u: number, fy: number) => P(faceSurface(K, dirOf(u, lat(fy), new THREE.Vector3()), new THREE.Vector3()));
+  void out;
+  const eyes: FaceLandmarks["eyes"][number][] = [];
+  for (const side of [-1, 1]) {
+    const f = eyeFrame(K, side);
+    const v = new THREE.Vector3();
+    const lid = (upper: boolean, t: number) => P(lidMarginPoint(f, upper, t, v).clone());
+    const aperture: number[][] = [];
+    for (let i = 0; i <= 24; i++) aperture.push(lid(true, i / 24));
+    for (let i = 24; i >= 0; i--) aperture.push(lid(false, i / 24));
+    const scl = (x: number) => {
+      const y = f.tilt * (x / f.wA);
+      const zz = Math.sqrt(Math.max(1e-8, GLOBE * GLOBE - x * x - y * y));
+      return P(f.c.clone().addScaledVector(f.lat, x).addScaledVector(f.up, y).addScaledVector(f.fwd, zz));
+    };
+    // The iris sits where the GAZE puts it and the lids sit where the SOCKET puts them, and the socket's axis is splayed
+    // outward from the gaze's by about 20 degrees, so the iris is nearer the medial corner than the middle of the
+    // aperture (measured off the huscarl card: white 5.6 mm nasal of it, 11.3 lateral). The middle of the white each
+    // side of the iris is therefore not at plus and minus a fixed distance from the globe's centre; it is halfway
+    // between the iris's edge and the corner, on each side of where the iris actually is.
+    const xi = f.gaze.fwd.dot(f.lat) * (GLOBE + 0.0005);
+    eyes.push({
+      side,
+      centre: P(f.c),
+      iris: P(f.c.clone().addScaledVector(f.gaze.fwd, GLOBE + 0.0005)),
+      irisR: 0.0061,
+      // `lat` is the skull's +x on both eyes, so the medial canthus is the one nearer
+      // the midline: the −x end of the +x eye and the +x end of the −x eye.
+      medial: side > 0 ? lid(true, 0) : lid(true, 1),
+      lateral: side > 0 ? lid(true, 1) : lid(true, 0),
+      sclera: [scl((-f.wA + xi - 0.0061) * 0.5), scl((xi + 0.0061 + f.wA) * 0.5)],
+      aperture,
+    });
+  }
+  const brows = [-1, 1].map((side) => ({
+    side,
+    points: Array.from({ length: 9 }, (_, i) => {
+      const u = 0.09 + (0.56 - 0.09) * (i / 8);
+      return P(faceSurface(K, dirOf(side * u, BROW.arc(u), new THREE.Vector3()), new THREE.Vector3()));
+    }),
+  }));
+  const sub = faceSurface(K, dirOf(0, lat(Y_NOSE + 0.030), new THREE.Vector3()), new THREE.Vector3());
+  const nostrils = [-1, 1].map((s) => [s * 0.0098 + K.F.asym, F.headY + sub.y - 0.0012, sub.z - 0.0062]);
+  const mw = 0.29 * K.F.mouth;
+  const mouth = {
+    stomion: on(0, Y_LIP),
+    corners: [on(-mw, Y_LIP), on(mw, Y_LIP)],
+    upper: on(0, Y_LIP + 0.030),
+    lower: on(0, Y_LIP - 0.050),
+  };
+  const skin: { name: string; side: number; at: number[] }[] = [];
+  for (const side of [-1, 1]) {
+    skin.push({ name: "cheek", side, at: on(side * 0.62, Y_EYE - 0.13) });
+    skin.push({ name: "underEye", side, at: on(side * 0.375, Y_EYE - 0.085) });
+    skin.push({ name: "socket", side, at: on(side * 0.30, Y_EYE + 0.075) });
+  }
+  skin.push({ name: "forehead", side: 0, at: on(0, Y_BROW + 0.24) });
+  skin.push({ name: "chin", side: 0, at: on(0, Y_CHIN + 0.06) });
+  return { headY: F.headY, eyes, brows, nostrils, mouth, skin };
+}
+
 
 export function headProbe(cls: WarriorClass, seed: number): HeadProbe {
   const S = skeleton(BUILD[cls]);
@@ -7319,6 +7966,10 @@ function headGeometry(K: Skull, nu: number, nv: number): THREE.BufferGeometry {
   return g;
 }
 
+
+// ==== HELM FORM (owner: U8) ====
+
+
 /**
  * The spec of one worn shell, in the form `headWear` is asked for it.
  *
@@ -7614,6 +8265,10 @@ function helmWear(K: Skull, opts: WornShellSpec): THREE.BufferGeometry {
     inner: (t, s, out) => surf(t, s, opts.lift(mix(opts.u0, opts.u1, t), s) - opts.thick, out),
   });
 }
+
+
+// ==== EYES AND MOUTH (owner: U5) ====
+
 
 // ============================================================
 // Eyes and mouth
@@ -8542,6 +9197,10 @@ function addMouth(p: Part, K: Skull, lod: Lod, place: THREE.Matrix4, M: FaceMate
     lift: () => -0.0006, thick: 0.0006,
   }), M.dark, place.clone());
 }
+
+
+// ==== HANGING MASS, PLAIT AND BEARD CUT (owner: U8) ====
+
 
 /**
  * A plait — strands wound about a common path — and the reason it is a function
@@ -9691,10 +10350,19 @@ const WAR_PAINT: Record<string, { color: number; mark: PaintMark }> = {
  * function can be handed the skull, a lid, a lip band, an ear or the throat
  * shell and put all five on one continuous map.
  */
-function faceComplexion(
+export function faceComplexion(
   K: Skull, y0: number, tone: SkinTone, paint: string,
   whiskers: { color: number; full: boolean } | null,
-): (x: number, y: number, z: number, out: THREE.Color) => void {
+  /**
+   * Two terms the AUTHORED head paints for itself and so turns off here (`faceFieldOf`, the door for `render/faceMap.ts`); every
+   * caller that builds a procedural head passes nothing and gets both, exactly as before. `mottle` scales the three cosines (they
+   * are periodic, and a periodic pattern read at the pixel scale is the lattice `tools/lattice.mjs` measures: the map has aperiodic
+   * noise in its place); `lips` is the soft vermilion oval (the map paints a defined mouth: two lips, a line between them).
+   */
+  opts?: { mottle?: number; lips?: boolean },
+): (x: number, y: number, z: number, out: THREE.Color, fyHint?: number) => void {
+  const mottleAmp = opts?.mottle ?? 1;
+  const lipsOn = opts?.lips !== false;
   const R = K.R;
   const F = K.F;
   const chosen = WAR_PAINT[paint];
@@ -9757,8 +10425,13 @@ function faceComplexion(
   };
   const gs = (d: number, w: number) => Math.exp(-(d * d) / (w * w));
 
-  return (px, py, pz, out) => {
-    const fy = fieldY(py - y0);
+  // `fyHint` is for a caller that already KNOWS the field latitude of the point —
+  // `render/faceMap.ts` rasterises this field on the head's own (azimuth, latitude)
+  // grid, where the latitude is the row and is exact by construction, and the
+  // bisection above is 24 spline reads a texel for an answer it already has. Absent,
+  // and for every vertex this file paints, the answer is the bisection's, as before.
+  return (px, py, pz, out, fyHint) => {
+    const fy = fyHint ?? fieldY(py - y0);
     const hw = Math.max(1e-4, ev(S_W, fy) * MM * sc * F.wide * widthGain(F, fy));
     const zc = ev(S_ZC, fy) * MM * sc;
     const s = Math.abs(px) / hw;
@@ -9914,8 +10587,8 @@ function faceComplexion(
     // latitude lands at 0.34 of the half-breadth.
     const lipW = 0.44 * F.mouth;
     const lipHalf = 0.078 * (1 - Math.pow(clamp01(s / lipW), 2.2)) + 0.012;
-    const lip = clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
-      * (1 - smooth(lipW * 0.78, lipW, s))) * front;
+    const lip = lipsOn ? clamp01((1 - smooth(lipHalf * 0.42, lipHalf, Math.abs(fy - (Y_LIP - 0.012))))
+      * (1 - smooth(lipW * 0.78, lipW, s))) * front : 0;
 
     // Shadow goes cool as well as dark, which is what separates it from dirt;
     // flush goes red without going bright, because the specular term does not
@@ -9941,10 +10614,10 @@ function faceComplexion(
       0.55 * Math.cos(dy * 6.1 + dx * 3.7)
       + 0.30 * Math.cos(dx * 9.4 - dz * 5.3 + 1.7)
       + 0.15 * Math.cos(dz * 14.9 + dy * 11.2 + 3.1);
-    const tint = 1 + 0.040 * mottle;
+    const tint = 1 + 0.040 * mottle * mottleAmp;
     // Blood sits under the surface, so the darker half of the mottle goes red
     // rather than grey — the same reason the tone's `warm` channel exists.
-    const flush = 0.028 * clamp01(-mottle);
+    const flush = 0.028 * clamp01(-mottle) * mottleAmp;
 
     // The lip factors went 0.10/0.36/0.44 → 0.14/0.42/0.50 for backlog 1.7's
     // "lips need work": at those depths the vermilion read flat-lit but the
@@ -11066,102 +11739,590 @@ export function gazeProbe(cls: WarriorClass, seed: number): GazeFit {
  */
 export const GRIP_PITCH = 1.28;
 
-/**
- * A lenticular blade with an edge that survives a pixel.
- *
- * The section is still a rhombus — that is what a pattern-welded blade grinds
- * to — but it is sampled half a step round so the edge lands *between* two
- * vertices rather than on one. That leaves a land about a quarter of the
- * section's thickness wide: on a sword's mid-blade, half a millimetre of
- * geometry where there used to be a mathematical point. `grow` puts back the
- * width the phase shift takes off, so the blade is exactly as wide as its
- * stations say. See `ShellOptions.phase` for what this is fixing.
- */
-function bladeSection(stations: Station[], seg = 8): THREE.BufferGeometry {
-  const grow = 1 / Math.pow(Math.cos(Math.PI / seg), 2);
-  return shell(
-    stations.map((st) => ({ ...st, hw: st.hw * grow })),
-    seg,
-    { power: 1, phase: 0.5, capTop: true, capBottom: true },
-  );
-}
+// ============================================================
+// WEAPON FORMS — the shapes a smith makes and a swept ellipse cannot
+// ============================================================
+//
+// `characters.ts` builds a blade out of `shell()`, a superellipse swept along y.
+// That is right for a haft and a grip and wrong for a blade, and it is why the
+// sword read as a rhombus and the seax as a leaf. A blade is not a rounded thing
+// with a groove painted on it. It is a FLAT bar with a fuller ground into the
+// middle of each face and two bevels ground toward the edges, and every one of
+// those is a facet with a hard crease against its neighbour and, above all, a
+// value of its own: the bevel catches light the flat does not, the fuller is a
+// dark inlay, and the difference between them is the stripe that says "forged
+// object" at fifty metres (CH-25, LORE 5.1, and `tools/bladevalue.mjs` measures
+// it in the frame).
+//
+// So the primitive here is a SWEPT POLYGON WITH BANDS. A blade is a closed
+// polygon in (x, z) — the section — at each of a few stations along y. Every side
+// of that polygon belongs to a band (flat, edge bevel, fuller), and the sweep
+// emits one geometry PER BAND, with unshared vertices per quad. That buys three
+// things at once:
+//
+//   1. hard creases for free: a band's quads share no vertex with the next band's,
+//      so the normals cannot average across the bevel shoulder or the fuller wall;
+//   2. a material per band: the bright bevel, the mid-grey flat and the dark
+//      fuller are three surfaces of one blade, and they are three draws only
+//      until `Part.merge` folds them into their materials' slots;
+//   3. an honest measurement: `tools/weaponshape.mjs` slices the emitted
+//      triangles and reads the section back, so nothing here can claim a
+//      property the geometry does not have.
+//
+// Everything is built along +y with the blade's flat faces on ±z, the same
+// convention every weapon in `characters.ts` uses, so the hand mount's pitch and
+// `anim.ts`'s reach solve (`geometry.boundingBox.max.y`) are untouched.
+//
+// WINDING. A sweep that comes out inside out is culled to nothing, silently. The
+// section's polygon runs so that, seen from +y, it goes from +x through +z; the
+// triangles are emitted so the normal points out of the polygon, and
+// `wfSignedVolume` is exported so a probe can prove it (positive = outward).
+// ============================================================
+type WfPt = readonly [number, number];
 
-/** Cord-wrapped grip: a core plus a helix of bindings, merged into the core. */
-function boundGrip(
-  part: Part,
-  mat: THREE.Material,
-  cordMat: THREE.Material,
-  y0: number,
-  y1: number,
-  r0: number,
-  r1: number,
-  turns: number,
-  trim: boolean,
-): void {
-  part.add(shell([{ y: y1, hw: r1, hd: r1 * 0.82 }, { y: (y0 + y1) / 2, hw: (r0 + r1) * 0.47, hd: (r0 + r1) * 0.4 }, { y: y0, hw: r0, hd: r0 * 0.82 }], 8, { capTop: true, capBottom: true }), mat);
-  if (!trim) return;
-  const n = Math.max(3, Math.round(turns));
-  for (let i = 0; i < n; i++) {
-    const t = (i + 0.5) / n;
-    const y = mix(y0, y1, t);
-    const r = mix(r0, r1, t) + 0.0022;
-    part.add(ring(r, 0.0028, 4, 10), cordMat, xf(0, y, 0, Math.PI / 2, 0, 0.16, 1, 1, 0.85));
+/** A station of a swept polygon: the section's points, all at one y. */
+interface WfSample { y: number; pts: readonly WfPt[] }
+
+const wfLerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const wfStep = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b - a || 1e-9)); return t * t * (3 - 2 * t); };
+
+/** Positive when the triangles of `g` wind outward (divergence theorem); a probe's proof of the note above. */
+export function wfSignedVolume(g: THREE.BufferGeometry): number {
+  const p = g.getAttribute("position") as THREE.BufferAttribute;
+  const idx = g.index;
+  const n = idx ? idx.count : p.count;
+  let v = 0;
+  for (let t = 0; t < n; t += 3) {
+    const a = idx ? idx.getX(t) : t, b = idx ? idx.getX(t + 1) : t + 1, c = idx ? idx.getX(t + 2) : t + 2;
+    const ax = p.getX(a), ay = p.getY(a), az = p.getZ(a);
+    const bx = p.getX(b), by = p.getY(b), bz = p.getZ(b);
+    const cx = p.getX(c), cy = p.getY(c), cz = p.getZ(c);
+    v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
   }
+  return v;
 }
 
+/**
+ * A non-indexed triangle soup, given an identity index. `Part.merge` folds the
+ * geometries that wear one material into one, and three's `mergeGeometries` refuses
+ * a list that mixes indexed and non-indexed ones (it returns null and the part falls
+ * back to a draw call per piece), and every `shell()` in `characters.ts` is indexed.
+ */
+function wfBuild(pos: number[], uv: number[]): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+function wfIndexed(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const n = g.getAttribute("position").count;
+  const idx = new Uint32Array(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+}
+
+/**
+ * Sweeps a closed polygon along y, one geometry per band.
+ *
+ * `bandOf[k]` names the band of the side from point k to point k+1 (wrapping).
+ * Every quad has its own four vertices, so a band's normals are its own: a flat
+ * band is flat to the last vertex, and a crease between bands is a crease.
+ * `capBand` is the band the two end caps are put in.
+ */
+function wfSweepBands(samples: readonly WfSample[], bandOf: readonly number[], bands: number, capBand: number, caps = true): THREE.BufferGeometry[] {
+  const pos: number[][] = Array.from({ length: bands }, () => []);
+  const uv: number[][] = Array.from({ length: bands }, () => []);
+  const n = samples[0].pts.length;
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = samples[i], b = samples[i + 1];
+    if (b.y - a.y < 1e-9) continue;
+    for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n;
+      const band = bandOf[k];
+      const A = [a.pts[k][0], a.y, a.pts[k][1]];
+      const B = [a.pts[k2][0], a.y, a.pts[k2][1]];
+      const C = [b.pts[k2][0], b.y, b.pts[k2][1]];
+      const D = [b.pts[k][0], b.y, b.pts[k][1]];
+      // A quad whose two edges have both collapsed (a fuller that has faded to nothing) is no surface.
+      const collapsed = Math.hypot(A[0] - B[0], A[2] - B[2]) < 1e-7 && Math.hypot(D[0] - C[0], D[2] - C[2]) < 1e-7;
+      if (collapsed) continue;
+      // outward: (A, D, C) and (A, C, B) for a polygon that runs +x -> +z as seen from +y
+      const p = pos[band], u = uv[band];
+      for (const V of [A, D, C, A, C, B]) p.push(V[0], V[1], V[2]);
+      const v0 = a.y, v1 = b.y;
+      u.push(k / n, v0, k / n, v1, k2 / n, v1, k / n, v0, k2 / n, v1, k2 / n, v0);
+    }
+  }
+  if (caps) {
+    const cap = (s: WfSample, up: boolean) => {
+      const m = s.pts.length;
+      let cx = 0, cz = 0;
+      for (const [x, z] of s.pts) { cx += x; cz += z; }
+      cx /= m; cz /= m;
+      const p = pos[capBand], u = uv[capBand];
+      for (let k = 0; k < m; k++) {
+        const P = s.pts[k], Q = s.pts[(k + 1) % m];
+        const tri = up ? [[cx, s.y, cz], [Q[0], s.y, Q[1]], [P[0], s.y, P[1]]] : [[cx, s.y, cz], [P[0], s.y, P[1]], [Q[0], s.y, Q[1]]];
+        for (const V of tri) { p.push(V[0], V[1], V[2]); u.push(0.5, 0.5); }
+      }
+    };
+    cap(samples[samples.length - 1], true);
+    cap(samples[0], false);
+  }
+  return pos.map((p, i) => wfBuild(p, uv[i]));
+}
+
+// ------------------------------------------------------------
+// THE BLADE
+// ------------------------------------------------------------
+
+interface BladeStation { y: number; hw: number; hd: number }
+interface FullerSpec {
+  /** Where the fuller starts and stops along the blade. */
+  y0: number; y1: number;
+  /** Half-width of the trough (or of the rib, when `depth` is negative). */
+  hw: number;
+  /** How far the floor sits below the flat. Negative = a raised midrib, which is what a spear leaf carries. */
+  depth: number;
+  /** Length over which the fuller fades in and out at each end. */
+  ramp: number;
+  /** Horizontal width of the wall between flat and floor. */
+  wall?: number;
+}
+interface ForgedBladeSpec {
+  /** Planform and thickness, ascending in y from the root. Linear between stations. */
+  stations: readonly BladeStation[];
+  fuller: FullerSpec;
+  /** The share of the half-width that is ground into the edge bevel. */
+  bevel: number;
+  /** Half thickness of the land at the edge. Half a millimetre keeps an edge from crawling (see `ShellOptions.phase`). */
+  edge?: number;
+}
+interface ForgedBlade {
+  /** The flat shoulders between fuller and bevel, and both end caps. */
+  flat: THREE.BufferGeometry;
+  /** The ground bevels and the land at each edge: the brightest facets on the weapon. */
+  edge: THREE.BufferGeometry;
+  /** The fuller floor and its walls: a dark inlay, or the watering in a pattern-welded blade. */
+  fuller: THREE.BufferGeometry;
+}
+
+const WF_BLADE_BANDS = [0, 1, 2, 2, 2, 1, 0, 0, 0, 1, 2, 2, 2, 1, 0, 0]; // edge=0 flat=1 fuller=2, per side of the 16-point section
+
+/**
+ * A flat-ground blade: a bar with two bevels and a fuller.
+ *
+ * The section, seen from +y, is sixteen points: the edge land, the shoulder where
+ * the bevel meets the flat, the two walls and the floor of the fuller, on each
+ * face. Its half-width is the station's `hw`, its half thickness `hd` (the height
+ * of the flat above the midline), and the fuller fades in and out over `ramp` at
+ * each end so it is ground INTO the blade and does not start with a step.
+ */
+function forgedBlade(spec: ForgedBladeSpec): ForgedBlade {
+  const st = spec.stations;
+  const at = (y: number) => {
+    if (y <= st[0].y) return { hw: st[0].hw, hd: st[0].hd };
+    for (let i = 0; i < st.length - 1; i++) {
+      if (y <= st[i + 1].y) {
+        const t = (y - st[i].y) / (st[i + 1].y - st[i].y);
+        return { hw: wfLerp(st[i].hw, st[i + 1].hw, t), hd: wfLerp(st[i].hd, st[i + 1].hd, t) };
+      }
+    }
+    const l = st[st.length - 1];
+    return { hw: l.hw, hd: l.hd };
+  };
+  const F = spec.fuller;
+  const ys = new Set<number>(st.map((s) => s.y));
+  for (const k of [0, 0.25, 0.5, 0.75, 1]) { ys.add(F.y0 + F.ramp * k); ys.add(F.y1 - F.ramp * k); }
+  const e = spec.edge ?? 0.00025;
+  const wall = F.wall ?? 0.0006;
+  const samples: WfSample[] = [...ys].sort((a, b) => a - b).map((y) => {
+    const { hw: W, hd: T } = at(y);
+    const t = y <= F.y0 || y >= F.y1 ? 0 : wfStep(F.y0, F.y0 + F.ramp, y) * wfStep(F.y1, F.y1 - F.ramp, y);
+    const f = F.hw * t, d = F.depth * t;
+    const b = W * spec.bevel;
+    // The wall has no width where the fuller has faded to nothing (t = 0), or a dark hairline runs the whole blade.
+    const inner = Math.min(W - b - 0.0004, f + wall * Math.min(1, t * 6));
+    const pts: WfPt[] = [
+      [W, e], [W - b, T], [inner, T], [f, T - d], [-f, T - d], [-inner, T], [-(W - b), T], [-W, e],
+      [-W, -e], [-(W - b), -T], [-inner, -T], [-f, -(T - d)], [f, -(T - d)], [inner, -T], [W - b, -T], [W, -e],
+    ];
+    return { y, pts };
+  });
+  const g = wfSweepBands(samples, WF_BLADE_BANDS, 3, 1);
+  return { edge: g[0], flat: g[1], fuller: g[2] };
+}
+
+// ------------------------------------------------------------
+// THE SEAX: one edge, one spine, and a corner in the spine
+// ------------------------------------------------------------
+
+interface SeaxSpec {
+  /** Where the blade starts (the bolster) and where it ends. */
+  yHeel: number; yTip: number;
+  /** The corner in the back, as a y between them. The spine is straight below it and falls to the point above it. */
+  yBreak: number;
+  /** The edge line's x at the heel, and at the tip (which is ON the edge line, give or take the blunt point). */
+  edgeX: number; edgeBow: number;
+  /** Width heel to spine, and the tip's own half width. */
+  width: number; tipWidth: number;
+  /** Half thickness of the back (6-8 mm thick in the finds) and of the land at the edge. */
+  back: number; edgeLand?: number;
+  /** The fuller, as fractions of the width from the edge, and how far it is sunk. */
+  fuller: { u0: number; u1: number; depth: number; y0: number; y1: number; ramp: number };
+}
+interface Seax {
+  flat: THREE.BufferGeometry;
+  edge: THREE.BufferGeometry;
+  fuller: THREE.BufferGeometry;
+  /** The floor's centre and half width at a y, for laying wire in it. */
+  floor(y: number, side: 1 | -1): { x: number; z: number; halfW: number; dxdy: number };
+  planform(y: number): { edge: number; spine: number };
+}
+
+/**
+ * The broken-back seax blade, as a spine polyline and an edge polyline (the way
+ * `axeBlade` is built) with a section that is thick at the back and thins to the
+ * edge. A `Station` cannot say this — it is symmetric about x — which is why the
+ * old seax was a double-edged leaf with a 6 mm kink (CH-26, CHARMAP-B 3.1 #16).
+ *
+ * +x is the spine and -x the edge. The two faces carry a fuller near the back, a
+ * flat shoulder and a wide bevel that runs to the edge.
+ */
+function seaxBlade(spec: SeaxSpec): Seax {
+  const { yHeel: y0, yTip: y1, yBreak: yb } = spec;
+  const edgeAt = (y: number) => spec.edgeX - spec.edgeBow * Math.sin(Math.PI * clamp01((y - y0) / (y1 - y0)));
+  const tipSpine = edgeAt(y1) + spec.tipWidth;
+  const spineAt = (y: number) => {
+    const top = spec.edgeX + spec.width;
+    if (y <= yb) return top;
+    return wfLerp(top, tipSpine, clamp01((y - yb) / (y1 - yb)));
+  };
+  const F = spec.fuller;
+  const land = spec.edgeLand ?? 0.00025;
+  const T = spec.back;
+  const ysSet = new Set<number>([y0, yb, y1]);
+  for (const k of [0.0, 0.2, 0.5, 0.8, 1.0]) { ysSet.add(F.y0 + F.ramp * k); ysSet.add(F.y1 - F.ramp * k); }
+  for (const y of [0.16, 0.22, 0.28, 0.42, 0.46, 0.48]) if (y > y0 && y < y1) ysSet.add(y);
+  const taper = (y: number) => (y <= F.y0 || y >= F.y1 ? 0 : wfStep(F.y0, F.y0 + F.ramp, y) * wfStep(F.y1, F.y1 - F.ramp, y));
+  const section = (y: number): WfPt[] => {
+    const xe = edgeAt(y), xs = spineAt(y);
+    const Wd = Math.max(xs - xe, 1e-4);
+    const X = (u: number) => xe + Wd * u;
+    // the tip closes on the edge line: the thick part of the section thins with the blade
+    const thin = clamp01(Wd / 0.02);
+    const Tt = wfLerp(0.0009, T, thin);
+    const t = taper(y);
+    const d = F.depth * t;
+    const mid = 0.5 * (F.u0 + F.u1);
+    const u0 = wfLerp(mid, F.u0, t), u1 = wfLerp(mid, F.u1, t);
+    const wall = 0.012 * Math.min(1, t * 6); // no wall where the fuller has faded to nothing
+    // The upper face from the edge to the spine: the edge land, the bevel's shoulder, the fuller's near wall and
+    // floor and far wall, the back's flat, and the back's rounded corner. The polygon then runs spine -> edge
+    // across the +z face, over the edge land, and edge -> spine across the -z face, like the symmetric blade.
+    const up: WfPt[] = [
+      [X(0), land], [X(0.5), Tt], [X(u0), Tt], [X(u0 + wall), Tt - d], [X(u1 - wall), Tt - d], [X(u1), Tt], [X(0.965), Tt], [X(1), Tt * 0.62],
+    ];
+    const down: WfPt[] = up.map(([x, z]) => [x, -z] as WfPt);
+    return [...up.slice().reverse(), ...down];
+  };
+  const samples: WfSample[] = [...ysSet].sort((a, b) => a - b).map((y) => ({ y, pts: section(y) }));
+  // sides, point k -> k+1: 0 spine corner, 1 back flat, 2-4 fuller (wall, floor, wall), 5 flat, 6 bevel, 7 edge land,
+  // then the lower face the same in reverse
+  const BANDS = [1, 1, 2, 2, 2, 1, 0, 0, 0, 1, 2, 2, 2, 1, 1, 1];
+  const g = wfSweepBands(samples, BANDS, 3, 1);
+  const planform = (y: number) => ({ edge: edgeAt(y), spine: spineAt(y) });
+  const floor = (y: number, side: 1 | -1) => {
+    const { edge: xe, spine: xs } = planform(y);
+    const Wd = xs - xe;
+    const t = taper(y);
+    const Tt = wfLerp(0.0009, T, clamp01(Wd / 0.02));
+    const u = 0.5 * (F.u0 + F.u1);
+    const halfW = 0.5 * (F.u1 - F.u0) * Wd * t;
+    const h = 0.002;
+    const de = (planform(y + h).edge - planform(y - h).edge) / (2 * h);
+    const ds = (planform(y + h).spine - planform(y - h).spine) / (2 * h);
+    return { x: xe + Wd * u, z: side * (Tt - F.depth * t), halfW, dxdy: (1 - u) * de + u * ds };
+  };
+  return { edge: g[0], flat: g[1], fuller: g[2], floor, planform };
+}
+
+// ------------------------------------------------------------
+// PILLOWS AND PLATES: a cast pommel, a wing, a niello panel
+// ------------------------------------------------------------
+
+/**
+ * An outline (x, y) given a puffed section: rings scaled about the outline's
+ * centroid at depths -h..+h, capped by fans at both faces, all vertices shared so
+ * the normals round off. A cast pommel is this; so is a thin plate (`rings` of
+ * two scales close to 1 and a thickness of a millimetre or two).
+ *
+ * The outline must run counter-clockwise seen from +z and be star-shaped about
+ * its centroid — three lobes on a bar are.
+ */
+function wfPillow(outline: readonly WfPt[], halfDepth: number, rings: ReadonlyArray<readonly [number, number]>): THREE.BufferGeometry {
+  const n = outline.length;
+  let cx = 0, cy = 0;
+  for (const [x, y] of outline) { cx += x; cy += y; }
+  cx /= n; cy /= n;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const R = rings.length;
+  for (const [zf, s] of rings) {
+    for (const [x, y] of outline) { pos.push(cx + (x - cx) * s, cy + (y - cy) * s, zf * halfDepth); uv.push(x, y); }
+  }
+  const capA = pos.length / 3; pos.push(cx, cy, rings[0][0] * halfDepth); uv.push(0, 0);
+  const capB = pos.length / 3; pos.push(cx, cy, rings[R - 1][0] * halfDepth); uv.push(0, 0);
+  for (let r = 0; r < R - 1; r++) {
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const a = r * n + i, b = r * n + j, c = (r + 1) * n + j, d = (r + 1) * n + i;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    idx.push(capB, (R - 1) * n + i, (R - 1) * n + j); // +z face
+    idx.push(capA, j, i);                               // -z face
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  // the caller's outline may wind the other way; make the volume positive
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
+/** A rounded rectangle outline, counter-clockwise, `n` points a corner. */
+function wfRoundedRect(hw: number, hh: number, r: number, n = 4): WfPt[] {
+  const out: WfPt[] = [];
+  const corners: Array<[number, number, number]> = [[hw - r, hh - r, 0], [-(hw - r), hh - r, 0.5], [-(hw - r), -(hh - r), 1], [hw - r, -(hh - r), 1.5]];
+  for (const [cx, cy, q] of corners) {
+    for (let i = 0; i <= n; i++) {
+      const a = (q + i / n * 0.5) * Math.PI;
+      out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The tri-lobed pommel: ONE cast shell with three lobes along its butt, on a flat
+ * top that sits against the upper guard (Petersen H and K, Insular mounts: LORE
+ * 5.1). It is not a cap with three balls set on it — that is four objects, and
+ * `tools/weaponshape.mjs` counts islands and reads the butt line's minima to tell
+ * the two apart.
+ *
+ * Built along the sword's own axes: x across the flats, y toward the blade, so the
+ * lobes hang toward -y and the flat top is at y = 0.
+ */
+function lobedPommel(o: { hw: number; lobeR: number; drop: number; depth: number }): THREE.BufferGeometry {
+  const { hw, lobeR: r, drop, depth } = o;
+  const pitch = hw - r;                 // outer lobe centres sit at +-pitch, the middle one at 0
+  const yc = -(drop - r);               // circle centres: the butt of each lobe is `drop` below the top
+  const centres = [-pitch, 0, pitch];
+  const low = (x: number) => {
+    let y = Infinity;
+    for (const c of centres) { const d = x - c; if (Math.abs(d) <= r) y = Math.min(y, yc - Math.sqrt(Math.max(0, r * r - d * d))); }
+    return y;
+  };
+  const pts: WfPt[] = [];
+  const step = 0.00075;
+  // counter-clockwise seen from +z: along the butt from left to right, then back along the top
+  for (let x = -hw; x <= hw + 1e-9; x += step) {
+    const xx = Math.min(hw, x);
+    const y = low(xx);
+    pts.push([xx, Number.isFinite(y) ? y : yc]);
+  }
+  pts.push([hw, 0], [hw * 0.5, 0.0006], [0, 0.0009], [-hw * 0.5, 0.0006], [-hw, 0]);
+  return wfPillow(pts, depth / 2, [[-1, 0.80], [-0.62, 0.95], [0, 1], [0.62, 0.95], [1, 0.80]]);
+}
+
+/**
+ * A guard bar with drooping arms and a waist: the lower guard of a Petersen H
+ * sword, a flat-ended bar 12-14 mm tall. Built as one pillow so the ends round
+ * off and a niello panel can lie on either face.
+ */
+function guardBar(o: { hw: number; hh: number; depth: number; droop?: number }): THREE.BufferGeometry {
+  const { hw, hh, depth } = o;
+  const droop = o.droop ?? 0.0025;
+  const pts: WfPt[] = [];
+  const n = 26;
+  // upper edge (right to left), an arch; lower edge (left to right), drooping at the tips
+  for (let i = 0; i <= n; i++) { const x = hw - (2 * hw * i) / n; pts.push([x, hh - droop * Math.pow(x / hw, 2) + 0.0015 * (1 - Math.pow(x / hw, 2))]); }
+  for (let i = 0; i <= n; i++) { const x = -hw + (2 * hw * i) / n; pts.push([x, -hh - droop * Math.pow(x / hw, 2)]); }
+  // the tips are squared off with a little bevel
+  return wfPillow(pts, depth / 2, [[-1, 0.78], [-0.55, 0.96], [0, 1], [0.55, 0.96], [1, 0.78]]);
+}
+
+/**
+ * A plate lying on a face: a wing, a niello panel. `thickness` is the whole
+ * thickness; the faces are inset a little so the rim catches a line.
+ */
+function wfPlate(outline: readonly WfPt[], thickness: number, inset = 0.94): THREE.BufferGeometry {
+  return wfPillow(outline, thickness / 2, [[-1, inset], [0, 1], [1, inset]]);
+}
+
+/** A short open ring of wire or a ferrule: `r` the radius to the centre of the band, `h` its height, `t` its thickness. */
+function wfFerrule(r: number, hd: number, h: number, t: number, seg = 14): THREE.BufferGeometry {
+  // an oval tube, outer wall and inner wall and both rims, so it is a band with an edge and not a paper cylinder
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const profile: Array<[number, number]> = [[-h / 2, r + t], [h / 2, r + t], [h / 2, r], [-h / 2, r]]; // (y, radius) around the band's section
+  const m = profile.length;
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI * 2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (const [y, rad] of profile) { pos.push(rad * ca, y, rad * sa * (hd / r)); uv.push(i / seg, y); }
+  }
+  for (let i = 0; i < seg; i++) {
+    for (let k = 0; k < m; k++) {
+      const k2 = (k + 1) % m;
+      const a = i * m + k, b = (i + 1) * m + k, c = (i + 1) * m + k2, d = i * m + k2;
+      idx.push(a, c, b, a, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  if (wfSignedVolume(g) < 0) {
+    const ix = g.index as THREE.BufferAttribute;
+    for (let t = 0; t < ix.count; t += 3) { const a = ix.getX(t + 1), b = ix.getX(t + 2); ix.setX(t + 1, b); ix.setX(t + 2, a); }
+    g.computeVertexNormals();
+  }
+  return g;
+}
+
+/** Thin flat wire strokes, on +z or -z, as one geometry of quads: a rune, a lozenge, a line. `proud` above `z`. */
+function wireStrokes(strokes: ReadonlyArray<{ x0: number; y0: number; x1: number; y1: number; w: number; z: number; z1?: number }>, face: 1 | -1): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [];
+  for (const s of strokes) {
+    const dx = s.x1 - s.x0, dy = s.y1 - s.y0;
+    const len = Math.hypot(dx, dy) || 1e-9;
+    const nx = (-dy / len) * (s.w / 2), ny = (dx / len) * (s.w / 2);
+    const z1 = s.z1 ?? s.z; // a stroke laid on a sloping floor has a height at each end
+    const A = [s.x0 - nx, s.y0 - ny, s.z], B = [s.x0 + nx, s.y0 + ny, s.z], C = [s.x1 + nx, s.y1 + ny, z1], D = [s.x1 - nx, s.y1 - ny, z1];
+    // A, B, C, D run clockwise seen from +z (right of the start, left of the start, left of the end, right of the end)
+    const tri = face === 1 ? [A, C, B, A, D, C] : [A, B, C, A, C, D];
+    for (const V of tri) { pos.push(V[0], V[1], V[2]); uv.push(0, 0); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+/** Flat convex polygons lying on +z or -z: a lozenge of wire, filled. Points counter-clockwise seen from +z. */
+function wirePolys(polys: ReadonlyArray<{ pts: ReadonlyArray<WfPt>; z: number }>, face: 1 | -1): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [];
+  for (const { pts, z } of polys) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      const tri = face === 1 ? [pts[0], pts[i], pts[i + 1]] : [pts[0], pts[i + 1], pts[i]];
+      for (const [x, y] of tri) { pos.push(x, y, z); uv.push(0, 0); }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return wfIndexed(g);
+}
+
+/**
+ * THE SWORD (Petersen H/K family with Insular mounts; LORE 5.1, CH-25).
+ *
+ * The blade is 0.892 m and stays exactly where `rig.reach` reads it (the tip is at
+ * y 1.055: `tools/weaponshape.mjs` locks it). What changed is everything a smith
+ * would name:
+ *
+ *   THE BLADE is a flat-ground bar, not a rhombus. It was `power 1` — a true
+ *   diamond, so one facet of every face was lit and its neighbour black — with a
+ *   "fuller" that stood 0.1 mm proud of it. `forgedBlade` builds the section the way
+ *   the finds are ground: flat shoulders, a bevel toward each edge, and a fuller
+ *   24 mm across with a floor 0.9 mm below the flat, tapering out at both ends. The
+ *   bevels are the brightest facets on the weapon, the flats a step under them, and
+ *   the fuller a dark inlay (the pattern, in the finishes that pay for one): three
+ *   values side by side is the stripe `tools/bladevalue.mjs` reads off the frame.
+ *   The point is rounded off an ogive, not a needle.
+ *
+ *   THE HILT is 124 mm across at the guard (LORE: the finds' lower guards run 80-110
+ *   mm; the game wants 120-140 to read at the fight lens; it was 212, a knight's
+ *   cross), with a 66 mm upper guard and ONE cast three-lobed pommel 70 mm across
+ *   (it was a cap with three loose balls set on it), a grip with two ferrules where
+ *   seven brass hoops used to float, and silvered mounts each carrying a niello
+ *   panel — the Trewhiddle-style Insular mounts of the Abingdon and Witham swords.
+ *   The grip's radii are the ones the baked fists close on and did not move.
+ */
 export function buildSword(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xc4ccd6, 0.2], iron: [0x4c525b, 0.5], fitting: [0xb9a25a, 0.34], grip: 0x2a1c10,
+    steel: [WEAPON_STEEL.flat, 0.32], edge: [WEAPON_STEEL.edge, 0.28], fuller: [WEAPON_STEEL.fuller, 0.5],
+    metal: WEAPON_STEEL.metal, fitting: [0xb9b4a6, 0.4], niello: 0x1b1a1c, grip: 0x2a1c10,
   });
-  const steel = P.steel;
-  const dark = P.iron!;
+  const silver = P.fitting!;
+  const niello = P.niello!;
   const leather = P.grip!;
-  const brass = P.fitting!;
 
-  // Blade: rhombic section, distal taper, 0.9 m of it. The pattern-weld comes
-  // from the steel map rather than from geometry — that is what the map is for.
-  part.add(bladeSection([
-    { y: 1.055, hw: 0.006, hd: 0.0012 },
-    { y: 0.99, hw: 0.018, hd: 0.0021 },
-    { y: 0.86, hw: 0.024, hd: 0.0027 },
-    { y: 0.55, hw: 0.028, hd: 0.0035 },
-    { y: 0.163, hw: 0.031, hd: 0.0042 },
-  ]), steel);
-  // Fuller — a dark line down the centre of both faces, and it has to be a
-  // *swept* one. As a box it was 8.6 mm deep on a blade that is 5.4 mm thick at
-  // the forte and 4.2 at the foible, so the groove stood up to 1.6 mm proud of
-  // the steel either side of it: seen from the edge the sword's silhouette was
-  // the fuller and not the blade. Following the blade's own `hd` keeps it inside
-  // a tenth of a millimetre of the surface, which is under a pixel at any range
-  // and cannot break the section.
+  // Blade: 0.892 m, near-parallel edges (hw 29 mm at the forte to 25.5 mm at the
+  // foible), 6 mm thick at the forte thinning to 4 mm, and an ogive point from y 0.96.
+  const TIP = 1.055;
+  const OGIVE = 0.96;
+  const stations: BladeStation[] = [
+    { y: 0.163, hw: 0.0290, hd: 0.0030 },
+    { y: 0.300, hw: 0.0284, hd: 0.0028 },
+    { y: 0.550, hw: 0.0270, hd: 0.0026 },
+    { y: 0.860, hw: 0.0255, hd: 0.0022 },
+    ...[0, 0.25, 0.5, 0.7, 0.85, 0.94, 0.985].map((t) => ({
+      y: OGIVE + (TIP - OGIVE) * t,
+      hw: Math.max(0.0035, 0.0250 * Math.sqrt(1 - t * t)),
+      hd: 0.0020 - 0.0008 * t,
+    })),
+    { y: TIP, hw: 0.0035, hd: 0.0012 },
+  ];
+  const blade = forgedBlade({
+    stations,
+    fuller: { y0: 0.20, y1: 0.90, hw: 0.012, depth: 0.0009, ramp: 0.035 },
+    bevel: 0.28,
+  });
+  part.add(blade.flat, P.steel);
+  part.add(blade.edge, P.edge!);
+  part.add(blade.fuller, P.fuller!);
+
+  // Lower guard: a bar 124 mm across and 22 mm deep, its arms drooping a little, with a
+  // niello panel let into each face.
+  const GUARD_Y = 0.155;
+  part.add(guardBar({ hw: 0.062, hh: 0.0085, depth: 0.022 }), silver, xf(0, GUARD_Y, 0));
+  for (const s of [-1, 1]) {
+    part.add(wfPlate(wfRoundedRect(0.043, 0.0038, 0.0025), 0.0006), niello, xf(0, GUARD_Y, s * 0.0113));
+  }
+
+  // Grip: the oval the fists close on (radii unchanged), a ferrule at each end.
   part.add(shell([
-    { y: 0.885, hw: 0.0062, hd: 0.0027 },
-    { y: 0.55, hw: 0.008, hd: 0.0036 },
-    { y: 0.19, hw: 0.0085, hd: 0.0043 },
-  ], 6, { power: 2.6, capTop: true, capBottom: true }), dark);
-  // Lower guard, grip, upper guard, lobed pommel.
-  part.add(shell([
-    { y: 0.028, hw: 0.096, hd: 0.019 },
-    { y: 0.012, hw: 0.106, hd: 0.021 },
-    { y: -0.004, hw: 0.09, hd: 0.018 },
-  ], 10, { power: 2.6, capTop: true, capBottom: true }), dark, xf(0, 0.15, 0));
-  boundGrip(part, leather, brass, -0.075, 0.146, 0.0175, 0.0155, 7, true);
-  part.add(shell([
-    { y: 0.014, hw: 0.052, hd: 0.016 },
-    { y: 0, hw: 0.058, hd: 0.018 },
-    { y: -0.014, hw: 0.048, hd: 0.015 },
-  ], 10, { power: 2.6, capTop: true, capBottom: true }), dark, xf(0, -0.082, 0));
-  // Tea-cosy pommel: three lobes on a bar, the Anglo-Saxon signature.
-  part.add(shell([
-    { y: 0.052, hw: 0.03, hd: 0.014 },
-    { y: 0.02, hw: 0.06, hd: 0.02 },
-    { y: -0.012, hw: 0.062, hd: 0.021 },
-  ], 12, { power: 2.2, capTop: true, capBottom: true }), brass, xf(0, -0.105, 0));
-  for (const lx of [-0.038, 0, 0.038]) {
-    part.add(ball(0.016, 8), brass, xf(lx, -0.062, 0, 0, 0, 0, 1, 0.8, 0.62));
+    { y: 0.146, hw: 0.0155, hd: 0.0127 },
+    { y: 0.035, hw: 0.0157, hd: 0.0129 },
+    { y: -0.075, hw: 0.0175, hd: 0.0144 },
+  ], 10, { capTop: true, capBottom: true }), leather);
+  part.add(wfFerrule(0.0157, 0.0129, 0.004, 0.0014), silver, xf(0, 0.1445, 0));
+  part.add(wfFerrule(0.0177, 0.0146, 0.004, 0.0014), silver, xf(0, -0.073, 0));
+
+  // Upper guard and the pommel: one flat bar under the grip and ONE cast shell with three
+  // lobes on its butt, a niello panel on each face of it.
+  part.add(guardBar({ hw: 0.033, hh: 0.0065, depth: 0.024, droop: 0.0006 }), silver, xf(0, -0.0835, 0));
+  part.add(lobedPommel({ hw: 0.035, lobeR: 0.0090, drop: 0.0285, depth: 0.026 }), silver, xf(0, -0.0895, 0));
+  for (const s of [-1, 1]) {
+    part.add(wfPlate(wfRoundedRect(0.016, 0.0072, 0.004), 0.0006), niello, xf(0, -0.104, s * 0.0133));
   }
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
@@ -11169,40 +12330,130 @@ export function buildSword(materials?: CharacterMaterials, styleId?: string): TH
 }
 
 /**
- * The runekeeper's seax: single-edged with the broken-back spine that makes an
- * Anglo-Saxon knife unmistakable at a glance, and rune-etched down the flat.
+ * The seax of the Runekeeper (Beagnoth, Repton's two knives; LORE 5.2, CH-26).
+ *
+ * A seax is single-edged, and its back is BROKEN: straight from the hilt for two
+ * thirds of the blade, then falling in a line to a point that lies on the edge. The
+ * old one was a symmetric double-edged leaf with a 6 mm kink, because a `Station`
+ * is symmetric about x and cannot say "this side is thick and that side is not".
+ * `seaxBlade` builds it as an edge polyline and a spine polyline (the way `axeBlade`
+ * is built): the back is 6.6 mm thick with a rounded corner, a flat and a fuller run
+ * beside it, and a wide bevel thins the rest of the way to the edge. The corner is at
+ * 65% of the blade from the heel and turns the back 17 degrees.
+ *
+ * THE RUNES ARE WIRE, NOT LIGHT. It carried a `runeGlow` box down the flat, "the
+ * class's whole identity in one glowing line", which is the game's one fantasy-magic
+ * trap (LORE 5.5, CH-09: the Runekeeper is a man with carved staves, not a wizard).
+ * Beagnoth's are copper, brass and silver wire hammered into grooves, and so are
+ * these: two lines and a row of futhorc staves, with lozenges between them, laid in
+ * the fuller as thin brass quads 0.3 mm proud of its floor. The wire is the
+ * brightest line INSIDE the dark fuller and the edge bevel the brightest line
+ * outside it; nothing emits.
+ *
+ * The hilt is a horn grip, a silver bolster (no cup guard: a seax has none) and a
+ * small pommel cap. The loose cord rings its grip used to carry went with the sword's hoops.
+ *
+ * The blade sits 3 mm toward its edge of the hilt's axis (the edge at -27 mm, the back at
+ * +21). That is how a single-edged blade is hafted: the tang runs down the BACK of the
+ * handle, so the back of the blade and the back of the grip are nearly one line and the
+ * edge hangs off the other side. It is also what keeps `wearmeasure` 6b honest about a weapon
+ * that is one-sided and shows its flat to the camera on purpose: centred on the blade's
+ * width, the vertex mean of this blade sat 3.7 mm to the back and read 0.148 against the
+ * gate's 0.15 - not "symmetric", a number a merge could tip over - and with the hilt on the
+ * back's side it reads 0.03. (The seax is deliberately not rolled to lead with its edge as the
+ * axe is: the camera is in front of the man and this is the blade the runes are on.)
  */
 export function buildDagger(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xb8c4d2, 0.24], fitting: [0x9a8a56, 0.4], grip: 0x24303f,
+    steel: [WEAPON_STEEL.flat, 0.34], edge: [WEAPON_STEEL.edge, 0.30], fuller: [WEAPON_STEEL.fuller, 0.5],
+    metal: WEAPON_STEEL.metal, fitting: [0xb9b4a6, 0.4], wire: 0xd7c88a, horn: 0x4a3a2a,
   });
-  const steel = P.steel;
-  const leather = P.grip!;
-  const brass = P.fitting!;
+  const silver = P.fitting!;
+  const horn = P.grip!;
+  const wire = P.wire!;
 
-  // Asymmetric section: the spine is thick and flat, the edge thins away. Built
-  // as a swept box whose cross-section slides forward as the back breaks down.
+  const HEEL = 0.072;
+  const seax = seaxBlade({
+    yHeel: HEEL, yTip: 0.5, yBreak: 0.351, edgeX: -0.027, edgeBow: 0.0012,
+    width: 0.048, tipWidth: 0.003, back: 0.0033,
+    fuller: { u0: 0.60, u1: 0.90, depth: 0.0008, y0: 0.12, y1: 0.46, ramp: 0.03 },
+  });
+  part.add(seax.flat, P.steel);
+  part.add(seax.edge, P.edge!);
+  part.add(seax.fuller, P.fuller!);
+
+  // ---- the wire, on both faces, on the floor of the fuller ----
+  //
+  // Six futhorc staves' worth of glyphs (each a few strokes of a unit box), six lozenges of wire
+  // and two lines the length of the inlay, from where the fuller reaches its full depth (0.155). Everything follows `seax.floor`, which knows where the
+  // floor is and how wide, so the inlay narrows with the fuller after the corner in the back.
+  const GLYPHS: ReadonlyArray<ReadonlyArray<readonly [number, number, number, number]>> = [
+    [[0, 0, 0, 1], [0, 0.68, 0.9, 1.0], [0, 0.38, 0.9, 0.7]],
+    [[-0.7, 0, -0.7, 1], [-0.7, 1, 0.6, 0.62], [0.6, 0.62, 0.6, 0]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 0.8, 0.7, 0.5], [0.7, 0.5, -0.5, 0.2]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 1.0, 0.8, 0.72], [-0.5, 0.66, 0.8, 0.38]],
+    [[-0.5, 0, -0.5, 1], [-0.5, 1, 0.7, 0.78], [0.7, 0.78, -0.5, 0.52], [-0.5, 0.52, 0.7, 0]],
+    [[0.6, 1, -0.5, 0.5], [-0.5, 0.5, 0.6, 0]],
+  ];
+  const GH = 0.0075, GW = 0.0045, SW = 0.0009, PROUD = 0.0003;
+  for (const face of [1, -1] as const) {
+    const strokes: Array<{ x0: number; y0: number; x1: number; y1: number; w: number; z: number; z1?: number }> = [];
+    const lozenges: Array<{ pts: Array<[number, number]>; z: number }> = [];
+    const at = (y: number) => seax.floor(y, face);
+    // two wire lines the length of the inlay
+    for (const k of [-1, 1]) {
+      for (let y = 0.155; y < 0.43; y += 0.012) {
+        const a = at(y), b = at(y + 0.012);
+        strokes.push({
+          x0: a.x + k * a.halfW * 0.74, y0: y, x1: b.x + k * b.halfW * 0.74, y1: y + 0.012, w: 0.0013,
+          z: a.z + face * PROUD, z1: b.z + face * PROUD,
+        });
+      }
+    }
+    // the row: lozenge, three glyphs, lozenge, ... five lozenges and twelve glyphs
+    let y = 0.158, gi = 0;
+    const lozenge = (yc: number, half: number) => {
+      const a = at(yc);
+      lozenges.push({ pts: [[a.x, yc - half], [a.x + half * 0.62, yc], [a.x, yc + half], [a.x - half * 0.62, yc]], z: a.z + face * PROUD });
+    };
+    for (let L = 0; L < 5; L++) {
+      lozenge(y + 0.0045, 0.0045);
+      y += 0.009 + 0.0025;
+      if (L === 4) break;
+      for (let k = 0; k < 3; k++) {
+        const a = at(y);
+        for (const [x0, y0, x1, y1] of GLYPHS[gi % GLYPHS.length]) {
+          strokes.push({ x0: a.x + x0 * GW / 2, y0: y + y0 * GH * 0.62 + 0.0008, x1: a.x + x1 * GW / 2, y1: y + y1 * GH * 0.62 + 0.0008, w: SW, z: a.z + face * PROUD });
+        }
+        gi++;
+        y += 0.0113;
+      }
+      y += 0.0015;
+    }
+    lozenge(0.385, 0.0034);
+    part.add(wireStrokes(strokes, face), wire);
+    part.add(wirePolys(lozenges, face), wire);
+  }
+
+  // ---- the hilt: a silver bolster, a horn grip, a small pommel cap ----
   part.add(shell([
-    { y: 0.5, hw: 0.008, hd: 0.0018, z: 0.006 },
-    { y: 0.44, hw: 0.019, hd: 0.0028, z: 0.004 },
-    { y: 0.33, hw: 0.026, hd: 0.0036, z: 0.0 },
-    { y: 0.14, hw: 0.026, hd: 0.004, z: 0.0 },
-    { y: 0.075, hw: 0.024, hd: 0.0038, z: 0.0 },
-  ], 6, { power: 1.35, capTop: true, capBottom: true }), steel);
+    { y: 0.074, hw: 0.0205, hd: 0.0105 },
+    { y: 0.062, hw: 0.0195, hd: 0.0100 },
+  ], 12, { power: 2.8, capTop: true, capBottom: true }), silver);
   part.add(shell([
-    { y: 0.07, hw: 0.034, hd: 0.011 },
-    { y: 0.056, hw: 0.03, hd: 0.01 },
-  ], 8, { power: 2.4, capTop: true, capBottom: true }), brass);
-  boundGrip(part, leather, brass, -0.075, 0.056, 0.016, 0.0145, 5, true);
+    { y: 0.062, hw: 0.0145, hd: 0.0119 },
+    { y: -0.007, hw: 0.0145, hd: 0.0122 },
+    { y: -0.075, hw: 0.0160, hd: 0.0131 },
+  ], 10, { capTop: true, capBottom: true }), horn);
+  part.add(wfFerrule(0.0148, 0.0121, 0.0035, 0.0012), silver, xf(0, -0.0725, 0));
   part.add(shell([
-    { y: 0.016, hw: 0.024, hd: 0.014 },
-    { y: -0.012, hw: 0.03, hd: 0.017 },
-  ], 8, { power: 2.2, capTop: true, capBottom: true }), brass, xf(0, -0.082, 0));
-  // Rune channel down the flat — the class's whole identity in one glowing line.
-  part.add(box(0.0055, 0.26, 0.0092), M.get("runeGlow"), xf(0.004, 0.28, 0));
+    { y: -0.075, hw: 0.0165, hd: 0.0135 },
+    { y: -0.084, hw: 0.0195, hd: 0.0160 },
+    { y: -0.097, hw: 0.0140, hd: 0.0115 },
+  ], 10, { power: 2.4, capTop: true, capBottom: true }), silver);
 
   for (const { geo, mat } of part.merge()) g.add(new THREE.Mesh(geo, mat));
   return g;
@@ -11225,11 +12476,13 @@ export function buildDagger(materials?: CharacterMaterials, styleId?: string): T
  * the edge**. That gives, in one surface and for free:
  *
  *   - a *land* at the edge rather than a mathematical point (`SECTION[0]`), for
- *     the same reason `bladeSection` carries `phase: 0.5` — a zero-width edge
+ *     the same reason `forgedBlade` carries a 0.25 mm edge land — a zero-width edge
  *     alternates between covering and missing pixel centres and crawls;
- *   - a **bevel break** at `s = 0.12`, ~19 mm back, at 21° included. That normal
- *     discontinuity is the line of light that runs the whole crescent and it is
- *     the single feature that says "axe" at fifty metres;
+ *   - a **bevel break** at `s = 0.12` of the way back, about 20 mm on the Dane axe
+ *     and 10 on the hand axe, at roughly 15 degrees included (the half angle is
+ *     atan(0.14 x 0.019 / 0.0203); this note used to say 21, and was not the code's).
+ *     That normal discontinuity is the line of light that runs the whole crescent
+ *     and it is the single feature that says "axe" at fifty metres;
  *   - a blade that swells out of the eye and thins to the edge, so the head has a
  *     lit top plane and a dark underside from every bearing, not just square on;
  *   - horns and beard that are thin where they are thin on a real head, because
@@ -11237,11 +12490,18 @@ export function buildDagger(materials?: CharacterMaterials, styleId?: string): T
  *     edge, so the metal is still full thickness where it meets the socket.
  *
  * Both polylines must be the same length; `t` is their shared index.
+ *
+ * `r0` and `r1` pick the rows of `SECTION` to build, so the head can be cut in two
+ * at the bevel break: rows 0-2 are the ground bevel (the bright steel BIT welded
+ * into the edge, which is what a real head is: a steel strip in an iron body) and
+ * rows 3-5 the cheeks (dark iron). One surface, one crease, two materials.
  */
 function axeBlade(
   edge: Array<[number, number]>,
   root: Array<[number, number]>,
   eyeHalf: number,
+  r0 = 0,
+  r1 = 6,
 ): THREE.BufferGeometry {
   // Distance from the edge, and the half-thickness there as a fraction of the
   // eye. Front-loaded: an axe is a long thin wedge for most of its width and
@@ -11255,7 +12515,7 @@ function axeBlade(
   // the grid with different indices; the quad between them has no area and so
   // contributes no normal, and the faces above and below it end up with normals
   // of their own. That is a hard crease for the cost of one row of vertices, and
-  // there are two of them: one at the land, one at the bevel shoulder 21 mm back.
+  // there are two of them: one at the land, one at the bevel shoulder.
   const SECTION: Array<[number, number]> = [
     [0, 0.030], [0, 0.030], [0.12, 0.17], [0.12, 0.17], [0.34, 0.27], [0.62, 0.40], [1, 1],
   ];
@@ -11264,7 +12524,7 @@ function axeBlade(
   const at = (t: number, s: number, sign: number, out: THREE.Vector3) => {
     const ti = Math.min(n - 1, Math.floor(t * n));
     const tf = t * n - ti;
-    const si = Math.min(rows - 1, Math.floor(s * rows));
+    const si = Math.min(rows - 1, Math.floor(s * rows + 1e-9));
     const sf = s * rows - si;
     const ex = mix(edge[ti][0], edge[ti + 1][0], tf);
     const ey = mix(edge[ti][1], edge[ti + 1][1], tf);
@@ -11283,89 +12543,122 @@ function axeBlade(
   // collinear vertices. Curvature is bought by authoring points, not by nu.
   // `u` runs backwards so ∂u × ∂v comes out along +z and the outer grid faces
   // out; taken forwards the whole head renders inside out and disappears.
+  const sAt = (v: number) => (r0 + v * (r1 - r0)) / rows;
   return patch({
-    nu: n, nv: rows,
-    outer: (u, v, out) => at(1 - u, v, 1, out),
-    inner: (u, v, out) => at(1 - u, v, -1, out),
+    nu: n, nv: r1 - r0,
+    outer: (u, v, out) => at(1 - u, sAt(v), 1, out),
+    inner: (u, v, out) => at(1 - u, sAt(v), -1, out),
   });
 }
 
 /**
- * The berserker's Dane axe: bearded crescent, langets down the haft, 1.44 m.
+ * THE HEADS OF THE AXES. Two tables, because a hand axe is not a small Dane axe.
+ *
+ * Each is an edge polyline (top horn round to the beard tip) and the root line where
+ * the blade dies into the eye, index for index. x is out from the haft, y along it,
+ * both metres from the eye's centre. The last four stations of each edge are the
+ * BEARD, and they are the reason these are tables and not arcs: the edge hooks down and
+ * *back* toward the haft while the root runs under the socket to x < 0, so the two
+ * curves open a concave throat beneath the eye — the one piece of an axe's outline no
+ * other weapon in the game has, and it survives being 30 px tall.
+ *
+ * DANE (the Long Bearded Axe, `skeggox`; Petersen types C-E scale, the game's best
+ * silhouette and kept): 272 mm of edge along the haft, from a horn 92 mm above the
+ * eye to a beard 180 mm below it, 196 mm out. It was 307 mm (horn 137, beard 170, 204
+ * out): LORE 5.3 asks for 10-15% less and for the beard hook kept, and the top horn
+ * took the larger share (-35%), so the head is bottom-heavy the way the finds are.
+ *
+ * HAND (the one-hand bearded axe of `hand_axes` and `twin_beards`): 147 mm of edge, a
+ * head 100 mm out, its beard hooked back to 25 mm from the haft. It was the Dane axe at
+ * 0.74 (227 mm of edge, LORE says under 180), the same curve at two sizes, and its
+ * beard was as open as the big one's. It has its own table now, so the hook that reads
+ * at 30 px is drawn and not scaled.
+ */
+const DANE_EDGE: Array<[number, number]> = [
+  [0.156, 0.092], [0.174, 0.079], [0.184, 0.064], [0.191, 0.049], [0.195, 0.032], [0.196, 0.016], [0.195, -0.011], [0.192, -0.039],
+  [0.186, -0.065], [0.179, -0.090], [0.169, -0.115], [0.155, -0.138], [0.137, -0.157], [0.117, -0.172], [0.094, -0.180],
+];
+const DANE_ROOT: Array<[number, number]> = [
+  [0.008, 0.047], [0.015, 0.042], [0.020, 0.036], [0.024, 0.029], [0.027, 0.020], [0.028, 0.008], [0.028, -0.007], [0.027, -0.022],
+  [0.025, -0.036], [0.021, -0.049], [0.016, -0.063], [0.009, -0.077], [0.000, -0.092], [-0.013, -0.106], [-0.026, -0.119],
+];
+const HAND_EDGE: Array<[number, number]> = [
+  [0.070, 0.056], [0.082, 0.047], [0.090, 0.036], [0.096, 0.024], [0.099, 0.011], [0.100, -0.002], [0.099, -0.015], [0.096, -0.028],
+  [0.090, -0.041], [0.082, -0.054], [0.072, -0.066], [0.060, -0.076], [0.047, -0.084], [0.035, -0.089], [0.025, -0.091],
+];
+const HAND_ROOT: Array<[number, number]> = [
+  [0.006, 0.026], [0.010, 0.020], [0.014, 0.013], [0.016, 0.006], [0.017, -0.001], [0.017, -0.008], [0.016, -0.015], [0.014, -0.022],
+  [0.011, -0.029], [0.007, -0.036], [0.002, -0.043], [-0.004, -0.050], [-0.010, -0.057], [-0.016, -0.063], [-0.021, -0.069],
+];
+
+/**
+ * The Long Bearded Axe (`skeggox`; the game's "Dane axe") and its one-hand cousin
+ * (LORE 5.3, CH-42): bearded crescent, langets down the haft, an ash haft 1.5 m
+ * long (0.6 m for the hand axe).
+ *
+ * The head is TWO MATERIALS because a real head is: a strip of hard steel welded into
+ * the edge of a soft iron body. The bright bevel (rows 0-2 of the section, about 20 mm
+ * on the Dane axe) is steel, the cheeks are dark iron, and the weld line is the crease
+ * at the bevel break — a free T2 read, a light line against a dark face, on the one
+ * silhouette in the game that needed no help.
+ *
+ * NOTHING ABOUT ITS REACH MOVED. `rig.reach` in anim.ts is `boundingBox.max.y`, and
+ * the top horn came down 45 mm (137 to 92 above the eye), so the head is seated 45 mm
+ * higher on the haft: the tip of the horn is at exactly the height it was (0.997 for
+ * the Dane axe, 0.401 for the hand axe), which is what `tools/weaponshape.mjs` locks.
+ * What that costs is a haft that runs 45 mm further up past the eye.
  *
  * Rebalanced about the grip, and the reason is a defect one panel read as a broken
- * *helmet*. The head used to sit 1.12 m up the haft from a grip at 0.90 m, and at
- * the shouldered carry that put a 256 mm steel crescent at y = 1.89 — the middle
- * of the skull. In `art/shots/v3/lineup.png` it overlaps the helm's silhouette and
- * reads as a second, detached bowl, and its polished face — 0.22 roughness against
- * a bright sky env map — blows to 250 luma and becomes the "white blob beside the
- * helm". Nothing was wrong with the berserker's head assembly at all.
- *
- * So the mass came 260 mm down the haft and the butt grew by the same, which
- * leaves the weapon's overall length and its head-to-butt reach where they were
- * and moves the crescent to shoulder height at rest. That overshot in the other
- * direction — at `STANCE.berserker.rest` of -1.78 the head sat *behind* the
- * deltoid and pauldron with only 16% of it visible, so the fix for one defect
- * created another and no amount of blade modelling could show through it. The
- * carry angle is -1.35 now, which is the other half of the same fix and lives in
- * anim.ts. Geometry could not reach it: sweeping `headY` up far enough to clear
- * the shoulder puts the head back on the helm.
- *
- * `rig.reach` in anim.ts is measured off this geometry's bounding box, so the
- * blade trail follows it without being told.
+ * *helmet*: the head used to sit 1.12 m up the haft from a grip at 0.90 m, and at the
+ * shouldered carry that put a 256 mm steel crescent in the middle of the skull, where
+ * it overlapped the helm's silhouette and read as a second, detached bowl. The mass
+ * came 260 mm down the haft and the butt grew by the same, which leaves the weapon's
+ * overall length where it was; the carry angle is -1.35 in anim.ts, which is the other
+ * half of the same fix. `rig.reach` follows the geometry without being told.
  */
 export function buildAxe(materials?: CharacterMaterials, styleId?: string, form: "dane" | "hand" = "dane"): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
-  // 0.34 rather than 0.22, and a darker albedo. A 220 mm mirror is the largest
-  // specular in the game and it was clipping; a Dane axe is a forged, ground,
-  // hard-used tool, not a bezel.
+  // Steel for the bit at a 0.38 roughness and iron for the cheeks at 0.55: a 220 mm mirror is
+  // the largest specular in the game and it was clipping; a Dane axe is a forged, ground,
+  // hard-used tool, not a bezel. The `fitting` is the dark of the iron until a finish puts a
+  // mount there (CH-41: the axe and the spear had no fitting slot at all).
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xa9b2bd, 0.34], iron: [0x5c636d, 0.52], grip: 0x33241a, shaft: 0x6a4c2c,
+    steel: [WEAPON_STEEL.flat, 0.42], edge: [WEAPON_STEEL.edge, 0.38], metal: WEAPON_STEEL.metal,
+    iron: [0x4a4f57, 0.55], fitting: [0x3c4148, 0.5], grip: 0x33241a, shaft: 0xa78c66,
   });
-  const steel = P.steel;
+  const bit = P.edge!;
   const iron = P.iron!;
+  const mount = P.fitting!;
   const ash = P.shaft!;
   const leather = P.grip!;
+  // The eye collar: calmer than the cheeks, on a large tile (one facet to the 60 mm of a
+  // collar, not four), because a collar is a plain forged ring and the loud one drew the
+  // eye to the one place the axe is not the point.
+  const style = weaponStyleOf(styleId);
+  const collarMat = M.tinted("iron", tintHex(0x4a4f57, style.iron.tint), { roughness: 0.6, tile: 1.1 });
 
-  // THE HAND FORM (7.7b): the one-hand bearded axe the arms table calls
-  // "hand_axes"/"twin_beards" — the same forge as the Dane axe (same edge
-  // curve family, same eye, same langets) at a hand axe's real proportions:
-  // ~0.55 m of haft against 1.5, and a head 0.74 the size, which keeps the
-  // beard's concave throat readable at 30 px. The `dane` branch keeps every
-  // literal it always had, byte for byte — the shipped silhouette is a
-  // measured baseline and moves for nobody.
   const hand = form === "hand";
-  const K = hand ? 0.74 : 1;
-  const headY = hand ? 0.30 : 0.86;
+  // The eye's centre up the haft. The Dane head is seated 45 mm higher than it was so the
+  // horn's tip stays at the height `rig.reach` reads; the hand head 0.345 for the same reason.
+  const headY = hand ? 0.345 : 0.905;
+  const Kc = hand ? 0.72 : 1; // the collar, langets and eye scale with the head
 
-  // Haft with an oval section — and the oval's long axis runs **along the cut**,
-  // which is the way round a real haft is shaped so the hand knows where the edge
-  // is without looking. It was the other way round, and the section disagreed
-  // with the head it carries.
+  // Haft with an oval section — and the oval's long axis runs **along the cut**, which is the
+  // way round a real haft is shaped so the hand knows where the edge is without looking.
   //
-  // THE SECOND HALF OF THAT NOTE IS NO LONGER TRUE AND IS RECORDED HERE RATHER
-  // THAN DELETED. It used to add "the haft presented its narrow face to a camera
-  // that is nearly always in front of the warrior", and that was an argument
-  // about an ABSOLUTE bearing, made while the whole head was pointing out of the
-  // man's side. The `roll` group at the end of this function turns the entire
-  // axe, haft and head together, so the relationship this paragraph is actually
-  // about — long axis along the cut — is untouched, while the bearing that
-  // sentence appealed to is now 90° round: a camera in front sees the 32 mm face
-  // of a 41 x 32 mm haft rather than the 41 mm one. Nine millimetres on a stick,
-  // against a 204 mm head that was cutting sideways. Worth saying out loud
-  // because the next reader will otherwise find two comments disagreeing and
-  // trust the wrong one.
+  // (An older note here argued the haft presented its narrow face to a camera in front of the
+  // warrior. That was an argument about an ABSOLUTE bearing, made while the head pointed out of
+  // the man's side; the `roll` group at the end turns haft and head together, so the
+  // relationship that matters — long axis along the cut — is untouched, and the camera in front
+  // now sees the 32 mm face of a 41 x 32 mm haft. Recorded rather than deleted so the next
+  // reader does not find two comments disagreeing and trust the wrong one.)
   //
-  // Waisted where the hand closes, and that is the other half of the grip
-  // defect. Over the binding the haft measured **64 mm across** at the fist —
-  // wider than the span between a closed thumb and forefinger — so the fingers
-  // were modelled inside the wood and what showed outside it was the back of a
-  // hand lying against a post. A Dane axe haft is ~35 mm at the grip and swells
-  // again at the butt for the lower hand to pull against, which is the shape
-  // below: full section under the head where the langets ride, 41 mm at the
-  // grip, 56 mm at the butt.
+  // Waisted where the hand closes: a Dane axe haft is ~35 mm at the grip and swells again at
+  // the butt for the lower hand to pull against, which is the shape below: full section under
+  // the head where the langets ride, 41 mm at the grip, 56 mm at the butt. The binding over it
+  // is `HAND_GRIP`'s radius and nothing else: the fist is baked to it.
   part.add(shell(hand ? [
     { y: headY + 0.05, hw: 0.021, hd: 0.017 },
     { y: 0.16, hw: 0.019, hd: 0.0155 },
@@ -11380,82 +12673,54 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
     { y: -0.34, hw: 0.024, hd: 0.0195 },
     { y: -0.56, hw: 0.028, hd: 0.023 },
   ], 8, { capTop: true, capBottom: true }), ash);
+  // The butt cap: the dark of the iron on the issued axe, the finish's mount on a bought one.
   part.add(shell(hand ? [
     { y: -0.185, hw: 0.025, hd: 0.021 },
     { y: -0.215, hw: 0.021, hd: 0.018 },
   ] : [
     { y: -0.54, hw: 0.034, hd: 0.030 },
     { y: -0.58, hw: 0.030, hd: 0.026 },
-  ], 8, { capTop: true, capBottom: true }), iron);
+  ], 8, { capTop: true, capBottom: true }), mount);
 
-  // The cutting edge, top horn round to the beard tip, and the line where the
-  // blade dies into the eye. 295 mm of edge on 176 mm of blade beyond the socket,
-  // which is a large but unremarkable Petersen type M — the reach off the haft is
-  // 204 mm, i.e. exactly what the old plate had. The head is bigger in silhouette
-  // and no longer in reach, and that is the trade this pass wanted: what was
-  // missing was never length, it was *form*.
-  //
-  // The last four stations of both curves are the beard, and they are the reason
-  // this is a table rather than an arc. The edge hooks down and *back* toward the
-  // haft while the root runs under the socket to x = -20 mm, so the two curves
-  // open a concave throat beneath the eye. That notch is the one piece of an axe's
-  // outline no other weapon in the game has, and it survives being 30 px tall.
-  const edge: Array<[number, number]> = [
-    [0.163, 0.137], [0.181, 0.116], [0.192, 0.093], [0.199, 0.068],
-    [0.203, 0.042], [0.204, 0.016], [0.203, -0.010], [0.200, -0.036],
-    [0.194, -0.061], [0.186, -0.085], [0.176, -0.108], [0.161, -0.130],
-    [0.143, -0.148], [0.122, -0.162], [0.098, -0.170],
-  ];
-  const root: Array<[number, number]> = [
-    [0.008, 0.066], [0.015, 0.058], [0.020, 0.048], [0.024, 0.036],
-    [0.027, 0.022], [0.028, 0.008], [0.028, -0.006], [0.027, -0.020],
-    [0.025, -0.033], [0.021, -0.046], [0.016, -0.059], [0.009, -0.072],
-    [0.000, -0.086], [-0.013, -0.100], [-0.026, -0.112],
-  ];
-  // The root line sits inside the socket's own waist, so the blade's inboard rim
-  // is buried in it rather than ending in a lit 38 mm plate.
-  // The hand form scales the whole blade table by K — same curve family,
-  // same beard throat, a head a one-hand swing can carry.
-  const scaled = (pts: Array<[number, number]>): Array<[number, number]> =>
-    K === 1 ? pts : pts.map(([x, y]) => [x * K, y * K] as [number, number]);
-  part.add(axeBlade(scaled(edge), scaled(root), 0.019 * K), steel, xf(0, headY, 0));
+  // THE HEAD, cut at the bevel break into bright steel bit and dark iron cheeks.
+  const edge = hand ? HAND_EDGE : DANE_EDGE;
+  const root = hand ? HAND_ROOT : DANE_ROOT;
+  const eyeHalf = 0.019 * Kc;
+  part.add(axeBlade(edge, root, eyeHalf, 0, 3), bit, xf(0, headY, 0));
+  part.add(axeBlade(edge, root, eyeHalf, 3, 6), iron, xf(0, headY, 0));
 
-  // The eye: a forged collar round the haft with a lip at each end and a waist
-  // between them. The lips are the point — they are two hard horizontal edges at
-  // the one place on the weapon where the light is not raking, and without them
-  // the socket was a 96 mm-deep lozenge that read as a fist round the haft and
-  // stood proud of the blade it is supposed to carry.
+  // The eye: a forged collar round the haft with a lip at each end and a waist between them.
+  // The lips are the point — two hard horizontal edges at the one place on the weapon where the
+  // light is not raking; without them the socket was a 96 mm-deep lozenge that read as a fist
+  // round the haft. It stops at the horn's own height so it never lifts `rig.reach`, and its lower
+  // lip runs down far enough to bury the end of the root line (the beard's inner edge starts there).
+  const collarTop = hand ? 0.050 : 0.085;
+  const waist = hand ? 0.030 : 0.058; // where the waist between the two lips begins
   part.add(shell(([
-    { y: 0.092, hw: 0.030, hd: 0.020 },
-    { y: 0.079, hw: 0.036, hd: 0.025 },
-    { y: 0.058, hw: 0.032, hd: 0.022 },
-    { y: -0.058, hw: 0.032, hd: 0.022 },
-    { y: -0.079, hw: 0.036, hd: 0.025 },
-    { y: -0.092, hw: 0.030, hd: 0.020 },
-  ]).map((s) => (K === 1 ? s : { y: s.y * 0.8, hw: s.hw * 0.85, hd: s.hd * 0.85 })), 10, { power: 2.5 }), iron, xf(0, headY, 0));
+    { y: collarTop, hw: 0.030, hd: 0.020 },
+    { y: collarTop - 0.013, hw: 0.036, hd: 0.025 },
+    { y: waist, hw: 0.032, hd: 0.022 },
+    { y: -0.070, hw: 0.032, hd: 0.022 },
+    { y: -0.100, hw: 0.036, hd: 0.025 },
+    { y: -0.113, hw: 0.030, hd: 0.020 },
+  ]).map((st) => (Kc === 1 ? st : { y: st.y > 0 ? st.y : st.y * 0.64, hw: st.hw * 0.85, hd: st.hd * 0.85 })), 10, { power: 2.5 }), collarMat, xf(0, headY, 0));
 
-  // Langets: two straps down the faces the blade lies in, tapering to a point,
-  // riveted through. They used to be a pair of 50 mm-deep boxes standing 5 mm
-  // clear of the haft on either side of it — at gameplay distance that is a fork,
-  // not a binding, and it was most of what made the visible half of this weapon
-  // read as a stick. Built as prisms in their own plane and turned onto the haft,
-  // so each lies *on* the wood with a rounded back.
+  // Langets: two straps down the faces the blade lies in, tapering to a point, riveted through.
+  // Built as prisms in their own plane and turned onto the haft, so each lies *on* the wood with
+  // a rounded back (they used to be a pair of boxes standing 5 mm clear of it: a fork, not a binding).
   const langet: Array<[number, number]> = [
     [-0.014, 0.020], [0.014, 0.020], [0.012, -0.052], [0.007, -0.108],
     [0.0, -0.145], [-0.007, -0.108], [-0.012, -0.052],
   ];
-  for (const s of [-1, 1]) {
-    part.add(lensPrism(K === 1 ? langet : langet.map(([x, y]) => [x * 0.8, y * 0.8] as [number, number]),
-      0.007, 0.3), iron, xf(s * 0.024 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8), 0, 0, s * Math.PI / 2, 0));
-    for (const ry of (K === 1 ? [-0.01, -0.09] : [-0.008, -0.07])) {
-      part.add(ball(0.005, 6), iron, xf(s * 0.029 * (K === 1 ? 1 : 0.85), headY - 0.10 * (K === 1 ? 1 : 0.8) + ry, 0, 0, 0, 0, 0.6, 1, 1));
+  for (const sd of [-1, 1]) {
+    part.add(lensPrism(Kc === 1 ? langet : langet.map(([x, y]) => [x * 0.8, y * 0.8] as [number, number]),
+      0.007, 0.3), iron, xf(sd * 0.024 * (Kc === 1 ? 1 : 0.85), headY - 0.10 * (Kc === 1 ? 1 : 0.8), 0, 0, sd * Math.PI / 2, 0));
+    for (const ry of (Kc === 1 ? [-0.01, -0.09] : [-0.008, -0.07])) {
+      part.add(ball(0.005, 6), mount, xf(sd * 0.029 * (Kc === 1 ? 1 : 0.85), headY - 0.10 * (Kc === 1 ? 1 : 0.8) + ry, 0, 0, 0, 0, 0.6, 1, 1));
     }
   }
-  // Grip binding: 3 mm of hide over the waisted wood, not 8. It used to stand
-  // proud enough to be a collar rather than a wrap, and it is the surface the
-  // fist is fitted to — `HAND_GRIP.berserker` is this radius and nothing else.
-  // The hand form's binding sits at the haft's own waist, y = 0 on a weapon
-  // whose whole haft is 0.55 m.
+  // Grip binding: 3 mm of hide over the waisted wood, not 8 — it stood proud enough to be a collar
+  // rather than a wrap, and it is the surface the fist is fitted to (`HAND_GRIP.berserker`).
   part.add(shell(hand ? [
     { y: 0.07, hw: 0.0195, hd: 0.0160 },
     { y: -0.07, hw: 0.0200, hd: 0.0165 },
@@ -11464,31 +12729,21 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
     { y: -0.09, hw: 0.0240, hd: 0.0195 },
   ], 8, { wall: 0.004 }), leather, xf(0, hand ? 0 : 0.02, 0));
 
-  // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90°
-  // anticlockwise too."
+  // THE BIT WAS POINTING OUT OF THE MAN'S SIDE. "axe needs to turn 90 degrees anticlockwise too."
   //
-  // Every weapon in this file draws its blade in local XY with the flat on local
-  // Z, and the hand mount's only rotation is `Rx(GRIP_PITCH)` — and Rx leaves X
-  // alone. So local +X lands on the body's LATERAL axis, and a blade whose
-  // cutting direction is +X cuts sideways. The sword, the spear and the seax are
-  // symmetric about the haft, so on them the fault has nothing to show; the Dane
-  // axe's head is 204 mm of steel on ONE side, and measured on the posed rig it
-  // pointed 0.96 along the man's lateral axis against 0.26 along his forward. A
-  // man carrying it was carrying a flag on a pole, and the swing cut with the
-  // flat of the blade.
+  // Every weapon in this file draws its blade in local XY with the flat on local Z, and the hand
+  // mount's only rotation is `Rx(GRIP_PITCH)` — and Rx leaves X alone. So local +X lands on the
+  // body's LATERAL axis, and a blade whose cutting direction is +X cuts sideways. The sword, the
+  // spear and the seax are symmetric about the haft, so on them the fault has nothing to show; the
+  // axe's head is 196 mm of steel on ONE side. Ry(-pi/2) takes local +X onto local +Z, which is
+  // the way the man faces, so the edge leads the arc instead of crossing it. It goes on an inner
+  // group and NOT on the returned one, because `anim.ts` does
+  // `rig.weapon.rotation.set(wrist, 0, P.wz)` every frame and hard-zeroes Y, so a roll written on
+  // the group this function returns survives exactly until the first pose. `rig.reach` is safe
+  // either way: a turn about Y cannot move a bound in Y.
   //
-  // Ry(-π/2) takes local +X onto local +Z, which is the way the man faces, so the
-  // edge leads the arc instead of crossing it. It goes on an inner group and NOT
-  // on the returned one, because `anim.ts` does
-  // `rig.weapon.rotation.set(wrist, 0, P.wz)` every frame — it writes all three
-  // Euler channels and hard-zeroes Y, so a roll written on the group this
-  // function returns survives exactly until the first pose. `rig.reach` is safe
-  // either way: it reads `geometry.boundingBox.max.y`, and a turn about Y cannot
-  // move a bound in Y. Measured before and after: 997 mm, unchanged.
-  //
-  // ONLY the axe. Rolling the sword would turn its 62 mm face away from a camera
-  // that is nearly always in front of the warrior and present the 8 mm edge
-  // instead, which trades a real silhouette for a symmetry that costs nothing.
+  // ONLY the axe. Rolling the sword would turn its face away from a camera that is nearly always
+  // in front of the warrior and present the edge instead.
   const roll = new THREE.Group();
   roll.rotation.y = -Math.PI / 2;
   for (const { geo, mat } of part.merge()) roll.add(new THREE.Mesh(geo, mat));
@@ -11497,53 +12752,106 @@ export function buildAxe(materials?: CharacterMaterials, styleId?: string, form:
 }
 
 /**
- * The warden's spear. Not a stylistic flourish — it is the only weapon in the
- * roster whose silhouette can be read from across the arena, which is what the
- * class needed to stop being "the huscarl without a shield".
+ * THE WARDEN'S SPEAR (gar; LORE 5.4, CH-27) — a winged head of Petersen's type E on a slim ash shaft.
+ *
+ * Not a stylistic flourish: it is the only weapon in the roster whose silhouette can be read from
+ * across the arena, which is what the class needed to stop being "the huscarl without a shield".
+ * The silhouette is why the head is what it is now. It was a fat leaf on a 38 mm broomstick with
+ * a socket like a cup, which reads as a garden fork's cousin at fifty metres; the finds are a
+ * long slim leaf (it stays 310 mm, tip at y 1.44, where `rig.reach` reads it) on a socket with
+ * two LUGS, the wings, that turn a thrust that would slide down the shaft and give the head its
+ * cross at the fight lens: 118 mm across the wings against 86 mm across the leaf.
+ *
+ *   THE LEAF is `forgedBlade` with its fuller run backwards: a raised MIDRIB, a wide bevel to each
+ *   edge and a rounded ogive point, in bright steel with brighter bevels. The head is bright where
+ *   it cuts and dark where it is only iron:
+ *   THE SOCKET AND THE WINGS are dark iron (`P.iron`), the wings two flat plates lying in the
+ *   blade's own plane, and a silvered COLLAR ring at the socket's foot hides the joint with the
+ *   shaft. Two silvered rivets hold the head, one on each face, as the finds' rivet holes say.
+ *   That dark-below-bright pair is the stripe `tools/bladevalue.mjs` reads off the frame.
+ *   THE SHAFT is ash (LORE 5.4), 27-31 mm, where 25-30 is what a spear's is and the oak
+ *   broomstick was 38. The leather hand-hold is the radius the baked fists close on and did not
+ *   move, and the iron shoe is the same cone it was.
  */
 export function buildSpear(materials?: CharacterMaterials, styleId?: string): THREE.Group {
   const M = materials ?? RAW;
   const g = new THREE.Group();
   const part = new Part();
   const P = weaponPalette(M, weaponStyleOf(styleId), {
-    steel: [0xc2cad4, 0.22], iron: [0x585f68, 0.55], grip: 0x2f2117, shaft: 0x7a5e38,
+    steel: [WEAPON_STEEL.flat, 0.34], edge: [WEAPON_STEEL.edge, 0.30], metal: WEAPON_STEEL.metal,
+    iron: [0x383c42, 0.55], fitting: [0xb9b4a6, 0.4], grip: 0x2f2117, shaft: 0xb59a72,
   });
-  const steel = P.steel;
   const iron = P.iron!;
+  const silver = P.fitting!;
   const ash = P.shaft!;
   const leather = P.grip!;
 
+  // The shaft: 27 mm at the head, 31 at the hand, 27 at the shoe.
   part.add(shell([
-    { y: 1.02, hw: 0.016, hd: 0.016 },
-    { y: 0.4, hw: 0.019, hd: 0.019 },
-    { y: -0.2, hw: 0.019, hd: 0.019 },
-    { y: -0.55, hw: 0.016, hd: 0.016 },
-  ], 8, { capTop: true, capBottom: true }), ash);
-  // Socket, then a leaf blade with a raised midrib.
+    { y: 1.02, hw: 0.0135, hd: 0.0135 },
+    { y: 0.4, hw: 0.0150, hd: 0.0150 },
+    { y: -0.2, hw: 0.0155, hd: 0.0155 },
+    { y: -0.55, hw: 0.0135, hd: 0.0135 },
+  ], 12, { capTop: true, capBottom: true }), ash);
+
+  // The leaf: 310 mm from the socket's mouth to the point, 86 mm across at the belly (y 1.25), an
+  // ogive from y 1.36. Wide bevels (62% of the half width) and a thin flat, so the section is a
+  // lozenge with a midrib standing 2.8 mm proud of it and not a slab.
+  const TIP = 1.44;
+  const OGIVE = 1.36;
+  const leaf: BladeStation[] = [
+    { y: 1.10, hw: 0.0150, hd: 0.0034 },
+    { y: 1.15, hw: 0.0255, hd: 0.0040 },
+    { y: 1.20, hw: 0.0380, hd: 0.0044 },
+    { y: 1.25, hw: 0.0430, hd: 0.0046 },
+    { y: 1.30, hw: 0.0420, hd: 0.0046 },
+    ...[0, 0.25, 0.5, 0.7, 0.85, 0.94, 0.985].map((t) => ({
+      y: OGIVE + (TIP - OGIVE) * t,
+      hw: Math.max(0.0030, 0.0385 * Math.sqrt(1 - t * t)),
+      hd: 0.0044 - 0.0030 * t,
+    })),
+    { y: TIP, hw: 0.0028, hd: 0.0012 },
+  ];
+  const head = forgedBlade({
+    stations: leaf,
+    fuller: { y0: 1.12, y1: 1.415, hw: 0.0030, depth: -0.0028, ramp: 0.03, wall: 0.0022 },
+    bevel: 0.62,
+  });
+  part.add(head.flat, P.steel);
+  part.add(head.edge, P.edge!);
+  part.add(head.fuller, P.edge!);
+
+  // The socket: a cone that grows out of the collar, swells to a mouth and shoulders in round the
+  // leaf's root. Dark iron. The shaft's top runs up inside it.
   part.add(shell([
-    { y: 1.13, hw: 0.02, hd: 0.02 },
-    { y: 1.05, hw: 0.028, hd: 0.028 },
-    { y: 0.99, hw: 0.024, hd: 0.024 },
-  ], 8, { power: 2.2 }), iron);
-  part.add(bladeSection([
-    { y: 1.44, hw: 0.005, hd: 0.0014 },
-    { y: 1.4, hw: 0.02, hd: 0.0038 },
-    { y: 1.31, hw: 0.036, hd: 0.0062 },
-    { y: 1.22, hw: 0.038, hd: 0.0068 },
-    { y: 1.13, hw: 0.022, hd: 0.005 },
-  ]), steel);
-  // The midrib, and it is meant to stand proud — but as a 300 mm box it ran past
-  // the blade at both ends and ended in a square face 10 mm short of the point,
-  // which renders as a fin sticking out of the leaf. Swept, it dies into the
-  // blade at the tip and again at the socket, standing ~1.2 mm off the faces
-  // where a rib actually stands and nowhere else.
-  part.add(shell([
-    { y: 1.405, hw: 0.0034, hd: 0.0044 },
-    { y: 1.30, hw: 0.006, hd: 0.0075 },
-    { y: 1.22, hw: 0.0062, hd: 0.008 },
-    { y: 1.14, hw: 0.005, hd: 0.0062 },
-  ], 6, { power: 2.2, capTop: true, capBottom: true }), iron);
-  // Ferrule at the butt and a bound hand-hold.
+    { y: 0.985, hw: 0.0185, hd: 0.0185 },
+    { y: 1.005, hw: 0.0200, hd: 0.0200 },
+    { y: 1.06, hw: 0.0212, hd: 0.0212 },
+    { y: 1.122, hw: 0.0232, hd: 0.0232 },
+    { y: 1.134, hw: 0.0208, hd: 0.0208 },
+    { y: 1.142, hw: 0.0140, hd: 0.0140 },
+  ], 12, { capTop: true }), iron);
+  // The collar ring at the socket's foot, and a rivet on each face.
+  part.add(wfFerrule(0.0195, 0.0195, 0.010, 0.0028, 16), silver, xf(0, 0.994, 0));
+  const RIVET = wfRoundedRect(0.0030, 0.0030, 0.0028, 3);
+  for (const s of [-1, 1]) for (const y of [1.056, 1.094]) {
+    part.add(wfPlate(RIVET, 0.0026, 0.78), silver, xf(0, y, s * (0.0209 + (y - 1.056) * 0.0005)));
+  }
+
+  // The wings: two swept, pointed lugs in the blade's own plane, 59 mm long (y 1.098-1.157) and standing
+  // 33 mm proud of the socket, their tips turned up toward the leaf, 120 mm across in all. Flat plates
+  // 3.6 mm thick, dark iron. (The first cut was 105 mm tall and read as rocket fins, the second was
+  // rounded and read as ears; a lug has a point.)
+  const WING: Array<[number, number]> = [
+    [0.0212, 1.098], [0.0300, 1.101], [0.0420, 1.110], [0.0540, 1.124], [0.0598, 1.144],
+    [0.0500, 1.148], [0.0400, 1.153], [0.0300, 1.157], [0.0226, 1.156], [0.0208, 1.128],
+  ];
+  for (const s of [-1, 1]) {
+    const outline: Array<[number, number]> = s === 1 ? WING : WING.map(([x, y]) => [-x, y] as [number, number]).reverse();
+    part.add(wfPlate(outline, 0.0036, 0.92), iron);
+  }
+
+  // The iron shoe at the butt, and the bound hand-hold: radii unchanged, the fists close on them.
   part.add(shell([
     { y: -0.52, hw: 0.021, hd: 0.021 },
     { y: -0.62, hw: 0.014, hd: 0.014 },
@@ -12026,12 +13334,14 @@ export function buildOffhandFor(cls: WarriorClass, materials?: CharacterMaterial
  * carries nothing.
  *
  * Every number is read off the geometry above at y = 0, which is where the mount
- * is: sword 16 mm over the cord, seax 14, shield bar 17 across its narrow face,
- * axe 21 over the binding, spear 24 over its hand-hold. They are here rather
- * than in the builders because the *hand* is what needs them and a hand is built
- * before a weapon is chosen. Re-measure when a grip is re-cut; a stale number
- * here does not break anything, it just puts the fingers a few millimetres off
- * the leather.
+ * is: sword 16 mm (the half width of its leather oval), seax 14 (its horn grip),
+ * shield bar 17 across its narrow face, axe 21 over the binding, spear 24 over its
+ * hand-hold. `tools/weaponshape.mjs` reads the section at y = 0 off the emitted
+ * triangles and holds every weapon within -2.5/+4 mm of these, so a re-cut grip that
+ * moves one is a red check and not a stale number. They are here rather than in the
+ * builders because the *hand* is what needs them and a hand is built before a weapon
+ * is chosen. (A stale number here breaks nothing at runtime; it puts the fingers a few
+ * millimetres off the leather, and that is what the ruler is for.)
  *
  * `off` mirrors what `anim.ts` mounts — the runekeeper fights with a seax in each
  * hand and the huscarl's left fist closes on the shield's centre bar, while the
@@ -12041,9 +13351,9 @@ export function buildOffhandFor(cls: WarriorClass, materials?: CharacterMaterial
  * second edit.
  */
 const HAND_GRIP: Record<WarriorClass, { main: number; off: number | null }> = {
-  // Between the sword's 16 mm core and the 21 mm crest of its cord helix, which
-  // is where a hand on a corded grip actually sits — proud of the wood, sunk into
-  // the binding.
+  // The sword's grip is a leather-wrapped oval, 16.3 mm across at the hand mount
+  // and 17.5 at the pommel end; the fist closes at 17, the wide end of it, which is
+  // where a hand on a swelling grip actually sits.
   huscarl: { main: 0.017, off: 0.017 },
   warden: { main: 0.024, off: null },
   runekeeper: { main: 0.014, off: 0.014 },
@@ -13401,8 +14711,12 @@ export function buildCharacter(
   // it was and `tools/teamread.mjs` cannot move. `dyed` is the two cases
   // together: whenever a band or a people owns the hue, the class accent lets
   // go of it — see the tunic below.
-  const dyed = team !== "none" || people !== "none";
-  const kit = kitFor(finishKit(ap.armorColor), team, people);
+  // `wornColours` is the ONE place that says what colour each dyed surface is, for
+  // this man in this side and this livery; the authored man's role table reads the
+  // same function (`render/authoredLivery.ts`), and a whole `dyed` flag lived here
+  // until it moved in with it.
+  const colours = wornColours(ap, accents, team, people);
+  const kit = colours.kit;
   const mail = M.armour(kit.mail);
   // Kit colours that no armoury option controls, and therefore mine. They were
   // authored two passes ago against a brighter grade and they are now the reason a
@@ -13433,17 +14747,22 @@ export function buildCharacter(
   // stature, hem length, layer count and silhouette, which is what `BUILD` and
   // the kit are for — but hue is the side's channel and the class does not get
   // to borrow it. This is the precedence rule at its narrowest point.
-  const wool = cloth(dyed ? kit.tunic : tunicDye(kit.tunic, accents), bodyGirth);
+  const wool = cloth(colours.tunic, bodyGirth);
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
-  // garment and sewn on, so it is its own cloth at its own scale: 3 repeats round
-  // a band 16 mm tall is a coarse pattern rather than a weave, which is what a
-  // tablet loom actually makes. Takes the finish's wrap dye so a warrior's trim
-  // agrees with his legs instead of being a third opinion.
+  // garment and sewn on, so it is its own cloth at its own scale. It was the wool
+  // substance at 3 repeats, a flat cream stripe; it is the `tablet` substance now
+  // (CHAR-PLAN CH-32): one tile of its map is one repeat ACROSS a band (a diamond
+  // chain between two selvedge cords), and `shell()` runs a band's v from one edge
+  // to the other, so v repeats once and u repeats `TABLET_REPEAT` times along the
+  // band: 56 makes a lozenge about as wide as the 16 mm hem band is tall on a hem
+  // panel (an arc of about 0.65 m), and a squarer-than-square 18 mm wide one on the
+  // mantle's closed ring. Takes the finish's wrap dye so a warrior's trim agrees
+  // with his legs instead of being a third opinion.
   // Named `tablet` because `braid()` at module scope is the hair/beard curve
   // builder and belongs to another part of the file entirely.
-  const tablet = M.tinted("wool", kit.wrap, { repeat: 3 });
+  const tablet = M.tinted("tablet", kit.wrap, { repeat: [TABLET_REPEAT, 1] });
   const hide = M.hide(kit.hide);
   const buff = thrifty ? hide : M.hide(kit.buff);
   // Linen is asked for by girth for the same reason wool is. A flat `repeat: 6`
@@ -13451,7 +14770,7 @@ export function buildCharacter(
   // sleeve — one garment, two fabrics — and the coarse end is the finest cloth
   // in the set, where a visible tile costs most.
   const flax = (girth: number) =>
-    thrifty ? wool : M.tinted("linen", wornBy(0xc2b69c, team, people, "linen"), { repeat: clothRepeat(girth) });
+    thrifty ? wool : M.tinted("linen", colours.linen, { repeat: clothRepeat(girth) });
   const linen = flax(bodyGirth);
   const sleeveLinen = flax(2 * Math.PI * S.armR[0] * 1.12);
   const iron = M.tinted("iron", 0x6e767f, { roughness: 0.5 });
@@ -13479,7 +14798,7 @@ export function buildCharacter(
   // studs — so it is the surface that makes a finish visible on a berserker, who
   // owns no mail at all. Roughness and metalness are unchanged and stay argued
   // above: only the albedo moves.
-  const brass = M.standard(kit.fitting, 0.46, 0.78);
+  const brass = M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS);
   // The Sutton Hoo palette. Three substances that exist nowhere else on a
   // warrior, so the most expensive thing in the shop is not a recolour of the
   // second most expensive — and minted only for the helm that wears them, which
@@ -13683,7 +15002,6 @@ export function buildCharacter(
   // `faceComplexion`, which is the right home for it anyway: it is written in the
   // skull's own direction space, it is on no lattice at all, and it is already
   // where every other thing that varies across a face lives.
-  const FACE_TILE = 0.0022;
   const faceTile = (color: number, roughness: number) => {
     if (thrifty) return skin;
     const m = M.tinted("skin", color, { roughness, tile: FACE_TILE });
@@ -13848,15 +15166,15 @@ export function buildCharacter(
   // a seam, which on a 90 mm lock would be most of the lock.
   const PELT_TILE = 0.25;
   const pelt = (girth: number) =>
-    M.tinted("wool", wornBy(0x8a7050, team, people, "leather"), { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
+    M.tinted("wool", colours.pelt, { repeat: Math.max(1, Math.round(girth / PELT_TILE)) });
   const ruffX = S.chestHW + 0.062;
   const ruffZ = S.chestHD + 0.062;
   const fur = pelt(Math.PI * (1.5 * (ruffX + ruffZ) - Math.sqrt(ruffX * ruffZ)));
   const furLock = pelt(2 * Math.PI * 0.024);
   const furPelt = pelt(0.3);
-  const dark = M.standard(0x1a1310, 0.42);
+  const dark = M.standard(FACE_DARK, 0.42);
   const rune = M.get("runeGlow");
-  const cloakMat = cloth(cloakFor(CLOAK_COLORS[ap.cloak] ?? 0x5a4030, team, people), bodyGirth * 1.4);
+  const cloakMat = cloth(colours.cloak, bodyGirth * 1.4);
   // THE SHADOW HOOD IS NOT A CLOAK, AND IT WAS BUILT OUT OF ONE.
   //
   // The hood, its mantle, its point and its shoulder drape were all raised on
@@ -13879,7 +15197,7 @@ export function buildCharacter(
   // at a tighter pitch than a cloak because a hood is a smaller garment and the
   // weave has to scale with the thing it is woven into. `hide` stops being the
   // unrobed fallback for the same reason — a hood is cloth on everybody.
-  const hoodCloth = cloth(wornBy(0x2a2521, team, people, "cloth"), bodyGirth * 0.62);
+  const hoodCloth = cloth(colours.hood, bodyGirth * 0.62);
 
   // --- merged-geometry cache. Only for callers that brought a shared library;
   // the armoury preview allocates and disposes its own materials, so caching its
@@ -14282,6 +15600,10 @@ export function buildCharacter(
   // band and quietly stop working.
   const ramp = spine[0].y + 0.004;
 
+
+  // ==== SHOULDER STACK (owner: U3) ====
+
+
   /**
    * THE OUTERMOST THING THIS CLASS WEARS ACROSS ITS SHOULDERS, declared once
    * so that the aventail hanging onto it and the hair coming out from under
@@ -14297,6 +15619,11 @@ export function buildCharacter(
   const shoulderStack: Station[] | null = heavy
     ? layer([collar, ramp, S.shoulderY + 0.015, S.chestY + 0.005], 0.05, [-0.008, 0, 0, 0.018])
     : null;
+
+
+  // ==== HEAVY MAIL STACK (owner: U3) ====
+
+
   /**
    * The hauberk under it, hoisted for the same reason and needed for the same
    * reach. The mantle is a CAPE — it stops at the chest — and a plait hangs
@@ -14305,6 +15632,19 @@ export function buildCharacter(
    * back inside the mail the moment the cape ran out, which is the same defect
    * one station lower down.
    */
+  const heavyMailStack: Station[] | null = heavy
+    ? layer(
+      [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
+        (S.hemY - 0.03) + 0.05, S.hemY - 0.03],
+      0.036,
+      [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
+    )
+    : null;
+
+
+  // ==== WARDEN BYRNIE STATIONS (owner: U3) ====
+
+
   // Only where it is actually SWEPT. The warden wears a short byrnie from its
   // own station list and the berserker wears no mail at all, so reporting this
   // one for them would be `shoulderOut` describing a garment that is not on the
@@ -14330,24 +15670,36 @@ export function buildCharacter(
       [-0.004, 0, 0, 0, 0.004, 0.012, 0.026, 0.036],
     )
     : null;
-  const trunkStack: Station[] | null = bare ? null
-    : wallman ? wardenByrnieStations
-    : layer(
+
+
+  // ==== RUNE STACK (owner: U4) ====
+
+
+  // The runekeeper's over-jerkin in buff, swept from the same station rows as the huscarl's hauberk and hemmed 260 mm
+  // above his robe hem. It is its own const so the runekeeper's cut can move without touching the huscarl's mail: they were
+  // one `layer(...)` with a `heavy ? ... : ...` ternary in the hem rows, so editing either man edited both.
+  const runeStack: Station[] | null = robed
+    ? layer(
       [collar - 0.012, ramp, S.shoulderY + 0.02, S.chestY, S.waistY, S.hipY,
-        (heavy ? S.hemY - 0.03 : S.hemY + 0.26) + 0.05, heavy ? S.hemY - 0.03 : S.hemY + 0.26],
+        (S.hemY + 0.26) + 0.05, S.hemY + 0.26],
       0.036,
       [-0.004, 0, 0, 0, 0.004, 0.012, 0.036, 0.052],
-    );
-  /**
-   * That stack's own half-breadths at a BODY height — the surface anything worn
-   * over the shoulders is lying ON. The caller adds its own clearance, so this
-   * reports the garment and nothing else.
-   *
-   * Clamped to the stack's own span: above its collar and below its lowest
-   * station it reports nothing, because a garment that stops at the chest is
-   * not what a thing 200 mm below it is lying on. That is the same rule
-   * `outer()` applies to a seated fitting, for the same reason.
-   */
+    )
+    : null;
+
+
+  // ==== TRUNK STACK (owner: SEAM) ====
+
+
+  // The name the hair ride (`shoulderOut`) and the metal blocks below have always read. It is now only a selector over the
+  // per-class stacks above and is not edited by any class: the berserker's is null (he wears no mail; his ruff and jerkin
+  // register in `worn`), the warden's is his byrnie, the runekeeper's is `runeStack`, and the huscarl's is `heavyMailStack`.
+  const trunkStack: Station[] | null = bare ? null
+    : wallman ? wardenByrnieStations
+    : robed ? runeStack
+    : heavyMailStack;
+
+
   /**
    * THE WORN REGISTRY, hoisted out of the torso emit so the fittings that run
    * AFTER the torso is built — the hair's ride, the beard's seat — read the
@@ -14361,6 +15713,16 @@ export function buildCharacter(
     worn.push({ sts, power });
     return sts;
   };
+  /**
+   * The registry's own half-breadths at a BODY height — the surface anything worn
+   * over the shoulders is lying ON. The caller adds its own clearance, so this
+   * reports the garment and nothing else.
+   *
+   * Clamped to each layer's own span: above its collar and below its lowest
+   * station it reports nothing, because a garment that stops at the chest is
+   * not what a thing 200 mm below it is lying on. That is the same rule
+   * `outer()` applies to a seated fitting, for the same reason.
+   */
   const shoulderOut = (y: number): { hw: number; hd: number; power: number } | null => {
     let out: { hw: number; hd: number; power: number } | null = null;
     // THE POWER TRAVELS WITH THE HALF-BREADTHS. `shell` sweeps a SUPERELLIPSE —
@@ -14475,6 +15837,10 @@ export function buildCharacter(
       return { st: (yy: number) => stationAlong(b.sts, yy), power: b.power };
     };
 
+
+    // ==== BREECHES (owner: U4) ====
+
+
     // Breeches over the seat, for every class. Without this the pelvis stops at
     // the last spine station and the crotch is a hole; with it, the two thigh
     // shells rise into one continuous mass and the figure has a fork instead of a
@@ -14485,6 +15851,10 @@ export function buildCharacter(
       { y: S.hipY + 0.06, hw: S.hipHW * 0.98, hd: S.hipHD * 0.99, z: -0.006 },
       ...seat,
     ], seg, { power: 2.3, capBottom: true }), trouser);
+
+
+    // ==== BARE TORSO (owner: U4) ====
+
 
     if (bare) {
       p.add(shell(spine, seg, { power: 2.4, capTop: true, capBottom: true }), skin);
@@ -14498,7 +15868,13 @@ export function buildCharacter(
           p.add(ball(0.034 * B.bulk, 8), skin, xf(s * 0.042, S.chestY - 0.09 - i * 0.062, S.waistHD * 0.86, 0, 0, 0, 1, 0.85, 0.42));
         }
       }
-    } else {
+    }
+
+
+    // ==== SHIRT (owner: U3) ====
+
+
+    if (!bare) {
       // Linen shirt: the first layer, and the one that shows at the collar and
       // the cuff. Its whole job is to be visible for 15 mm at each opening.
       // The +6 mm flare at the neckline is not cosmetic: this shell is capped, so
@@ -14517,6 +15893,26 @@ export function buildCharacter(
     // horizontal are four silhouettes nobody can tell apart, which is what
     // `art/shots/v6/lineup.png` shows. See `BuildTrait.hem`.
     const tunicHem = S.hemY;
+
+
+    // ==== RUNEKEEPER TUNIC (owner: U4) ====
+
+
+    if (robed) {
+      p.add(shell(
+        wear(layer(
+          [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
+          0.021,
+          [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
+        ), 2.3),
+        seg, { power: 2.3, wall: 0.014 },
+      ), cloakMat);
+    }
+
+
+    // ==== SLIT TUNIC (owner: U3) ====
+
+
     // THE HEM THAT READ AS A KILT. `docs/COSMETICS-AUDIT.md` §1: "a straight
     // horizontal flare at mid-thigh over legs that read bare". Both halves of that
     // are true and this is the first of them — the garment was one closed cone
@@ -14536,68 +15932,63 @@ export function buildCharacter(
     // fighting man's tunic — he is a wisdom figure in a long robe, and an unslit
     // hem is the cheapest true thing that says so. Coverage and cut, not invented
     // armour: three slit tunics at three lengths and one closed robe.
-    const slitY = mix(S.hipY, tunicHem, 0.16);
-    if (!bare) {
-      if (robed) {
-        p.add(shell(
-          wear(layer(
-            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, tunicHem + 0.06, tunicHem],
-            0.021,
-            [-0.003, 0, 0, 0, 0.003, 0.01, 0.03, 0.045],
-          ), 2.3),
-          seg, { power: 2.3, wall: 0.014 },
-        ), cloakMat);
-      } else {
-        // Closed from the collar to where the slits start, just below the hip.
-        p.add(shell(
-          wear(layer(
-            [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
-            0.021,
-            [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
-          ), 2.3),
-          seg, { power: 2.3, wall: 0.014 },
-        ), wool);
-        // Then two panels, one over each leg, lapping 14 mm over the closed part
-        // and half a millimetre proud of it so the join is a lap and not a
-        // z-fight. They hang 20 mm lower than the old single hem and flare wider,
-        // so the outline gains a swing it never had.
-        //
-        // `gap` is the half-angle of each slit. 0.115 rad either side of centre
-        // front and centre back opens roughly 35 mm at the hem, which is wide
-        // enough to survive the 390 px column and narrow enough that the man is
-        // not wearing two aprons.
-        const gap = 0.22;
-        const panelSeg = Math.max(5, Math.round(seg / 2));
-        const panelBottom = tunicHem - 0.02;
-        const panel = layer(
-          [slitY + 0.014, mix(slitY, panelBottom, 0.45), panelBottom + 0.055, panelBottom],
+    if (!bare && !robed) {
+      const slitY = mix(S.hipY, tunicHem, 0.16);
+      // Closed from the collar to where the slits start, just below the hip.
+      p.add(shell(
+        wear(layer(
+          [collar, ramp, S.shoulderY + 0.01, S.chestY, S.waistY, S.hipY, slitY],
           0.021,
-          [0.0225, 0.036, 0.056, 0.072],
-        );
-        for (const startAngle of [-Math.PI / 2 + gap, Math.PI / 2 + gap]) {
-          p.add(shell(panel, panelSeg, {
-            power: 2.3, wall: 0.014, arc: Math.PI - gap * 2, start: startAngle,
-          }), wool);
-          if (lod.trim) {
-            // Tablet-woven braid at the hem. This is the period's own way of
-            // finishing an edge and it is the cheapest flare in the file: a 16 mm
-            // band in the finish's second wool, on the one horizontal the eye
-            // already goes to. It also does structural work — the panel's lower
-            // rim used to be the only thing marking the hem, and a rim strip two
-            // pixels wide is this file's most reliable source of crawl.
-            const [a, b] = [panel[2], panel[3]];
-            const bandTop = (t: number) => ({
-              y: mix(a.y, b.y, t),
-              hw: mix(a.hw, b.hw, t) + 0.0022,
-              hd: mix(a.hd, b.hd, t) + 0.0022,
-            });
-            p.add(shell([bandTop(0.71), bandTop(1)], panelSeg, {
-              power: 2.3, wall: 0.006, arc: Math.PI - gap * 2, start: startAngle,
-            }), tablet);
-          }
+          [-0.003, 0, 0, 0, 0.003, 0.01, 0.022],
+        ), 2.3),
+        seg, { power: 2.3, wall: 0.014 },
+      ), wool);
+      // Then two panels, one over each leg, lapping 14 mm over the closed part
+      // and half a millimetre proud of it so the join is a lap and not a
+      // z-fight. They hang 20 mm lower than the old single hem and flare wider,
+      // so the outline gains a swing it never had.
+      //
+      // `gap` is the half-angle of each slit. 0.115 rad either side of centre
+      // front and centre back opens roughly 35 mm at the hem, which is wide
+      // enough to survive the 390 px column and narrow enough that the man is
+      // not wearing two aprons.
+      const gap = 0.22;
+      const panelSeg = Math.max(5, Math.round(seg / 2));
+      const panelBottom = tunicHem - 0.02;
+      const panel = layer(
+        [slitY + 0.014, mix(slitY, panelBottom, 0.45), panelBottom + 0.055, panelBottom],
+        0.021,
+        [0.0225, 0.036, 0.056, 0.072],
+      );
+      for (const startAngle of [-Math.PI / 2 + gap, Math.PI / 2 + gap]) {
+        p.add(shell(panel, panelSeg, {
+          power: 2.3, wall: 0.014, arc: Math.PI - gap * 2, start: startAngle,
+        }), wool);
+        if (lod.trim) {
+          // Tablet-woven braid at the hem. This is the period's own way of
+          // finishing an edge and it is the cheapest flare in the file: a 16 mm
+          // band in the finish's second wool, on the one horizontal the eye
+          // already goes to. It also does structural work — the panel's lower
+          // rim used to be the only thing marking the hem, and a rim strip two
+          // pixels wide is this file's most reliable source of crawl.
+          const [a, b] = [panel[2], panel[3]];
+          const bandTop = (t: number) => ({
+            y: mix(a.y, b.y, t),
+            hw: mix(a.hw, b.hw, t) + 0.0022,
+            hd: mix(a.hd, b.hd, t) + 0.0022,
+          });
+          p.add(shell([bandTop(0.71), bandTop(1)], panelSeg, {
+            power: 2.3, wall: 0.006, arc: Math.PI - gap * 2, start: startAngle,
+          }), tablet);
         }
       }
-    } else {
+    }
+
+
+    // ==== JERKIN (owner: U4) ====
+
+
+    if (bare) {
       // A sleeveless hide jerkin, open at the chest, cut off at the hip — the
       // berserker's hem is the highest on the roster and the reason he reads as
       // all limb.
@@ -14652,6 +16043,10 @@ export function buildCharacter(
       }
     }
 
+
+    // ==== WARDEN METAL (owner: U3) ====
+
+
     // THE METAL LAYER, AND THE WARDEN'S IS NOT WHAT IT WAS.
     //
     // What stood here was six rigid courses, each overhanging the one below, with
@@ -14678,8 +16073,9 @@ export function buildCharacter(
     if (wallman) {
       // The byrnie. Short — it ends at the hip, which is the cut a man wants when
       // he is braced shoulder to shoulder and needs his legs.
-      // The station list is `wardenByrnieStations`, hoisted beside `trunkStack`
-      // so the hair's ride and this shell cannot drift — see the note there.
+      // The station list is `wardenByrnieStations`, hoisted above beside the
+      // other class stacks so the hair's ride and this shell cannot drift — see
+      // the note there.
       p.add(shell(
         wear(wardenByrnieStations!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
@@ -14737,32 +16133,54 @@ export function buildCharacter(
         wear(layer([collar - 0.012, ramp, S.shoulderY + 0.028], 0.03, [-0.004, 0, 0.008]), 2.3),
         seg, { power: 2.3, wall: 0.013 },
       ), mail);
-    } else if (!bare) {
+    }
+
+
+    // ==== RUNEKEEPER METAL (owner: U4) ====
+
+
+    if (robed) {
+      // The runekeeper's over-jerkin is buff, not mail: he is a rune-carver, not a
+      // fighting man in a hauberk. Swept off `runeStack`, hoisted above so the
+      // hair falling over it reads the same array the leather is drawn from.
+      p.add(shell(
+        wear(runeStack!, 2.3),
+        seg, { power: 2.3, wall: 0.016 },
+      ), buff);
+    }
+
+
+    // ==== HUSCARL METAL (owner: U3) ====
+
+
+    if (heavy) {
       // The huscarl's hauberk hangs 30 mm below his tunic — a mail hem is the
       // outermost line on him and it wants to be the one you see. Everyone else
       // wears a shirt of mail that stops well short of the garment under it, so
       // both edges read as edges.
-      // Swept off `trunkStack`, hoisted above so the hair falling over it reads
-      // the same array the mail is drawn from.
+      // Swept off `heavyMailStack`, hoisted above so the hair falling over it
+      // reads the same array the mail is drawn from.
       p.add(shell(
-        wear(trunkStack!, 2.3),
+        wear(heavyMailStack!, 2.3),
         seg, { power: 2.3, wall: 0.016 },
-      ), robed ? buff : mail);
-      if (heavy) {
-        // Bishop's mantle: a second cape of mail over the shoulders. This is the
-        // huscarl's silhouette — heavy, round-shouldered, immovable. Swept off
-        // `shoulderStack`, which is the same array the aventail and the mane
-        // above are cut to clear — see the note on it.
-        p.add(shell(
-          wear(shoulderStack!, 2.2),
-          seg, { power: 2.2, wall: 0.014 },
-        ), mail);
-      }
+      ), mail);
+      // Bishop's mantle: a second cape of mail over the shoulders. This is the
+      // huscarl's silhouette — heavy, round-shouldered, immovable. Swept off
+      // `shoulderStack`, which is the same array the aventail and the mane
+      // above are cut to clear — see the note on it.
+      p.add(shell(
+        wear(shoulderStack!, 2.2),
+        seg, { power: 2.2, wall: 0.014 },
+      ), mail);
     }
 
     // Every layer this class actually wears, handed to `backCarryProbe` so the
     // cloak can be measured against the stack instead of against a guess.
     if (_wornSpy) _wornSpy.layers = worn;
+
+
+    // ==== BELT (owner: U3) ====
+
 
     // Belt, buckle, strap-end. Everything below the waist hangs off this.
     const beltR = (bare ? 0.03 : 0.05);
@@ -14805,6 +16223,10 @@ export function buildCharacter(
         fitAdd(p, "belt-stud", beltC, box(0.016, 0.022, 0.008), brass, seatXf(beltC, S.beltY, az, 0.004));
       }
     }
+
+
+    // ==== BALDRIC (owner: U3) ====
+
 
     // Baldric across the chest, and a scabbard hung off it on the left.
     //
@@ -14947,6 +16369,11 @@ export function buildCharacter(
           seatXf(strap, bossY, azAtX(strap, bossY, -0.125), 0.0090, 0, 1, 1, 0.55));
       }
     }
+
+
+    // ==== SCABBARD (owner: U3) ====
+
+
     if (cls === "huscarl" || cls === "warden") {
       // The sword's scabbard, on the left hip. It hung at z -0.03 — inside
       // the skirt's own depth — so the mail hem swallowed its throat and the
@@ -14968,6 +16395,10 @@ export function buildCharacter(
         { y: -0.5, hw: 0.008, hd: 0.005 },
       ], 8, { power: 2.2, capTop: true, capBottom: true }), buff, xf(-S.hipHW - 0.085, S.beltY - 0.008, -0.072, 0.38, 0, 0.30));
     }
+
+
+    // ==== BERSERKER KIT (owner: U4) ====
+
 
     // Class ornament that hangs on the body rather than on a limb.
     if (bare) {
@@ -15105,6 +16536,11 @@ export function buildCharacter(
           xf(-S.shoulderX - 0.006, S.shoulderY - 0.10 - i * 0.028, 0, Math.PI / 2, 0, 0, 1, 1, 1.04));
       }
     }
+
+
+    // ==== RUNEKEEPER KIT (owner: U4) ====
+
+
     if (robed) {
       // LAYERED WOOL, which is the audit's own word for this class and the thing
       // he did not have. He was one robe and a belt: a single garment from collar
@@ -15184,6 +16620,11 @@ export function buildCharacter(
           slate.clone().multiply(xf(-0.019 + i * 0.019, 0.012, -0.0055, 0, 0, 0.08 - i * 0.08)));
       }
     }
+
+
+    // ==== MANTLE BOSSES (owner: U3) ====
+
+
     if (heavy && lod.trim) {
       const bossY = S.chestY + 0.012;
       const mantle = outer(bossY);
@@ -15192,12 +16633,10 @@ export function buildCharacter(
           seatXf(mantle, bossY, Math.PI / 2 - (-0.7 + i * 0.35), 0.009));
       }
     }
-    if (wallman) {
-      // The cuirass lace is gone with the cuirass. Two iron loops and a thong
-      // explaining how the front of a plate stays shut have nothing to hold shut
-      // on a byrnie, and leaving them would be the same class of error as the
-      // plate itself — a fitting for armour the man is not wearing.
-    }
+
+
+    // ==== SEAX (owner: U3) ====
+
 
     // ---- THE SEAX, ON EVERY FREE MAN ----
     //
@@ -15258,6 +16697,10 @@ export function buildCharacter(
           seaxAt.clone().multiply(xf(0.004, -0.062, 0.008, 0, 0, 0.34)));
       }
     }
+
+
+    // ==== CLASP (owner: U3) ====
+
 
     // Cloak clasp. Built here rather than on the cloak pivot because a brooch is
     // pinned to the shoulder and does not swing with the hem — and because a
@@ -15374,6 +16817,10 @@ export function buildCharacter(
       const p = new Part();
       const sleeve = bare ? skin : wool;
 
+
+      // ==== BARE LIMB SHELLS (owner: U2) ====
+
+
       // Upper arm with a deltoid cap and a bicep belly; forearm with the flare
       // at the elbow and the narrow at the wrist. Real taper, both segments.
       // The three sleeve tops below all start under the shoulder cap's dome, and
@@ -15398,6 +16845,10 @@ export function buildCharacter(
         { y: wrist + 0.055, hw: rWr * 1.25, hd: rWr * 1.2 },
         { y: wrist, hw: rWr, hd: rWr * 1.1 },
       ], lod.limb, { capBottom: true }), skin);
+
+
+      // ==== SLEEVES (owner: U3) ====
+
 
       if (!bare) {
         // Linen shirt sleeve, then the wool over it, cuffed short so both edges
@@ -15424,6 +16875,10 @@ export function buildCharacter(
             xf(0, elbow + 0.112, 0, Math.PI / 2, 0, 0, 1, 1, 1.02));
         }
       }
+
+
+      // ==== PAULDRON (owner: U3) ====
+
 
       // The metal on the shoulder, and mail down to the elbow where the class
       // wears it. Cap sits outboard of the torso so it reads as a separate
@@ -15509,6 +16964,11 @@ export function buildCharacter(
               seatXf(capC, 0.022, Math.PI / 2 - a, 0.003));
           }
         }
+
+
+        // ==== MAIL SLEEVE (owner: U3) ====
+
+
         if (heavy || wallman) {
           p.add(shell([
             { y: -0.035, hw: rSh * 1.3, hd: rSh * 1.32 },
@@ -15516,13 +16976,24 @@ export function buildCharacter(
             { y: elbow + 0.04, hw: rEl * 1.42, hd: rEl * 1.44 },
           ], lod.limb, { wall: 0.011 }), mail);
         }
-      } else {
+      }
+
+
+      // ==== BERSERKER FUR (owner: U4) ====
+
+
+      if (bare) {
         // Bare arms: fur at the shoulder, iron rings on the biceps.
         p.add(shell([
           { y: 0.075, hw: rSh * 1.1, hd: rSh * 1.14 },
           { y: -0.02, hw: rSh * 1.5, hd: rSh * 1.55 },
           { y: -0.075, hw: rSh * 1.3, hd: rSh * 1.34 },
         ], lod.limb, { power: 2.0, wall: 0.016, capTop: true }), pelt(2 * Math.PI * rSh * 1.45));
+
+
+        // ==== ARM RINGS (owner: U4) ====
+
+
         // THE ARM-RINGS, AND THEY WERE FLOATING — backlog 8.1, the owner:
         // "the armour design needs rework on all class types as some have
         // defects shown in SS", photographed as a disc standing clear of an
@@ -15588,6 +17059,10 @@ export function buildCharacter(
         if (lod.trim) armRing(-0.2, 0.009);
       }
 
+
+      // ==== BRACER (owner: U3) ====
+
+
       // Bracer over the forearm, buckled. It stops at the wrist, not 28 mm short of
       // it: that gap was 28 mm of bare skin between the leather and the back of the
       // hand, and because the hand is the other side of it, it read as a break in
@@ -15635,6 +17110,10 @@ export function buildCharacter(
         fitAdd(p, "wrist-rune", bracerC, box(0.006, 0.05, 0.008), rune,
           seatXf(bracerC, wrist + 0.07, outboard, 0.004));
       }
+
+
+      // ==== FIST (owner: U2) ====
+
 
       // The fist, rotated onto the axis the weapon will run along. `reach` and
       // `lead` are where the wrist is in the fist's own frame — resolved here
@@ -16855,6 +18334,10 @@ export function buildCharacter(
     return 1;
   };
 
+
+  // ==== HEAD EMIT (owner: U5) ====
+
+
   emit("head", headPivot, () => {
     const p = new Part();
     const place = xf(0, skullY, 0);
@@ -17001,9 +18484,10 @@ export function buildCharacter(
       // 32 mm above the eye line, which on this head is the middle of the
       // forehead — hence two dark chevrons floating on a bald dome with nothing
       // between them and the eyes.
-      const browAt = (t: number) => lat(Y_EYE + 0.170 + 0.030 * Math.sin(Math.PI * Math.pow(clamp01(t), 0.80)) - 0.010 * t * t);
-      const along = (u: number) => clamp01((Math.abs(u) - 0.09) / 0.47);
-      const arc = (u: number) => browAt(along(u));
+      // (`browAt`, `along`, `arc` and `half` are `BROW` at module scope now: the ruler
+      // that finds the brow in a photograph reads the same functions the brow is
+      // swept from — see `faceLandmarks`.)
+      const { arc, along } = BROW;
       // Tapered at *both* ends, not just the temple one. Held full height at the
       // inner end, a brow is a bar with a squared-off inboard corner sitting 4 mm
       // proud of the forehead — two dark slabs, which is what the render showed —
@@ -17015,10 +18499,7 @@ export function buildCharacter(
       // latitude is 10 mm of brow, which is life on a head this size, and the
       // pair of them are the strongest dark shape on the face — worth having at
       // full weight where the ridge is and worth nothing at all past it.
-      const half = (u: number) => {
-        const t = along(u);
-        return 0.044 * (1 - 0.74 * Math.pow(t, 1.5)) * smooth(0, 0.13, t);
-      };
+      const half = BROW.half;
       // Twelve columns and two rows, and the lift dies at all four boundaries.
       //
       // At seven columns and one row this was a *ribbon* — two lines of vertices
@@ -17090,6 +18571,10 @@ export function buildCharacter(
         thick: 0.0007,
       }), hair, place.clone());
     }
+
+
+    // ==== HAIR (owner: U8) ====
+
 
     // ---- hair ----
     //
@@ -21356,6 +22841,10 @@ export function buildCharacter(
       }
     }
 
+
+    // ==== COMPLEXION (owner: U5) ====
+
+
     // The complexion, written onto every piece of flesh on the head at once —
     // skull, lids, lips, ears, the throat — so all of them land on one
     // continuous map and no boundary between two of them can show as a step.
@@ -21369,6 +22858,10 @@ export function buildCharacter(
     }
     return p;
   }, headSig);
+
+
+  // ==== NECK (owner: U5) ====
+
 
   // ==========================================================
   // THE NECK
@@ -21894,7 +23387,11 @@ export function beardSeatProbe(cls: WarriorClass, seed: number, beardStyle: stri
     if (!pos) return;
     if (name === `${RIG_TAG}torso`) { torsoMesh.push(mesh); return; }
     if (name === `${RIG_TAG}neck`) { neckMesh.push(mesh); return; }
-    if (name === `${RIG_TAG}head` && hex === "c99d75") {
+    // The head's skin, by being ANY tone's base and not by being one literal: this said `hex === "c99d75"`, which was the base
+    // of the tone this seed happened to draw before the table was re-graded, and after it no head matched, `mentonY` stayed
+    // at infinity, every beard vertex counted as hanging below a menton that did not exist, and sixteen rungs read 45-58 mm
+    // "in the neck" (wearmeasure section 7 and the block of cosmetictest that quotes it).
+    if (name === `${RIG_TAG}head` && hex && SKIN_TONES.some((t) => t.base.toString(16).padStart(6, "0") === hex)) {
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
         if (v.y < mentonY) mentonY = v.y;

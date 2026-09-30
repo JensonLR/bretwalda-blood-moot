@@ -136,7 +136,7 @@ await until(() => page.evaluate(() => window.__probe?.latest?.state === "fightin
 // specific — but a harness that goes red at random is a harness people learn to
 // re-run, and that is how a real red gets waved through.
 //
-// `[data-break-card]` is on the card in page.tsx and on nothing else. `scrim`
+// `[data-break-card]` is on the card in `RoundBreak` (src/app/ui/hudParts.tsx) and on nothing else. `scrim`
 // keeps its name because what is being asked is still "is the arena covered",
 // but it is now asked of the thing that covers it.
 const look = () => page.evaluate(() => ({
@@ -151,7 +151,7 @@ await until(() => page.evaluate(() => window.__probe?.latest?.state === "intermi
   "the first round to end", 180000);
 clearInterval(drive);
 
-// BEAT ONE. `ROUND_HOLD_MS` is 2200 in page.tsx; 900 ms in is comfortably
+// BEAT ONE. `ROUND_HOLD_MS` (src/app/ui/hudParts.tsx; 2200 when this was written, `REPLAY.wall * 1000` now); 900 ms in is comfortably
 // inside it and past the fade. Read BEFORE the screenshot — the shot is the
 // expensive call and anything measured after it is measured at an unknown time.
 //

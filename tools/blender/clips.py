@@ -8,7 +8,7 @@
 import bpy, os, sys, math
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"
-D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
+D = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "art", "blender")
 arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
 bpy.context.view_layer.objects.active = arm; arm.select_set(True)
 bpy.ops.object.mode_set(mode='POSE')

@@ -19,6 +19,13 @@ import { SLOT_LENS, type PreviewLens } from "./armouryThumbs";
 
 /** How many radians a full drag across the panel turns him. */
 const DRAG_TURN = 3.4;
+/** One press of an arrow key: about 12 degrees, so a full turn is thirty presses and no key is a jump. */
+const KEY_TURN = 0.21;
+
+/** The names the class picker shows, for the panel's accessible description. */
+const CLASS_NAME: Record<WarriorClass, string> = {
+  huscarl: "Huscarl", warden: "Weard", runekeeper: "Wrecca", berserker: "Berserker",
+};
 
 // "item" is excluded on purpose: it is the weapon CARD's lens — an object
 // photographed alone — and has no meaning as a stance for the live mannequin,
@@ -139,8 +146,15 @@ export default function CharacterPreview({
     });
     if (!stage) { setFailed(true); return; }
     stageRef.current = stage;
+    // `settled` and not `ready`: `ready` flips on the first frame drawn, which
+    // can be a frame before the lens effect below has reframed it and a frame
+    // before the authored man has been checked, and a canvas faded in on it shows
+    // the wrong crop for one frame (UI-PLAN D18: "`lit` flips before the lens
+    // settles"). The 15 s fallback is so a stage that never settles (a hidden
+    // tab pauses its frames) is not a panel that never appears.
+    const born = performance.now();
     const watch = setInterval(() => {
-      if (stage.ready) { setLit(true); clearInterval(watch); }
+      if (stage.settled || performance.now() - born > 15000) { setLit(true); clearInterval(watch); }
     }, 120);
     return () => { clearInterval(watch); stage.dispose(); stageRef.current = null; };
     // Built once. Every change below is pushed into the live stage rather than
@@ -188,6 +202,16 @@ export default function CharacterPreview({
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* already gone */ }
   }, []);
 
+  // The turntable, from the keyboard. A drag is the only way a mouse or a thumb
+  // turns him, and a panel a keyboard can focus but not turn is a picture the
+  // player cannot inspect (UI-PLAN D18: "`role=img` plus arrow-key turn").
+  const onKey = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    stageRef.current?.turnBy(e.key === "ArrowLeft" ? -KEY_TURN : KEY_TURN);
+    setTouched(true);
+  }, []);
+
   if (failed) {
     return (
       <div
@@ -216,12 +240,19 @@ export default function CharacterPreview({
       >
         <div
           ref={mountRef}
-          className="absolute inset-0 cursor-grab active:cursor-grabbing"
-          style={{ touchAction: "pan-y" }}
+          role="img"
+          tabIndex={0}
+          aria-label={`${CLASS_NAME[warriorClass]}, shown ${LENS_LABEL[lens].toLowerCase()}. Turn him with the left and right arrow keys, or by dragging.`}
+          className="absolute inset-0 cursor-grab outline-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-amber-300/70 active:cursor-grabbing"
+          // The canvas is drawn while it is dark and shown once it has settled:
+          // the swap to the authored man, the lens reframe and the first frames of
+          // a class change happen behind "LIGHTING THE HALL".
+          style={{ touchAction: "pan-y", opacity: lit ? 1 : 0, transition: "opacity 220ms ease-out" }}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
           onPointerCancel={onUp}
+          onKeyDown={onKey}
         />
         {!lit && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -230,22 +261,20 @@ export default function CharacterPreview({
             </span>
           </div>
         )}
-        {/* A drag hint that goes away the first time it is obeyed. */}
-        {controls && lit && !touched && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
-            <span className="rounded-full bg-black/65 px-3 py-1 text-[9px] font-bold tracking-[0.18em] text-amber-200/85">
-              DRAG TO TURN HIM
-            </span>
-          </div>
-        )}
-        {controls && lens === "fight" && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/80 to-transparent px-3 pb-4 pt-2">
-            <span className="text-[9px] font-bold leading-tight tracking-[0.12em] text-amber-200/85">
-              {FIGHT_NOTE}
-            </span>
-          </div>
-        )}
       </div>
+
+      {/* THE CAPTION IS OUT OF THE FRAME. It used to be a pill laid over the
+          bottom of the picture (and the fight note a black band over the top of
+          it), which put words on the boots and the crest of the thing being
+          sold. Under the panel it costs a line and covers nothing. */}
+      {controls && (
+        <p
+          className="min-h-[1.1rem] text-center text-[9px] font-bold leading-tight tracking-[0.14em] text-amber-200/75"
+          aria-live="polite"
+        >
+          {lens === "fight" ? FIGHT_NOTE : touched ? "" : "DRAG OR PRESS ← → TO TURN HIM"}
+        </p>
+      )}
 
       {controls && (
         <div className="flex gap-1.5">

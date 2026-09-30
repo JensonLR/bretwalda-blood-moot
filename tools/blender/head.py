@@ -8,7 +8,7 @@
 # an existing scene beyond replacing an object of the same name.
 import bpy, os, math
 
-ROOT = os.path.expanduser("~/bretwalda-blood-moot")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLS, SEED = "huscarl", 13
 OBJ = os.path.join(ROOT, "art", "blender", f"head-{CLS}-{SEED}.obj")
 BLEND = os.path.join(ROOT, "art", "blender", "bretwalda.blend")

@@ -114,9 +114,10 @@ export interface TintOptions {
   /**
    * UV repeats. Defaults to whatever the substance was drawn for, and is
    * *ignored* for the substances in `WORLD_TILE` — those size themselves in
-   * metres and a UV repeat has nothing left to say about them.
+   * metres and a UV repeat has nothing left to say about them. A pair is [along u, along v]: a band that
+   * is one motif tall and a metre long asks for `[60, 1]`, which a single number cannot say.
    */
-  repeat?: number;
+  repeat?: number | readonly [number, number];
   /**
    * Override the substance's world tile, in metres. For the one case `WORLD_TILE`
    * cannot serve: a substance worn at two wildly different object scales.
@@ -219,9 +220,14 @@ const CATALOG: Record<MaterialName, Spec> = {
   bannerRed:       { color: 0x8a2530, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
   bannerBlue:      { color: 0x2c4a8a, roughness: 0.9, metalness: 0, surface: "linen", repeat: [3, 5] },
 
-  spearShaft:      { color: 0x5a3c22, roughness: 0.85, metalness: 0, surface: "oak", repeat: [1, 8] },
-  spearTip:        { color: 0xb8bfc8, roughness: 0.2, metalness: 0.9, surface: "steel", repeat: [1, 1] },
-  debrisBlade:     { color: 0xaab2bc, roughness: 0.3, metalness: 0.8, surface: "steel", repeat: [1, 3] },
+  // A spear shaft is ash (LORE 5.4): pale, straight, no ray fleck. It was oak, dark, the
+  // tree of the palisade next to it, and the warden's own spear is ash now, so the racks
+  // in the world and the man's shaft are one wood. The tips and the dropped blades are
+  // partial metals for the reason `characters.ts` `WEAPON_STEEL` gives: a metalness of
+  // 0.8-0.9 with nothing to reflect but a dusk sky is a black blade or a white blob.
+  spearShaft:      { color: 0x9b8461, roughness: 0.75, metalness: 0, surface: "ash", repeat: [1, 8] },
+  spearTip:        { color: 0xb4b7ba, roughness: 0.32, metalness: 0.7, surface: "steel", repeat: [1, 1] },
+  debrisBlade:     { color: 0xa5a8ab, roughness: 0.34, metalness: 0.7, surface: "steel", repeat: [1, 3] },
   debrisHilt:      { color: 0x3a2a18, roughness: 0.9, metalness: 0, surface: "leather", repeat: [1, 1] },
 
   runestone:       { color: 0x7a7d84, roughness: 0.92, metalness: 0, surface: "granite", repeat: [1, 3] },
@@ -704,15 +710,16 @@ export function createMaterialLibrary(
     // neither of them can act on any more.
     const tile = opts.tile ?? WORLD_TILE[surface];
     const worldSized = tile !== undefined;
-    const repeat = worldSized ? 1 : opts.repeat ?? info.repeat;
+    const asked = opts.repeat ?? info.repeat;
+    const repeat: [number, number] = worldSized ? [1, 1] : typeof asked === "number" ? [asked, asked] : [asked[0], asked[1]];
     const roughness = opts.roughness ?? info.roughness;
     const metalness = opts.metalness ?? info.metalness;
-    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat}|${tile ?? ""}`;
+    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat[0]},${repeat[1]}|${tile ?? ""}`;
     let m = tints.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial();
       m.name = `${surface}:${color.toString(16)}`;
-      dress(m, surface, [repeat, repeat], color, roughness, metalness, opts.tile);
+      dress(m, surface, repeat, color, roughness, metalness, opts.tile);
       adopt(m);
       tints.set(key, m);
     }
@@ -752,8 +759,13 @@ export function createMaterialLibrary(
       return tint("skin", color);
     },
 
+    // A partial metal, not the substance's mirror: at metalness 1 a blade has no diffuse term and shows
+    // the sky and nothing else, and the sky is darker than the turf (CH-24: the sword's median luma on the
+    // kit card was 35 against a ground of 88, the spear head's 18, the helm crown and the shield boss the same
+    // black-or-chrome). 0.70 is the number `WEAPON_STEEL.metal` in characters.ts passes for the weapons'
+    // own steels; `tools/weaponshape.mjs` reads both off the real library and requires them to agree.
     blade(color, roughness) {
-      return tint("steel", color, { roughness });
+      return tint("steel", color, { roughness, metalness: 0.7 });
     },
 
     timber(color) {

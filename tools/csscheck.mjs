@@ -35,6 +35,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { pageSource, pageFiles } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = resolve(ROOT, "src/app/globals.css");
@@ -270,7 +271,14 @@ while (i < css.length) {
   for (const [rel, ceiling] of Object.entries(CEILING)) {
     const file = resolve(ROOT, rel);
     if (!existsSync(file)) continue;
-    const src = readFileSync(file, "utf8");
+    // "THE PAGE" IS NOT ONE FILE ANY MORE. The F0 scaffold carved the screen components out of
+    // `src/app/page.tsx` into `src/app/ui/*` (and reserved `src/app/glyphs/*`). Counted on the
+    // one file alone this ratchet read 7 against a ceiling of 15 the moment the carve landed:
+    // eight literals had not been tokenised, they had moved next door, and a ceiling with eight
+    // spare is a ceiling that lets eight new ones in. So the page's key counts the page family.
+    const isPage = rel === "src/app/page.tsx";
+    const src = isPage ? pageSource(ROOT) : readFileSync(file, "utf8");
+    const label = isPage ? `${rel} (+ src/app/ui, src/app/glyphs)` : rel;
     const hex = [...src.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0]);
     // A literal that IS a declared token is always wrong: that is the one this
     // ratchet can name a fix for, so it is reported separately and never
@@ -279,14 +287,192 @@ while (i < css.length) {
     for (const m of css.matchAll(/(--[a-z][\w-]*):\s*(#[0-9a-fA-F]{6})\b/g)) named.set(m[2].toLowerCase(), m[1]);
     const spelled = hex.filter((h) => named.has(h.toLowerCase()));
     if (spelled.length) {
-      fail(`${rel}: ${spelled.length} literal(s) spell out a colour that already has a token`);
+      fail(`${label}: ${spelled.length} literal(s) spell out a colour that already has a token`);
       [...new Set(spelled)].slice(0, 8).forEach((h) => console.log(`        ${h} is var(${named.get(h.toLowerCase())})`));
     } else if (hex.length > ceiling) {
-      fail(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling} — tokenise it, or name the new colour and raise the ceiling here`);
+      fail(`${label}: ${hex.length} raw hex literals, ceiling ${ceiling} — tokenise it, or name the new colour and raise the ceiling here`);
       [...new Set(hex)].slice(0, 8).forEach((h) => console.log(`        ${h}`));
     } else {
-      pass(`${rel}: ${hex.length} raw hex literals, ceiling ${ceiling}, none of them a colour that has a name`);
+      pass(`${label}: ${hex.length} raw hex literals, ceiling ${ceiling}, none of them a colour that has a name`);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CHECKS 7-12 — THE UI OVERHAUL'S RATCHETS (F1, 29 Sep 2026).
+//
+// UI-PLAN section 2 counted the faults the overhaul exists to remove, and every
+// one of them is a THING THAT CAN BE TYPED AGAIN the day after it is fixed: an
+// 8px label, an amber utility, a system monospace, a hardcoded family name. A
+// ratchet is the right instrument for that, and the same argument as check 6
+// applies: "zero" would be a lie that invites suppression (the remapped hue
+// classes are sites to CONVERT one unit at a time, not to delete in one commit),
+// so each ceiling is MEASURED ON THE TREE THE RATCHET LANDED ON and can only go
+// down. A unit that removes sites lowers its number in the same commit, which is
+// what makes the number a record of the work and not a wish.
+//
+// Every count is taken from CODE, with comments stripped: three of these
+// patterns are also things the source explains in prose ("this grid used to be
+// `text-yellow-400`"), and a ratchet that counts its own documentation punishes
+// the people who wrote it.
+// ---------------------------------------------------------------------------
+{
+  /** Strip `/* *\/` and `//` comments from TS/TSX, leaving strings alone. */
+  const stripTs = (text) => {
+    let out = "", i = 0, q = null;
+    while (i < text.length) {
+      const c = text[i], n = text[i + 1];
+      if (q) {
+        out += c;
+        if (c === "\\") { out += text[i + 1] ?? ""; i += 2; continue; }
+        if (c === q) q = null;
+        i++;
+        continue;
+      }
+      if (c === "/" && n === "*") { const e = text.indexOf("*/", i + 2); const end = e < 0 ? text.length : e + 2; out += text.slice(i, end).replace(/[^\n]/g, " "); i = end; continue; }
+      // `//` starts a comment only when it is not the tail of a `://` URL scheme or the middle of a JSX text run
+      if (c === "/" && n === "/" && text[i - 1] !== ":") { const e = text.indexOf("\n", i); const end = e < 0 ? text.length : e; out += " ".repeat(end - i); i = end; continue; }
+      if (c === '"' || c === "'" || c === "`") q = c;
+      out += c;
+      i++;
+    }
+    return out;
+  };
+  const walkSrc = (dir, acc = []) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walkSrc(p, acc);
+      else if (/\.(ts|tsx)$/.test(e.name)) acc.push(p);
+    }
+    return acc;
+  };
+  const srcRoot = resolve(ROOT, "src");
+  const rel = (f) => f.slice(ROOT.length + 1);
+  const files = existsSync(srcRoot) ? walkSrc(srcRoot).map((f) => ({ file: rel(f), code: stripTs(readFileSync(f, "utf8")) })) : [];
+  const pageFamily = new Set(pageFiles(ROOT));
+  const group = (f) => (pageFamily.has(f) ? "page" : f === "src/game/client/GameHud.tsx" ? "hud" : "rest");
+
+  const report = (ok, msg, detail = []) => {
+    (ok ? pass : fail)(msg);
+    if (!ok) detail.slice(0, 8).forEach((d) => console.log(`        ${d}`));
+  };
+
+  // ---- 7. the type floor -----------------------------------------------------
+  // `text-[9px]`, `text-[0.6rem]`: an arbitrary size under the floor. The floor is 12px in the menus and 11px in the fight HUD
+  // (UI-PLAN 1.5: "Never below"). Counted by file group because the two floors differ.
+  {
+    const CEILING = { page: 95, hud: 38, rest: 5 };
+    const FLOOR = { page: 12, hud: 11, rest: 12 };
+    const NAME = { page: "the page family (page.tsx + ui/ + glyphs/), under 12px", hud: "GameHud.tsx, under 11px", rest: "every other .tsx under src/, under 12px" };
+    const hits = { page: [], hud: [], rest: [] };
+    for (const { file, code } of files) {
+      const g = group(file);
+      for (const m of code.matchAll(/text-\[(\d*\.?\d+)(px|rem)\]/g)) {
+        const px = m[2] === "rem" ? parseFloat(m[1]) * 16 : parseFloat(m[1]);
+        if (px < FLOOR[g]) hits[g].push(`${file}: text-[${m[1]}${m[2]}]`);
+      }
+    }
+    for (const g of ["page", "hud", "rest"]) {
+      report(hits[g].length <= CEILING[g], `type floor, ${NAME[g]}: ${hits[g].length}, ceiling ${CEILING[g]}${hits[g].length > CEILING[g] ? " — a size under the floor was added; use the scale (.t-label is 12px) or raise the ceiling with the reason" : ""}`, hits[g].slice(-8));
+    }
+    // and the stylesheet's own sizes. 10 at F1; F2 re-sized `.label-overline`, `.section-title`, `.tab-item`, the three badges, `.rule-label` and
+    // `.mini-nav` onto the 12px label step, which took seven of the ten out. Three remain and each belongs to a unit that has not landed:
+    // `.round-hud` (9.5px, unit H), `.fm-row-seat` (10px) and `.fm-credit` (.7rem), both unit W's.
+    const CSS_CEILING = 3;
+    const small = [];
+    for (const m of stripped.matchAll(/font-size:\s*(\d*\.?\d+)(px|rem)\b/g)) {
+      const px = m[2] === "rem" ? parseFloat(m[1]) * 16 : parseFloat(m[1]);
+      if (px < 12) small.push(`font-size: ${m[1]}${m[2]} on line ${stripped.slice(0, m.index).split("\n").length}`);
+    }
+    report(small.length <= CSS_CEILING, `type floor, globals.css font-size under 12px: ${small.length}, ceiling ${CSS_CEILING}`, small);
+  }
+
+  // ---- 8. the framework's hues -----------------------------------------------
+  // Tailwind's amber, yellow, emerald, sky, purple, orange, red and cyan are not the game's colours. F1 remapped them onto the
+  // palette (see @theme at the top of globals.css and tools/palettecheck.mjs), so the pixels are right; what is left is SITES
+  // that name a hue the game does not have and should name a token. One ceiling PER HUE, not one total, so that a unit that
+  // removes amber cannot spend the slack on red.
+  {
+    const HUES = ["amber", "yellow", "emerald", "sky", "purple", "orange", "red", "cyan"];
+    const CEILING = { amber: 222, yellow: 10, emerald: 17, sky: 9, purple: 3, orange: 6, red: 28, cyan: 1 };
+    const re = new RegExp(`(?<![\\w-])(?:text|bg|border|border-[trblxy]|from|to|via|ring|shadow|fill|stroke|decoration|outline|accent|divide|placeholder|caret)-(${HUES.join("|")})-\\d{2,3}(?:/\\d{1,3})?(?![\\w-])`, "g");
+    const n = Object.fromEntries(HUES.map((h) => [h, 0]));
+    const where = new Map();
+    for (const { file, code } of files) for (const m of code.matchAll(re)) { n[m[1]]++; where.set(file, (where.get(file) ?? 0) + 1); }
+    const over = HUES.filter((h) => n[h] > CEILING[h]);
+    const total = HUES.reduce((a, h) => a + n[h], 0);
+    report(!over.length, `Tailwind hue classes (${total} sites; ${HUES.map((h) => `${h} ${n[h]}/${CEILING[h]}`).join(", ")})${over.length ? ` — over the ceiling: ${over.join(", ")}. Name a palette token instead (var(--ink-*), var(--silver-*), var(--hp-*)) or lower nothing and raise this with the reason` : ""}`,
+      [...where.entries()].sort((a, b) => b[1] - a[1]).map(([f, c]) => `${c}  ${f}`));
+  }
+
+  // ---- 9. no system monospace ------------------------------------------------
+  // `ui-monospace` is a different face on every device and none of them is Cinzel or Alegreya. The war code, keycaps and the
+  // bench clock move to Alegreya/Cinzel (UI-PLAN 1.5); a figure that must not shiver is `tabular-nums`, not a monospace face.
+  {
+    const CSS_CEILING = 0, TS_CEILING = 9;
+    const cssHits = [...stripped.matchAll(/monospace/g)].length;
+    report(cssHits <= CSS_CEILING, `no system monospace in globals.css: ${cssHits}, ceiling ${CSS_CEILING}`);
+    const tsHits = [];
+    for (const { file, code } of files) for (const m of code.matchAll(/\bfont-mono\b|(?<![\w-])(?:ui-)?monospace\b/g)) tsHits.push(`${file}: ${m[0]}`);
+    report(tsHits.length <= TS_CEILING, `no system monospace in the TSX: ${tsHits.length}, ceiling ${TS_CEILING}`, tsHits);
+  }
+
+  // ---- 10. literal family names live in layout.tsx and globals.css -----------
+  // The two faces are `--font-display` and `--font-body`, declared once by next/font. A component that types "Cinzel" or
+  // Georgia is a second definition of a font, the mirrored-definition fault this repo has recorded five times. What is left
+  // are the three places that CANNOT read a CSS variable: the OG image (rendered on the server without a stylesheet), a canvas
+  // (hud3d's nameplate text) and the dev capture page. Per file, so a new one is a failure and not a rounding error.
+  {
+    const ALLOW = { "src/app/opengraph-image.tsx": 4, "src/game/client/render/hud3d.ts": 1, "src/app/shot/page.tsx": 2 };
+    // Whole string literals, so `"Cinzel, 'Trajan Pro', Georgia, serif"` is ONE site and not three fragments.
+    const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+    const FAMILY = /\b(?:Cinzel|Alegreya|Georgia|Times New Roman|Trajan|Geist|Menlo|SFMono-Regular|Consolas|ui-monospace|system-ui|sans-serif|serif|monospace)\b/;
+    const per = new Map();
+    for (const { file, code } of files) {
+      if (file === "src/app/layout.tsx") continue;
+      for (const m of code.matchAll(LITERAL)) {
+        if (!FAMILY.test(m[0])) continue;
+        // A CSS-variable READ is not a literal family: `var(--font-display, inherit)` names none
+        if (/^["'`]\s*var\(--font-(display|body)[^"'`]*["'`]$/.test(m[0])) continue;
+        per.set(file, (per.get(file) ?? 0) + 1);
+      }
+    }
+    const bad = [...per.entries()].filter(([f, c]) => c > (ALLOW[f] ?? 0));
+    const total = [...per.values()].reduce((a, b) => a + b, 0);
+    report(!bad.length, `literal font-family names outside layout.tsx and globals.css: ${total} in ${per.size} file(s) (${[...per.entries()].map(([f, c]) => `${f.split("/").pop()} ${c}/${ALLOW[f] ?? 0}`).join(", ") || "none"})`, bad.map(([f, c]) => `${f}: ${c}, allowed ${ALLOW[f] ?? 0}`));
+  }
+
+  // ---- 11. ghost ink is not a word -------------------------------------------
+  // `--ink-ghost` is 2.3:1: rules and traces only (see :root). Words set in it cannot be read.
+  {
+    const CEILING = 3;
+    const hits = [];
+    for (const { file, code } of files) for (const m of code.matchAll(/text-\[var\(--ink-ghost\)\]|color:\s*["'`]?var\(--ink-ghost\)/g)) hits.push(`${file}: ${m[0]}`);
+    report(hits.length <= CEILING, `text set in --ink-ghost: ${hits.length}, ceiling ${CEILING}`, hits);
+  }
+
+  // ---- 12. the war layer's raw bone rgba -------------------------------------
+  // `rgba(238,226,204,a)` is --ink spelled as a number, 53 times (the plan counted 52) in the war layer's inline CSS, where an alpha under 1
+  // takes it below the floor and away from the ramp. UI-PLAN D09.
+  {
+    const CEILING = 53;
+    const hits = [];
+    for (const { file, code } of files) for (const m of code.matchAll(/rgba\(\s*238\s*,\s*226\s*,\s*204\b/g)) hits.push(file);
+    const per = new Map(); hits.forEach((f) => per.set(f, (per.get(f) ?? 0) + 1));
+    report(hits.length <= CEILING, `raw rgba(238,226,204,...) in the TSX: ${hits.length}, ceiling ${CEILING}`, [...per.entries()].map(([f, c]) => `${c}  ${f}`));
+  }
+
+  // ---- 13. a hover that outlives the finger ----------------------------------
+  // Every `:hover` that moves or recolours is behind `@media (hover: hover) and (pointer: fine)` (UI-PLAN 1.7), or a tap leaves
+  // it stuck on. globals.css and the `hover:` utilities are held by check 3 of palettecheck against the COMPILED sheet. This is
+  // the third place a hover can be written: a CSS string inside a component, which neither of those sees. One exists
+  // (`Hearth.tsx`, unit W's). Counted per occurrence rather than judged for a wrapper, because a string of CSS in a template
+  // literal cannot be parsed honestly with a regex, and the honest ceiling is the one nobody has to trust.
+  {
+    const CEILING = 1;
+    const hits = [];
+    for (const { file, code } of files) for (const m of code.matchAll(/[.\w-]+:hover\b/g)) hits.push(`${file}: ${m[0]}`);
+    report(hits.length <= CEILING, `:hover written inside TSX/TS (an inline CSS string, invisible to the stylesheet checks): ${hits.length}, ceiling ${CEILING}`, hits);
   }
 }
 

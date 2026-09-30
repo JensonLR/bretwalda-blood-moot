@@ -9,7 +9,7 @@ import bpy, os, sys, json
 from mathutils import Vector, Quaternion, Matrix
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"; SEED = argv[1] if len(argv) > 1 else "13"
-ROOT = os.path.expanduser("~/bretwalda-blood-moot")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 D = os.path.join(ROOT, "art", "blender")
 OBJ = os.path.join(D, f"warrior-{CLS}-{SEED}.obj"); SOCK = os.path.join(D, f"warrior-{CLS}-{SEED}.sockets.json")
 BLEND = os.path.join(D, f"warrior-{CLS}.blend"); GLB = os.path.join(D, f"warrior-{CLS}.glb")

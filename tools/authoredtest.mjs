@@ -26,7 +26,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ART = resolve(ROOT, "art/blender");
+// THE SET UNDER TEST. `art/blender` is gitignored and exists only where somebody has run the exporters (the
+// owner's Mac; a Linux box after `npm run authored:rebuild`), so on a fresh clone or in CI this gate used to FAIL
+// on a precondition and say nothing about the assets. `public/authored` is the tracked, shipped set and is what a
+// player downloads, so it is the honest fallback: a rebuilt set in `art/blender` still wins when it is there.
+const ART = existsSync(resolve(ROOT, "art/blender/warrior-huscarl.glb")) ? resolve(ROOT, "art/blender") : resolve(ROOT, "public/authored");
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 
 const {
@@ -34,6 +38,7 @@ const {
   readSurfaceName, dressFromSurfaceNames,
   pivotBonesOf, missingPivotBones, PIVOT_BONE_NAMES,
   upgradeRigToAuthored, drapeBonesOf, DRAPE_BONE_NAMES,
+  drivePivot, driveRest,
   PROP_ROLES, propIdOf, propFileFor, propsWantedFor,
 } = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
 const { HELM_VALUES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/characters.ts")).href)
@@ -42,6 +47,8 @@ const { SURFACES } = await import(pathToFileURL(resolve(ROOT, "src/game/client/r
   .then((m) => ({ SURFACES: m.SURFACES ?? null })).catch(() => ({ SURFACES: null }));
 
 let pass = 0, fail = 0;
+/** Things this file knows it does not close, printed on the verdict line (PROCESS R4). */
+const deferrals = [];
 const check = (name, ok, detail = "") => {
   if (ok) { pass++; console.log(`  PASS  ${name}${detail ? ` — ${detail}` : ""}`); }
   else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`); }
@@ -270,6 +277,94 @@ for (const cls of CLASSES) {
   check("a swapped rig is marked authored, so the gore path can tell",
     rig.authored === true, `rig.authored = ${JSON.stringify(rig.authored)}`);
 
+  // ---- THE REST FRAMES: the bones do not rest at identity -----------------
+  //
+  // THE OWNER, of the armoury mannequin: "a torso ending in a neck stump with
+  // hair strands floating over the collar"; of the arena: "inverted heads with
+  // the beard on top". `applyPose` wrote absolute rotations onto bones that rest
+  // turned — Head at (0,0,-1,0) — and every gate in this file passed, because
+  // every one of them asked about names. `tools/headflip.mjs` and
+  // `tools/parity.mjs` ask the question that sees it, by posing the man; these
+  // are the structural claims that make the answer possible.
+  {
+    const rest = rig.pivots.rest;
+    check("the swap captured the rest frames of every pivot the pose writes",
+      !!rest && Object.keys(PIVOT_BONE_NAMES).every((k) => rest.slots?.[k]?.q && rest.slots[k].p && rest.slots[k].pInv),
+      rest ? `${Object.keys(rest.slots).length} slots` : "rig.pivots.rest is absent");
+    const hq = rest?.slots?.head?.q;
+    check("...and the Head's is the 180 degrees about Z that used to put it in the chest",
+      !!hq && Math.abs(hq.z) > 0.99 && Math.abs(hq.w) < 0.05,
+      hq ? `(${hq.x.toFixed(3)}, ${hq.y.toFixed(3)}, ${hq.z.toFixed(3)}, ${hq.w.toFixed(3)})` : "no head slot");
+    check("the authored man is placed in the procedural body space (scene.scale.x = -1), so the handedness node mirrors him once and not twice",
+      g.scene.scale.x === -1, `scale.x = ${g.scene.scale.x}`);
+
+    // A man who is not posed must not move: the write at the pose's own rest is
+    // the bone's own rest, for all twelve. (The wrists rest at Rx(gripPitch), so
+    // the pose's rest for them is that pitch — 1.28 rad in every shipped class.)
+    const GRIP = 1.28;
+    let worst = 0;
+    for (const k of Object.keys(PIVOT_BONE_NAMES)) {
+      const bone = rig.pivots[k];
+      const before = bone.quaternion.clone();
+      const wrist = k === "wristR" || k === "wristL";
+      drivePivot(rest, k, bone, wrist ? GRIP : 0, 0, 0, wrist ? GRIP : 0);
+      worst = Math.max(worst, before.angleTo(bone.quaternion));
+    }
+    check("driving every pivot at its own rest leaves it exactly where it was",
+      worst < 1e-6, `worst ${(worst * 180 / Math.PI).toExponential(2)} deg`);
+
+    // And a nod is a nod: 0.5 rad about x of the procedural frame turns the Head
+    // by 0.5 rad, whatever the bone's own rest is.
+    const head = rig.pivots.head, h0 = head.quaternion.clone();
+    drivePivot(rest, "head", head, 0.5, 0, 0);
+    check("a 0.5 rad nod turns the authored head by 0.5 rad, not by 0.5 rad plus its rest",
+      Math.abs(h0.angleTo(head.quaternion) - 0.5) < 1e-6, `${h0.angleTo(head.quaternion).toFixed(4)} rad`);
+    head.quaternion.copy(h0);
+  }
+
+  // A LEFT-HANDED EXPORT IS REFUSED, not drawn in the wrong hand. The scale that
+  // cancels the double mirror is right for a right-handed GLB and would put a
+  // left-handed one's weapon in the wrong hand, so the swap says no and leaves
+  // the rig exactly as it found it (§5b).
+  {
+    const lh = await parse(resolve(ART, "warrior-warden.glb"));
+    lh.scene.scale.x = -1;               // the weapon arm now at +x
+    const bad = fakeRig();
+    const res = upgradeRigToAuthored(bad, {
+      scene: lh.scene, wornRoles: new Set(), resolveMaterial: () => null, clips: lh.animations,
+    });
+    check("a LEFT-HANDED export is refused", !res.ok && /right-handed/.test(res.why), res.ok ? "accepted" : res.why);
+    check("...and that rig is untouched, with no rest frames on it",
+      bad.body.children[0] === bad.kept && bad.pivots.chest.procedural === true && !bad.pivots.rest);
+  }
+
+  // THE BOARD IS FOLDED AT THE SWAP, not only by the pose. A man a CLIP poses never
+  // calls `applyPose` again, so his board keeps whatever local transform the swap
+  // left it — and `parity` cannot see that, because its procedural men re-fold it
+  // every frame (a mutation that dropped the swap's fold passed both gates). So it
+  // is asked here, of a board given a known local transform before the swap:
+  // position -> E^-1 . (-x, y, z), quaternion -> E^-1 . M(q), scale.x -> -1.
+  {
+    const THREE = await import("three");
+    const gb = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const rigB = fakeRig();
+    const board = new THREE.Group();
+    board.position.set(0.10, 0.20, 0.30);
+    board.rotation.set(0.30, 0.20, 0.10);
+    const q0 = board.quaternion.clone();
+    rigB.shield = board;
+    const res = upgradeRigToAuthored(rigB, {
+      scene: gb.scene, wornRoles: new Set(["helm"]), resolveMaterial: () => ({ isMaterial: true }), clips: gb.animations,
+    });
+    const e = rigB.pivots.rest.slots.elbowL;
+    const R = e.p.clone().multiply(e.q).invert();
+    const wantP = new THREE.Vector3(-0.10, 0.20, 0.30).applyQuaternion(R);
+    const wantQ = R.clone().multiply(new THREE.Quaternion(q0.x, -q0.y, -q0.z, q0.w));
+    check("the swap folds a board's local transform through the elbow's rest and the mirror",
+      res.ok && board.position.distanceTo(wantP) < 1e-6 && board.quaternion.angleTo(wantQ) < 1e-6 && board.scale.x === -1,
+      res.ok ? `position off ${board.position.distanceTo(wantP).toExponential(1)} m, turn off ${board.quaternion.angleTo(wantQ).toExponential(1)} rad` : res.why);
+  }
+
   // ---- THE CLOAK: the drape the solver integrates ----------------------
   //
   // This was declared an unfixable topology mismatch and withheld, on the
@@ -303,6 +398,15 @@ for (const cls of CLASSES) {
       rigC.drape.map((b) => b?.name ?? "?").join(", "));
     check("the cloak is NOT hidden any more — it can be posed",
       res.ok && res.hidden < 4, res.ok ? `${res.hidden} hidden` : res.why);
+    // The cloth had the same defect as the pivots: the export's CloakYoke rests
+    // 34 degrees about Z and drapeCloak wrote an absolute rotation over it, so an
+    // authored cloak hung 0.2-0.34 m from where the procedural one does.
+    check("the swap captured the cloth's rest frames too, one per drape bone",
+      !!rigC.pivots.rest?.drape && rigC.pivots.rest.drape.length === DRAPE_BONE_NAMES.length,
+      rigC.pivots.rest?.drape ? `${rigC.pivots.rest.drape.length} drape rests` : "rest.drape is absent");
+    check("...and the cloth solver's frame is a live node under the authored Spine, not the detached procedural group",
+      rigC.pivots.cloak?.name === "authoredCloakFrame" && rigC.pivots.cloak?.parent?.name === "Spine",
+      `cloak frame = ${rigC.pivots.cloak?.name ?? "MISSING"} under ${rigC.pivots.cloak?.parent?.name ?? "nothing"}`);
   }
 
   // ---- THE HANDS: what he was holding must still be on him -------------
@@ -337,6 +441,14 @@ for (const cls of CLASSES) {
     check("...a blade on the fist and a board on the elbow it straps to",
       carried.includes("the-weapon") && carried.includes("the-shield"),
       `mounts carry: ${carried.join(", ") || "nothing"}`);
+    // What hangs off the bones crosses the same mirror the bones do: the blade
+    // and the board were built in procedural space, under a frame that is now its
+    // reflection, so each carries scale.x = -1; and a blade's own turn is zero
+    // because the wrist bone carries it now (a blade that kept the turn it was
+    // last given would take it twice — 17 to 38 degrees off the fist).
+    check("...carried across the mirror: the blade and the board are reflected, and the blade's own turn is zero",
+      wrist.scale.x < 0 && board.scale.x < 0 && wrist.rotation.x === 0 && wrist.rotation.z === 0,
+      `blade scale.x ${wrist.scale.x}, board scale.x ${board.scale.x}, blade rotation (${wrist.rotation.x}, ${wrist.rotation.z})`);
   }
 
   // ---- AND THE REFUSALS LEAVE THE RIG EXACTLY AS THEY FOUND IT ----
@@ -521,5 +633,434 @@ for (const cls of CLASSES) {
   }
 }
 
-console.log(`\n[authoredtest] ${pass} passed, ${fail} failed`);
+// ---- WHICH MESH IS ASKING: the identity the resolver seam hands its handlers ---------------------------
+//
+// `render/authoredDress.ts` chains three handlers (skin U5, livery U6, hair U6) behind one resolver, and the
+// two of them that matter most cannot be written without knowing WHICH mesh is asking: a head's skin and a
+// hand's skin both arrive as `skin:8d6444`. `dressFromSurfaceNames` therefore passes `{name, dominantBone,
+// isHead}` (Head-bone weight 0.9 or more) to the resolver. These claims hold that contract on the real
+// exports and on synthetic meshes where the answer is known by construction.
+{
+  const THREE = await import("three");
+  const A = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+  check("the head-weight threshold is stated: bone 'Head', 0.9", A.HEAD_BONE_NAME === "Head" && A.HEAD_WEIGHT_MIN === 0.9,
+    `${A.HEAD_BONE_NAME} ${A.HEAD_WEIGHT_MIN}`);
+
+  for (const cls of CLASSES) {
+    const file = resolve(ART, `warrior-${cls}.glb`);
+    if (!existsSync(file)) { check(`${cls}: mesh identity`, false, "no export"); continue; }
+    const g = await parse(file);
+    const rows = [];
+    const r = dressFromSurfaceNames(g.scene, (ask, mesh) => {
+      rows.push({ n: mesh.name, surface: ask.surface, bone: mesh.dominantBone, head: mesh.isHead });
+      return null;
+    });
+    check(`${cls}: the resolver is asked once per readable mesh, with a mesh`,
+      rows.length > 0 && rows.every((x) => typeof x.n === "string" && x.n.length > 0) && r.dressed === 0,
+      `${rows.length} asks`);
+    check(`${cls}: every skinned mesh reports a dominant bone`, rows.every((x) => typeof x.bone === "string" && x.bone.length > 0));
+    check(`${cls}: isHead implies the Head bone dominates (the weights arithmetic is consistent)`,
+      rows.filter((x) => x.head).every((x) => x.bone === A.HEAD_BONE_NAME));
+    const skin = rows.filter((x) => x.surface === "skin");
+    const headSkin = skin.filter((x) => x.head);
+    check(`${cls}: the skull's skin is the head (${headSkin.map((x) => x.n).join("+") || "none"})`,
+      headSkin.length >= 1 && headSkin.every((x) => x.bone === "Head"));
+    check(`${cls}: no hand is the head`,
+      skin.filter((x) => /Wrist$/.test(x.bone ?? "")).length >= 2 && skin.filter((x) => /Wrist$/.test(x.bone ?? "")).every((x) => !x.head),
+      skin.filter((x) => /Wrist$/.test(x.bone ?? "")).map((x) => `${x.n}[${x.bone}]`).join(" "));
+    check(`${cls}: the neck is shared with the spine and is NOT the head`,
+      skin.some((x) => x.bone === "Spine" && !x.head), skin.filter((x) => x.bone === "Spine").map((x) => x.n).join(" "));
+    const baked = rows.filter((x) => /^(hair|beard|helm)_/.test(x.n));
+    check(`${cls}: the baked helm, hair and beard ride the head`, baked.length >= 3 && baked.every((x) => x.head), baked.map((x) => x.n).join(" "));
+  }
+
+  // BY CONSTRUCTION, on a synthetic skinned mesh: 20 vertices, each weighted whole to one bone. The share on
+  // Head is the lever (R1): 18 of 20 is 0.90 and is the head, 17 of 20 is 0.85 and is not.
+  const synth = (onHead, total = 20) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(total * 3), 3));
+    const idx = new Uint16Array(total * 4), w = new Float32Array(total * 4);
+    for (let v = 0; v < total; v++) { idx[v * 4] = v < onHead ? 0 : 1; w[v * 4] = 1; }
+    geo.setAttribute("skinIndex", new THREE.BufferAttribute(idx, 4));
+    geo.setAttribute("skinWeight", new THREE.BufferAttribute(w, 4));
+    let reads = 0;
+    const real = geo.getAttribute.bind(geo);
+    geo.getAttribute = (n) => { reads++; return real(n); };
+    const head = new THREE.Bone(); head.name = "Head";
+    const spine = new THREE.Bone(); spine.name = "Spine";
+    const mat = new THREE.MeshBasicMaterial(); mat.name = "skin:8d6444";
+    const mesh = new THREE.SkinnedMesh(geo, mat); mesh.name = "synthetic";
+    mesh.add(head, spine);
+    mesh.bind(new THREE.Skeleton([head, spine]));
+    const root = new THREE.Group(); root.add(mesh);
+    return { root, reads: () => reads };
+  };
+  const ask = (root, rides) => {
+    let info = null;
+    dressFromSurfaceNames(root, (a, m) => { info = m; return null; }, rides);
+    return info;
+  };
+  {
+    const at90 = synth(18), at85 = synth(17);
+    check("18 of 20 vertices on Head is the head", ask(at90.root).isHead === true && ask(at90.root).dominantBone === "Head");
+    check("17 of 20 vertices on Head is NOT the head, though Head still dominates",
+      ask(at85.root).isHead === false && ask(at85.root).dominantBone === "Head");
+    check("9 of 20 vertices on Head: the Spine dominates and it is not the head",
+      ask(synth(9).root).dominantBone === "Spine" && ask(synth(9).root).isHead === false);
+  }
+  {
+    // LAZY, AND REMEMBERED. A resolver that never looks at the mesh must not pay for its weights.
+    const s = synth(20);
+    dressFromSurfaceNames(s.root, () => null);
+    check("a resolver that ignores the mesh reads no weights", s.reads() === 0, `${s.reads()} attribute reads`);
+    let a = null;
+    dressFromSurfaceNames(s.root, (x, m) => { a = m; return null; });
+    void a.isHead; void a.dominantBone; void a.isHead;
+    check("...and one that asks reads them once, however often it asks again", s.reads() === 2, `${s.reads()} attribute reads (index + weight)`);
+  }
+  {
+    // A STATIC MESH IS CARRIED WHOLE by what it hangs on — the head props are dressed BEFORE they are mounted.
+    const mk = () => {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+      m.material.name = "hairstrand:4a3220"; m.name = "hair__strands";
+      const root = new THREE.Group(); root.add(m); return root;
+    };
+    const riding = ask(mk(), "Head");
+    check("a static prop told it rides Head is the head", riding.isHead === true && riding.dominantBone === "Head");
+    const adrift = ask(mk());
+    check("...and one on no bone is nothing at all", adrift.isHead === false && adrift.dominantBone === null);
+    const root = new THREE.Group(); const bone = new THREE.Bone(); bone.name = "Head"; root.add(bone);
+    const inner = mk(); bone.add(inner);
+    check("...and one already under a Head bone finds it by itself", ask(root).isHead === true);
+  }
+  {
+    // BEHAVIOUR-NEUTRAL FOR A RESOLVER WRITTEN BEFORE THE SECOND ARGUMENT EXISTED.
+    const g = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const old = dressFromSurfaceNames(g.scene, (a) => ({ name: `stub:${a.surface}`, isMaterial: true }));
+    const g2 = await parse(resolve(ART, "warrior-huscarl.glb"));
+    const now = dressFromSurfaceNames(g2.scene, (a, m) => ({ name: `stub:${a.surface}`, isMaterial: true, seen: m.name }));
+    check("a one-argument resolver dresses exactly the meshes a two-argument one does",
+      old.dressed === now.dressed && old.unknown.join() === now.unknown.join(), `${old.dressed} dressed`);
+  }
+}
+
+// ---- THE ROLE TABLE: every colour in every export is somebody's, and the man wears the colours he was dressed in ----
+//
+// THE DEFECT (CHAR-PLAN CH-06, RENDER-PATHS section B): the exports ship `<surface>:<hex>` and the hex IS the
+// colour, so a man who bought a finish, swore to a people, stood on a team or chose a cloak wore the DEFAULT
+// kit anyway. `armorColor`, `people`, `team` and the cloak were read nowhere in the authored path, and every gate
+// that could have said so (`teamread`, `factionread`, `cosmetictest`) rasterises `buildCharacter` and never
+// opens a GLB. `authoredLivery.ts` is the answer: a table from the baked name to the role it dresses
+// (`mail`, `tunic`, `wrap`, `fitting`, `cloak`...), resolved through `kitFor` / `cloakFor` at the swap.
+//
+// THE THREE CLAIMS, and each is a way the table can be wrong that the others cannot see:
+//   1. COVERAGE. Every material name in every export - the 4 warriors AND the 64 props - is a role, an
+//      EXCEPTION with a reason (fixed steel, timber, bone...), or another handler's (skin, eyes, hair). A name
+//      that is none of those is a colour nobody owns and it wears the default whatever he bought. This is what
+//      a STALE export goes red on: bake the default kit again with one hex moved and its names stop resolving.
+//   2. NO TWO ROLES ONE NAME. `wool:504a3e` cannot be both the trousers and something else, or one of them is
+//      dressed as the other. Checked over the union of the current and the shipped default kit.
+//   3. HE WEARS THE PROCEDURAL MAN'S COLOURS. The exports were made FROM the procedural build, so every baked
+//      name has a procedural twin; dress the authored man through the real chain for a purchase and the names
+//      that come out must be names the procedural build of the same man carries. Both are built here, over every
+//      finish, cloak, people and side, with the headless library so a name IS a colour.
+{
+  console.log("");
+  const { emitClient } = await import("./lib/clientmodule.mjs");
+  let LV = null, DR = null, CHM = null, ANIMM = null, PROPS = null, why = "";
+  let work = null;
+  try {
+    globalThis.window ??= { location: { search: "" }, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, localStorage: { getItem: () => null, setItem() {} } };
+    globalThis.navigator ??= { userAgent: "node", maxTouchPoints: 0, hardwareConcurrency: 8 };
+    globalThis.document ??= { createElement: () => ({ getContext: () => null, width: 1, height: 1 }) };
+    const em = await emitClient(ROOT, ["src/game/client/render/authoredLivery.ts", "src/game/client/render/authoredDress.ts", "src/game/client/render/authoredProps.ts", "src/game/client/render/anim.ts"], ".authoredtest");
+    work = em.work;
+    [LV, DR, CHM, ANIMM, PROPS] = await Promise.all([em.byName("authoredLivery.js"), em.byName("authoredDress.js"), em.byName("characters.js"), em.byName("anim.js"), em.byName("authoredProps.js")]);
+  } catch (e) { why = String(e?.message ?? e).split("\n")[0].slice(0, 200); }
+  const haveTable = !!LV && typeof LV.roleOf === "function" && Array.isArray(LV.EXCEPTIONS) && typeof LV.bakedRoles === "function";
+  check("the role table is exported (roleOf, bakedRoles, EXCEPTIONS) by authoredLivery.ts", haveTable,
+    haveTable ? "" : (why || `authoredLivery.ts exports ${LV ? Object.keys(LV).join(", ") || "nothing" : "nothing"}`));
+
+  // ---- 1. COVERAGE, over every name in every export ----
+  const { readdirSync } = await import("node:fs");
+  const names = new Map();   // "cls|name" -> files
+  for (const f of readdirSync(ART).filter((x) => x.endsWith(".glb"))) {
+    const cls = f.startsWith("warrior-") ? f.slice(8, -4) : f.split("-")[1];
+    if (!CLASSES.includes(cls)) continue;
+    const b = readFileSync(resolve(ART, f));
+    const json = JSON.parse(b.slice(20, 20 + b.readUInt32LE(12)).toString("utf8"));
+    for (const m of json.materials ?? []) {
+      if (!m.name) continue;
+      const k = `${cls}|${m.name}`;
+      if (!names.has(k)) names.set(k, new Set());
+      names.get(k).add(f.replace(".glb", ""));
+    }
+  }
+  const nameOf = (a) => (a.surface ? `${a.surface}:${a.color.toString(16).padStart(6, "0")}` : `m_${a.color.toString(16).padStart(6, "0")}`);
+  const unresolved = [], byRole = new Map(), byGen = { current: new Set(), shipped: new Set() };
+  if (haveTable) {
+    const others = new Set(LV.OTHER_HANDLERS ?? []);
+    for (const [k, files] of names) {
+      const [cls, raw] = k.split("|");
+      const ask = readSurfaceName(raw);
+      if (!ask) continue;                                        // a named special (`runeGlow_carved`): the author's, left alone, asserted above
+      const role = LV.roleOf(cls, ask);
+      if (role) {
+        const r = byRole.get(role) ?? new Set(); r.add(`${cls}:${nameOf(ask)}`); byRole.set(role, r);
+        byGen[LV.bakedRoles(cls).generation.get(nameOf(ask))]?.add(`${cls}:${nameOf(ask)}`);
+        continue;
+      }
+      if (LV.EXCEPTIONS.includes(nameOf(ask)) || others.has(nameOf(ask))) continue;
+      unresolved.push(`${cls} ${nameOf(ask)} (${[...files].slice(0, 2).join(", ")}${files.size > 2 ? `, +${files.size - 2}` : ""})`);
+    }
+  }
+  check(`every material name in every export (${names.size} class x name pairs over ${readdirSync(ART).filter((x) => x.endsWith(".glb")).length} files) is a role, an exception or another handler's`,
+    haveTable && unresolved.length === 0,
+    !haveTable ? "no table to ask" : unresolved.length ? `${unresolved.length} unowned: ${unresolved.slice(0, 5).join("; ")}${unresolved.length > 5 ? "; ..." : ""}` : `${[...byRole].map(([r, v]) => `${r} x${v.size}`).join(" ")}`);
+
+  // WHICH GENERATION OF THE DEFAULT KIT THE EXPORTS ARE. The table knows the kit as the builder would bake him today
+  // and the kit the checked-in files were baked with (`SHIPPED`, frozen). A name that only the second one knows is a
+  // file older than the palette; the day this reads 0 the integration re-bake has landed and `SHIPPED` can be deleted.
+  if (haveTable) console.log(`        role names by generation: ${byGen.current.size} are the current default kit's, ${byGen.shipped.size} match ONLY the frozen SHIPPED kit (delete SHIPPED when that reads 0 after the re-bake)`);
+
+  // The reasons: an exception without a reason is a colour somebody stopped thinking about.
+  {
+    const src = readFileSync(resolve(ROOT, "src/game/client/render/authoredLivery.ts"), "utf8");
+    const body = /export const EXCEPTIONS[^=]*=\s*\[([\s\S]*?)\n\];/.exec(src)?.[1] ?? "";
+    const lines = body.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//"));
+    const bare = lines.filter((l) => !/\/\/\s*\S.{7,}/.test(l));
+    check("every EXCEPTIONS line carries a reason (a comment of eight characters or more)", lines.length > 0 && bare.length === 0,
+      lines.length === 0 ? "the list is empty" : bare.length ? `${bare.length} without: ${bare.slice(0, 3).join(" | ")}` : `${lines.length} entries, all with a reason`);
+  }
+
+  // A stale export goes red: the same table, asked about a name one hex-digit off.
+  if (haveTable) {
+    const stale = readSurfaceName("wool:8b7c5d");
+    const ok = LV.roleOf("huscarl", stale) === null && !LV.EXCEPTIONS.includes(nameOf(stale));
+    check("a STALE export goes red: `wool:8b7c5d` (the leg wrap, one digit off) resolves to no role and is no exception", ok);
+  }
+
+  // ---- 2. NO TWO ROLES ONE NAME ----
+  if (haveTable) {
+    const clash = [];
+    for (const cls of CLASSES) for (const c of LV.bakedRoles(cls).collisions) clash.push(`${cls} ${c}`);
+    check("no baked name is two roles in one class (current and shipped default kit together)", clash.length === 0, clash.length ? clash.slice(0, 4).join("; ") : "0 collisions over 4 classes");
+  }
+
+  // ---- 3. THE AUTHORED MAN WEARS THE PROCEDURAL MAN'S COLOURS ----
+  if (haveTable && DR && CHM && ANIMM) {
+    const { RAW, ARMOURY, defaultAppearance, PEOPLE_IDS } = CHM;
+    const CLASS_TUNIC = ANIMM.CLASS_TUNIC;
+    const options = (slot) => ARMOURY.find((sl) => sl.slot === slot).options.map((o) => o.value);
+    const norm = (n) => n.replace(/^plain:/, "m_").replace(/^m_/, "m_");
+    const procNames = (group) => {
+      const seen = new Set();
+      group.traverse((o) => { if (o.isMesh && o.material?.name) seen.add(norm(o.material.name)); });
+      return seen;
+    };
+    let compared = 0, wrong = [];
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      const baked = [];   // one row per MESH: a cloak part is not drawn at all when he bought no cloak, so it is not compared
+      // The mesh info the real swap hands a resolver (its dominant bone is what tells a hem braid from a leg wrap).
+      const infos = new Map();
+      dressFromSurfaceNames(g.scene, (_ask, info) => { infos.set(info.name, info); return null; });
+      g.scene.traverse((o) => { if (o.isMesh && o.material?.name) baked.push({ mesh: o.name, mat: o.material.name }); });
+      const base = defaultAppearance(cls);
+      const variants = [
+        ...options("armor").map((v) => ({ label: `finish ${v.toString(16)}`, ap: { ...base, armorColor: v }, team: "none" })),
+        ...options("cloak").map((v) => ({ label: `cloak ${v}`, ap: { ...base, cloak: v }, team: "none" })),
+        ...PEOPLE_IDS.map((p) => ({ label: `people ${p}`, ap: { ...base, people: p }, team: "none" })),
+        ...["red", "blue"].map((t) => ({ label: `team ${t}`, ap: base, team: t })),
+        { label: "team red in the gold finish and the gold cloak", ap: { ...base, armorColor: options("armor").at(-1), cloak: "gold" }, team: "red" },
+        { label: "norse in the crimson finish, the gold cloak", ap: { ...base, armorColor: options("armor")[4], cloak: "gold", people: "norse" }, team: "none" },
+      ];
+      for (const v of variants) {
+        const proc = procNames(CHM.buildCharacter(cls, v.ap, CLASS_TUNIC[cls] ?? 0x5a4a2c, undefined, "high", 13, v.team).group);
+        const ctx = DR.authoredDressContext({ cls, appearance: v.ap, team: v.team, faceSeed: 13, materials: RAW });
+        for (const { mesh, mat: raw } of baked) {
+          if (v.ap.cloak === "none" && /^cloak_\d+$/.test(mesh)) continue;   // `hideBakedRoles` hides it (wearsAuthoredRole)
+          const ask = readSurfaceName(raw);
+          if (!ask) continue;
+          const role = LV.roleOf(cls, ask);
+          if (!role) continue;                                    // an exception or another handler's: not this claim's
+          const got = DR.resolveAuthoredMaterial(ask, infos.get(mesh) ?? { name: "part_x", dominantBone: null, isHead: false }, ctx);
+          compared++;
+          if (!got || !proc.has(norm(got.name))) wrong.push(`${cls} ${v.label}: ${raw} (${role}) -> ${got?.name ?? "null"}`);
+        }
+      }
+    }
+    check(`the authored man is dressed in colours the procedural man of the same kit wears (${compared} name resolutions over every finish, cloak, people and side)`,
+      compared > 0 && wrong.length === 0,
+      wrong.length ? `${wrong.length} differ; first: ${wrong.slice(0, 3).join(" | ")}` : `${compared} of ${compared}`);
+
+    // THE HEM BRAID (CH-32): the strip of braid at the tunic's hem is baked `wool:<wrap>` like his leg wraps, and is told
+    // from them only by the bone it rides. A wrap-role mesh on Spine is the `tablet` substance, on a knee it is wool, and
+    // the exports must carry the strip where the rule looks for it (one per tunic, none on the berserker).
+    {
+      const ctxT = DR.authoredDressContext({ cls: "huscarl", appearance: defaultAppearance("huscarl"), team: "none", faceSeed: 13, materials: RAW });
+      const wrapAsk = readSurfaceName("wool:8b7c5c");
+      const onSpine = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_12", dominantBone: "Spine", isHead: false }, ctxT);
+      const onKnee = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_2", dominantBone: "LeftKnee", isHead: false }, ctxT);
+      const unknown = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_x", dominantBone: null, isHead: false }, ctxT);
+      check("a wrap-coloured mesh on Spine is the hem braid (`tablet`), on a knee or riding nothing it is wool",
+        !!onSpine && /^tablet:/.test(onSpine.name) && !!onKnee && /^wool:/.test(onKnee.name) && !!unknown && /^wool:/.test(unknown.name),
+        `Spine ${onSpine?.name}, LeftKnee ${onKnee?.name}, nothing ${unknown?.name}`);
+      const braids = {};
+      for (const cls of CLASSES) {
+        const f = resolve(ART, `warrior-${cls}.glb`);
+        if (!existsSync(f)) continue;
+        const g = await parse(f);
+        let n = 0;
+        dressFromSurfaceNames(g.scene, (ask, info) => { if (ask.surface === "wool" && LV.roleOf(cls, ask) === "wrap" && info.dominantBone === "Spine") n++; return null; });
+        braids[cls] = n;
+      }
+      check("each tunic's hem braid is in its export where the rule looks for it: one wrap-role mesh on Spine for the huscarl, the warden and the runekeeper, none on the berserker",
+        braids.huscarl === 1 && braids.warden === 1 && braids.runekeeper === 1 && braids.berserker === 0,
+        Object.entries(braids).map(([k, v]) => `${k} ${v}`).join(", "));
+    }
+  } else {
+    check("the authored man is dressed in colours the procedural man of the same kit wears", false, haveTable ? "the dress chain did not compile" : "no table to ask");
+  }
+
+  // ---- 4. THE HAIR'S COLOUR IS WHERE A RENDERER WILL READ IT ----
+  //
+  // Blender's glTF exporter writes a prop's FIRST colour attribute as COLOR_0 (an unset, all-white one) and the strand
+  // colour `strands.py` computed as COLOR_1, which no glTF material reads: so the ribbons rendered #e7e7e7 whatever they
+  // were dressed in (CH-05). `adoptStrandColours` moves it (authoredProps.ts) and `dressAuthoredHead` must call it. Asked of
+  // every hair and beard prop in the set under test, so a re-export that changes where the colour lives goes red here
+  // and not into a man with black hair.
+  if (PROPS && typeof PROPS.adoptStrandColours === "function") {
+    const THREEM = await import("three");
+    const rows = [];
+    for (const f of readdirSync(ART).filter((x) => /^(hair|beard)-.*\.glb$/.test(x))) {
+      const g = await parse(resolve(ART, f));
+      g.scene.traverse((o) => {
+        if (!o.isMesh || !/__strands$/.test(o.name)) return;
+        const geo = o.geometry.clone();
+        const before = geo.getAttribute("color");
+        const white = (a) => { for (let i = 0; i < a.count; i += 97) for (let k = 0; k < 3; k++) if (Math.abs(a.getComponent(i, k) - 1) > 1e-3) return false; return true; };
+        const beforeWhite = !!before && white(before);
+        const moved = PROPS.adoptStrandColours(geo);
+        const after = geo.getAttribute("color");
+        rows.push({ f, beforeWhite, moved, afterWhite: !!after && white(after), hasC1: !!o.geometry.getAttribute("color_1") });
+      });
+    }
+    const dead = rows.filter((r) => r.afterWhite || !r.moved && r.beforeWhite);
+    check(`every strand prop's colour is readable after adoptStrandColours (${rows.length} of ${readdirSync(ART).filter((x) => /^(hair|beard)-/.test(x)).length} props carry ribbons)`,
+      rows.length > 0 && dead.length === 0,
+      dead.length ? `${dead.length} still white: ${dead.slice(0, 3).map((r) => r.f).join(", ")}` : `${rows.filter((r) => r.hasC1).length} carry the hair in COLOR_1, ${rows.filter((r) => !r.hasC1).length} in COLOR_0 already`);
+    const propsSrc = readFileSync(resolve(ROOT, "src/game/client/render/authoredProps.ts"), "utf8");
+    check("dressAuthoredHead calls adoptStrandColours on the props it mounts", /adoptStrandColours\(g\)/.test(propsSrc.slice(propsSrc.indexOf("export async function dressAuthoredHead"))));
+    // the handler itself: a ribbon is dressed in the man's colour, on both sides, and a cap is not a metal
+    if (DR && CHM) {
+      const { RAW, defaultAppearance } = CHM;
+      const mk = (hairColor) => DR.authoredDressContext({ cls: "huscarl", appearance: { ...defaultAppearance("huscarl"), hairColor, beardColor: 0x1c1712 }, materials: RAW });
+      const ribbon = (ctx, mesh) => DR.resolveAuthoredMaterial({ surface: "hairstrand", color: 0x4a3220 }, { name: mesh, dominantBone: "Head", isHead: true }, ctx);
+      const cap = (ctx, mesh) => DR.resolveAuthoredMaterial({ surface: "hairunder", color: 0x4a3220 }, { name: mesh, dominantBone: "Head", isHead: true }, ctx);
+      const a = ribbon(mk(0xb8a14e), "hair__strands"), b = ribbon(mk(0xb8a14e), "beard__strands"), c = cap(mk(0xb8a14e), "hair-huscarl-short_1");
+      const lum = (m) => 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b;
+      check("a hair ribbon takes hairColor and a beard ribbon takes beardColor (told apart by the mesh's own name)",
+        !!a && !!b && lum(a) > lum(b) * 4, a && b ? `hair ribbon ${lum(a).toFixed(2)}, beard ribbon ${lum(b).toFixed(2)} (a fair head over a raven beard)` : "no material");
+      check("...the ribbon is a dielectric drawn on both sides with the vertex colour on, and the cap is a dielectric",
+        !!a && a.vertexColors === true && a.side === THREEM.DoubleSide && a.metalness === 0 && !!c && c.metalness === 0,
+        a && c ? `ribbon vertexColors ${a.vertexColors} side ${a.side} metal ${a.metalness}; cap metal ${c.metalness}` : "no material");
+    }
+  }
+  // ---- 5. THE AUTHORED MAN'S CLOAK: the CUT is baked, one per class - REPORTED, NOT GATED ----
+  //
+  // A baked mesh cannot change shape at runtime, so the livery recolours the class-default cloak and does nothing to
+  // its length, hem, flare, fold or pin (`docs/OPEN-DEFECTS.md`, "THE AUTHORED MAN'S CLOAK"). This prints what the
+  // exports actually carry, in the bind pose and in metres, so the number in that entry can be asked for again, and
+  // counts the purchases whose cut the shop did not sell. It is not a claim: nothing here can be fixed by this
+  // stream (the fix is a cloak prop family, CHAR-PLAN D4 / U8), and a bar on it would be red on the day it was
+  // written. The verdict line carries the deferral.
+  let cloakCutRows = 0, cloakCutMismatch = 0, cloakCutOf = 0;
+  if (CHM && typeof CHM.defaultAppearance === "function" && Array.isArray(CHM.ARMOURY)) {
+    const THREEC = await import("three");
+    const bought = (CHM.ARMOURY.find((sl) => sl.slot === "cloak")?.options ?? []).map((o) => o.value).filter((v) => v && v !== "none");
+    console.log("");
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      g.scene.updateMatrixWorld(true);
+      const cloakBox = new THREEC.Box3(), bodyBox = new THREEC.Box3(), v = new THREEC.Vector3();
+      g.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        o.skeleton?.update?.();
+        const pos = o.geometry.getAttribute("position");
+        const box = /^cloak_\d+$/.test(o.name) ? cloakBox : bodyBox;
+        for (let i = 0; i < pos.count; i++) {
+          if (o.isSkinnedMesh) o.getVertexPosition(i, v); else v.fromBufferAttribute(pos, i);
+          v.applyMatrix4(o.matrixWorld);
+          box.expandByPoint(v);
+        }
+      });
+      if (cloakBox.isEmpty()) continue;
+      const own = CHM.defaultAppearance(cls).cloak;
+      const H = bodyBox.max.y - bodyBox.min.y;
+      cloakCutRows++;
+      cloakCutOf = bought.length;
+      cloakCutMismatch += bought.filter((c) => c !== own).length;
+      console.log(`        ${cls.padEnd(10)} bakes the '${own}' cut: shoulder ${cloakBox.max.y.toFixed(2)} m, hem ${cloakBox.min.y.toFixed(2)} m, drop ${(cloakBox.max.y - cloakBox.min.y).toFixed(2)} m, hem at ${Math.round((100 * (cloakBox.min.y - bodyBox.min.y)) / H)}% of his ${H.toFixed(2)} m`);
+    }
+    if (cloakCutRows) {
+      console.log(`        REPORTED, NOT GATED: of ${cloakCutRows * cloakCutOf} cloak purchases (${cloakCutRows} classes x ${cloakCutOf} cloaks) ${cloakCutMismatch} put the bought COLOUR on a CUT the shop did not sell: the class's own default is the only cut the authored man draws.`);
+      deferrals.push(`the cloak's CUT is baked per class: ${cloakCutMismatch} of ${cloakCutRows * cloakCutOf} cloak purchases show the class's own cut in the bought colour (docs/OPEN-DEFECTS.md, THE AUTHORED MAN'S CLOAK)`);
+    }
+  }
+  if (work) { const { rmSync } = await import("node:fs"); rmSync(work, { recursive: true, force: true }); }
+}
+
+// ---- THE RAZOR: a bought "Shaved" shaves the authored man (CHAR-PLAN CH-05, RENDER-PATHS section B) ----
+//
+// `wearsAuthoredRole` (arena) and `wearsRole` (armoury) each read "none" as bare and NOTHING ELSE, so a 0-gold
+// "Shaved" - `hairStyle: "shaved"` - left `hair` in the worn set, mounted no prop (`propIdOf` says shaved wants no
+// file) and hid nothing: the baked hair shell stayed on his head, and the shop's bare-head cards wore a black cap.
+// `roleIsWorn` (authored.ts) is the one definition now. Asked here of the real function, of the real exports (the
+// baked `hair_N` part must go invisible and nothing else must), and of the two call sites' source (neither may carry
+// its own copy again: two definitions that agree today are the mirrored-definition fault waiting for an edit).
+{
+  console.log("");
+  const A = await import(pathToFileURL(resolve(ROOT, "src/game/client/render/authored.ts")).href);
+  const have = typeof A.roleIsWorn === "function";
+  check("authored.ts exports roleIsWorn, the one definition of \"is he wearing this\"", have);
+  if (have) {
+    const rows = [
+      ["hair", "shaved", false], ["hair", "short", true], ["hair", "long", true], ["hair", "braids", true], ["hair", "none", false], ["hair", "hair_none", false],
+      ["beard", "none", false], ["beard", "full", true], ["beard", "forked", true], ["helm", "none", false], ["helm", "iron", true], ["helm", "shaved", true],
+      ["cloak", "none", false], ["cloak", "red", true], ["cloak", "shaved", true],
+    ];
+    const bad = rows.filter(([role, v, want]) => A.roleIsWorn({ [role === "cloak" ? "cloak" : `${role}Style`]: v, ...(role === "helm" ? { helm: v } : {}) }, role) !== want);
+    check("shaved is bare for hair and for hair alone; none is bare for helm, beard and cloak; a style is worn", bad.length === 0,
+      bad.length ? `wrong: ${bad.map((r) => r.slice(0, 2).join("=")).join(", ")}` : `${rows.length} rows`);
+    check("ABSENT is not bare (a loadout that mentions no beard is not a man who shaved), and rubbish does not throw",
+      ["helm", "hair", "beard", "cloak"].every((r) => A.roleIsWorn({}, r) && A.roleIsWorn(null, r) && A.roleIsWorn(undefined, r) && A.roleIsWorn({ [`${r}Style`]: 3, [r]: [] }, r)));
+    for (const cls of CLASSES) {
+      const f = resolve(ART, `warrior-${cls}.glb`);
+      if (!existsSync(f)) continue;
+      const g = await parse(f);
+      const ap = { helm: "iron", hairStyle: "shaved", beardStyle: "short", cloak: "red" };
+      const wanted = new Set(AUTHORED_ROLES.filter((r) => A.roleIsWorn(ap, r)));
+      hideBakedRoles(g.scene, wanted);
+      const parts = rolePartsOf(g.scene);
+      const hairGone = (parts.get("hair") ?? []).length > 0 && (parts.get("hair") ?? []).every((p) => !p.visible);
+      const restKept = ["helm", "beard", "cloak"].every((r) => (parts.get(r) ?? []).every((p) => p.visible));
+      check(`${cls}: a shaved man has no baked hair on his head, and keeps his helm, beard and cloak`, hairGone && restKept,
+        `hair x${(parts.get("hair") ?? []).length} hidden ${hairGone}, the rest kept ${restKept}`);
+    }
+  }
+  const { readFileSync: rf } = await import("node:fs");
+  const inline = /v !== "none" && !v\.endsWith\("_none"\)/;
+  for (const [file, what] of [["src/game/client/GameCanvas.tsx", "the arena"], ["src/game/client/armouryStage.ts", "the armoury"]]) {
+    const text = rf(resolve(ROOT, file), "utf8");
+    check(`${what} asks roleIsWorn and carries no copy of its own`, /roleIsWorn\(/.test(text) && !inline.test(text),
+      /roleIsWorn\(/.test(text) ? (inline.test(text) ? "still has the inline none-only test" : "delegates") : "does not call it");
+  }
+}
+
+console.log(`\n[authoredtest] ${pass} passed, ${fail} failed${deferrals.length ? ` — WITH ${deferrals.length} deferral(s): ${deferrals.join("; ")}` : ""}`);
 process.exit(fail ? 1 : 0);

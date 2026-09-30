@@ -9,6 +9,11 @@
 //                                         # team "none" — i.e. the game as it
 //                                         # was before the override existed.
 //                                         # This MUST fail. See PROOF below.
+//   node tools/teamread.mjs --authored    # THE SAME GATE ON THE MAN THE DEFAULT
+//                                         # PLAYER SEES: the shipped GLB, dressed
+//                                         # by the real resolver chain
+//                                         # (render/authoredDress.ts). ~1 min, CPU.
+//   node tools/teamread.mjs --authored --off   # its control. MUST fail.
 //
 // ------------------------------------------------------------
 // THE OWNER'S WORDS, WHICH ARE THE ACCEPTANCE CRITERIA
@@ -168,6 +173,17 @@ const has = (n) => argv.includes(`--${n}`);
 /** The control. Both sides built with no team, which is the pre-override game. */
 const OFF = has("off");
 const SHEET = has("sheet");
+/**
+ * THE AUTHORED MAN. Everything below this file's `--authored` line rasterised `buildCharacter`, the PROCEDURAL man, and
+ * the default build does not draw him: `NEXT_PUBLIC_AUTHORED=1` puts the Blender-baked GLB on every unpainted
+ * warrior, and his colours are baked into his material names. `armorColor`, `people`, `team` and the cloak were
+ * read nowhere in his path (CHAR-PLAN CH-06), so this gate was green for a game in which a war band read as one
+ * side. With `--authored` the subject is the shipped `public/authored/warrior-<cls>.glb`, parsed here, dressed by
+ * `resolveAuthoredMaterial` exactly as `GameCanvas.tsx` and `armouryStage.ts` dress him, and rasterised by the
+ * same rasteriser at the same lens. On the tree before `authoredLivery.ts` was written both sides are the same man
+ * and every between-side ΔC is 0.00: the gate is RED there, for the right reason (docs/PROCESS.md R2).
+ */
+const AUTHORED = has("authored");
 
 const results = [];
 let failed = 0;
@@ -191,10 +207,11 @@ const die = (m) => { console.error(`[team] ${m}`); process.exit(2); };
 rmSync(WORK, { recursive: true, force: true });
 mkdirSync(WORK, { recursive: true });
 const tsc = spawnSync("npx", ["tsc", "src/game/client/render/anim.ts",
+  ...(AUTHORED ? ["src/game/client/render/authoredDress.ts", "src/game/client/render/authored.ts"] : []),
   "--outDir", ".teamread", "--target", "es2022", "--module", "esnext",
   "--moduleResolution", "bundler", "--skipLibCheck"], { cwd: ROOT, encoding: "utf8" });
 const emitted = [];
-let charJs = null, animJs = null;
+let charJs = null, animJs = null, dressJs = null, authoredJs = null;
 const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
   const f = resolve(d, e.name);
   if (e.isDirectory()) walk(f);
@@ -202,6 +219,8 @@ const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
     emitted.push(f);
     if (e.name === "characters.js") charJs = f;
     if (e.name === "anim.js") animJs = f;
+    if (e.name === "authoredDress.js") dressJs = f;
+    if (e.name === "authored.js") authoredJs = f;
   }
 } };
 if (existsSync(WORK)) walk(WORK);
@@ -382,7 +401,7 @@ const CLOAKS = slotOf("cloak").options.map((o) => ({ label: o.label, value: Stri
 const CLASSES = ["huscarl", "warden", "runekeeper", "berserker"];
 const SEED = 13;
 
-const build = (cls, finish, cloak, team) => buildCharacter(
+const buildProcedural = (cls, finish, cloak, team) => buildCharacter(
   cls,
   { ...defaultAppearance(cls), armorColor: finish, cloak },
   CLASS_TUNIC[cls] ?? 0x5a4a2c,
@@ -390,7 +409,70 @@ const build = (cls, finish, cloak, team) => buildCharacter(
   OFF ? "none" : team,
 );
 
-console.log(`\n[team] === TEAMREAD${OFF ? "  (CONTROL: override off)" : ""} ===\n`);
+// ============================================================
+// THE AUTHORED SUBJECT — the shipped GLB, dressed by the real chain, flattened to an albedo scene.
+//
+// Baked ONCE per class into world-space triangles (the mannequin's own bind pose, mirrored in x as the swap
+// mirrors him), because the geometry does not depend on what he bought; then dressed per build. Dressing is
+// `dressFromSurfaceNames` over the parsed scene with the resolver both call sites use, and the materials come out
+// of `RAW` (the headless library), so a material's `color` IS the colour a name asked for and this rasteriser reads
+// it the way it reads a procedural man's. The cloak parts are hidden for `cloak: none` (`hideBakedRoles`' own rule).
+// ============================================================
+let buildAuthored = null;
+if (AUTHORED) {
+  const THREE = await import("three");
+  const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+  if (!dressJs || !authoredJs) die(`tsc emitted no authoredDress.js / authored.js:\n${tsc.stdout || ""}${tsc.stderr || ""}`);
+  const DRESS = await import(pathToFileURL(dressJs).href);
+  const AUTH = await import(pathToFileURL(authoredJs).href);
+  const parse = (cls) => {
+    const file = resolve(ROOT, `public/authored/warrior-${cls}.glb`);
+    if (!existsSync(file)) die(`the shipped GLB is missing: ${file}`);
+    const b = readFileSync(file);
+    return new Promise((ok, no) => new GLTFLoader().parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), "", ok, no));
+  };
+  const BAKED = {};
+  for (const cls of ["huscarl", "warden", "runekeeper", "berserker"]) {
+    const g = await parse(cls);
+    g.scene.updateMatrixWorld(true);
+    const parts = [];
+    const v = new THREE.Vector3();
+    g.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      o.skeleton?.update?.();
+      const pos = o.geometry.getAttribute("position");
+      const flat = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        if (o.isSkinnedMesh) o.getVertexPosition(i, v); else v.fromBufferAttribute(pos, i);
+        v.applyMatrix4(o.matrixWorld);
+        flat.set([-v.x, v.y, v.z], i * 3);      // scene.scale.x = -1, as the swap sets it
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(flat, 3));
+      if (o.geometry.index) geo.setIndex(o.geometry.index);
+      parts.push({ mesh: o, orig: o.material, name: o.name, geo, proxy: new THREE.Mesh(geo, { color: new THREE.Color() }) });
+    });
+    BAKED[cls] = { scene: g.scene, parts };
+  }
+  buildAuthored = (cls, finish, cloak, team) => {
+    const B = BAKED[cls];
+    const appearance = { ...defaultAppearance(cls), armorColor: finish, cloak };
+    const ctx = DRESS.authoredDressContext({ cls, appearance, team: OFF ? "none" : team, faceSeed: SEED, materials: CH.RAW });
+    for (const p of B.parts) p.mesh.material = p.orig;
+    AUTH.dressFromSurfaceNames(B.scene, DRESS.authoredResolver(ctx));
+    const group = new THREE.Group();
+    for (const p of B.parts) {
+      const c = p.mesh.material?.color;
+      p.proxy.material = { color: c ? c.clone() : new THREE.Color(1, 0, 1) };
+      p.proxy.visible = !(cloak === "none" && /^cloak_\d+$/.test(p.name));
+      group.add(p.proxy);
+    }
+    return { group };
+  };
+}
+const build = AUTHORED ? buildAuthored : buildProcedural;
+
+console.log(`\n[team] === TEAMREAD${AUTHORED ? " --authored (the shipped GLB man, dressed by the real chain)" : ""}${OFF ? "  (CONTROL: override off)" : ""} ===\n`);
 console.log(`        ${FINISHES.length} finishes x ${CLOAKS.length} cloaks x ${CLASSES.length} classes x ${BEARINGS.length} bearings, both sides`);
 console.log(`        lens ${LENS.w}x${LENS.h} at ${LENS.dist} m, fov ${LENS.fov.toFixed(1)} deg — the play frame, albedo only\n`);
 
@@ -428,6 +510,8 @@ console.log("[team] === 0. CALIBRATION ===\n");
 
   // A shape change that this file must NOT confuse for a team change. The
   // Sutton Hoo is the largest silhouette in the shop against a bare head.
+  // (Procedural only: the authored man's helm is a prop GLB hung on a socket and is not in this raster.)
+  if (!AUTHORED) {
   const bare = raster(build("huscarl", FINISHES[0].value, "none", "red").group, -35);
   const helmed = buildCharacter("huscarl",
     { ...defaultAppearance("huscarl"), armorColor: FINISHES[0].value, cloak: "none", helm: "suttonhoo" },
@@ -436,6 +520,7 @@ console.log("[team] === 0. CALIBRATION ===\n");
   const foe = raster(build("huscarl", FINISHES[0].value, "none", "blue").group, -35);
   note(`a whole helmet (bare -> Sutton Hoo, same side) moves the signature ${dC(labFromLinear(bare.mean), labFromLinear(hr.mean)).toFixed(1)} ΔC / ${dE(labFromLinear(bare.mean), labFromLinear(hr.mean)).toFixed(1)} ΔE`);
   note(`the same man changing SIDES moves it ${dC(labFromLinear(bare.mean), labFromLinear(foe.mean)).toFixed(1)} ΔC / ${dE(labFromLinear(bare.mean), labFromLinear(foe.mean)).toFixed(1)} ΔE`);
+  }
 }
 
 // ============================================================
@@ -621,7 +706,7 @@ if (SHEET && sheet.length) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
   mkdirSync(resolve(ROOT, "art/look"), { recursive: true });
-  const out = resolve(ROOT, `art/look/teamread${OFF ? "-off" : ""}.png`);
+  const out = resolve(ROOT, `art/look/teamread${AUTHORED ? "-authored" : ""}${OFF ? "-off" : ""}.png`);
   writeFileSync(out, Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
@@ -636,6 +721,7 @@ if (SHEET && sheet.length) {
 const deferrals = [
   `the shield board is NOT in the raster (${boardDe === null ? "not exported" : `catalogue ΔE ${boardDe.toFixed(1)} between sides`})`,
   "no light, no grade — albedo only",
+  ...(AUTHORED ? ["the AUTHORED man is the shipped GLB at bind pose with his BAKED helm, hair and beard: a purchased helm, hair or beard is a prop GLB and is not in this raster", "the man is not posed and his cloak is the class-default baked cut (its colour is measured, its shape is not the purchase's)"] : ["the PROCEDURAL man only: `--authored` asks the same question of the GLB man the default build draws"]),
 ];
 console.log("");
 console.log(`[team] ${results.length - failed}/${results.length} — WITH ${deferrals.length} deferral(s): ${deferrals.join("; ")}.`);

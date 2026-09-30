@@ -5,6 +5,8 @@
 //   node tools/armourycard.mjs                  # phone + desktop, helmets
 //   node tools/armourycard.mjs --tab CLOAKS
 //   node tools/armourycard.mjs --item "Sutton Hoo" --lens "AT FIGHT DISTANCE"
+//   node tools/armourycard.mjs --classes huscarl,warden,runekeeper,berserker --lenses "PORTRAIT,FULL KIT"
+//       one session, every class x every lens, waiting for the AUTHORED man each time
 //
 // `uishots.mjs` drives the whole menu flow and takes four minutes. This drives
 // ONE screen so the armoury can be iterated on, and — the part that matters —
@@ -14,12 +16,12 @@
 // photographs as a tasteful gradient and reads as a design choice.
 // ============================================================
 import { chromium } from "playwright";
-import { launchOptions, watchBoot } from "./lib/browser.mjs";
-import { spawn } from "child_process";
-import { mkdirSync, existsSync } from "fs";
+import { launchOptions } from "./lib/browser.mjs";
+import { mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { requireFreshBuild } from "./lib/freshbuild.mjs";
+import { serveProduction, settleShop, CLASS_BUTTON } from "./lib/armoury.mjs";
+import * as W from "./lib/crownwindow.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "art/ui");
@@ -33,71 +35,26 @@ const TAB = flag("tab", null);
 const ITEM = flag("item", null);
 const LENS = flag("lens", null);
 const NAME = flag("name", "armourycard");
+// `--classes` x `--lenses`: one page load, one settle, then the class picker and
+// the lens strip are driven for every combination. The 8.4 s first frame and the
+// forty thumbnails are paid once per viewport instead of once per frame, and —
+// the part that matters — each frame WAITS FOR THE AUTHORED MAN. The armoury
+// builds the procedural man first and swaps the authored one in when a 1.6 MB
+// GLB lands; a capture taken before the swap is a picture of the man the default
+// player does not see, and it has a head, which is exactly how a defect in the
+// authored one gets certified. `window.__authored` (the swap's own report, with
+// its class) and `window.__authoredProps` (the dressed head) are what is waited on.
+const CLASSES = flag("classes", null)?.split(",") ?? null;
+const LENSES = flag("lenses", null)?.split(",") ?? null;
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 mkdirSync(OUT, { recursive: true });
 
-function waitForServer(url, timeoutMs = 180000) {
-  const started = Date.now();
-  return new Promise((ok, fail) => {
-    const poll = async () => {
-      try { const r = await fetch(url); if (r.ok || r.status === 404) return ok(); } catch { /* wait */ }
-      if (Date.now() - started > timeoutMs) return fail(new Error(`server never came up at ${url}`));
-      setTimeout(poll, 700);
-    };
-    poll();
-  });
-}
+/** The shop's settle, from the shared lib (one idea of "the shop has settled" for every tool). */
+const settle = (page) => settleShop(page, "card");
 
-/**
- * Waits until every visible card carries a picture and the mannequin has drawn
- * a few frames since, or gives up and says so. Returns what it saw.
- */
-async function settle(page, budgetMs = 150000) {
-  const started = Date.now();
-  let last = null;
-  for (;;) {
-    const now = await page.evaluate(() => {
-      const tiles = document.querySelectorAll("button .aspect-square").length;
-      const imgs = document.querySelectorAll("button img").length;
-      const st = window.__armouryStats ?? null;
-      return { tiles, imgs, frames: st ? st.frames : 0, mounted: !!st };
-    });
-    last = now;
-    if (now.mounted && now.tiles > 0 && now.imgs >= now.tiles) break;
-    if (Date.now() - started > budgetMs) {
-      console.log(`[card] settle GAVE UP after ${((Date.now() - started) / 1000).toFixed(0)} s: ${now.imgs}/${now.tiles} cards drawn, mounted=${now.mounted}`);
-      break;
-    }
-    await page.waitForTimeout(500);
-  }
-  // A beat past the last picture, so the mannequin is drawn over the corner
-  // the last thumbnail was taken in.
-  await page.waitForTimeout(1200);
-  return last;
-}
-
-let server;
+let served;
 async function startServer() {
-  try {
-    await fetch(`${BASE()}/api/health`, { signal: AbortSignal.timeout(1500) });
-    console.error(`[card] something is already serving ${BASE()} — pass --port`);
-    process.exit(2);
-  } catch { /* free, good */ }
-  // A MISSING build and a build from before your edit are the same problem.
-  requireFreshBuild(ROOT, "card");
-  const built = existsSync(resolve(ROOT, ".next/BUILD_ID"));
-  if (!built) {
-    console.error("[card] no production build found — run `npm run build` first");
-    process.exit(2);
-  }
-  server = spawn("node", ["custom-server.mjs"], {
-    cwd: ROOT, env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  watchBoot(server, "armourycard");
-  server.stdout.on("data", () => {});
-  server.stderr.on("data", (d) => process.stderr.write(`[srv] ${d}`));
-  await waitForServer(`${BASE()}/api/health`);
-  console.log(`[card] serving the production build on ${PORT}`);
+  served = await serveProduction(ROOT, "card", PORT);
 }
 
 const VIEWPORTS = has("desktop-only")
@@ -159,6 +116,75 @@ async function main() {
       await settle(page);
     }
 
+    // ---- EVERY CLASS x EVERY LENS, on the authored man ----
+    if (CLASSES || LENSES) {
+      const classes = CLASSES ?? [null];
+      const lenses = LENSES ?? [null];
+      for (const cls of classes) {
+        if (cls) {
+          if (!CLASS_BUTTON[cls]) { console.log(`[card] unknown class ${cls}`); bad++; continue; }
+          // The props report is replaced (not mutated) by each dressing, so
+          // "a NEW object" is how a swap that has landed for THIS man is told
+          // from the last man's.
+          // The class the stage already holds is not rebuilt by clicking it, so
+          // there is nothing new to wait for: its swap is read as it stands.
+          const already = await page.evaluate((c) => window.__authored?.cls === c, cls);
+          await page.evaluate(() => { window.__cardPrev = window.__authoredProps ?? null; });
+          if (!already) await page.getByRole("button", { name: new RegExp(`^${CLASS_BUTTON[cls]}$`) }).first().click();
+          const t0 = Date.now();
+          let landed = false;
+          while (Date.now() - t0 < 120000) {
+            landed = await page.evaluate(([c, was]) => window.__authored?.cls === c && window.__authored?.ok === true
+              && !!window.__authoredProps && (was || window.__authoredProps !== window.__cardPrev), [cls, already]);
+            if (landed) break;
+            await page.waitForTimeout(500);
+          }
+          const rep = await page.evaluate(() => ({ a: window.__authored ?? null, p: window.__authoredProps ?? null }));
+          console.log(`[card] ${vp.tag} ${cls}: authored swap ${landed ? "LANDED" : "DID NOT LAND (this frame is the PROCEDURAL man)"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`
+            + `  joints=${rep.a?.joints} dressed=${rep.a?.dressed} rehung=${rep.a?.rehung} drape=${rep.a?.drape}`
+            + `  props mounted=${JSON.stringify(rep.p?.mounted)} missing=${JSON.stringify(rep.p?.missing)}`);
+          if (!landed) bad++;
+        }
+        for (const lens of lenses) {
+          if (lens) {
+            await page.getByRole("button", { name: new RegExp(lens) }).first().click();
+          }
+          // A few frames past the lens change, so the mannequin has re-framed and drawn.
+          const f0 = (await page.evaluate(() => window.__armouryStats?.frames ?? 0));
+          for (let i = 0; i < 60; i++) {
+            const f = await page.evaluate(() => window.__armouryStats?.frames ?? 0);
+            if (f - f0 >= 8) break;
+            await page.waitForTimeout(500);
+          }
+          // BACK TO THE TOP, and then the mannequin has to have drawn there. Clicking a
+          // class or a lens scrolls its button into view, and at desktop width that left
+          // the page ~380 px down: every one of the eight desktop frames a first run
+          // took was of the helmet cards with the man cut off above them (found by
+          // opening the PNGs, PROCESS R5 — the log said 0 errors and LANDED eight times).
+          await page.evaluate(() => { const sh = document.querySelector(".shell"); if (sh) sh.scrollTop = 0; window.scrollTo(0, 0); });
+          const f1 = (await page.evaluate(() => window.__armouryStats?.frames ?? 0));
+          for (let i = 0; i < 40; i++) {
+            const f = await page.evaluate(() => window.__armouryStats?.frames ?? 0);
+            if (f - f1 >= 3) break;
+            await page.waitForTimeout(500);
+          }
+          // THE HEAD, in the pixels the stage drew (`tools/lib/crownwindow.mjs`): the owner's
+          // "a torso ending in a neck stump" was the one thing this tool photographed eight times
+          // and never asked about. Waited on so the frame and the read are the same settled man.
+          await W.untilSettled(page, { expectAuthored: true, budgetMs: 30000 });
+          const head = await W.readHead(page);
+          const problems = W.judge(head, W.BARS, { requireAuthored: true });
+          const out = `${NAME}-${cls ?? "class"}-${slug(lens ?? "lens")}-${vp.tag}`;
+          await page.screenshot({ path: resolve(OUT, `${out}.png`) });
+          console.log(`[card] ${out}`);
+          console.log(`[card]   HEAD ${problems.length ? "FAIL" : "ok"}: ${W.describe(head)}${problems.length ? " — " + problems.join("; ") : ""}`);
+          if (problems.length) bad++;
+        }
+      }
+      await ctx.close();
+      continue;
+    }
+
     // Is the stage alive, and what is it costing?
     //
     // NOT measured by photographing the canvas. A WebGL context without
@@ -193,9 +219,9 @@ async function main() {
   }
 
   await browser.close();
-  if (server && !server.killed) server.kill("SIGTERM");
+  if (served) served.stop();
   console.log(`[card] FINAL: ${bad} console/page errors across ${VIEWPORTS.length} viewport(s)`);
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); if (server && !server.killed) server.kill("SIGTERM"); process.exit(1); });
+main().catch((e) => { console.error(e); if (served) served.stop(); process.exit(1); });

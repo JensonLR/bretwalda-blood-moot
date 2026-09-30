@@ -34,8 +34,10 @@ import type { GamePlayer, WarriorClass } from "../types";
 import { createTextureLibrary, type TextureLibrary } from "./render/textures";
 import { createMaterialLibrary, type MaterialLibrary } from "./render/materials";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, hideBakedRoles, type AuthoredRole, AUTHORED_ROLES } from "./render/authored";
+import { upgradeRigToAuthored, hideBakedRoles, roleIsWorn, type AuthoredRole, type SwapResult, AUTHORED_ROLES } from "./render/authored";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
+import { authoredResolver, authoredDressContext } from "./render/authoredDress";
+import { armHeadNet, type HeadNet, type HeadNetRig } from "./render/authoredHead";
 import { createSky, type SkyHandle } from "./render/sky";
 import {
   createWarriorRig, createMotion, poseWarrior,
@@ -162,6 +164,57 @@ function shopQuality(): QualitySettings {
   };
 }
 
+/**
+ * Where the full-length lens puts the man: the crown 8% from the top of the
+ * frame and the boots 90% (UI-PLAN U-M M3). The first left ~10 cm of air over
+ * the crest and put his boots ON the bottom edge, so the ground he stands on —
+ * the whole of what the dais and the contact shadow are for — was below the
+ * frame. Ten percent under the boots is the floor; eight over the crown is what
+ * a man's head wants above it.
+ */
+const FIG_TOP = 0.08;
+const FIG_BOOT = 0.90;
+/** Each side of the man's axis that must stay in frame: a spear held out, a board on the arm. */
+const FIG_HALF_WIDTH = 0.85;
+
+/**
+ * The camera distance and aim that put the crown at `top` and the boots at
+ * `boot` (fractions of the frame height from the top), for a camera at height
+ * `camY` with vertical field `fovDeg`.
+ *
+ * Closed in the angle below the horizontal. A point at height y and distance d
+ * sits at angle atan((camY - y) / d) below the horizon, and lands at
+ * `0.5 + 0.5 tan(angle - pitch) / tan(fov / 2)` of the frame from the top; the
+ * two conditions fix the angle between the crown and the boots, which fixes the
+ * distance (by bisection, since it falls as the camera backs off), and then the
+ * pitch. No fudge factor: every number in the frame is one of the four given.
+ */
+function solveFrame(fovDeg: number, camY: number, crownY: number, top: number, boot: number): {
+  dist: number; lookY: number; pitch: number;
+} {
+  const a = Math.tan((fovDeg * Math.PI) / 360);
+  const atanTop = Math.atan((top - 0.5) * 2 * a);
+  const atanBoot = Math.atan((boot - 0.5) * 2 * a);
+  const want = atanBoot - atanTop;
+  const gap = (d: number) => Math.atan(camY / d) - Math.atan((camY - crownY) / d);
+  let lo = 0.6, hi = 60;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    if (gap(mid) > want) lo = mid; else hi = mid;
+  }
+  const dist = (lo + hi) / 2;
+  const pitch = Math.atan(camY / dist) - atanBoot;
+  return { dist, lookY: camY - dist * Math.tan(pitch), pitch };
+}
+
+/** The largest dais radius whose NEAR edge stays inside the frame (at `maxFrac` of its height from the top). */
+function daisRadiusFor(fovDeg: number, camY: number, dist: number, pitch: number, maxFrac: number): number {
+  const a = Math.tan((fovDeg * Math.PI) / 360);
+  const phi = pitch + Math.atan((2 * maxFrac - 1) * a);
+  if (phi <= 0.02) return 1.06;
+  return Math.max(0.35, Math.min(1.06, dist - camY / Math.tan(phi)));
+}
+
 interface Forge {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -174,6 +227,10 @@ interface Forge {
   plinth: THREE.Group;
   fire: THREE.Group;
   fireLight: THREE.PointLight;
+  /** The fire's flames: additive sprites, animated in the frame loop. */
+  flames: THREE.Sprite[];
+  /** The hearth's light on the floor under the studio lenses. */
+  pool: THREE.Mesh;
   lights: THREE.Group;
   key: THREE.SpotLight;
   rim: THREE.SpotLight;
@@ -190,25 +247,78 @@ let FORGE: Forge | null = null;
 let FORGE_FAILED = false;
 
 /**
- * A vertical gradient standing in for the hall behind the mannequin: garnet
- * embers at the floor going to near black at the top. Generated, like
- * everything else in this project — VISUAL-BAR §4, no binary assets.
+ * The hall behind the mannequin: near black at the top going to garnet embers at
+ * the floor, with the HEARTH glowing low on the far side of the room. Generated,
+ * like everything else in this project — VISUAL-BAR §4, no binary assets.
+ *
+ * 512 SQUARE, and it used to be a 4x256 strip. A strip stretched across a 400 px
+ * panel is a vertical gradient and nothing else, so the "hall" had no place in it
+ * that was warmer than any other, and the man stood in front of a colour and not
+ * in front of a room. The glow is `--hearth` (#c65c14) at 20% — the palette's one
+ * living light (UI-PLAN §1.2) — and it sits below and to the left of the man, so
+ * the warm rim on his far shoulder has a source the eye can find.
  */
 function backdropTexture(): THREE.Texture {
   const c = document.createElement("canvas");
-  c.width = 4;
-  c.height = 256;
+  c.width = 512;
+  c.height = 512;
   const g = c.getContext("2d")!;
-  const grad = g.createLinearGradient(0, 0, 0, 256);
+  const grad = g.createLinearGradient(0, 0, 0, 512);
   grad.addColorStop(0.00, "#05060a");
   grad.addColorStop(0.46, "#0b0a0d");
   grad.addColorStop(0.78, "#1d1113");
   grad.addColorStop(1.00, "#2e1a14");
   g.fillStyle = grad;
-  g.fillRect(0, 0, 4, 256);
+  g.fillRect(0, 0, 512, 512);
+  const glow = g.createRadialGradient(150, 470, 0, 150, 470, 330);
+  glow.addColorStop(0.0, "rgba(198,92,20,0.20)");
+  glow.addColorStop(0.55, "rgba(198,92,20,0.07)");
+  glow.addColorStop(1.0, "rgba(198,92,20,0)");
+  g.fillStyle = glow;
+  g.fillRect(0, 0, 512, 512);
+  // A vignette, so the corners of a rectangular panel do not read as its edge.
+  const vig = g.createRadialGradient(256, 256, 170, 256, 256, 400);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,0,0.38)");
+  g.fillStyle = vig;
+  g.fillRect(0, 0, 512, 512);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
+  return tex;
+}
+
+/** A soft-edged warm pool on the floor: the hearth's light landing where he stands. Additive, one 128 px texture. */
+function hearthPoolTexture(): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0.0, "rgba(255,150,70,0.85)");
+  grad.addColorStop(0.35, "rgba(214,104,34,0.42)");
+  grad.addColorStop(0.7, "rgba(160,70,20,0.12)");
+  grad.addColorStop(1.0, "rgba(120,50,10,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** One flame: a white-yellow core through orange to nothing. The fire's soft edge — a mesh's edge is a hard one. */
+function flameTexture(): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(64, 78, 2, 64, 70, 62);
+  grad.addColorStop(0.0, "rgba(255,244,200,1)");
+  grad.addColorStop(0.22, "rgba(255,190,90,0.92)");
+  grad.addColorStop(0.55, "rgba(230,110,32,0.46)");
+  grad.addColorStop(1.0, "rgba(160,50,10,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
@@ -269,11 +379,15 @@ function raiseLights(q: QualitySettings): {
     key.shadow.radius = shadowRadiusFor((2 * z * Math.tan(key.angle)) / map);
   }
   g.add(key, key.target);
-  // RIM — cool, off the far shoulder, three-quarters behind and LEVEL with the
-  // chest. Hung above, its cone lands on the ground behind him as a blue
-  // puddle; level, it grazes an edge and dies. summary.ts paid for that in
-  // captures and there is no reason to pay for it twice.
-  const rim = new THREE.SpotLight(0x9ec6ff, 62, 7, 0.40, 0.5, 2);
+  // RIM — WARM now, off the far shoulder, three-quarters behind and LEVEL with
+  // the chest. It was cool blue, which put a second, colder source in a room
+  // whose only living light is the hearth (UI-PLAN §1.2), and a silver edge on
+  // a man standing in front of a fire is the wrong colour of edge. `--hearth`
+  // (#c65c14) lifted so it reads at a quarter of the key: an edge, not a fill.
+  // Hung above, its cone lands on the ground behind him as a puddle; level, it
+  // grazes an edge and dies. summary.ts paid for that in captures and there is
+  // no reason to pay for it twice.
+  const rim = new THREE.SpotLight(0xf08a48, 46, 7, 0.40, 0.5, 2);
   rim.position.set(2.05, 1.15, -1.55);
   rim.target.position.set(0, 0.95, 0);
   g.add(rim, rim.target);
@@ -287,32 +401,68 @@ function raiseLights(q: QualitySettings): {
   return { group: g, key, rim, fill };
 }
 
-/** A log pile that burns, for the fight lens. Four cylinders and some coals. */
-function buildFire(materials: MaterialLibrary): { group: THREE.Group; light: THREE.PointLight } {
+/**
+ * A log pile that burns, for the fight lens.
+ *
+ * THE FLAMES ARE SPRITES, NOT MESHES. The first fire was five cylinders and
+ * seven emissive icosahedra, and against the dusk it read as what it was: a hard
+ * silhouette of lit polygons with black slits between them (UI-PLAN D18: "the
+ * fight-range bonfire is a hard-edged cut-out"). A flame has no edge, so these
+ * are additive radial sprites — white-yellow core, orange skirt, nothing at the
+ * rim — stacked and flickered per frame by `animateFlames`, over a few dark logs
+ * and a bed of embers. The logs stay meshes: they are wood, and wood has edges.
+ */
+function buildFire(materials: MaterialLibrary, flameTex: THREE.Texture): {
+  group: THREE.Group; light: THREE.PointLight; flames: THREE.Sprite[];
+} {
   const g = new THREE.Group();
-  const logGeo = new THREE.CylinderGeometry(0.075, 0.09, 1.5, 7);
-  const logMat = materials.get("bonfireLog");
+  const logGeo = new THREE.CylinderGeometry(0.06, 0.075, 1.15, 7);
+  // Charred wood against fire is a silhouette, and a lit log with the fire's own light inside
+  // the pile is the white slat with a black slit the first capture of this scene had. Unlit and
+  // dark: the flames' glow (additive, drawn over them) is what lights the wood.
+  const logMat = new THREE.MeshBasicMaterial({ color: 0x1c110a });
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
     const log = new THREE.Mesh(logGeo, logMat);
-    log.position.set(Math.sin(a) * 0.2, 0.45, Math.cos(a) * 0.2);
-    log.rotation.set(Math.cos(a) * 0.5, -a, Math.sin(a) * 0.5);
+    log.position.set(Math.sin(a) * 0.17, 0.3, Math.cos(a) * 0.17);
+    log.rotation.set(Math.cos(a) * 0.62, -a, Math.sin(a) * 0.62);
     log.castShadow = false;
     g.add(log);
   }
-  const coalGeo = new THREE.IcosahedronGeometry(0.11, 0);
-  const coalMat = materials.get("bonfireFlame");
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.4;
-    const coal = new THREE.Mesh(coalGeo, coalMat);
-    coal.position.set(Math.sin(a) * 0.22, 0.25 + (i % 3) * 0.14, Math.cos(a) * 0.22);
-    coal.scale.setScalar(0.7 + (i % 4) * 0.14);
-    g.add(coal);
-  }
+  // Embers: one wide warm glow at the base, and the flames above it.
+  const flames: THREE.Sprite[] = [];
+  const mk = (x: number, y: number, z: number, w: number, h: number, op: number): THREE.Sprite => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flameTex, transparent: true, opacity: op, depthWrite: false,
+      blending: THREE.AdditiveBlending, fog: false,
+    }));
+    sp.position.set(x, y, z);
+    sp.scale.set(w, h, 1);
+    sp.userData = { x, y, z, w, h, op, ph: Math.random() * 6.28 };
+    g.add(sp);
+    flames.push(sp);
+    return sp;
+  };
+  mk(0, 0.16, 0, 1.3, 0.55, 0.55);
+  mk(0.02, 0.62, 0, 0.9, 1.25, 0.78);
+  mk(-0.13, 0.86, 0.06, 0.62, 1.0, 0.7);
+  mk(0.14, 0.9, -0.05, 0.55, 0.9, 0.62);
+  mk(0.0, 1.22, 0, 0.42, 0.85, 0.5);
   const light = new THREE.PointLight(0xff9a44, 34, 16, 2);
-  light.position.set(0, 0.9, 0);
+  light.position.set(0, 1.25, 0);
   g.add(light);
-  return { group: g, light };
+  return { group: g, light, flames };
+}
+
+/** Flicker the flames. A fire is never still, and a still one reads as a lamp. */
+function animateFlames(flames: readonly THREE.Sprite[], t: number): void {
+  for (const sp of flames) {
+    const u = sp.userData as { x: number; y: number; z: number; w: number; h: number; op: number; ph: number };
+    const k = 0.9 + 0.1 * Math.sin(t * 9.1 + u.ph) + 0.06 * Math.sin(t * 5.3 + u.ph * 2.1);
+    sp.scale.set(u.w * (0.96 + 0.06 * Math.sin(t * 7.7 + u.ph)), u.h * k, 1);
+    sp.position.x = u.x + 0.03 * Math.sin(t * 3.1 + u.ph);
+    (sp.material as THREE.SpriteMaterial).opacity = u.op * (0.85 + 0.15 * Math.sin(t * 11.3 + u.ph * 1.7));
+  }
 }
 
 function buildForge(): Forge | null {
@@ -347,12 +497,32 @@ function buildForge(): Forge | null {
 
   // Ground. The real dirt substance, world-tiled by the shader exactly as the
   // arena tiles it, so the turf under the mannequin is the turf he fights on.
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 64), materials.get("ground"));
+  // GROUND SPECULAR <= 0.15 (UI-PLAN D18: "the ground is specular sand that
+  // outshines the man"). Its roughness is already 0.96; the glitter is the
+  // detail normal map catching the key and the fire and the env map reflecting
+  // a sky into every bump. So the shop gets a CLONE of the library's ground with
+  // no relief, no roughness map, the albedo dimmed, and NO environment: the
+  // library re-adopts every material it holds on each sky rebake and would put an
+  // env intensity back on the original (`materials.ts` `adopt`), which is why this
+  // is a clone the library does not know. The arena's ground is untouched.
+  const groundMat = (materials.get("ground") as THREE.MeshStandardMaterial).clone();
+  // The relief goes altogether (the first capture with the slope at a fifth still had the
+  // fire's light flashing off every grain of it), and with it the roughness map that decides
+  // where the grains shine: a ground that is only ever diffuse cannot be specular sand.
+  groundMat.normalMap = null;
+  groundMat.roughnessMap = null;
+  groundMat.roughness = 1;
+  groundMat.metalness = 0;
+  groundMat.envMap = null;
+  groundMat.envMapIntensity = 0;
+  groundMat.color.multiplyScalar(0.62);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 64), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = quality.shadows;
   arena.add(ground);
 
-  const fireBits = buildFire(materials);
+  const flameTex = flameTexture();
+  const fireBits = buildFire(materials, flameTex);
   // Inside the fight lens's own frame, and behind him: at 7 m with the panel's
   // crop the frame is about 3 m across at the subject, so a hearth any further
   // out is a light source the player is told about and never sees.
@@ -360,18 +530,46 @@ function buildForge(): Forge | null {
   fireBits.group.visible = false;
   arena.add(fireBits.group);
 
-  // The plinth: a shallow gilt ring set into the ground. It is the one piece of
-  // furniture the shop gets, and it exists so the portrait lenses read as a
-  // staging rather than as a man standing in a field.
+  // The dais: a shallow PEWTER ring set into the ground, with a dark stone
+  // top. It is the one piece of furniture the shop gets, and it exists so the
+  // full-length lenses read as a staging rather than as a man standing in a
+  // field. Pewter and not bronze: the bronze ring was the second orange in a
+  // room that is allowed one (UI-PLAN D18 "silver-pewter dais, no orange"), and
+  // it competed with the hearth for being the warm thing. Built at radius
+  // ~1.06 and SCALED to fit by `frameCamera`, because a full ellipse in a frame
+  // that puts his boots at 90% has only room for a small one.
   const plinth = new THREE.Group();
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(1.02, 1.10, 64),
-    materials.tinted("bronze", 0xb8862a, { roughness: 0.34, metalness: 1, tile: 0.06 }),
+    new THREE.RingGeometry(1.0, 1.08, 72),
+    materials.tinted("bronze", 0xaeb2ba, { roughness: 0.42, metalness: 1, tile: 0.06 }),
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.006;
+  ring.position.y = 0.008;
   plinth.add(ring);
+  const top = new THREE.Mesh(
+    new THREE.CircleGeometry(1.0, 72),
+    new THREE.MeshStandardMaterial({ color: 0x34322f, roughness: 0.9, metalness: 0, envMapIntensity: 0.1 }),
+  );
+  top.rotation.x = -Math.PI / 2;
+  top.position.y = 0.004;
+  top.receiveShadow = quality.shadows;
+  plinth.add(top);
   scene.add(plinth);
+
+  // The hearth's pool on the floor, under and to the near-left of the dais: the
+  // ground is lit by something, which is what makes it ground rather than a disc.
+  const poolTex = hearthPoolTexture();
+  const pool = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.4, 4.4),
+    new THREE.MeshBasicMaterial({
+      map: poolTex, transparent: true, opacity: 0.25, depthWrite: false,
+      blending: THREE.AdditiveBlending, fog: false,
+    }),
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.set(-0.35, 0.002, -0.2);
+  pool.renderOrder = 1;
+  scene.add(pool);
 
   const contactTex = contactTexture();
   const contact = new THREE.Mesh(
@@ -400,7 +598,7 @@ function buildForge(): Forge | null {
 
   return {
     renderer, scene, quality, textures, materials, sky,
-    arena, plinth, fire: fireBits.group, fireLight: fireBits.light,
+    arena, plinth, fire: fireBits.group, fireLight: fireBits.light, flames: fireBits.flames, pool,
     lights: lit.group, key: lit.key, rim: lit.rim, fill: lit.fill,
     contact, backdrop,
     users: 0, reaper: null,
@@ -432,7 +630,14 @@ function disposeForge(): void {
   });
   (f.contact.material as THREE.MeshBasicMaterial).map?.dispose();
   (f.contact.material as THREE.Material).dispose();
+  (f.pool.material as THREE.MeshBasicMaterial).map?.dispose();
+  (f.pool.material as THREE.Material).dispose();
+  const flameMat = f.flames[0]?.material as THREE.SpriteMaterial | undefined;
+  flameMat?.map?.dispose();
+  for (const sp of f.flames) (sp.material as THREE.Material).dispose();
   f.backdrop.dispose();
+  cardBackdrop?.dispose();
+  cardBackdrop = null;
   // `dispose()` frees three's own objects; it does not hand the GL context
   // back. A browser allows on the order of sixteen live contexts per page and
   // silently kills the oldest past that — which, on the way into a match,
@@ -511,6 +716,14 @@ export interface StageLoadout {
 export interface StageHandle {
   /** The canvas is live and the first frame is on screen. */
   readonly ready: boolean;
+  /**
+   * Ready, AND the lens, slot and man have not changed for a few frames. `ready`
+   * flips on the first frame; the lens effect and the loadout effect run in the
+   * same commit and can land after it, so a panel that shows the canvas on
+   * `ready` shows one frame of the wrong crop. `CharacterPreview` fades the
+   * canvas in on this instead.
+   */
+  readonly settled: boolean;
   setLoadout(next: StageLoadout): void;
   /**
    * The crop, and the armoury slot driving it. The slot is what decides the
@@ -545,13 +758,31 @@ function authoredWanted(): boolean {
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
 function wearsRole(loadout: StageLoadout, role: AuthoredRole): boolean {
-  const ap = loadout.appearance as unknown as Record<string, unknown> | undefined;
-  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
-  // "none" is the armoury's word for a slot nobody bought, and an ABSENT value
-  // is not the same thing — a loadout that does not mention beards is not a man
-  // who shaved. Absent keeps whatever the export baked in.
-  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+  // `roleIsWorn` is the one definition (`render/authored.ts`), shared with the arena. It
+  // reads "shaved" as bare, which this did not: the shop's own bare-head cards wore the
+  // baked hair. "none" is the armoury's word for a slot nobody bought and an ABSENT
+  // value is not the same thing (see there).
+  return roleIsWorn(loadout.appearance as unknown as Record<string, unknown> | undefined, role);
 }
+
+/**
+ * CLASSES WHOSE AUTHORED MAN FAILED THE HEAD NET THIS SESSION.
+ *
+ * A failed net is a property of the asset and the code, not of one loadout, so
+ * it is remembered per class: the stage does not swap in a man it has already
+ * caught losing his head, once per helm the player tries on.
+ */
+const HEAD_REFUSED = new Set<string>();
+
+/**
+ * How long the panel waits for the authored man before it shows the procedural
+ * one. The head check has to have run before the stage says `ready`, so that
+ * "LIGHTING THE HALL..." covers the build and the player never sees the swap
+ * (or a man with no head); but a phone on a bad signal must not stare at a
+ * black panel for as long as 1.6 MB takes. The swap still lands whenever it
+ * lands, and is still checked before it is drawn.
+ */
+const AUTHORED_PATIENCE_MS = 6000;
 
 export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): StageHandle | null {
   const held = acquireForge();
@@ -578,6 +809,28 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   let loadout = initial;
   let turn = bearingFor("face");
   let ready = false;
+  /** Frames drawn since the lens, slot or man last changed. `settled` waits on it. */
+  let settledFrames = 0;
+  /**
+   * True from the first build until the authored man has been CHECKED (or has
+   * failed to arrive, or has been refused). `ready` waits on it: the panel's
+   * "LIGHTING THE HALL..." is what covers the swap, so the player is never shown
+   * the procedural man for a beat and then a different man, and above all is
+   * never shown an authored man before the head net has looked at him.
+   */
+  let authoredPending = false;
+  /**
+   * Past this, `ready` stops waiting for a slow download; the swap is still checked when it lands.
+   * Started when the FIRST FRAME has been drawn, not when the stage was made: the first frame is
+   * where the texture library and the PMREM are baked (8 s on a box with no GPU), and a clock
+   * started before it would have run out before the first thing was on screen.
+   */
+  let readyDeadline = Infinity;
+  /** The authored man just swapped in, waiting for his first posed frame. */
+  interface ArmedHeadNet {
+    rig: WarriorRig; net: HeadNet; res: Extract<SwapResult, { ok: true }>; dress: () => void;
+  }
+  let headNet: ArmedHeadNet | null = null;
   /** Panel size in CSS pixels, as of the last frame. Declared up here because
    *  `buildRig` reframes off it and runs before the frame loop is set up. */
   let sized = { w: 0, h: 0 };
@@ -636,19 +889,33 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     // has to be honest.
     const painted = typeof loadout.appearance?.warPaint === "string"
       && loadout.appearance.warPaint !== "none";
-    if (authoredWanted() && !painted) {
+    headNet = null;
+    authoredPending = false;
+    settledFrames = 0;
+    if (authoredWanted() && !painted && !HEAD_REFUSED.has(player.warriorClass)) {
+      // THE PANEL IS NOT READY UNTIL THE AUTHORED MAN HAS BEEN CHECKED, the
+      // first time. See `authoredPending`; a rebuild after the panel is up does
+      // not put it back behind the curtain.
+      if (!ready) authoredPending = true;
       const want = built;
       void loadAuthoredWarrior(player.warriorClass).then((asset) => {
         // He may have been rebuilt or disposed while 1.6 MB was in flight.
-        if (!asset || rig !== want) return;
+        if (rig !== want) return;
+        // Not there (a 404, a parse failure): the procedural man stands, and the
+        // panel has nothing left to wait for.
+        if (!asset) { authoredPending = false; return; }
         const worn = new Set<AuthoredRole>(
           AUTHORED_ROLES.filter((r) => wearsRole(loadout, r)),
         );
         // Declared here rather than inline, because the head dressing below
         // wants the SAME library — a second copy of it is a second answer.
-        const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
-          ? forge.materials.tinted(ask.surface as Parameters<MaterialLibrary["tinted"]>[0], ask.color)
-          : forge.materials.standard(ask.color));
+        const resolveMaterial = authoredResolver(authoredDressContext({
+          cls: player.warriorClass,
+          appearance: loadout.appearance,
+          team: player.team,
+          faceSeed: loadout.faceSeed,
+          materials: forge.materials,
+        }));
         const res = upgradeRigToAuthored(
           {
             body: want.body,
@@ -680,59 +947,9 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         // Said out loud, because a swap that silently did nothing looks exactly
         // like a swap that was never wired.
         const w = window as unknown as Record<string, unknown>;
-        // AND WHAT IS ACTUALLY DRAWN ABOVE HIS SHOULDERS. The owner, of an
-        // authored arena capture: "image 1's head is missing from a full
-        // health player". Every structural claim passed on that frame — the
-        // swap landed, ten joints repointed, forty-six meshes dressed — because
-        // none of them ask whether the man still has a face. This does, by
-        // name and by visibility, so the next report of a missing head is a
-        // list of meshes rather than an argument about a screenshot.
-        const head: {
-          visible: string[]; hidden: string[]; bone: number[] | null; skull: number[] | null;
-          scale?: number[]; det?: number; boneName?: string; isBone?: boolean;
-        } = { visible: [], hidden: [], bone: null, skull: null };
-        {
-          const box = new THREE.Box3();
-          want.body.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (!m.isMesh || !m.geometry) return;
-            m.geometry.computeBoundingBox();
-            box.copy(m.geometry.boundingBox ?? new THREE.Box3());
-            if (box.isEmpty() || box.max.y < 1.6) return;
-            (m.visible ? head.visible : head.hidden).push(m.name || "(unnamed)");
-          });
-          // WHERE THE HEAD ACTUALLY IS, in the world, after posing. A skinned
-          // skull follows its bone, so "the mesh is visible" and "the man has a
-          // face" are different claims and the first one passed while the
-          // second was false. This is the second one.
-          want.body.updateMatrixWorld(true);
-          const p3 = new THREE.Vector3();
-          head.bone = want.pivots.head.getWorldPosition(p3).toArray().map((v) => +v.toFixed(3));
-          const skullBox = new THREE.Box3();
-          want.body.traverse((o) => {
-            const m = o as THREE.SkinnedMesh;
-            if (!m.isMesh || m.name !== "part_34") return;
-            skullBox.setFromObject(m);
-          });
-          head.skull = skullBox.isEmpty() ? null
-            : [skullBox.min.y, skullBox.max.y, skullBox.min.x, skullBox.max.x].map((v) => +v.toFixed(3));
-          // AND THE BONE'S OWN SCALE. `Box3.setFromObject` on a SkinnedMesh
-          // reads the BIND geometry through the mesh's matrix and knows nothing
-          // about skinning, so the box above says where the skull was authored,
-          // not where it is drawn. A skull that is drawn nowhere is a Head bone
-          // whose world matrix has collapsed, and this is the number that says
-          // so: `visible` is true on a mesh scaled to a point.
-          const sc = new THREE.Vector3();
-          want.pivots.head.getWorldScale(sc);
-          head.scale = sc.toArray().map((v) => +v.toFixed(4));
-          head.det = +want.pivots.head.matrixWorld.determinant().toFixed(6);
-          head.boneName = want.pivots.head.name || "(unnamed)";
-          head.isBone = !!(want.pivots.head as unknown as { isBone?: boolean }).isBone;
-        }
-        w.__authored = res.ok
-          ? { cls: player.warriorClass, ...res, head }
-          : { ok: false, cls: player.warriorClass, why: res.why, head };
         if (!res.ok) {
+          authoredPending = false;
+          w.__authored = { ok: false, cls: player.warriorClass, why: res.why };
           console.warn(`[authored] ${player.warriorClass}: ${res.why} — keeping the procedural man`);
           return;
         }
@@ -746,25 +963,41 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
         //
         // The baked piece comes off only once its replacement is on him: see
         // GameCanvas for the reasoning. Wrong helm beats no head.
-        const skinned = firstSkinnedMesh(want.body);
-        if (!skinned) return;
-        void dressAuthoredHead({
-          cls: player.warriorClass,
-          appearance: (player as { appearance?: Record<string, unknown> }).appearance,
-          head: want.pivots.head,
-          skeleton: skinned.skeleton,
-          resolveMaterial,
-          strands: true,
-        }).then((d) => {
-          if (d.mounted.length) {
-            hideBakedRoles(want.body,
-              new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
-          }
-          const wd = window as unknown as Record<string, unknown>;
-          wd.__authoredProps = d;
-          console.info(`[authored] ${player.warriorClass}: props ${d.mounted.join("+") || "none"}`
-            + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`);
-        });
+        //
+        // NOT YET: this runs once the head net has passed him (`settleHeadNet`),
+        // so a man about to be thrown away does not go and fetch a helm.
+        const dress = (): void => {
+          const skinned = firstSkinnedMesh(want.body);
+          if (!skinned) return;
+          void dressAuthoredHead({
+            cls: player.warriorClass,
+            appearance: (player as { appearance?: Record<string, unknown> }).appearance,
+            head: want.pivots.head,
+            skeleton: skinned.skeleton,
+            resolveMaterial,
+            strands: true,
+          }).then((d) => {
+            // Rebuilt, or thrown out by the head net, while the helm was in flight.
+            if (rig !== want) return;
+            if (d.mounted.length) {
+              hideBakedRoles(want.body,
+                new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
+            }
+            const wd = window as unknown as Record<string, unknown>;
+            wd.__authoredProps = d;
+            console.info(`[authored] ${player.warriorClass}: props ${d.mounted.join("+") || "none"}`
+              + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`);
+          });
+        };
+        // ---- THE HEAD NET (render/authoredHead.ts) ----
+        //
+        // Armed NOW, at bind, and judged on the first posed frame, before that
+        // frame is drawn. The owner: "image 1's head is missing from a full
+        // health player". A skull that is visible, skinned and drawn inside the
+        // chest passes every structural claim this stage used to make, so the
+        // census is now taken twice and compared. See the file for what it
+        // measures and why those numbers.
+        headNet = { rig: want, net: armHeadNet(want as unknown as HeadNetRig), res, dress };
       });
     }
     // Re-aimed here and not only on resize: every framing decision in this
@@ -775,6 +1008,50 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
   }
 
   buildRig();
+
+  /**
+   * Judge the authored man the swap has just put in, on his first posed frame.
+   *
+   * Returns true when he stands (or is not yet judgeable) and FALSE when he has
+   * been thrown out and a procedural man built in his place — the caller poses
+   * the new man before the frame is drawn.
+   *
+   * WRONG BODY BEATS NO HEAD. `armouryStage.ts` has always said "wrong helm beats
+   * no head"; this is the same law one size up. The authored man is discarded,
+   * never shown, and the class is refused for the rest of the session so the
+   * next helm the player tries on does not rebuild the same failure. The head
+   * object goes to `console.error` because that is where a person looking at a
+   * bug report will look, and to `window.__authored` where a harness will.
+   */
+  function settleHeadNet(): boolean {
+    const armed = headNet;
+    if (!armed) return true;
+    // Not the man on stage any more (rebuilt while he waited).
+    if (armed.rig !== rig) { headNet = null; return true; }
+    const { outcome, verdict: v } = armed.net.step();
+    if (outcome === "waiting") return true;
+    headNet = null;
+    const w = window as unknown as Record<string, unknown>;
+    const cls = player.warriorClass;
+    if (outcome === "pass") {
+      authoredPending = false;
+      w.__authored = { cls, ...armed.res, head: v.now, net: { ok: true, turnDeg: v.turnDeg, reachDrift: v.reachDrift } };
+      armed.dress();
+      return true;
+    }
+    console.error(`[authored] ${cls}: the head net REFUSED the authored man — ${v.problems.join("; ")}. `
+      + "Keeping the procedural man (wrong body beats no head).", v.now);
+    w.__authored = {
+      ok: false, refused: true, cls, why: `head net: ${v.problems.join("; ")}`,
+      head: v.now, net: { ok: false, turnDeg: v.turnDeg, reachDrift: v.reachDrift, problems: v.problems },
+    };
+    HEAD_REFUSED.add(cls);
+    // He is never drawn: hidden first, so that nothing in the rebuild can show him.
+    armed.rig.body.visible = false;
+    buildRig();
+    authoredPending = false;
+    return false;
+  }
 
   function frameCamera(w: number, h: number): void {
     const aspect = w / Math.max(1, h);
@@ -795,7 +1072,32 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       // not of the helmet. Pitched down, what is behind him is turf — which
       // is also what is behind an enemy in a real fight.
       camera.position.set(0, 2.30, FIGHT_DIST);
-      camera.lookAt(0, 0.92, 0);
+      // AIMED SO THE CROWN IS 8% FROM THE TOP, whatever the man's height. The lookAt
+      // was a fixed 0.92 m, which on a desktop panel put the crown ON the top edge
+      // (the berserker's 5% over it — the helmet the lens exists to show, cropped).
+      // The scale stays the honest one above; only where the frame sits on him moves,
+      // and on a phone, where the slice is too short for all of him, it is his head
+      // and shoulders that stay and his boots that go.
+      const half = Math.tan((camera.fov * Math.PI) / 360);
+      const phiCrown = Math.atan((2.30 - crown) / FIGHT_DIST);
+      const pitch = phiCrown + Math.atan((0.5 - FIG_TOP) * 2 * half);
+      camera.lookAt(0, 2.30 - FIGHT_DIST * Math.tan(pitch), 0);
+    } else if (lens === "figure") {
+      // Solved, not tuned: see `solveFrame`. A narrow panel (a phone) widens the
+      // lens until the man's arms are in it and lets the crown and boots stay
+      // where they were asked to be.
+      const camY = crown * 0.8;
+      let fov: number = LENS.figure.fov;
+      let fit = solveFrame(fov, camY, crown, FIG_TOP, FIG_BOOT);
+      for (let i = 0; i < 6 && fit.dist * Math.tan((fov * Math.PI) / 360) * aspect < FIG_HALF_WIDTH; i++) {
+        fov += 5;
+        fit = solveFrame(fov, camY, crown, FIG_TOP, FIG_BOOT);
+      }
+      camera.fov = fov;
+      camera.position.set(0, camY, fit.dist);
+      camera.lookAt(0, fit.lookY, 0);
+      // A FULL ellipse: the dais is as big as fits with its near edge inside the frame.
+      forge.plinth.scale.setScalar(daisRadiusFor(fov, camY, fit.dist, fit.pitch, 0.975) / 1.04);
     } else {
       const L = LENS[lens];
       camera.fov = L.fov;
@@ -805,7 +1107,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       // whole subject rather than the desktop keeping more of him.
       const vertical = aspect >= 1 ? L.height : L.height / Math.max(0.55, aspect);
       const dist = (vertical / 2) / Math.tan((camera.fov * Math.PI) / 360);
-      camera.position.set(0, aim + (lens === "figure" ? 0.06 : 0.0), dist);
+      camera.position.set(0, aim, dist);
       camera.lookAt(0, aim, 0);
     }
     camera.updateProjectionMatrix();
@@ -823,7 +1125,14 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
    */
   function armRig(): void {
     if (!rig) return;
-    const carried = lens === "figure" || lens === "fight";
+    // A CLOAK IS SOLD ON A MAN WITH NOTHING IN HIS HANDS. The cloak tab is the
+    // full-length lens (a cloak is a whole figure), and at full length the
+    // warden's spear crossed the garment being sold (UI-PLAN D18:
+    // "armoury-cloaks-desktop.png: the spear crosses the cloak being sold").
+    // Armour is sold at the shoulders and never carries. Fight range is the one
+    // lens that always does: the player asked to see a man as he is fought.
+    const dressing = slot === "cloak" || slot === "armor";
+    const carried = lens === "fight" || (lens === "figure" && !dressing);
     rig.weapon.visible = carried;
     if (rig.offhand) rig.offhand.visible = carried;
     if (rig.shield) rig.shield.visible = carried;
@@ -836,11 +1145,12 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     forge.plinth.visible = !fight;
     forge.arena.visible = true;
     forge.contact.visible = !fight;
+    forge.pool.visible = !fight;
     scene.background = fight ? new THREE.Color(0x2b3a4e) : forge.backdrop;
     // The three-point rig is a shop rig. At fight distance the man has to be
     // lit by the arena, so the key drops to a quarter and the fire takes over.
     forge.key.intensity = fight ? 7 : 26;
-    forge.rim.intensity = fight ? 26 : 62;
+    forge.rim.intensity = fight ? 20 : 46;
     // The fill is lifted at a head crop, and it is the eye that buys it.
     // COSMETICS-AUDIT §2(d): "the eye is a dark almond with no sclera on the
     // shadow side... the socket is deep enough that the key never reaches it",
@@ -910,12 +1220,24 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     if (rig && motion) {
       rig.group.rotation.y = turn;
       poseWarrior(rig, motion, player, dt, ctx);
+      // BETWEEN THE POSE AND THE DRAW, so a man the net throws out is never on
+      // screen for even one frame.
+      if (headNet && !settleHeadNet()) {
+        rig.group.rotation.y = turn;
+        if (rig && motion) poseWarrior(rig, motion, player, dt, ctx);
+      }
+      // AFTER the pose, every frame: `poseWarrior` writes `rig.shield.visible` itself (a man
+      // with a board has it up), so a shield hidden once at a head crop was back on his arm on
+      // the next frame — the huscarl's board filled the SHOULDERS lens in the first capture
+      // of this scene. What the lens hides is decided after the pose and before the draw.
+      armRig();
     }
     forge.sky.update(dt, ctx);
     if (lens === "fight") {
       // A fire is never still, and a still one reads as a lamp.
       const f = 0.86 + Math.sin(clock * 11.3) * 0.07 + Math.sin(clock * 4.1) * 0.06;
       forge.fireLight.intensity = 34 * f;
+      animateFlames(forge.flames, clock);
     }
 
     // The thumbnail forge borrows the bottom-left corner of this same frame
@@ -925,12 +1247,60 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
     renderer.setViewport(0, 0, w, h);
     renderer.setScissorTest(false);
     renderOnce();
-    ready = true;
+    if (readyDeadline === Infinity) readyDeadline = performance.now() + AUTHORED_PATIENCE_MS;
+    if (!ready && (!authoredPending || performance.now() > readyDeadline)) ready = true;
+    settledFrames++;
     STATS.frames++;
     STATS.worstFrameMs = Math.max(STATS.worstFrameMs, performance.now() - t);
     if ((STATS.frames & 15) === 0) publishStats();
   };
   raf = requestAnimationFrame(loop);
+
+  const probe: StageProbe = {
+    get ready() { return ready; },
+    get settled() { return ready && settledFrames >= 3; },
+    get cls() { return loadout.warriorClass; },
+    get lens() { return lens; },
+    get slot() { return slot; },
+    get turn() { return turn; },
+    get crown() { return crown; },
+    headWindow() {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      camera.updateMatrixWorld(true);
+      const at = (x: number, y: number, z: number) => {
+        const p = new THREE.Vector3(x, y, z).project(camera);
+        return { x: (p.x * 0.5 + 0.5) * size.x, y: (1 - (p.y * 0.5 + 0.5)) * size.y };
+      };
+      // A head is ~0.16 m across and a helm or a head of hair adds a few
+      // centimetres either side; from the crest to the chin is ~0.27 m.
+      const xs: number[] = [], ys: number[] = [];
+      for (const x of [-0.14, 0.14]) for (const z of [-0.12, 0.12]) for (const y of [crown - 0.27, crown + 0.02]) {
+        const q = at(x, y, z); xs.push(q.x); ys.push(q.y);
+      }
+      const x0 = Math.max(0, Math.floor(Math.min(...xs))), x1 = Math.min(size.x, Math.ceil(Math.max(...xs)));
+      const y0 = Math.max(0, Math.floor(Math.min(...ys))), y1 = Math.min(size.y, Math.ceil(Math.max(...ys)));
+      if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+      return {
+        x: x0, y: y0, w: x1 - x0, h: y1 - y0,
+        crownAt: at(0, crown, 0).y / size.y, bootsAt: at(0, 0, 0).y / size.y,
+        canvasW: size.x, canvasH: size.y,
+      };
+    },
+    read(x, y, w, h) {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      renderOnce();
+      const gl = renderer.getContext();
+      const buf = new Uint8Array(w * h * 4);
+      gl.readPixels(x, size.y - y - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      // GL reads bottom-up; a harness thinks top-down.
+      const row = w * 4, out = new Uint8Array(buf.length);
+      for (let j = 0; j < h; j++) out.set(buf.subarray((h - 1 - j) * row, (h - j) * row), j * row);
+      let bin = "";
+      for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+      return { w, h, rgba: btoa(bin) };
+    },
+  };
+  if (typeof window !== "undefined") (window as unknown as Record<string, unknown>).__armouryStage = probe;
 
   STATS.tier = forge.quality.tier;
   publishStats();
@@ -938,6 +1308,7 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
 
   return {
     get ready() { return ready; },
+    get settled() { return ready && settledFrames >= 3; },
     get turn() { return turn; },
     setLoadout(next) {
       // `arms` is in the comparison from day one — `sameAppearance` earned
@@ -966,12 +1337,21 @@ export function createArmouryStage(mount: HTMLElement, initial: StageLoadout): S
       if (reframe) {
         applyLens();
         frameCamera(sized.w || 1, sized.h || 1);
+      } else {
+        // The lens is the same but the slot is not: a cloak tab and a helm tab
+        // both use the full-length lens and only one of them holds a weapon.
+        armRig();
       }
+      settledFrames = 0;
     },
     turnBy(delta) { turn += delta; lastTouch = performance.now(); },
     setTurn(radians) { turn = radians; lastTouch = performance.now(); },
     dispose() {
       cancelAnimationFrame(raf);
+      if (typeof window !== "undefined") {
+        const w = window as unknown as Record<string, unknown>;
+        if (w.__armouryStage === probe) delete w.__armouryStage;
+      }
       setThumbForgeLive(false);
       if (rig) { rig.dispose(); rig = null; }
       if (canvas.parentNode === mount) mount.removeChild(canvas);
@@ -1020,8 +1400,66 @@ function sameAppearance(a: Appearance, b: Appearance): boolean {
 // `currentRenderTarget === null`), so a render-target thumbnail comes back as
 // raw linear radiance and reads as a washed-out grey card.
 
-/** Edge of a thumbnail in device pixels. 112 CSS px on a 2x phone is 224. */
-const THUMB_PX = 132;
+/**
+ * Edge of a thumbnail in device pixels: 256 where the panel is big enough to
+ * draw one, and never under 132. It was a fixed 132 and the card shows it at 183
+ * CSS px (upscaled) on a near-black void (UI-PLAN D15); 112 CSS px on a 2x phone
+ * is 224 device pixels, so 256 is the smallest that is not a guess. A thumbnail
+ * is drawn in the corner of the LIVE canvas (see the note above), so it can be
+ * no bigger than the smaller side of that canvas: a phone's panel is often 190
+ * CSS px tall at 1x and a fixed 256 there would never fit and would starve every
+ * card of its picture, forever, without an error.
+ */
+const THUMB_MAX = 256;
+const THUMB_MIN = 132;
+const thumbPxFor = (bufW: number, bufH: number): number => Math.min(THUMB_MAX, Math.floor(Math.min(bufW, bufH)));
+
+/**
+ * What each slot's card is a photograph OF, as a crop. The first cut framed every
+ * face slot the same 0.56 m (crown to collarbone), which made a helm a quarter
+ * of its own card and put a beard at the frame's edge. `height` is metres across
+ * the card, `aim` the fraction of the man's crown height the frame is centred on.
+ * `helm` is the audit's own number: 0.56 -> 0.40-0.42.
+ */
+const SLOT_CROP: Readonly<Record<string, { height: number; aim: number }>> = {
+  helm: { height: 0.42, aim: 0.925 },
+  hair: { height: 0.5, aim: 0.915 },
+  hairColor: { height: 0.46, aim: 0.918 },
+  beard: { height: 0.52, aim: 0.895 },
+  beardColor: { height: 0.46, aim: 0.9 },
+  warPaint: { height: 0.36, aim: 0.912 },
+  // A cloak is on his back, and the back of a man from the shoulders to the hips
+  // is the whole of what a cloak card sells: a bust, and not the full figure that
+  // made the man a 60 px sliver in the middle of the card.
+  cloak: { height: 1.22, aim: 0.78 },
+};
+
+/**
+ * The card's ground: `radial-gradient(75% 70% at 50% 38%, #3a3230, #17140f 62%, #0b0a0d)`
+ * (UI-PLAN D15), drawn as the scene's background for the one render, so the
+ * picture carries its own light instead of sitting on the near-black void the
+ * card's CSS gives every item the same colour of.
+ */
+let cardBackdrop: THREE.Texture | null = null;
+function cardBackdropTexture(): THREE.Texture {
+  if (cardBackdrop) return cardBackdrop;
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d")!;
+  g.save();
+  g.translate(128, 0.38 * 256);
+  g.scale(0.75 * 256, 0.70 * 256);
+  const grad = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+  grad.addColorStop(0, "#3a3230");
+  grad.addColorStop(0.62, "#17140f");
+  grad.addColorStop(1, "#0b0a0d");
+  g.fillStyle = grad;
+  g.fillRect(-2, -2, 4, 4);
+  g.restore();
+  cardBackdrop = new THREE.CanvasTexture(c);
+  cardBackdrop.colorSpace = THREE.SRGBColorSpace;
+  return cardBackdrop;
+}
 
 /**
  * What the stage is actually doing, on `window`, for the capture harness.
@@ -1049,6 +1487,48 @@ function publishStats(): void {
   }
 }
 
+/**
+ * What a HARNESS may ask of the live stage, on `window.__armouryStage`, and
+ * nothing it may change. `tools/stagehead.mjs`, `armourycard.mjs` and
+ * `uishots.mjs` use it to answer the one question the owner asked four times —
+ * "where is his head?" — from the pixels the canvas actually drew.
+ *
+ * WHY THE STAGE READS ITS OWN CANVAS. A WebGL context without
+ * `preserveDrawingBuffer` reads back as an empty bitmap from outside (the first
+ * run of `armourycard` reported "contrast=0, a blank panel" for a panel with a
+ * warrior in it), and it is only valid to read inside the task that drew it. So
+ * the stage draws one frame on request and reads the rectangle back in the same
+ * breath, which is the only place the pixels exist.
+ *
+ * WHY THE WINDOW IS THE PROCEDURAL CROWN. The rectangle a head must occupy is
+ * projected from `rig.headTop` — the height the procedural builder measured off
+ * the man it built, which is where his head belongs whichever body is standing
+ * there — and NOT from the authored skull, so a stage whose authored head has
+ * collapsed is asked about the place the head should be, and answers "nothing".
+ */
+export interface StageProbe {
+  readonly ready: boolean;
+  /** `ready`, and the lens, slot and man have held still for a few frames: the frame a harness may trust. */
+  readonly settled: boolean;
+  /** The class of the man on stage. A harness waits for THIS class's authored report, not the last man's. */
+  readonly cls: string;
+  readonly lens: string;
+  readonly slot: string | undefined;
+  /** The turntable bearing, radians. */
+  readonly turn: number;
+  /** The procedural crown, metres. */
+  readonly crown: number;
+  /** Where the head belongs on the canvas, in drawing-buffer pixels, top-left origin; null when it is off-canvas. */
+  headWindow(): {
+    x: number; y: number; w: number; h: number;
+    /** Where the crown and the boots project to, as fractions of the canvas height from the top. */
+    crownAt: number; bootsAt: number;
+    canvasW: number; canvasH: number;
+  } | null;
+  /** Draw a frame NOW and read a rectangle back: RGBA, top-left origin, base64. */
+  read(x: number, y: number, w: number, h: number): { w: number; h: number; rgba: string };
+}
+
 let thumbCam: THREE.PerspectiveCamera | null = null;
 let thumbBuf: Uint8Array | null = null;
 let thumbCanvas: HTMLCanvasElement | null = null;
@@ -1064,14 +1544,13 @@ function pumpThumbs(forge: Forge): void {
   const t0 = performance.now();
   const renderer = forge.renderer;
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  if (size.x < THUMB_PX || size.y < THUMB_PX) { returnThumbJob(job); return; }
+  const THUMB_PX = thumbPxFor(size.x, size.y);
+  if (THUMB_PX < THUMB_MIN) { returnThumbJob(job); return; }
 
   if (!thumbCam) thumbCam = new THREE.PerspectiveCamera(24, 1, 0.05, 60);
-  if (!thumbBuf) thumbBuf = new Uint8Array(THUMB_PX * THUMB_PX * 4);
-  if (!thumbCanvas) {
-    thumbCanvas = document.createElement("canvas");
-    thumbCanvas.width = thumbCanvas.height = THUMB_PX;
-  }
+  if (!thumbBuf || thumbBuf.length !== THUMB_PX * THUMB_PX * 4) thumbBuf = new Uint8Array(THUMB_PX * THUMB_PX * 4);
+  if (!thumbCanvas) thumbCanvas = document.createElement("canvas");
+  if (thumbCanvas.width !== THUMB_PX) thumbCanvas.width = thumbCanvas.height = THUMB_PX;
 
   const ap = job.spec.appearance;
   const cls = job.spec.warriorClass;
@@ -1145,9 +1624,11 @@ function pumpThumbs(forge: Forge): void {
   } else {
     const top = new THREE.Box3().setFromObject(subject).max.y || 1.78;
     const L = LENS[lens === "fight" ? "figure" : lens];
+    // The slot's own crop when it has one (`SLOT_CROP`), the lens's otherwise.
+    const C = SLOT_CROP[job.spec.slot] ?? L;
     thumbCam.fov = L.fov;
-    const aim = top * L.aim + L.rise;
-    const dist = (L.height / 2) / Math.tan((L.fov * Math.PI) / 360);
+    const aim = top * C.aim + (SLOT_CROP[job.spec.slot] ? 0 : L.rise);
+    const dist = (C.height / 2) / Math.tan((L.fov * Math.PI) / 360);
     thumbCam.position.set(0, aim, dist);
     thumbCam.lookAt(0, aim, 0);
     thumbCam.updateProjectionMatrix();
@@ -1160,7 +1641,7 @@ function pumpThumbs(forge: Forge): void {
   // one object and the lights on it goes dark for the duration — including the
   // live mannequin, which `createWarriorRig` parents straight to the scene.
   const bg = forge.scene.background;
-  forge.scene.background = null;
+  forge.scene.background = lens === "item" ? null : cardBackdropTexture();
   const hidden: THREE.Object3D[] = [];
   for (const c of forge.scene.children) {
     if (c === subject || c === forge.lights) continue;
@@ -1217,6 +1698,16 @@ function pumpThumbs(forge: Forge): void {
     img.data.set(thumbBuf.subarray(src, src + row), y * row);
   }
   g2.putImageData(img, 0, 0);
+  // THE SHOULDER FADE: the bottom 6% goes to the card's own ground, so a bust
+  // that ends mid-chest ends in the dark rather than on a hard edge (UI-PLAN D15).
+  // An item card is an object, whole, and has no cut edge to hide.
+  if (lens !== "item") {
+    const fade = g2.createLinearGradient(0, THUMB_PX * 0.94, 0, THUMB_PX);
+    fade.addColorStop(0, "rgba(11,10,13,0)");
+    fade.addColorStop(1, "rgba(11,10,13,1)");
+    g2.fillStyle = fade;
+    g2.fillRect(0, THUMB_PX * 0.94, THUMB_PX, THUMB_PX * 0.06 + 1);
+  }
   let url = "";
   try { url = thumbCanvas.toDataURL("image/webp", 0.82); } catch { url = ""; }
   if (!url || url.length < 64 || !url.startsWith("data:image/webp")) {

@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from blendlib import to_b, q_to_b, attach_textures
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 CLS = argv[0] if argv else "huscarl"
-ROOT = os.path.expanduser("~/bretwalda-blood-moot"); D = os.path.join(ROOT, "art", "blender")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); D = os.path.join(ROOT, "art", "blender")
 rig = json.load(open(os.path.join(D, f"warrior-{CLS}.rig.json")))
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.wm.obj_import(filepath=os.path.join(D, f"warrior-{CLS}.rig.obj"), forward_axis='NEGATIVE_Z', up_axis='Y')

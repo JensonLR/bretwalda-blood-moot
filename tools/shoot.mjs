@@ -490,6 +490,109 @@ const SHEETS = {
         label: `${people} · ${label}`, turn, cls, dress: { people },
       }))),
   }])),
+  // ---- THE HELD WEAPONS, ACROSS THE ROSTER (U7, the weapons stream) ----
+  //
+  // `weaponcards` above is the SWORD's grip on the huscarl, six finishes deep;
+  // nothing in the sheet set photographed a spear, an axe or a seax at all, and
+  // the kit card is the lens the plan's `bladevalue` ruler reads. Two sheets, one
+  // question each, both across the four classes so a weapon is judged on the man
+  // who carries it and in the carry the game gives him:
+  //
+  //   weaponkit        PORTRAIT scale (700x900), front 0 and three-quarter -35.
+  //                    Sword and board, spear, twin seax, two-hander. Whether a
+  //                    blade reads as a forged object: bevel, fuller, guard.
+  //   weaponkitfight   FIGHT scale (play 1:1), three-quarter and profile. Whether
+  //                    the same weapon is still a T1 shape and a T2 stripe at
+  //                    7.9 mm a pixel, which is the only place it is used.
+  weaponkit: {
+    file: "weapon-kit.png", card: "kitcard", cols: 4,
+    title: "THE HELD WEAPONS · four classes · portrait scale · front 0° above, three-quarter −35° below",
+    shots: [0, QUARTER].flatMap((turn) =>
+      ["huscarl", "warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${turn === 0 ? "front 0°" : "3/4 −35°"}`, turn, cls,
+      }))),
+  },
+  weaponkitfight: {
+    file: "weapon-kit-fight.png", card: "fightcard", cols: 4,
+    title: "THE HELD WEAPONS · four classes · fight distance · three-quarter −35° above, profile 90° below",
+    shots: [QUARTER, 90].flatMap((turn) =>
+      ["huscarl", "warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${turn === 90 ? "profile 90°" : "3/4 −35°"}`, turn, cls,
+      }))),
+  },
+  // The paid finishes on the weapons that are not the sword. `weaponcards` dresses the huscarl's sword in
+  // all six; the spear, the seax and the axe take the same `weapon` slot and nothing photographed them in
+  // it, so the dark finish (its edges must stay bright) and the two pattern ones (the pattern lives in a
+  // fuller the spear and the axe do not have) were untested on three of the four weapons.
+  // The berserker's OTHER two loadouts, which no sheet ever photographed: a dead man's weapon in his hands
+  // (`?taken=cls:arms`), so the hand axes and the twin bearded axes have a frame at kit scale.
+  weaponarms: {
+    file: "weapon-arms.png", card: "kitcard", cols: 2,
+    title: "THE BERSERKER'S OTHER HANDS · hand axes, twin bearded axes · portrait scale, three-quarter −35°",
+    shots: ["hand_axes", "twin_beards"].map((arms) => ({
+      label: `berserker · ${arms.replace("_", " ")}`, turn: QUARTER, cls: "berserker", query: `taken=berserker:${arms}`,
+    })),
+  },
+  // The seax's own close-up. The weapon card is aimed at the huscarl's fist and the runekeeper carries his at his
+  // hips, so this may miss; it is one frame to find out, and the runes are a millimetre wide.
+  weaponseax: {
+    file: "weapon-seax.png", card: "weaponcard", cols: 2,
+    title: "THE SEAX · weapon-card lens on the runekeeper · front 0° and three-quarter −35°",
+    shots: [0, QUARTER].map((turn) => ({ label: `runekeeper · ${turn === 0 ? "front 0°" : "3/4 −35°"}`, turn, cls: "runekeeper" })),
+  },
+  weaponfinish: {
+    file: "weapon-finish.png", card: "kitcard", cols: 3,
+    title: "THE PAID FINISHES · spear, seax, axe · portrait scale, three-quarter −35° · pattern-welded above, oil-blackened, serpent-marked below",
+    shots: ["weapon_welded", "weapon_blued", "weapon_serpent"].flatMap((weapon) =>
+      ["warden", "runekeeper", "berserker"].map((cls) => ({
+        label: `${cls} · ${weapon.replace("weapon_", "")}`, turn: QUARTER, cls, dress: { weapon },
+      }))),
+  },
+  // ---- the livery on the AUTHORED man (U6 / L1: authoredLivery.ts) ----
+  //
+  // The sheets above photograph whatever man the default build draws, and until the role table landed that was the
+  // issued kit whatever the panel asked for: `finishes` was seven copies of one man on the authored path, and the
+  // four peoples were one man four times. These are the frames the role table has to be judged on. Every panel is
+  // checked against what the page says it built (`expect`), and the tool prints how many AUTHORED men it drew.
+  liveryroster: {
+    file: "livery-roster.png", card: "kitcard", cols: 4,
+    title: "THE FOUR CLASSES x THE FOUR PEOPLES · kit cards, front · the authored man, dressed by the role table",
+    shots: ["huscarl", "warden", "runekeeper", "berserker"].flatMap((cls) =>
+      ["saxon", "norse", "briton", "pict"].map((people) => ({ label: `${cls} · ${people}`, turn: 0, cls, dress: { people } }))),
+  },
+  liverysmoke: {
+    file: "livery-smoke.png", card: "kitcard", cols: 3,
+    title: "LIVERY SMOKE · the issued man, a purchased and sworn man, a Pict",
+    shots: [
+      { label: "huscarl · issued", turn: 0, cls: "huscarl", dress: {} },
+      { label: "huscarl · Norse · gold finish · gold cloak", turn: -35, cls: "huscarl", dress: { people: "norse", armor: "armor_gold", cloak: "cloak_gold" } },
+      { label: "berserker · Pict", turn: 0, cls: "berserker", dress: { people: "pict" } },
+    ],
+  },
+};
+// THE FOUR BARE HEADS AT THE THREE BEARINGS THE FACE RULERS READ (H1, `tools/facecontrast.mjs`, `tools/lattice.mjs`).
+// One invocation, one server boot and one lock, for the twelve cards that `facecard --cls C --turn T` would take
+// twelve invocations and twelve waits for. Bare on purpose (no helm, shaved, no beard, no paint): the face is
+// what is being judged, and `wearsAuthoredRole` treats `shaved` as bare, so what is on the frame is skin.
+SHEETS.facecards = {
+  file: "face-cards.png", card: "facecard", cols: 3,
+  title: "FACE CARDS · four classes down, front / three-quarter −35° / profile −90° across · bare · the rig fixed, the man turns",
+  shots: ["huscarl", "warden", "runekeeper", "berserker"].flatMap((cls) =>
+    [["front 0°", 0], ["three-quarter −35°", QUARTER], ["profile −90°", -90]].map(([label, turn]) => ({
+      label: `${cls} · ${label}`, turn, cls,
+      dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+    }))),
+};
+// THE FOUR CARDS AN ITERATION NEEDS (H1): the huscarl at the two bearings the eyes and the mouth are read at, and the two other
+// heads that differ most in scale from him, front. One server boot for the four; the twelve above are for the gate, these are for
+// looking at while the face is being made.
+SHEETS.facecheck = {
+  file: "face-check.png", card: "facecard", cols: 2,
+  title: "FACE CHECK · huscarl front and three-quarter, warden and runekeeper front · bare",
+  shots: [["huscarl", "front 0°", 0], ["huscarl", "three-quarter −35°", QUARTER], ["warden", "front 0°", 0], ["runekeeper", "front 0°", 0]].map(([cls, label, turn]) => ({
+    label: `${cls} · ${label}`, turn, cls,
+    dress: { helm: "helm_none", hair: "hair_shaved", beard: "beard_none", warPaint: "wp_none" },
+  })),
 };
 const SHEET_NAMES = Object.keys(SHEETS);
 
@@ -549,9 +652,9 @@ function panelsFor(name, spec, roster) {
   // something a player buys, and `expect` checks purchases against what the page
   // says it built. It rides on the query only, and the card presets have read
   // `?cls=` since they were written.
-  const panel = (label, turn, dress, extra, cls) => ({
+  const panel = (label, turn, dress, extra, cls, more) => ({
     label,
-    query: [`preset=${spec.card}`, `turn=${turn}`, ...(cls ? [`cls=${cls}`] : []),
+    query: [`preset=${spec.card}`, `turn=${turn}`, ...(cls ? [`cls=${cls}`] : []), ...(more ? [more] : []),
       ...dressOf(dress).map(([s, id]) => `${s}=${id}`),
       ...(extra ? [`${extra.slot}=${extra.id}`] : [])].join("&"),
     expect: {
@@ -561,7 +664,7 @@ function panelsFor(name, spec, roster) {
     },
   });
 
-  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls));
+  if (spec.shots) return spec.shots.map((s) => panel(s.label, s.turn, s.dress, undefined, s.cls, s.query));
 
   const slot = roster.slots.find((s) => s.slot === spec.slot);
   if (!slot) throw new Error(`[shoot] sheet "${name}" wants slot "${spec.slot}", which the armoury does not have`);
@@ -883,6 +986,43 @@ async function main() {
       }
     }
 
+    // WHICH MAN WAS PHOTOGRAPHED. The arena builds the procedural man first and
+    // swaps the authored one in when a 1.6 MB GLB lands (and hangs his helm, hair
+    // and beard when three more do), and nothing here waited on either: a frame
+    // taken before the swap is a picture of the man the default player does not
+    // see, and he has a head — which is how a defect in the authored one gets
+    // certified (docs/PROCESS.md R5, and the reason `armourycard` learned to wait).
+    // `GameCanvas` pushes one row per man it has swapped AND dressed onto
+    // `window.__authoredHeads`; the tool waits until that has stopped growing (at
+    // least one man, six quiet polls) and PRINTS how many authored men it drew.
+    // A single-man card of a man with no war paint that drew none is an error: it
+    // is a picture of the wrong man. War-paint men are procedural by ruling, so a
+    // crowd of them is a note, not an error.
+    const authoredMen = await (async () => {
+      const t0 = Date.now();
+      let last = -1, quiet = 0;
+      while (Date.now() - t0 < 90000) {
+        const n = await page.evaluate(() => (window.__authoredHeads ?? []).length);
+        quiet = n === last ? quiet + 1 : 0;
+        last = n;
+        if (n > 0 && quiet >= 6) break;
+        await page.waitForTimeout(500);
+      }
+      return page.evaluate(() => (window.__authoredHeads ?? []).map((h) => ({ cls: h.cls, props: h.props, missing: h.missing })));
+    })();
+    if (authoredMen.length === 0 && staged.subject && staged.subject.warPaint === "none") {
+      errors.push("no AUTHORED man was drawn (window.__authoredHeads is empty after 90 s): this frame is a picture of the PROCEDURAL man");
+    }
+    // AND WHO THE HEAD NET THREW OUT (render/authoredHead.ts). A man it refused is a PROCEDURAL man on
+    // screen, drawn safely and wrongly, and would otherwise be one fewer in the count above with nothing
+    // to say why. It is an error: a refusal means the authored path lost a head on this build.
+    const refusedMen = await page.evaluate(() => (window.__authoredRefused ?? []).map((r) => ({ cls: r.cls, problems: r.problems })));
+    if (refusedMen.length) {
+      errors.push(`the head net REFUSED ${refusedMen.length} authored man/men (${refusedMen.map((r) => `${r.cls}: ${r.problems.join("; ")}`).join(" | ")}): those frames show the PROCEDURAL man`);
+    }
+    console.log(`[shoot] ${key}: authored men drawn ${authoredMen.length}` +
+      `${authoredMen.length ? ` (${authoredMen.map((m) => `${m.cls}:${(m.props || []).join("+") || "bare"}${m.missing?.length ? `!missing ${m.missing.join("+")}` : ""}`).join(", ")})` : ""}`);
+
     // How long the settle actually took. A gore preset names an instant in a
     // death in frames and converts at the renderer's 0.05 s dt cap; if a frame
     // here is faster than that, the shot is of an earlier instant than the
@@ -931,7 +1071,7 @@ async function main() {
     // `subject` in the report, not only in the check: the report is the audit's
     // index, and a row that names every slot the warrior was wearing is what lets
     // a finding be traced back to an option rather than to a filename.
-    const row = { preset: key, file, ready, blank, subject: staged.subject ?? undefined, ...clock, ...stats, errors: errors.slice(0, 8) };
+    const row = { preset: key, file, ready, blank, subject: staged.subject ?? undefined, authoredMen, ...clock, ...stats, errors: errors.slice(0, 8) };
     report.push(row);
     console.log(
       `[shoot] ${key}: ${blank ? "BLANK FRAME" : "ok"} ` +

@@ -19,7 +19,8 @@
 // The house rule about rulers is the reason for every design choice below:
 //
 //   * NOTHING IS CONCLUDED FROM SOURCE. The numbers gated on are runs of
-//     coloured pixels in a PNG that a real Chromium took of the real page, at a
+//     fill pixels (those that change when the fill is hidden; see `measure`)
+//     in a PNG that a real Chromium took of the real page, at a
 //     phone width and a desktop width. `getBoundingClientRect` is used only to
 //     find where a bar is; the verdict is the pixels, because a rect is what the
 //     layout INTENDED and a pixel is what the player GOT. The two are gated
@@ -61,6 +62,7 @@ import { spawn } from "child_process";
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -303,12 +305,24 @@ const domRects = () => ({
 
 /**
  * THE MEASUREMENT. A screenshot is taken, decoded back to pixels, and each bar
- * is read as a RUN OF SATURATED COLOUR from the left end of its track.
+ * is read as a RUN OF PIXELS THAT CHANGE WHEN ITS FILL IS HIDDEN, from the left
+ * end of its track.
  *
- * Saturation, not a colour match: the four fills are emerald, sky, red and amber
- * and the track is `stone-700/80`, which is a neutral. `max-min > 22` separates
- * every fill from every track without the harness holding a table of hex codes
- * that a restyle would silently invalidate.
+ * WHY THIS AND NOT SATURATION (F1, 29 Sep 2026). This used to read a bar as a run
+ * of saturated colour (`max - min > 22`) against a neutral track. That worked
+ * while the four fills were emerald, sky, red and amber, and it stopped working
+ * the day the framework's hues were remapped onto the palette: `bg-emerald-500`
+ * is now `--silver-dim` and `bg-sky-400` is `--silver`, which have a channel
+ * spread of 3 and 4. The ruler did not go red, it went BLIND: two of four bars
+ * read as zero, which is the failure `docs/PROCESS.md` names first (a ruler that
+ * measures a property of the thing, here "is coloured", instead of the thing,
+ * "is drawn"). And UI-PLAN D05 wants exactly that end state on purpose: one
+ * metal, no hue on any axis. The replacement asks the only question that was
+ * ever the point, "which pixels belong to the fill", and asks it of the fill
+ * itself: the same clip is screenshotted a second time with every fill hidden
+ * (`visibility: hidden`, layout untouched), and a pixel is the bar if the two
+ * frames disagree there. No colour, no table of hex codes, and it is indifferent
+ * to whether the fill is emerald, silver or a gradient.
  *
  * Three rows are read and the median taken, so one row of antialiasing along the
  * rounded cap cannot decide a claim.
@@ -333,26 +347,45 @@ async function measure(page, tag) {
     r.track.x < box.x || r.track.y < box.y
     || r.track.x + r.track.w > box.x + box.width || r.track.y + r.track.h > box.y + box.height).length, 0);
   const raw = await page.screenshot({ clip: box, timeout: 120000 });
+  // The same clip with the fills hidden, for the subtraction below. Restored straight after, so the page the mutation
+  // phases go on to use is the page they were handed.
+  const hideFills = (hide) => page.evaluate(([labels, hide]) => {
+    for (const btn of document.querySelectorAll("button[data-cls]")) {
+      for (const span of btn.querySelectorAll("span")) {
+        if (!labels.includes(span.textContent.trim())) continue;
+        const track = span.nextElementSibling;
+        const fill = track && track.firstElementChild;
+        if (fill) fill.style.visibility = hide ? "hidden" : "";
+      }
+    }
+  }, [BAR_LABELS, hide]);
+  await hideFills(true);
+  const empty = await page.screenshot({ clip: box, timeout: 120000 });
+  await hideFills(false);
   if (has("keep")) {
     mkdirSync(OUT, { recursive: true });
     writeFileSync(resolve(OUT, `${tag}.png`), raw);
   }
   // Decoded in the browser that drew it — the same arrangement `silhouette.mjs`
   // uses — so this tool adds no image dependency to the repo.
-  const bars = await page.evaluate(async ([b64, cardsIn, boxIn]) => {
-    const img = new Image();
-    await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
-    const c = document.createElement("canvas");
-    c.width = img.width; c.height = img.height;
-    const x = c.getContext("2d");
-    x.drawImage(img, 0, 0);
-    const d = x.getImageData(0, 0, c.width, c.height).data;
+  const bars = await page.evaluate(async ([b64, b64Empty, cardsIn, boxIn]) => {
+    const decode = async (b) => {
+      const img = new Image();
+      await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b; });
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      const x = c.getContext("2d");
+      x.drawImage(img, 0, 0);
+      return { c, d: x.getImageData(0, 0, c.width, c.height).data };
+    };
+    const { c, d } = await decode(b64);
+    const { d: e } = await decode(b64Empty);
     // The capture is `clip` CSS pixels wide and `img.width` device pixels wide.
     const dsf = c.width / boxIn.width;
+    // How much this pixel changed when the fill was hidden. The name is kept so the run loop below reads as it always did.
     const sat = (px, py) => {
       const i = ((py * c.width) + px) * 4;
-      const r = d[i], g = d[i + 1], bl = d[i + 2];
-      return Math.max(r, g, bl) - Math.min(r, g, bl);
+      return Math.abs(d[i] - e[i]) + Math.abs(d[i + 1] - e[i + 1]) + Math.abs(d[i + 2] - e[i + 2]);
     };
     const out = [];
     for (const card of cardsIn) {
@@ -366,7 +399,9 @@ async function measure(page, tag) {
           let run = 0;
           let miss = 0;
           for (let px = x0; px < x1; px++) {
-            if (sat(px, py) > 22) { run = px - x0 + 1; miss = 0; } else if (++miss > 2) break;
+            // 24 summed over three channels: below the smallest step between two fills and the track, above the compression noise
+            // and the antialiasing along a cap.
+            if (sat(px, py) > 24) { run = px - x0 + 1; miss = 0; } else if (++miss > 2) break;
           }
           runs.push(run);
         }
@@ -382,7 +417,7 @@ async function measure(page, tag) {
       }
     }
     return out;
-  }, [raw.toString("base64"), cards, box]);
+  }, [raw.toString("base64"), empty.toString("base64"), cards, box]);
   return { cards, bars, outside };
 }
 
@@ -455,7 +490,10 @@ async function installStatMutation(page, muts) {
 // on, and its whole purpose here is claim 6 — under a mutation of the drawn
 // pixels it does not move, because it cannot see them.
 function sourceScan() {
-  const src = readFileSync(resolve(ROOT, "src/app/page.tsx"), "utf8");
+  // The page AND what the F0 carve moved out of it: `<StatBar max={...}>` is written in
+  // `ui/lobbyParts.tsx` now, and a scan of `page.tsx` alone would report GREEN about text it can no
+  // longer see. This ruler is never gated on, which is exactly why it must not be allowed to go quiet.
+  const src = pageSource(ROOT);
   const literals = [...src.matchAll(/<StatBar[^>]*?max=\{\s*([\d.]+)\s*\}/g)].map((m) => m[1]);
   const clamped = /Math\.min\(\s*100\s*,/.test(src);
   return { literals, clamped, clean: literals.length === 0 && !clamped };
@@ -473,7 +511,7 @@ const VIEWPORTS = [
 ];
 
 const scan = sourceScan();
-console.log(`\n[matrix] the OLD ruler, for comparison only — source scan of page.tsx: `
+console.log(`\n[matrix] the OLD ruler, for comparison only — source scan of the page and src/app/ui: `
   + `${scan.clean ? "GREEN" : "RED"} (${scan.literals.length} typed maxima ${scan.literals.join(", ") || "—"}; `
   + `clamp ${scan.clamped ? "present" : "absent"})`);
 

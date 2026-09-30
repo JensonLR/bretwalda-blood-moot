@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { WARRIOR_STATS, type GamePlayer, type AttackDirection, type AttackPhase, type MatchEndData, type EmoteId, type HitZone, type WeaponDrop } from "../types";
 import GameHud from "./GameHud";
 import { getFeel, getForged, sampleInput, useTouchControls, type MobileFlags } from "./input";
-import { setTeamContrast, buildWeaponForClass } from "./characters";
+import { setTeamContrast, buildWeaponForClass, type Appearance } from "./characters";
 import { underGrace } from "@/game/grace.mjs";
 import { roundBoundary, matchBoundary } from "@/game/roundreset.mjs";
 import { createDeathCamera, createRoundCamera } from "@/game/deathcam.mjs";
@@ -30,9 +30,11 @@ import { createCameraRig, type CameraRig, type PhotoFraming } from "./render/cam
 import { createHud3d, type Hud3D } from "./render/hud3d";
 import { createAudio, WOUNDING, type AudioHandle, type WireHitType, type ScoreScene } from "./render/audio";
 import { loadAuthoredWarrior, instanceAuthored } from "./render/authoredSource";
-import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, type AuthoredRole } from "./render/authored";
+import { upgradeRigToAuthored, AUTHORED_ROLES, hideBakedRoles, roleIsWorn, type AuthoredRole } from "./render/authored";
 import { createClipDriver } from "./render/clipDriver";
 import { dressAuthoredHead, firstSkinnedMesh } from "./render/authoredProps";
+import { authoredResolver, authoredDressContext } from "./render/authoredDress";
+import { armHeadNet, censusHead, type HeadNet, type HeadNetRig } from "./render/authoredHead";
 import {
   createWarriorRig, createMotion, stepWarriorTransform, poseWarrior, triggerEmote,
   type WarriorRig, type WarriorMotion, type AnimHooks,
@@ -323,11 +325,9 @@ function wearsWarPaint(p: GamePlayer): boolean {
 
 /** Did the armoury sell him this? Anything not sold is hidden on the mesh. */
 function wearsAuthoredRole(p: GamePlayer, role: AuthoredRole): boolean {
-  const ap = (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance;
-  const v = ap ? ap[`${role}Style`] ?? ap[role] : undefined;
-  // ABSENT is not "none": a loadout that does not mention beards is not a man
-  // who shaved, and keeps whatever the export baked in.
-  return v === undefined || (typeof v === "string" ? v !== "none" && !v.endsWith("_none") : true);
+  // `roleIsWorn` is the one definition (`render/authored.ts`): it reads "shaved" as
+  // bare, which this function did not, so a bought razor left the baked hair on him.
+  return roleIsWorn((p as GamePlayer & { appearance?: Record<string, unknown> }).appearance, role);
 }
 
 interface WarriorSlot {
@@ -349,7 +349,22 @@ interface WarriorSlot {
    * makes it fire once per stroke rather than once per snapshot.
    */
   prevPhase: AttackPhase | null;
+  /**
+   * The authored man's head net, armed by the swap and dropped once it has
+   * judged him (`render/authoredHead.ts`). `dress` is what the swap defers until
+   * he has passed: fetching his helm is no use to a man about to be thrown out.
+   */
+  headNet?: { net: HeadNet; dress: () => void };
+  /** The net refused him: the next `ensureSlot` builds a procedural man in his place. */
+  refused?: boolean;
 }
+
+/**
+ * CLASSES WHOSE AUTHORED MAN FAILED THE HEAD NET THIS SESSION. Module-level, so
+ * it outlives the match: the failure is the asset's and the code's, not the
+ * round's, and a second round must not rebuild the man the first threw out.
+ */
+const HEAD_REFUSED = new Set<string>();
 
 export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd, onForge, onEmote, onCanEmote, onReplay, emoteFeed, hitFeed, onMootFoe, onMootArm, onMootHold, onMootDone, onClip }: GameCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1240,16 +1255,22 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
           // `!wearsWarPaint` and not a filter inside the upgrade: the paint is
           // on the head this would REPLACE, so the only way to keep it is not
           // to replace him. See `wearsWarPaint`.
-          if (authoredWanted() && !wearsWarPaint(p)) {
+          if (authoredWanted() && !wearsWarPaint(p) && !HEAD_REFUSED.has(p.warriorClass)) {
             void loadAuthoredWarrior(p.warriorClass).then((asset) => {
               // He may have died, left, or taken up a dead man's weapon (which
               // rebuilds the whole rig) during the fetch.
               const live = warriorsRef.current.get(p.id);
               if (!asset || !live || live.rig !== rig) return;
               const worn = new Set<AuthoredRole>(AUTHORED_ROLES.filter((r) => wearsAuthoredRole(p, r)));
-              const resolveMaterial = (ask: { surface: string | null; color: number }) => (ask.surface
-                ? stage.materials.tinted(ask.surface as Parameters<typeof stage.materials.tinted>[0], ask.color)
-                : stage.materials.standard(ask.color));
+              // The seam every authored material goes through: the library's own
+              // answer today, and the skin, livery and hair handlers' when they land.
+              const resolveMaterial = authoredResolver(authoredDressContext({
+                cls: p.warriorClass,
+                appearance: (p as GamePlayer & { appearance?: Appearance }).appearance,
+                team: p.team,
+                id: p.id,
+                materials: stage.materials,
+              }));
               const res = upgradeRigToAuthored(
                 {
                   body: rig.body,
@@ -1293,73 +1314,84 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
                   w.__bretwaldaClips = ((w.__bretwaldaClips as number) ?? 0) + (driver ? 1 : 0);
                 }
               }
-              // ---- AND HE WEARS WHAT THE ARMOURY SOLD HIM ----
+              // ---- THE HEAD NET, THEN WHAT HE WEARS ----
               //
-              // A warrior export carries ONE helm, ONE hair and ONE beard: the
-              // ones the exporter posed him in. Until now the swap kept them,
-              // so a man who bought a wyrm helm and long braids was drawn in
-              // whatever Blender baked — the shop took his gold and the
-              // picture ignored it, and every structural gate passed because
-              // the geometry was perfect and the swap reported success.
-              //
-              // THE BAKED PIECE COMES OFF ONLY ONCE ITS REPLACEMENT IS ON THE
-              // MAN. Hiding first and fetching after would leave him bald for
-              // as long as the network takes, and on a slow phone that is the
-              // whole first round — and if the fetch never lands it leaves him
-              // bald for the match. Wrong helm beats no head.
-              const skinned = firstSkinnedMesh(rig.body);
-              if (skinned) {
-                void dressAuthoredHead({
-                  cls: p.warriorClass,
-                  appearance: (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance,
-                  head: rig.pivots.head,
-                  skeleton: skinned.skeleton,
-                  resolveMaterial,
-                  // TWO LEVERS, AND THEY ARE NOT THE SAME LEVER.
-                  //
-                  // `strands` is TRIANGLES: dropping the strand shells after
-                  // the parse takes 23,500 of a head of hair's 28,552 and not
-                  // one byte of its 3.5 MB download.
-                  //
-                  // `roles` is BYTES: at `low` the hair is not asked for at
-                  // all, and because a baked piece only comes off once its
-                  // replacement is on the man, he keeps the hair Blender gave
-                  // him rather than going bald. A helm is 300 KB and a beard
-                  // 1 MB; the hair is the file worth refusing.
-                  strands: stage.quality.tier === "high",
-                  roles: stage.quality.tier === "low" ? ["helm", "beard"] : undefined,
-                }).then((d) => {
-                  if (d.mounted.length) {
-                    hideBakedRoles(rig.body,
-                      new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
-                  }
-                  // A HEAD CENSUS, PER MAN, ON THE WIRE THE HARNESS READS.
-                  //
-                  // The owner, of an authored arena capture: "image 1's head is
-                  // missing from a full health player". Every claim the shot
-                  // harness made about that frame passed — the swap landed, ten
-                  // joints repointed, forty-six meshes dressed — because not one
-                  // of them asks whether the man has a face. The armoury could
-                  // be measured (it publishes `__authored`); the arena could
-                  // not. Now it can.
-                  const above: string[] = [];
-                  rig.body.traverse((o) => {
-                    const m = o as THREE.Mesh;
-                    if (!m.isMesh || !m.visible || !m.geometry) return;
-                    m.geometry.computeBoundingBox();
-                    const bb = m.geometry.boundingBox;
-                    if (bb && bb.max.y >= 1.6) above.push(m.name || "(unnamed)");
+              // The swap has landed and the man has not been posed. The net takes
+              // its census of his head NOW, at bind (right by construction), and
+              // is judged on his first posed frame, before that frame is drawn
+              // (`checkHeadNets`, below the pose). Dressing waits for it: a man
+              // who is about to be replaced by his procedural self does not go
+              // and fetch a helm. See `render/authoredHead.ts`.
+              const dress = (): void => {
+                // ---- AND HE WEARS WHAT THE ARMOURY SOLD HIM ----
+                //
+                // A warrior export carries ONE helm, ONE hair and ONE beard: the
+                // ones the exporter posed him in. Until now the swap kept them,
+                // so a man who bought a wyrm helm and long braids was drawn in
+                // whatever Blender baked — the shop took his gold and the
+                // picture ignored it, and every structural gate passed because
+                // the geometry was perfect and the swap reported success.
+                //
+                // THE BAKED PIECE COMES OFF ONLY ONCE ITS REPLACEMENT IS ON THE
+                // MAN. Hiding first and fetching after would leave him bald for
+                // as long as the network takes, and on a slow phone that is the
+                // whole first round — and if the fetch never lands it leaves him
+                // bald for the match. Wrong helm beats no head.
+                const skinned = firstSkinnedMesh(rig.body);
+                if (skinned) {
+                  void dressAuthoredHead({
+                    cls: p.warriorClass,
+                    appearance: (p as GamePlayer & { appearance?: Record<string, unknown> }).appearance,
+                    head: rig.pivots.head,
+                    skeleton: skinned.skeleton,
+                    resolveMaterial,
+                    // TWO LEVERS, AND THEY ARE NOT THE SAME LEVER.
+                    //
+                    // `strands` is TRIANGLES: dropping the strand shells after
+                    // the parse takes 23,500 of a head of hair's 28,552 and not
+                    // one byte of its 3.5 MB download.
+                    //
+                    // `roles` is BYTES: at `low` the hair is not asked for at
+                    // all, and because a baked piece only comes off once its
+                    // replacement is on the man, he keeps the hair Blender gave
+                    // him rather than going bald. A helm is 300 KB and a beard
+                    // 1 MB; the hair is the file worth refusing.
+                    strands: stage.quality.tier === "high",
+                    roles: stage.quality.tier === "low" ? ["helm", "beard"] : undefined,
+                  }).then((d) => {
+                    // Rebuilt, or thrown out by the head net, while the helm was in flight.
+                    if (warriorsRef.current.get(p.id)?.rig !== rig) return;
+                    if (d.mounted.length) {
+                      hideBakedRoles(rig.body,
+                        new Set([...worn].filter((r) => !(d.mounted as AuthoredRole[]).includes(r))));
+                    }
+                    // A HEAD CENSUS, PER MAN, ON THE WIRE THE HARNESS READS.
+                    //
+                    // The owner, of an authored arena capture: "image 1's head is
+                    // missing from a full health player". Every claim the shot
+                    // harness made about that frame passed — the swap landed, ten
+                    // joints repointed, forty-six meshes dressed — because not one
+                    // of them asks whether the man has a face. The armoury could
+                    // be measured (it publishes `__authored`); the arena could
+                    // not. Now it can.
+                    // Taken by the same function the head net judges him with, so
+                    // the census the harness reads and the census the game acts on
+                    // cannot be two different ideas of "above the shoulders".
+                    const c = censusHead(rig as unknown as HeadNetRig);
+                    const above = c.visible;
+                    const w = window as unknown as { __authoredHeads?: unknown[] };
+                    (w.__authoredHeads ??= []).push({
+                      id: p.id, cls: p.warriorClass, drawnAbove: above.length,
+                      props: d.mounted, missing: d.missing, names: above,
+                      crown: c.crown, reach: c.reach, det: c.det, skull: c.skull,
+                    });
+                    console.info(`[authored] ${p.warriorClass}: props ${d.mounted.join("+") || "none"}`
+                      + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`
+                      + `, ${above.length} meshes above the shoulders`);
                   });
-                  const w = window as unknown as { __authoredHeads?: unknown[] };
-                  (w.__authoredHeads ??= []).push({
-                    id: p.id, cls: p.warriorClass, drawnAbove: above.length,
-                    props: d.mounted, missing: d.missing, names: above,
-                  });
-                  console.info(`[authored] ${p.warriorClass}: props ${d.mounted.join("+") || "none"}`
-                    + `${d.missing.length ? ` (missing ${d.missing.join("+")})` : ""}`
-                    + `, ${above.length} meshes above the shoulders`);
-                });
-              }
+                }
+              };
+              live.headNet = { net: armHeadNet(rig as unknown as HeadNetRig), dress };
             });
           }
           slot = {
@@ -1369,6 +1401,15 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
             takenKey: takenKeyOf(p),
           };
           warriorsRef.current.set(p.id, slot);
+        }
+        // THE HEAD NET REFUSED HIM (`checkHeadNets`). His body is already hidden;
+        // he is torn down here, on the next frame's way in, and built again — and
+        // because his class is now in `HEAD_REFUSED`, built PROCEDURAL.
+        if (slot.refused) {
+          stage.hud.detach(p.id);
+          slot.rig.dispose();
+          warriorsRef.current.delete(p.id);
+          return ensureSlot(p);
         }
         // A DEAD MAN'S WEAPON IN HIS HANDS (TAKE). The rig was built holding
         // one weapon and the wire now says another, so he is rebuilt — the
@@ -2491,6 +2532,27 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
         }
       }
 
+      // THE HEAD NET, on every man the swap has landed on since the last frame
+      // and who has now been posed — after the poses above and before anything is
+      // drawn, so a man who has lost his head is never on screen with it lost.
+      warriorsRef.current.forEach((slot) => {
+        const armed = slot.headNet;
+        if (!armed) return;
+        const { outcome, verdict: v } = armed.net.step();
+        if (outcome === "waiting") return;
+        slot.headNet = undefined;
+        const w = window as unknown as { __authoredRefused?: unknown[] };
+        if (outcome === "pass") { armed.dress(); return; }
+        console.error(`[authored] ${slot.rig.warriorClass}: the head net REFUSED the authored man — ${v.problems.join("; ")}. `
+          + "Keeping the procedural man (wrong body beats no head).", v.now);
+        (w.__authoredRefused ??= []).push({
+          id: slot.rig.id, cls: slot.rig.warriorClass, problems: v.problems, head: v.now,
+        });
+        HEAD_REFUSED.add(slot.rig.warriorClass);
+        slot.rig.body.visible = false;
+        slot.refused = true;
+      });
+
       // cleanup stale
       warriorsRef.current.forEach((slot, id) => {
         if (activeIds.has(id)) return;
@@ -2712,7 +2774,9 @@ export default function GameCanvas({ playerId, roomState, onSendInput, matchEnd,
   }, [playerId, rumble, touch.joystick]);
 
   return (
-    <div ref={rootRef} className="relative w-full h-full select-none" onTouchStart={() => { if (glError) setGlError(null); }} onMouseDown={() => { if (glError) setGlError(null); }}>
+    // `fight-root`: the pinch-zoom guard (globals.css). It is on THIS element and not on
+    // the canvas alone because the HUD is a sibling of the canvas, not a child.
+    <div ref={rootRef} className="fight-root relative w-full h-full select-none" onTouchStart={() => { if (glError) setGlError(null); }} onMouseDown={() => { if (glError) setGlError(null); }}>
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none"

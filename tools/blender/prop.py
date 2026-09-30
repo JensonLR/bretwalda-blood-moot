@@ -2,7 +2,7 @@
 #   Blender -b -P tools/blender/prop.py -- weapon-dane_axe
 import bpy, os, sys, json
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-STEM = argv[0]; D = os.path.join(os.path.expanduser("~/bretwalda-blood-moot"), "art", "blender")
+STEM = argv[0]; D = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "art", "blender")
 
 # ONE COPY OF THE TEXTURE WIRING, and this file kept a second. It was forked
 # from `warrior.py` before that moved into `blendlib.py`, and it never took the

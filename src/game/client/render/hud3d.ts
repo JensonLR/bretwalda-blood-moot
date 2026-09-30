@@ -130,8 +130,9 @@ export interface Hud3D {
  * `hex` carries the hue and `gain` says where on the grade's curve the brightest
  * channel lands. Calibrated against two measured points in `art/shots/v4` — the
  * gold rim's authored (1.2, 0.753, 0.197) came back as code (188, 153, 53), and
- * the sage below lands near (134, 168, 100) — display code runs roughly as
- * `188 * L^0.79` up to the shoulder. Which puts the useful band at: 0.05 is a
+ * the sage (then 0xa8bf8e, since moved to 0xb7c4a3 and not re-measured) landed
+ * near (134, 168, 100) — display code runs roughly as `188 * L^0.79` up to the
+ * shoulder. Which puts the useful band at: 0.05 is a
  * groove the curve crushes to near-black, 0.7 is a confident mid, and past about
  * 1.2 the shoulder and the crosstalk term start trading hue for white.
  */
@@ -155,7 +156,15 @@ function radiance(hex: number, gain: number): THREE.Color {
 // complement of the frame toward its centre as the warrior dies, which is a read
 // you get pre-attentively without decoding a colour code — and it descends the
 // curve as it goes, so a bar dims as it empties.
-const FILL_HEALTHY = radiance(0xa8bf8e, 0.88);
+//
+// F1, 29 Sep 2026: the hex moved from 0xa8bf8e to 0xb7c4a3 (UI-PLAN 1.2). The old
+// mint was the most saturated cool pixel in `store/steam/screenshots/01-duel.png`,
+// which is the wrong thing for the calm end of a health ramp to be. The gain is
+// unchanged, so the plate is the same brightness with less chroma. The DOM bar
+// (`--hp-healthy` in `globals.css`) carries the same hex, and that pair used to
+// be held together by a comment alone: `tools/palettecheck.mjs` now reads this
+// file and the stylesheet and fails if either of the three bases below drifts.
+const FILL_HEALTHY = radiance(0xb7c4a3, 0.88);
 // Brass rather than the old 0xffc21a amber: that hex is 0.95 gain on a hue with
 // nothing in the blue channel, which the opponent term then drags further out.
 // 0xd7a850 was still most of the way there — it normalises to linear

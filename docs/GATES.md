@@ -45,6 +45,13 @@ exists because something was shipping unmeasured:
 | `npm run crownnews` | the crowning latch, over two simulated visits. A one-render assertion cannot see "the visit that shows you the news is the visit after which it stops being news" |
 | `npm run storeclaims` | the Steam page's nouns, against the modules that own them. It was written after the copy claimed five warrior classes and named a Burhweard |
 | `npm run marktest` | the 24-glyph set: sourcing, unlock ladder, and that the server narrows a stored mark against the row's own record |
+
+One more, added with the weapons pass (U7), CPU, ~25 seconds:
+
+| ruler | answers |
+|---|---|
+| `node tools/weaponshape.mjs` | whether each held weapon is the OBJECT the lore says it is, in every one of the six finishes. 424 checks read off the triangles the builders emit (plane slices, envelopes, connected islands, the materials' own values), never off a station table: a sword's guard is 124 mm across and its pommel one shell with three lobes, a seax has a broken back and brass wire and nothing that glows, a Dane axe's bit is bright steel on dark cheeks, a spear head is 117 mm across its wings and 86 mm across its leaf, no steel is a mirror (CH-24, read from the headless library AND from the shipped one stood up in node, which is the only one that knows a pattern finish's true metalness), every solid winds outward (an inside-out piece is culled to nothing: the axe's langets were), and every grip is still the radius the baked fists close on. `--mutant=[weapon:]name` builds ten deliberately wrong weapons (the header of the file lists them) and requires the ruler to catch each; `--shield` gates the board, which is W-B's and is only read out until then |
+
 This is the loop. Iterate here. It catches type errors, geometry punching
 through skin, silhouette failures, and cosmetics that do not differ.
 
@@ -212,6 +219,39 @@ is the least chromatic of the four fields. Both corrections are strictly
 tighter, both print the old quantity beside the new one, and neither is a bar
 that moved.
 
+## The authored man's colour — `chromabudget`, the role-table claims, `teamread --authored`, `hairmap --authored`
+
+Every colour gate above rasterises `buildCharacter`, the PROCEDURAL man, and none of them opens a GLB; the default
+build draws the GLB man (`RENDER-PATHS` A). Until `authoredLivery.ts` landed his material names (`mail:5f6b7a`, the hex
+IS the colour) ignored `armorColor`, `people`, `team`, the cloak and the hair, and every one of those gates was green
+about a man nobody was looking at. These four are the ones that can see him, and each was run against the tree
+without the fix first (PROCESS R2), and does not pass unless the fix is there:
+
+| ruler | costs | answers | red without the fix |
+|---|---|---|---|
+| `node tools/chromabudget.mjs` | ~15 s, no browser | is every WORN colour the shop sells inside the as-worn budget (LORE 7.0: cloth, leather and mail C* 35, cast metal 50, TEAM_FIELD exempt): `FINISH_KIT`, `CLOAK_COLORS`, `CLASS_TUNIC`, `tunicDye` over every finish x class, and the whole chain on the man (672 class x finish x cloak cells). `--budget=` moves the bar (R1: 348 cells over at C* 20, none at 35) | the finish rows fail (7 cells over, worst Gold's mail 46.7) and so do the cloaks (2 over, the Gilded 51.3) |
+| `node tools/authoredtest.mjs` (`roletable`, hair and shaved claims) | seconds | every material name in every one of the 68 exports is a role, an `EXCEPTIONS` line with a reason, or another handler's (a stale export goes red); no name is two roles; **the authored man and the procedural man are dressed in the same colours** over every finish, cloak, people and side (2172 name resolutions); the hair ribbons' colour is readable and follows `hairColor` and `beardColor`; a bought Shaved shaves | with no table 7 claims fail; with a table that dresses nothing, "700 name resolutions ... 540 differ" |
+| `node tools/teamread.mjs --authored` | ~20 s | the same 6/6 as `teamread`, on the shipped GLB man dressed by the real resolver chain and rasterised through the same lens. `--authored --off` is the control and **must fail** | 4/6: both sides ΔE 0.0, the team read is absent on the man the player is served |
+| `node tools/hairmap.mjs --authored` | ~5 s | the ribbons as resolved: effective diffuse p95 L* at most 65 (now 21.6), the under-cap L* at least 14 (17.1), tip 1.5x the light of the root (1.71x), every strand its own value, no metal, drawn on both sides, and the man's `hairColor` moves them (R1: 4.7 < 16.3 < 52.2). `--authored --off` is the control and **must fail** | 6 checks fail: p95 L* 91.7 (the white `COLOR_0` x 0.8, #e7e7e7), the cap black (metallic 1, roughness 1), one value, 28 metallic meshes |
+
+**What they still cannot see, and the verdict lines say so.** `chromabudget` is ALBEDO: no light, no grade, and
+the four peoples' vat outputs are REPORTED and not gated (63 of 180 vat cells are over C* 35, worst 71.2: their
+re-grade is the FACTION rows' own and is deferred, see `docs/OPEN-DEFECTS.md`, "THE PEOPLES' VATS WORK FROM THE DYE
+LOT"). `teamread --authored` rasterises the GLB at bind pose with his BAKED helm, hair and beard and without the shield
+board. `authoredtest` prints the cloak's CUT as REPORTED and not gated (12 of 16 purchases draw a cut the shop did
+not sell): the fix is a cloak prop family, not a runtime livery. And **the lit sections of `factionread` (§6, §7),
+`roselook` and `vatprobe` read the procedural man or need frames**; nothing in the CPU rulers above says the
+re-graded man does not clip a channel under the fire, and `factionread`'s CPU part was run on this tree and reads the
+same four red checks with the same numbers as the tree before.
+
+**Two rules these four wrote down.** (1) A ruler that walks a table it does not own must say how many cells it
+walked: `chromabudget` fails if the walk reached fewer tables than it claims (7 finishes x 7 columns, 4 cloaks, 4
+accents), because an empty walk is a pass. (2) When a fix moves an input that a tuned stage consumes, ask the stage,
+not the input: the wraps were re-graded to the plan's L* 44-50 and `factionread` §1.3 went from 2 readings past 5
+degrees to 32 in one edit, because the four vats snap what they are given onto a field and the chroma that comes out
+is the chroma that went in. The unsworn man wears the re-graded rows; the vats take the dye lot they were tuned on
+(`FINISH_LOT`); and the count went back to 2.
+
 ## Two gates that carry their own proof — `classmatrix` and `gorestat`
 
 Added 2026-08-13, because two existing rulers were caught not discriminating and
@@ -232,9 +272,12 @@ replaces read `page.tsx` for typed maxima; an adversary changed the drawn geomet
 and the scan never moved. So this one:
 
 * takes a real screenshot, decodes it, and measures each bar as a **run of
-  saturated pixels** from the left end of its track — the rect is used only to
-  find the bar, and claim 2 gates rect against pixels so that a clip or a
-  transform between the two is a finding rather than a silence;
+  pixels that change when the fill is hidden** from the left end of its track
+  (the clip is shot twice, the second time with every fill `visibility:hidden`)
+  — the rect is used only to find the bar, and claim 2 gates rect against pixels
+  so that a clip or a transform between the two is a finding rather than a
+  silence. It read "saturated pixels" until F1 remapped the emerald and sky bars
+  onto silver, which are not saturated, and two of four bars read as zero;
 * injects a stylesheet that pins every fill to 100% and **requires its own
   discrimination claim to go from 0 faults to 24**, while printing that the source
   scan's verdict is unchanged, because it cannot see pixels;
@@ -292,6 +335,190 @@ whenever anything under `vfx.ts` moves. `classmatrix` needs a browser and a dev
 server; it belongs in the **MIDDLE** tier for any change to the class roster,
 `StatBar`, or `WARRIOR_STATS`, and in the **OUTER** gate otherwise. Neither is an
 inner-loop instrument.
+
+## The authored man: `headflip` and `parity` — the two gates that pose him
+
+Added 28 Sep 2026, after the owner reported "a torso ending in a neck stump" in
+the armoury and men "with inverted heads, the beard on top" in the arena — what
+every default-build player sees, because `next.config.ts` stamps
+`NEXT_PUBLIC_AUTHORED=1` whenever `public/authored/*.glb` is committed.
+
+| harness | costs | answers |
+|---|---|---|
+| `npm run headflip` | ~25 s, no browser | the Head-weighted crown, box and turn of the AUTHORED man against the PROCEDURAL man's, after 90 frames of the real `poseWarrior`, 4 classes x BOTH loadouts each (the engine's `ARMS`: the two-handed `dane_axe` the default berserker holds is one of them) x idle/walking/attacking/knocked/dead. Bars 3 cm / 3 cm / 3 deg. Also the HELM, HAIR and BEARD props, mounted by the real `dressAuthoredHead` against the shipped prop GLBs (the owner's "strands floating over the collar"): top and centre against the procedural head group's, 6 cm (the two men wear different hair; the defect moves them 13-34 cm) |
+| `npm run parity` | ~30 s, no browser | all twelve pivots (1 cm, 3 deg), the cloak's seven bones (same bars), which hand the weapon is in (right AND left-handed), the weapon / off-hand blade / board probe points (1.5 cm), and the clip-driven arena man. `--wide` sweeps all twelve states |
+| either, `--naive` | same | the control: today's drive, absolute `rotation.set()` onto the GLB bones. **Must fail** |
+| either, `--no-mirror` | same | the control: the double mirror put back. **Must fail** |
+| either, `--lever=90` | same | R1: turns the captured rest of the head (and, in `parity`, the weapon wrist and the board's elbow) by 90 degrees. **Must move the numbers** |
+
+They share `tools/lib/authoredrig.mjs`, which builds the same man twice — once as
+`createWarriorRig` makes him, once after the real `upgradeRigToAuthored` on the
+shipped warrior GLB — and poses both with one id (two ids are two men breathing
+out of step: `createMotion` seeds the idle sway from it).
+
+**The picture step (R5) has its own two ways of lying, both now closed in the tools.**
+A capture taken before the async swap lands is a picture of the PROCEDURAL man, who has a
+head: `armourycard --classes/--lenses` waits on `window.__authored` and prints whether the
+swap LANDED, and `shoot.mjs` now waits on `window.__authoredHeads` (one row per man the
+arena has swapped and dressed), prints `authored men drawn N (cls:props)` on every preset,
+records it in `report.json`, and treats zero for a no-war-paint single-man card as an error.
+And a capture that lands but is framed on the wrong thing: `armourycard`'s first desktop run
+logged 0 errors and LANDED eight times while every frame was of the helmet cards with the
+mannequin scrolled off the top; it scrolls back before it shoots. Neither was visible in a
+log. Both were visible in one PNG.
+
+**Why nothing else could see this.** The head census (`GameCanvas.tsx`,
+`armouryStage.ts`) counts meshes whose BIND bounding box reaches y >= 1.6 and are
+`visible`; a skull drawn 0.34 m inside the chest passes it. `head.det` looks for
+a collapsed matrix; this one was fine, merely 180 degrees wrong. `authoredtest`,
+`gltftest`, `cliptest`, `severauthored` and `weightprobe` read the files or run
+one function on them and never pose a man. Every ruler that builds
+`buildCharacter` directly (`headmeasure`, `wearmeasure`, `hairmail`, `teamread`,
+`factionread`'s CPU sections, ...) is blind to the authored path entirely: **a
+green from any of them says nothing about what the default player sees.**
+
+**What they were the first time, on the tree that shipped:** `headflip` 0 of 36,
+head turned exactly 180.0 deg in every run, crown -0.157 m (runekeeper) to
+-0.336 m (warden); `parity` 16 of 146, worst joint 0.65-1.12 m, the arena man's
+weapon in his LEFT hand (x +0.304 against -0.463) and a left-hander's man
+right-handed. The 16 that passed were "the weapon origin sits on the fist", true
+by construction.
+
+## The mannequin's head: `headnet`, `stagehead`, and the browser's last line of defence
+
+Added 29 Sep 2026, on top of the section above. `headflip` and `parity` say the SHIPPED pose
+puts the authored head where it belongs. They cannot follow a build to a browser, and the
+next export, bone rename or refactor will lose the head in a way no gate anticipated. So the
+browser has a net of its own, and two tools that ask the picture.
+
+| harness | costs | answers |
+|---|---|---|
+| `render/authoredHead.ts` (in the game) | ~2 ms a man, twice in his life | both call sites (`armouryStage.ts`, `GameCanvas.tsx`) arm it at the swap: a census of the head AT BIND, and again on the FIRST POSED FRAME before it is drawn. If the head is not where bind says the pose must leave it, the authored man is hidden, `console.error` prints the head object, `window.__authored` (`window.__authoredRefused` in the arena) records it, the class is refused for the session, and a PROCEDURAL man is built in his place. "Wrong body beats no head." |
+| `npm run headnet` | ~40 s, no browser | the net itself, against the shipped man (4 classes x 12 states procedural, 8 loadouts, the CLIP-DRIVEN man the arena draws, and a LEFT-HANDED man) and the man the tree shipped before the fix. It must not refuse any healthy man, must refuse every defective one on the first posed frame, must trip on each of the five structural facts on its own, and must follow its bars (`--lever`: open them and the defective man passes; close them and the healthy one is refused) |
+| `npm run stagehead` | ~4 min per viewport, browser, through the lock | 4 classes x 4 lenses (portrait, shoulders, full kit, fight range) x phone+desktop: make the stage draw a frame, read the crown window off the canvas, count skin-hue pixels (H 15-35, S .2-.6, V > .25); assert `__authored.head` (det, skull, visible, scale), that the head net PASSED him (a refused man is a fail: the frame then shows the procedural man and would pass the pixels), and the full-kit framing (crown ~8% from the top, boots ~90%) |
+| `uishots`, `armourycard --classes/--lenses` | as before | the same crown-window read, under every mannequin they meet: the lobby's YOUR WARRIOR, the oath mirror, the training muster, the armoury. A screen that must have a mannequin and does not is a failure, not a skip |
+
+**What the net measures, and why not the crown.** The brief for this unit said "crown more than 3 cm off the
+procedural crown". The only procedural crown the browser has is `rig.headTop`, taken at rest with the armoury's helm
+on him, against an authored man still in the export's baked helm until the props land; the two differ by a helm, and
+a healthy idle man sits 1.4-2.8 cm under `headTop`, 2 mm inside the brief's bar. So the crown is in the census (a
+harness reads it) and not in the verdict. What the verdict uses is state-independent, because the arena swaps men
+mid-swing and mid-fall: **reach** (farthest head vertex from the chest bone: healthy 0.000-0.027 m over every state,
+procedural and clip-driven; defect 0.096-0.34) and **turn** (head against chest, from bind: healthy 33.6 deg at
+the worst sample, a dead man's head; defect 178-180), bars 0.06 m and 75 deg. `headflip` still gates the crown at 3 cm,
+against the procedural man posed in the same frame, which is the comparison that is exact.
+
+**A second thing the brief's list got wrong.** "det < 1e-3, or a scale component under 0.5" reads a MIRRORED man as
+collapsed: `handedness` reflects the whole rig for a left-handed player, `getWorldScale` reads that as a negative x
+scale, and the first cut of the net refused every left-handed man in the game. It was found by the `stagehead` run on
+the tree before the fix, which read det -1 and scale [-1,1,1] off a mirrored man, and is held now by a left-handed case
+in `headnet` (with the signed scale put back, 39 passed and 1 failed). Both are tested on magnitudes.
+
+**Also from that run: the skull is found by what it is, not by `part_34`.** The old census looked for a mesh with that
+name; on the berserker's export it does not exist (`skull NO` in the pre-fix run), so the census cried a missing skull
+on a man who had one. The net takes the biggest body mesh that is entirely head-weighted and has at least 1,500 vertices
+(the skull is 4,174; the next candidate, the brow and eyes, is 358).
+
+STAGEHEAD_NUMBERS
+
+**What `stagehead` cannot see**, so nobody mistakes it for more than it is: a head on the right way up but the wrong
+way round, a face that is skin-coloured and wrong, and a skin-coloured thing in the scene that is not the man. The pixel
+test alone can also be passed WITHOUT fixing the head: the net's own fallback is a headed procedural man, so with the
+defect present the frame passes 1 and 2 and only the third ("the net passed him") is red. That is why all three are asked
+and why `--allow-refused` exists: the run that proves the net fires is the one run that turns that check off.
+
+## Gates that read the page as text go through `tools/lib/pagesrc.mjs`
+
+Several gates assert something about the menu screens by reading source (a stat
+bar carries no typed ceiling, the tour's targets exist, the round hold is derived
+from the replay, the hex-literal ratchet). `src/app/page.tsx` stopped being one
+file when the F0 scaffold carved its components into `src/app/ui/*`, and it will
+keep changing shape as the units land, so **a gate must not open `page.tsx` by
+name**: `pageSources()` (per file, for a report that names `file:line`) and
+`pageSource()` (one string, for "is it anywhere") return the page and everything
+carved out of it.
+
+The failure this prevents is silent, which is why it is a rule and not a tidy-up.
+The day the carve landed, `csscheck`'s ratchet read **7 raw hex literals against a
+ceiling of 15**: eight had moved next door, so eight new ones would have been let
+in, and every assertion of the form "this must not be there" (`classmatrix`'s
+typed `max=`, `marktest`'s removed `title=`) would have kept passing while looking
+at a file that no longer held the text. A gate that is green because the case is
+absent is not a gate.
+
+## The palette gates — `palettecheck`, `csscheck` 7-13, `numeralprobe`
+
+Added 29 Sep 2026 with F1 of the UI overhaul. The palette is a **stylesheet**
+concern, so all of it is arithmetic and none of it needs a frame, except the one
+thing a frame cannot be replaced for (`numeralprobe`, below).
+
+| ruler | costs | answers |
+|---|---|---|
+| `npm run palettecheck` | ~1 s, no browser | is the ink ramp 4.5:1 on niello-raised, the hall and the lit card top; does every Tailwind hue class the source uses still exist in the **compiled** sheet and resolve to a palette token; is every `hover:` rule behind `(hover:hover) and (pointer:fine)`; are the three `--hp-*` bases the same hexes as `hud3d.ts` |
+| `npm run csscheck` (checks 7-13) | ~1 s | ratchets, each **measured on the tree it landed on** and only allowed to fall: arbitrary text sizes under the floor, Tailwind hue classes per hue, system monospace, literal font-family names outside `layout.tsx`/`globals.css`, text set in `--ink-ghost`, raw `rgba(238,226,204)`, `:hover` inside TSX strings |
+| `npm run numeralprobe` | ~1 min, one browser | does `lining-nums` / `tabular-nums` reach Alegreya's figures in the font **as served**, after Google's subsetter and `next/font` |
+| `touchtest` (new claims) | with the suite | a pinch zooms a menu and does not zoom the fight; no touchable element in the fight can let one through |
+
+**They read the built sheet because the source cannot say.** The first draft of
+the hover override was `@custom-variant hover (@media (...) { &:hover })`. It
+reads like the documented shorthand and is not, and Tailwind does not object: it
+defines a variant that matches nothing, and **every `hover:` utility in the app
+disappeared**. `tsc`, `next build` and `csscheck` all passed. The compiled sheet
+had zero `.hover\:` rules where the old one had twenty, and only `palettecheck`
+looked. That is `DESIGN-SYSTEM.md` section 10's lesson ("verify tokens in the
+compiled sheet, not the source") turned into a gate, and it found three more
+things while it was being written, each of them in the gate itself: it read the
+`prefers-contrast` overrides as the page's tokens; a class with a variant prefix
+(`hover\:bg-amber-700`) was invisible to it; and the `.shell` container's
+`touch-action: pan-y` meant that removing the viewport's zoom lock changed
+nothing on any menu (found by writing `touchtest`'s zoom control, which pinches
+the title screen and requires the page to grow).
+
+**Each of them was shown failing first**, on the tree before F1 or by pulling a
+lever: `palettecheck` 11 FAILED on the F0 tree (faint ink 2.78:1, 19 of 29
+tokens absent, 85 compiled hue rules carrying Tailwind's raw oklch); the hover
+check red on the broken draft; the text-legibility check red when one ramp step
+was pointed at `--pewter`; the hp mirror red when one side of it was edited; each
+`csscheck` ratchet red when one violation was added in a scratch copy.
+
+**What they cannot see, said here because the verdict line will not.** A ratchet
+on a COUNT cannot see a 9px becoming an 8px (both are "under the floor"); the
+ceiling falls when a site is removed, not when one is made worse. `palettecheck`
+grades text steps `50`-`500` on niello-raised and the hall and only REPORTS the
+legacy card top for blood text (`text-red-500`, #d4634a, is 5.1:1 on niello and 3.6:1 on
+the old brown); the ink ramp itself IS gated on all three. `forced-colors` has no
+gate: `UISHOTS_FORCED=1 node tools/uishots.mjs` renders the sweep in it, and the
+block is exactly as tested as that.
+
+## The plate gate — `platecheck`, and the plate census in `uishots`
+
+Added 29 Sep 2026 with F2 of the UI overhaul. UI-PLAN 1.1 makes laws about the
+material the menus are made of (no radius, no backdrop-filter, no opacity for
+disabled, no glow, a focus ring inside the cut, and "every control shows hover,
+active, focus and disabled") and before F2 the stylesheet broke every one and
+nothing said so.
+
+| ruler | costs | answers |
+|---|---|---|
+| `node tools/platecheck.mjs --no-browser` | ~1 s | the COMPILED sheet, parsed and not grepped: does every plate class carry a clip-path polygon and radius 0; is there a radius, a `backdrop-filter`, an `opacity` on a disabled rule, a blurred `box-shadow` or a `text-shadow` on anything F2 owns; does each focusable plate draw its ring at `outline-offset: -4px`; do the thirteen type-on-metal token pairs clear their floor |
+| `node tools/platecheck.mjs --compile` (under the lock) | ~1 min, one browser | the same, plus a specimen of every control rendered with the real fonts and driven through hover, active (mouse down), focus-visible (a real Tab first) and disabled: **do the pixels of each state differ from rest**; **is every piece of type legible on the plate behind it** (the specimen is shot a second time with every glyph transparent, and each piece of text is graded against the median plate colour behind it, top half and bottom half); is it still cut, square, unblurred and opaque **in that state**; is it 44px. Writes `art/ui/plates/{controls,plates,corners}.png` |
+| `uishots`, the plate census | rides the sweep | the same computed-style questions asked of every plate on every real screen, because a call site can beat `@layer components` with a utility (`rounded-2xl`, `backdrop-blur`) and a specimen has no call sites. `UISHOTS_SCREENS=landing,lobby` narrows a sweep to two minutes |
+
+**Why it reads the render and not only the CSS.** A state rule can be written
+and beaten (a call-site `!important`, a `filter` on a clipped element, a colour
+set in the wrong layer) and change nothing on glass; the diff of the pixels is
+the only thing that sees that. And a contrast ratio computed from two tokens is
+a claim about the tokens: the ratio that matters is between the glyph colour and
+the pixels that are actually behind it, and a plate is a gradient with grain
+laid over it.
+
+**What it cannot see, said here because the verdict line will not.** A real
+Windows forced-colors theme (the plate's four diagonals are background images
+and forced-colors discards them, so the corners are cut with no line along the
+cut). A field's value is graded but the browser's own drop-down list is not. A
+state that needs a server (a toast, a busy button). And `opacity` is read up the
+chain in the census, so a faded parent that is not a plate at all still fails a
+plate under it.
 
 ## What this does not mean
 

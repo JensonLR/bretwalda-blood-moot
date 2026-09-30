@@ -8,6 +8,234 @@ Judged against `docs/VISUAL-BAR.md`. Captures live in `art/shots/`.
 
 ---
 
+## OPEN 28-29 Sep 2026 — SIX THINGS THE AUTHORED-MAN INTEGRITY WORK FOUND AND DID NOT CLOSE
+
+Found while fixing the head, the pivots and the handedness (`tools/headflip.mjs`,
+`tools/parity.mjs`; the fix is `AuthoredRest` in `authored.ts`). None of them is
+in the way of that fix and none belongs to it.
+
+**1. `WarriorRig.authored` is never true in the game, so an authored man is never
+severed by `severAuthoredZone`.** `upgradeRigToAuthored` writes `rig.authored =
+true` — onto whatever object it is handed. Both call sites (`GameCanvas.tsx`
+~:1253, `armouryStage.ts` ~:652) hand it a fresh object LITERAL built from the
+rig's fields (`{ body, pivots, weapon, offhand, shield, drape }`), not the
+`WarriorRig`, so the write lands on the literal and is thrown away.
+`beginGore` reads `rig.authored`, finds it undefined, and calls the procedural
+`built.sever`, which returns null for an authored body — so every severing kill
+plays as an intact collapse and the "[gore] an authored body refused the cut"
+warning, which is guarded by the same flag, can never fire. `tools/authoredtest`
+passes because it hands the function the rig itself. **Not fixed here because the
+fix (`rig.authored = true` at both sites, or pass the rig) turns
+`severAuthoredZone` on in a real match for the first time**, and it has only ever
+run against `severauthored`'s fixtures. It bakes the piece through
+`applyBoneTransform` in body space: with the authored scene now at `scale.x = -1`
+its winding, the carried proxies (the blade and board are direct children of
+`HandR`/`LeftElbow` and travel with the limb; the cloak's `authoredCloakFrame`
+under `Spine` would travel with a waist cut) and `rig.gore.dropped` all want a
+capture campaign of their own.
+
+**2. `tools/eyeclip.mjs` compiles into `.eyeclip/` and deletes it again, and the
+directory is not in `.gitignore`.** Anything that runs it and then `git add -A`
+commits 20,000 lines of `characters.js`; anything that runs it after that shows
+two tracked files deleted. It happened once on this stream (commit aa59848 of
+`stream/mannequin`) and the files were removed from the tree in a later commit; the
+history was not rewritten, so that hunk wants dropping at integration. `.eyeclip/`
+is ignored now; the other tsc-emit directories were already.
+
+**3. Clip-driven men do not re-place their board.** In clip mode `applyPose` is
+not called, so an authored huscarl's board keeps the last position the PROCEDURAL
+pose gave it (folded once at the swap). It rides the forearm correctly and is not
+re-solved against the clip's guard. It was that way before this change (by
+`parity`'s board probe points it was 1.2-2.1 m off on the tree that shipped); it is
+now in the right place and merely unrefined.
+
+**4. The brief's CARRY TARGETS are not properties of anything in this repository (R10).**
+The unit that finished this work was briefed with "spear ~150 mm outboard of the face
+midline, axe head ~180 mm outboard and 160 mm below the crown". No file, doc or harness
+in the tree states them, and neither man meets them. Measured with `tools/parity.mjs`'s
+own rig, 90 frames of idle, default loadouts, in the warrior's frame, against the
+skull's box midline: applyPose (the armoury / oath / lobby mannequin) — warden's gar
+point 408 mm outboard and 160 mm ABOVE the crown, berserker's great-axe point 470 mm
+outboard and 219 mm below the crown; clip-driven (the arena) — gar point 105 mm outboard
+and 300 mm below the crown but 1.27 m in front of him, great-axe point 215 mm outboard,
+575 mm below the crown and 0.91 m in front. What IS true: the fist is at 0.83-0.97 m in
+every class (hip 0.94-1.07 m, crown 1.87-2.12 m) — belly height — and the authored man's
+carry equals the procedural man's to 0.0 mm in every `applyPose` state (`parity`, gated).
+The fist height itself is NOT gated as an absolute: an absolute bar was tried and dropped
+because it also passes on the pre-fix drive (`parity --naive` puts the fist at 0.90-0.96 m
+too; what the owner saw at the face was the spear SHAFT, from a weapon in the wrong hand,
+not a raised fist), so it could never have failed on the defect (PROCESS R2). If the
+briefed numbers are a design intent they are a change to `STANCE` and to the clips, which
+this work did not make and should not be credited with.
+
+**5. The great axe rides the hand-axes clip.** `clipDriver.ts` never reads the loadout,
+the clips are baked for the loadout `exportrig.mjs` exports (its own copy of the table:
+`berserker: "hand_axes"`, which is not a berserker loadout — the engine's are `dane_axe`,
+the default, and `twin_beards`), so the default berserker's two-hander is carried at the
+angle a 0.4 m hand axe is (`ai1b` kit frames: the head sits out past his shoulder, and in
+the arena the point is 0.9 m in front of him). `tools/lib/authoredrig.mjs` had copied that
+table and so had never posed the default berserker; it reads `ARMS` from the engine now.
+`exportrig.mjs`'s copy is left as found — it decides which fists Blender bakes.
+
+**6. The authored beard and hair render WHITE in the armoury portrait lens** (`ai1b-*-portrait-*`
+frames: light spiky strands on a man whose card, thumbnail and class default are brown or
+black), and they did before this work (the pre-fix neck-stump frames carry the same white
+specks at the collar). The props are Blender's `hairStrand` ribbons with a flat glTF
+material that `materials.tinted()` cannot resolve (`RENDER-PATHS` section B); colour and
+lighting are the hair/beard stream's, and no rest frame or mirror in this work can
+explain them.
+
+---
+
+## OPEN 29 Sep 2026 — THE MANNEQUIN GATE AND STAGE: WHAT IT FOUND AND DID NOT CLOSE
+
+Found while putting a net under the authored man's head (`render/authoredHead.ts`), a pixel
+gate over the armoury's canvas (`tools/stagehead.mjs`), and the scene and framing of the stage
+(UI-PLAN U-M M1-M3). None of these is in the way of that work.
+
+**1. The shop's THUMBNAILS photograph the PROCEDURAL man, and the mannequin beside them is the
+AUTHORED man. Decided: leave it, with the measurements.** Both are in one frame in every armoury
+capture: a smooth-skinned procedural head on the card, the authored head (faceted, with the
+authored beard) on the panel. The cards are built by `buildCharacter` directly (`armouryStage.ts`
+`pumpThumbs`); the panel by `createWarriorRig` + `upgradeRigToAuthored`. What it would take to make
+the cards authored, in this build: the swap itself is cheap (44 ms a man on this CPU, no GL, against
+126 ms for a procedural card subject with a different helm each time) and is NOT the barrier. The
+barrier is the props. An authored card of a helm is a posed authored man PLUS that helm's GLB, and
+the helm, hair and beard are not in the warrior file: per class, the ten helm cards are 1.3-1.45 MB of
+GLB, the three hair cards 4.4-5.8 MB (`hair-runekeeper-long.glb` alone is 3.5 MB) and the four beard
+cards 3.1-3.6 MB. A phone opening the armoury on the HAIR tab would download five megabytes to draw
+three pictures, each card would become an asynchronous multi-frame job in a queue that is drained
+one synchronous job per frame on purpose, and a class change would redo all of it. The items on a
+card are the SAME geometry as the items on the panel (the props are the procedural helms, hair and
+beards exported by `exportarmoury`); what differs is the head they sit on. So the cards keep selling
+the item truthfully and disagree with the panel about the face. If the owner wants the two to agree,
+the honest options are (a) make the authored head match the procedural one, which is the seam
+stream's and the hair/beard stream's work, or (b) cache the authored props in IndexedDB so a card
+costs a swap and no download. It is not a bug fix and it is not cheap; it is a decision.
+
+**2. R10: the brief's premise that production serves the procedural man is out of date.** UI-PLAN §4
+and `LORE.md` §9 say the authored GLB men are gitignored and 404 in production, so "whether production
+draws a head on the preview is unverified". `.gitignore` says otherwise, in the owner's words of
+10 Sep 2026: `/public/authored/` is NOT ignored, the 68 files in it are committed, and
+`next.config.ts` stamps `NEXT_PUBLIC_AUTHORED=1` because of it. The authored man is the DEFAULT man
+of every build made from this repository, so the headless mannequin and the inverted arena heads
+shipped, and were not confined to dev captures. (`Dockerfile` still never runs `npm run authored`; it
+does not need to.)
+
+**3. `armourytest` fails on a clean checkout, and passes only against a file it just made.**
+`node tools/blender/exportarmoury.mjs --check` wants `art/gltf/armoury.json`, which is gitignored and
+written by `exportarmoury.mjs` itself (no Blender: it compiles `characters.ts` and writes JSON). Run
+`npm run exportarmoury` first and the check reports "56 options, 13 free — the shipped catalogue matches
+characters.ts", which is true and says nothing, because the "shipped" copy is the one it wrote a second
+ago. Reported here under R4 as a deferral: the R9 battery ran it in that order.
+
+**4. `.hairmap/` is three tracked files that `tools/hairmap.mjs` rewrites.** `.hairmap/client/render/quality.js`,
+`textures.js` and `types.js` were committed by accident (`23b40a7`) and are not in `.gitignore`, so
+running the battery dirties the tree by 370 lines and a careless `git add -A` commits them. They were
+restored before every commit on this stream. `git rm --cached -r .hairmap` and an ignore line would
+close it; left as found because the fix is a deletion in a file set other streams also touch.
+
+**5. The dais is a 0.88 m plinth.** With the boots at 90% of the frame (the spec) the near edge of a
+larger ellipse is below the bottom of it: at a camera 0.8 of the crown up, a full ellipse fits at a radius of
+0.44 m (`daisRadiusFor`, near edge held at 97.5%). It is a full ellipse and it is small. The panel is also
+small (361x268 on desktop, 323x251 on phone) and that is `page.tsx`'s (UI-PLAN D17, the sticky stage
+and its canvas size), not the stage's.
+
+**6. The fight lens's honest scale still crops a man on a phone.** The slice of the game's frame a phone panel
+is tall enough for is about 1.7 m; the man is 2.05. The lens is aimed so the CROWN is 8% from the top and
+his boots go, which keeps the helmet the lens exists to show and loses the feet. The alternative is to
+abandon the "at this screen's own scale" claim the caption makes, which is a design decision (PROCESS R12
+stage 6, in the sense that it changes what the player is shown) and the owner's.
+
+**7. The beard and hair are still white and spiky in the portrait lens.** Not new (AI1 item 6) and still not
+this work's: the frames now put a 256 px procedural card of the same beard beside it, brown and soft, which
+makes the difference easy to see.
+
+---
+
+## OPEN 29 Sep 2026 — THE LIVERY UNIT (U6 / L1): THE AUTHORED MAN'S CLOAK, THE PEOPLES' VATS, AND WHERE THE BRIEF AND THE TREE DISAGREED
+
+`authoredLivery.ts` and `authoredHair.ts` dress the default (GLB) man in what he bought, what he swore to, the
+side he stands on and his own hair. The rulers are `tools/authoredtest.mjs` (the `roletable`, hair and shaved
+claims), `tools/teamread.mjs --authored`, `tools/chromabudget.mjs` and `tools/hairmap.mjs --authored`, and each was
+shown red on the tree that did not have the fix (see `docs/GATES.md`, "The authored man's colour"). What that work
+found and did NOT close:
+
+**1. THE AUTHORED MAN'S CLOAK: the cut is baked, one per class, and the shop's copy promises a cut.** A baked mesh
+cannot change shape at runtime, so the livery keeps the class-default cloak and RECOLOURS it: the flat colour
+`cloakFor` returns goes on the baked `cloak_N` parts, and "No Cloak" hides them (`roleIsWorn`). That is the decision,
+and this is the evidence for it (`node tools/authoredtest.mjs`, the last block of the role-table section, the bind
+pose, metres):
+
+| class | bakes the cut of | shoulder | hem | drop | hem at |
+|---|---|---|---|---|---|
+| huscarl | Blood Red (90 g) | 1.55 | 0.56 | 0.99 | 27% of his 2.07 m |
+| warden | Blood Red | 1.55 | 0.45 | 1.10 | 22% of 2.05 m |
+| runekeeper | Sea-Wolf (90 g) | 1.48 | -0.25 | 1.73 | below the sole plane in the bind pose |
+| berserker | Traveller's (30 g) | 1.66 | 1.06 | 0.60 | 50% of 2.13 m |
+
+So 12 of the 16 class x cloak purchases put the bought COLOUR on a cut the shop did not sell; only a class's own
+default (huscarl and warden in Blood Red, runekeeper in Sea-Wolf, berserker in Traveller's) draws the cut its
+description names. **What the shop must not promise for the authored man is a length, a hem, a tail, a train or a
+pin.** `ARMOURY`'s four descriptions do: "A short cape off one shoulder, pinned with a bone pin", "Full length to
+the knee, hung from the shield shoulder on a disc brooch", "Long and narrow, cut to a tail at the back, on a
+ring-and-pin", "A trained war cloak on a bossed gilt disc. It sweeps behind him." It can promise the colour, and
+that a cloak is worn or is not. Not changed here: the copy and the prices are the shop's, and the PROCEDURAL man
+(thumbnails, `?authored=0`) does draw every cut. Closing it is a cloak prop family (CHAR-PLAN D4 and U8: four cuts,
+four classes, the drape's seven bones bound to each) or a re-export per cut, and neither is a runtime livery job.
+`authoredtest` prints the four rows and the count, and carries the deferral on its verdict line.
+
+**2. THE PEOPLES' VATS WORK FROM THE DYE LOT, NOT FROM WHAT A MAN WEARS.** `FINISH_LOT` in `characters.ts` is the
+seven finish rows as they stood before the as-worn re-grade, frozen, and it is the input of `factionKit`; `FINISH_KIT`
+is what a man wears when he has sworn to nobody. Why, measured through the shipped resolver over the full
+1680-reading roster (a scratch copy of `factionread` §1.3 that counted the readings and their angles): a vat adds
+dyestuff to what is there and snaps the sum onto the field's hue, so the chroma that comes out is the chroma that went
+in, and the re-graded wraps (L* 44-50, C* 14 or under, which the plan and the brief both demand) starved it. Fed the
+re-graded rows, §1.3 went from 2 readings more than 5 degrees off the field to 32 (the Norse huscarl 11 and warden 5,
+the Pict berserker 16; in Bretwalda Gold, Blackened Steel and Bronze Scales), and 11 of them, every one the sworn Pict
+berserker in Bretwalda Gold (who wears no tunic and no mail, so the wraps carried his chroma), were more than 100
+degrees off. Fed the lot it reads 2 again, the same two as the tree before. The brief asked two things that cannot both
+hold: wraps at L* 44-50, and `factionread` no worse. The unsworn man got the wraps and the sworn man kept the colours
+he was tuned on. **What that leaves open is the FACTION dye rows' own as-worn re-grade**: `node tools/chromabudget.mjs`
+reports 63 of 180 vat cells over C* 35 (worst C* 71.2, the Saxon's Bretwalda Gold wrap) and 984 of 3360 cells on the
+man, REPORTED and not gated, with the deferral on its verdict line. The brightness envelope the vats keep is read off
+the lot and off the gold cloak as it stood (`KIT` and `CLOAK_CEIL_REFERENCE`), because on the re-graded tables the
+kit's brightest channel is 168 where the lot's is 210 and the dearest cloak's went from 168 to 178.
+
+`factionread`'s CPU part (sections 0-5) on this tree against the tree before: the same four checks red with the same
+numbers (1.2 worst dC 7.45, 1.3 worst -119.64 degrees, 5.1b 36 surface-pairs under a JND, 5.2b 17 paid surfaces on the
+free one), 1.1's worst 2.39 to 3.03, 2.2's worst dC 17.58 to 16.35 (the bar is 10, still green). **The lit sections 6
+and 7 were NOT run** (about 110 minutes of browser): nothing here says the re-graded unsworn man does not clip a channel
+or sit in the rose band under the fire, and the lit frames the unit shot are not that measurement. A team's vat
+re-dyes from the worn row (it keeps a surface's lightness and forces its own chroma), so a war band is the
+re-graded man's colours and `teamread` (procedural, and `--authored`) reads it.
+
+**3. R10 — where the brief, the plan and the tree disagreed, each settled by reading the tree.**
+(a) CHAR-PLAN's "four rows over C* 35 (45, 51, 47, 38)" are NINE gated cells on the tree before: seven in `FINISH_KIT`
+(Bretwalda Gold's mail 46.7, Madder and Brass's mail 38.0, Crimson's tunic 41.4, Gold's tunic 40.2, Gold's buff 43.1,
+Gold's wraps 35.6, Bronze's buff 36.5) and two cloaks (the Gilded War Cloak 51.3 and the Blood Red 45.0); `chromabudget`
+walks every table and there are none now. (b) The plan's gold cloak `#b5a05e` is C* 37.1, over the bar the plan sets;
+the tree has `#b29e62` (C* 34.0). (c) The recon said the hair props' colour is in `COLOR_0`. Measured on the shipped
+files it is not: every one of the 630,576 ribbon vertices in the 28 hair and beard props has `COLOR_0` (1, 1, 1),
+the strand colour is in `COLOR_1`, which no glTF material reads, and that is why the beard was white (`adoptStrandColours`,
+`authoredProps.ts`, moves it where a renderer reads it; a file that already carries it in `COLOR_0` is left alone).
+(d) The brief's "wraps to L* 44-50" against its "do not make `factionread` worse": item 2. (e) The plan gives the
+fittings roughness 0.52 and metalness 0.70; the tree's brass is 0.46 and 0.78 and the authored fittings now read the
+same two constants the procedural man does (`BRASS_ROUGHNESS`, `BRASS_METALNESS`): the authored man's untextured
+`m_bfa25c` reached the library as `standard(colour)` at 0.8 and 0, matte plastic. (f) `EXCEPTIONS` in
+`authoredLivery.ts` is one material NAME per line with a `//` reason of eight characters or more; `roletable` fails
+on a name in any export that is neither in the table nor there, and on a line with no reason.
+
+**4. The shipped exports' names are two generations, and one of them has to die.** The role table is the default kit
+as the builder would bake him today PLUS `SHIPPED`, the hexes the checked-in files were baked with, frozen (24 of the
+role names in the exports are the current kit's and 15 match only the shipped one: `node tools/authoredtest.mjs`
+prints it). At the integration re-bake the default kit hexes in the names change, `SHIPPED` matches nothing, and it is
+deleted; the count reads 0 that day. `tools/blender/strands.py` was not changed and no GLB was re-baked or committed:
+the runtime fixes make the exporter's `COLOR_1` harmless, and whether the exporter can be made to write `COLOR_0` is a
+question for a run of Blender that this unit did not make.
+
+---
+
 ## CLOSED 9 Sep 2026 — THE BLADE IS NOW MEASURED AGAINST THE RANGE THAT TAKES HEALTH OFF, and it is a REACH question and not a timing one
 
 Carried here as: *"Nothing samples a warrior mid-stroke on the client and checks

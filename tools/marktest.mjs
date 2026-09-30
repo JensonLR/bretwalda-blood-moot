@@ -9,6 +9,7 @@
 // thing this file CANNOT see is whether a glyph reads as what it is named —
 // that is R2 territory and lives in the proof sheet the ledger points at.
 import { MARKS, MARK_FACTS, markOf, markEarned, earnedMark, markHint, markWon, heraldMarks } from "../src/game/marks.mjs";
+import { pageSource } from "./lib/pagesrc.mjs";
 
 let passed = 0, failed = 0;
 const check = (name, ok, detail = "") => {
@@ -185,7 +186,8 @@ import { readFileSync } from "node:fs";
       calls > 0 && calls === backed,
       `${calls} calls, ${backed} carrying facts`);
   }
-  const page = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+  // The page and the modules carved out of it (`src/app/ui/*`) — see tools/lib/pagesrc.mjs.
+  const page = pageSource();
   check("the record screen actually heralds",
     /heraldMarks\(p\.seenMarks,/.test(page) && /seenMarks: seen/.test(page),
     "the effect reads the record and writes it back");

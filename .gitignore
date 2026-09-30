@@ -94,6 +94,8 @@ art/fit/
 .helmclash/
 # transpile cache for tools/rungcensus.mjs
 .rungcensus/
+# transpile cache for tools/dresschain.mjs
+.dresschain/
 # esbuild bundle for tools/crownnews.mjs
 .crownnews/
 # scratch transpile caches an agent's own probes emit. Same sweep the note
@@ -176,7 +178,11 @@ art/blender/
 /.exportrig/
 /.exportworld/
 /.exportwarrior/
-tools/blender/__pycache__/
+tools/blender/**/__pycache__/
+# the Linux bpy venv and the rebuild lock/timings (tools/blender/linux/)
+/.venv-bpy/
+/.rebuild.lock
+/.rebuild-timings.tsv
 
 # Authored glTF, PNG and JSON written by tools/blender/* and read by the
 # renderer's asset loader (docs/ONE-CLIENT.md §4.4, P2). Generated, large, and
@@ -225,5 +231,27 @@ tools/blender/__pycache__/
 .swingstrip/
 .cliptest/
 .severauthored/
+.headflip/
+.headnet/
+.parity/
+.authoredrig-*/
+# tools/eyeclip.mjs compiles here and deletes the directory again. It was not ignored, and one
+# `git add -A` after a run committed 20,000 lines of characters.js (aa59848).
+.eyeclip/
 # railgate compiles fightRail.ts here to call railStyle for real.
 .railgate/
+.weaponshape/
+.bladevalue/
+art/bladevalue/
+.weaponshape-kit/
+
+# tools/authoredtest.mjs compiles the livery table here (the roletable claim) and deletes it again
+.authoredtest/
+# tools/chromabudget.mjs likewise
+.chromabudget/
+.hairauthored/
+# tools/recipemap.mjs compiles textures.ts and characters.ts here and deletes it again
+.recipemap/
+
+# the face rulers' tsc scratch (tools/facemap.mjs, facecontrast.mjs, faceclass.mjs, lib/facecard.mjs)
+.faceprobe/

@@ -40,9 +40,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
-  PROP_ROLES, propsWantedFor, dressFromSurfaceNames,
-  type PropRole, type AuthoredMaterialAsk,
+  PROP_ROLES, propsWantedFor, dressFromSurfaceNames, HEAD_BONE_NAME,
+  type PropRole,
 } from "./authored";
+import type { AuthoredMaterialResolver } from "./authoredDress";
 import { AUTHORED_BASE } from "./authoredSource";
 
 /**
@@ -111,6 +112,28 @@ export function headSocketOf(head: THREE.Object3D, skeleton: THREE.Skeleton): TH
   return socket;
 }
 
+/**
+ * THE RIBBONS' COLOUR IS IN THE WRONG ATTRIBUTE, AND THIS MOVES IT. `strands.py` computes each ribbon vertex's colour
+ * (`lin(hair) x shade x dark`: a random shade per strand, dark at the root, lit at the tip) and Blender's glTF exporter
+ * writes the file's FIRST colour attribute as `COLOR_0` - an unset all-white one - and ours as `COLOR_1`, which no glTF
+ * material reads. Measured on all 28 strand props: `COLOR_0` is (1, 1, 1, 1) on every vertex, `COLOR_1` is the hair.
+ * So the hair was white, whatever it was dressed in (`authoredHair.ts` has the whole account).
+ *
+ * three.js loads the second set as the geometry attribute `color_1`. Setting `color` to that same attribute (one
+ * `BufferAttribute`, two names, one GPU buffer) makes `vertexColors` read the hair. It is done to the GEOMETRY because
+ * that is what is wrong, once (`userData`), and it is safe on the geometry the cache shares between every man in that
+ * helm: the second man finds it done. A file with no `color_1` - a re-export whose `COLOR_0` is already the hair - has
+ * nothing to move and is left exactly as it is.
+ */
+export function adoptStrandColours(geometry: THREE.BufferGeometry): boolean {
+  if (geometry.userData.strandColour) return true;
+  const hair = geometry.getAttribute("color_1");
+  if (!hair) return false;
+  geometry.setAttribute("color", hair);
+  geometry.userData.strandColour = true;
+  return true;
+}
+
 export interface DressHeadOptions {
   cls: string;
   appearance: Record<string, unknown> | null | undefined;
@@ -118,7 +141,7 @@ export interface DressHeadOptions {
   head: THREE.Object3D;
   /** Any skinned mesh's skeleton from the same authored man. */
   skeleton: THREE.Skeleton;
-  resolveMaterial: (ask: AuthoredMaterialAsk) => THREE.Material | null;
+  resolveMaterial: AuthoredMaterialResolver;
   /**
    * Drop the strand shells. A head of long hair is 23,500 triangles and up to
    * 3.5 MB, and almost all of both is `hair__strands` sitting over a solid
@@ -171,13 +194,16 @@ export async function dressAuthoredHead(o: DressHeadOptions): Promise<DressHeadR
     const src = loaded[i];
     if (!src) { missing.push(wanted[i].role); continue; }
     const node = src.clone(true);
+    node.traverse((c) => { const g = (c as THREE.Mesh).geometry; if (g && /__strands$/.test(c.name)) adoptStrandColours(g); });
     if (o.strands === false) {
       for (const mesh of node.children.filter((c) => /__strands$/.test(c.name))) node.remove(mesh);
       node.traverse((c) => {
         for (const gone of c.children.filter((g) => /__strands$/.test(g.name))) c.remove(gone);
       });
     }
-    dressFromSurfaceNames(node, o.resolveMaterial);
+    // Static meshes, dressed BEFORE they are mounted, so no bone is above them
+    // yet: say which one they will hang on, so the resolver sees a head prop as one.
+    dressFromSurfaceNames(node, o.resolveMaterial, HEAD_BONE_NAME);
     node.userData[SOCKET_TAG] = wanted[i].role;
     socket.add(node);
     mounted.push(wanted[i].role);
