@@ -49,10 +49,10 @@
  */
 import type * as THREE from "three";
 import type { AuthoredMaterialHandler, AuthoredDressContext } from "./authoredDress";
-import type { AuthoredMaterialAsk } from "./authored";
+import type { AuthoredMaterialAsk, AuthoredMeshInfo } from "./authored";
 import type { WarriorClass } from "../../types";
 import {
-  BRASS_METALNESS, BRASS_ROUGHNESS, CLASS_TUNIC, defaultAppearance, wornColours,
+  BRASS_METALNESS, BRASS_ROUGHNESS, CLASS_TUNIC, TABLET_REPEAT, defaultAppearance, wornColours,
   type WornColours,
 } from "../characters";
 
@@ -181,6 +181,21 @@ export const EXCEPTIONS: readonly string[] = [
   "hairunder:4a3220", // the under-cap of the props: authoredHair.ts
 ];
 
+/**
+ * THE HEM BRAID. The exports bake every wrap-coloured surface as `wool:<wrap>`, and two things on the man are that:
+ * his leg wraps (on the knee bones) and the band of braid sewn round the tunic's hem (the huscarl's and warden's) or
+ * the mantle's (the runekeeper's), a 16 mm strip skinned to `Spine`. The procedural man weaves that strip from the
+ * `tablet` substance now, so a wrap-role mesh that is not on a leg is a trim and takes it too, and the two men keep
+ * agreeing (`roletable`). Measured off the four exports: one such mesh in each of three classes, 76-80 vertices,
+ * 16-17 mm tall, 100% on `Spine`; the berserker has none. A mesh that does not say what it rides (no skeleton) is a
+ * wrap: the safe answer is the wool it was.
+ */
+const LEG_BONE = /(Thigh|Knee|Foot|Toe)$/;
+const isTrim = (mesh: AuthoredMeshInfo): boolean => {
+  const bone = mesh.dominantBone;
+  return bone !== null && !LEG_BONE.test(bone);
+};
+
 const dressed = new WeakMap<AuthoredDressContext, WornColours>();
 /** What HE is dressed in: the same call the procedural builder makes, once per man. */
 function wornOf(ctx: AuthoredDressContext): WornColours {
@@ -200,18 +215,18 @@ function wornOf(ctx: AuthoredDressContext): WornColours {
  * That last one FIXES a second defect the role table walked into: an untextured `m_bfa25c`
  * reached the library as `standard(colour)` at roughness 0.8 and metalness 0, so every
  * buckle, stud and brooch on the authored man was matte plastic where the procedural
- * man's is 0.46 and 0.78 (the exporter kept the hex and dropped the surface).
+ * man's is cast metal (`BRASS_ROUGHNESS`, `BRASS_METALNESS`: the exporter kept the hex and dropped the surface).
  * Cloth is asked for with the library's own default repeat, exactly as `base()` would
  * ask, because the exports bake the weave's UV repeat and livery is colour, not density.
  */
-export function materialFor(role: Role, ctx: AuthoredDressContext): THREE.Material {
+export function materialFor(role: Role, ctx: AuthoredDressContext, mesh?: AuthoredMeshInfo): THREE.Material {
   const M = ctx.materials;
   const w = wornOf(ctx);
   switch (role) {
     case "mail": return M.armour(w.kit.mail);
     case "tunic": return M.tinted("wool", w.tunic);
     case "trouser": return M.tinted("wool", w.kit.trouser);
-    case "wrap": return M.tinted("wool", w.kit.wrap);
+    case "wrap": return mesh && isTrim(mesh) ? M.tinted("tablet", w.kit.wrap, { repeat: [TABLET_REPEAT, 1] }) : M.tinted("wool", w.kit.wrap);
     case "hide": return M.hide(w.kit.hide);
     case "buff": return M.hide(w.kit.buff);
     case "fitting": return M.standard(w.kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS);
@@ -222,8 +237,8 @@ export function materialFor(role: Role, ctx: AuthoredDressContext): THREE.Materi
   }
 }
 
-export const dressLivery: AuthoredMaterialHandler = (ask, _mesh, ctx) => {
+export const dressLivery: AuthoredMaterialHandler = (ask, mesh, ctx) => {
   const role = roleOf(ctx.warriorClass, ask);
   if (!role) return null;              // not the livery's: a fixed metal, a skin, a hair, a name nobody knows
-  return materialFor(role, ctx);
+  return materialFor(role, ctx, mesh);
 };

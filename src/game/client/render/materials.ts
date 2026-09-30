@@ -114,9 +114,10 @@ export interface TintOptions {
   /**
    * UV repeats. Defaults to whatever the substance was drawn for, and is
    * *ignored* for the substances in `WORLD_TILE` — those size themselves in
-   * metres and a UV repeat has nothing left to say about them.
+   * metres and a UV repeat has nothing left to say about them. A pair is [along u, along v]: a band that
+   * is one motif tall and a metre long asks for `[60, 1]`, which a single number cannot say.
    */
-  repeat?: number;
+  repeat?: number | readonly [number, number];
   /**
    * Override the substance's world tile, in metres. For the one case `WORLD_TILE`
    * cannot serve: a substance worn at two wildly different object scales.
@@ -704,15 +705,16 @@ export function createMaterialLibrary(
     // neither of them can act on any more.
     const tile = opts.tile ?? WORLD_TILE[surface];
     const worldSized = tile !== undefined;
-    const repeat = worldSized ? 1 : opts.repeat ?? info.repeat;
+    const asked = opts.repeat ?? info.repeat;
+    const repeat: [number, number] = worldSized ? [1, 1] : typeof asked === "number" ? [asked, asked] : [asked[0], asked[1]];
     const roughness = opts.roughness ?? info.roughness;
     const metalness = opts.metalness ?? info.metalness;
-    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat}|${tile ?? ""}`;
+    const key = `${surface}|${color}|${roughness}|${metalness}|${repeat[0]},${repeat[1]}|${tile ?? ""}`;
     let m = tints.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial();
       m.name = `${surface}:${color.toString(16)}`;
-      dress(m, surface, [repeat, repeat], color, roughness, metalness, opts.tile);
+      dress(m, surface, repeat, color, roughness, metalness, opts.tile);
       adopt(m);
       tints.set(key, m);
     }

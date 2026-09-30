@@ -7,8 +7,8 @@
  * `hairStrand` and `hairUnder` are not `SurfaceName`s, so `materials.tinted("hairstrand")` threw inside the swap's
  * swallowed catch and the props kept the glTF's own materials. Measured on the shipped files:
  *
- *   - the ribbons: base colour 0.8 x `COLOR_0`, and `COLOR_0` is WHITE (every one of 14,720 vertices is
- *     (1, 1, 1, 1)). The colour `strands.py` computed - `lin(4a3220) x shade x dark`, per vertex, a random shade per
+ *   - the ribbons: base colour 0.8 x `COLOR_0`, and `COLOR_0` is WHITE (every one of the 630,576 ribbon vertices
+ *     in the 28 hair and beard props is (1, 1, 1)). The colour `strands.py` computed - `lin(4a3220) x shade x dark`, per vertex, a random shade per
  *     strand and a root-dark to tip-light ramp - is in `COLOR_1`, which no glTF material reads. So the hair was a mass
  *     of #e7e7e7 ribbons: the "white frost" the owner saw at the collar in every armoury frame.
  *   - the under-cap: `metallicFactor` and `roughnessFactor` ABSENT, which glTF defaults to 1 and 1, on a material with

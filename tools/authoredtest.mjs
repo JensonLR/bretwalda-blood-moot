@@ -860,6 +860,9 @@ for (const cls of CLASSES) {
       if (!existsSync(f)) continue;
       const g = await parse(f);
       const baked = [];   // one row per MESH: a cloak part is not drawn at all when he bought no cloak, so it is not compared
+      // The mesh info the real swap hands a resolver (its dominant bone is what tells a hem braid from a leg wrap).
+      const infos = new Map();
+      dressFromSurfaceNames(g.scene, (_ask, info) => { infos.set(info.name, info); return null; });
       g.scene.traverse((o) => { if (o.isMesh && o.material?.name) baked.push({ mesh: o.name, mat: o.material.name }); });
       const base = defaultAppearance(cls);
       const variants = [
@@ -879,7 +882,7 @@ for (const cls of CLASSES) {
           if (!ask) continue;
           const role = LV.roleOf(cls, ask);
           if (!role) continue;                                    // an exception or another handler's: not this claim's
-          const got = DR.resolveAuthoredMaterial(ask, { name: "part_x", dominantBone: null, isHead: false }, ctx);
+          const got = DR.resolveAuthoredMaterial(ask, infos.get(mesh) ?? { name: "part_x", dominantBone: null, isHead: false }, ctx);
           compared++;
           if (!got || !proc.has(norm(got.name))) wrong.push(`${cls} ${v.label}: ${raw} (${role}) -> ${got?.name ?? "null"}`);
         }
@@ -888,6 +891,32 @@ for (const cls of CLASSES) {
     check(`the authored man is dressed in colours the procedural man of the same kit wears (${compared} name resolutions over every finish, cloak, people and side)`,
       compared > 0 && wrong.length === 0,
       wrong.length ? `${wrong.length} differ; first: ${wrong.slice(0, 3).join(" | ")}` : `${compared} of ${compared}`);
+
+    // THE HEM BRAID (CH-32): the strip of braid at the tunic's hem is baked `wool:<wrap>` like his leg wraps, and is told
+    // from them only by the bone it rides. A wrap-role mesh on Spine is the `tablet` substance, on a knee it is wool, and
+    // the exports must carry the strip where the rule looks for it (one per tunic, none on the berserker).
+    {
+      const ctxT = DR.authoredDressContext({ cls: "huscarl", appearance: defaultAppearance("huscarl"), team: "none", faceSeed: 13, materials: RAW });
+      const wrapAsk = readSurfaceName("wool:8b7c5c");
+      const onSpine = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_12", dominantBone: "Spine", isHead: false }, ctxT);
+      const onKnee = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_2", dominantBone: "LeftKnee", isHead: false }, ctxT);
+      const unknown = DR.resolveAuthoredMaterial(wrapAsk, { name: "part_x", dominantBone: null, isHead: false }, ctxT);
+      check("a wrap-coloured mesh on Spine is the hem braid (`tablet`), on a knee or riding nothing it is wool",
+        !!onSpine && /^tablet:/.test(onSpine.name) && !!onKnee && /^wool:/.test(onKnee.name) && !!unknown && /^wool:/.test(unknown.name),
+        `Spine ${onSpine?.name}, LeftKnee ${onKnee?.name}, nothing ${unknown?.name}`);
+      const braids = {};
+      for (const cls of CLASSES) {
+        const f = resolve(ART, `warrior-${cls}.glb`);
+        if (!existsSync(f)) continue;
+        const g = await parse(f);
+        let n = 0;
+        dressFromSurfaceNames(g.scene, (ask, info) => { if (ask.surface === "wool" && LV.roleOf(cls, ask) === "wrap" && info.dominantBone === "Spine") n++; return null; });
+        braids[cls] = n;
+      }
+      check("each tunic's hem braid is in its export where the rule looks for it: one wrap-role mesh on Spine for the huscarl, the warden and the runekeeper, none on the berserker",
+        braids.huscarl === 1 && braids.warden === 1 && braids.runekeeper === 1 && braids.berserker === 0,
+        Object.entries(braids).map(([k, v]) => `${k} ${v}`).join(", "));
+    }
   } else {
     check("the authored man is dressed in colours the procedural man of the same kit wears", false, haveTable ? "the dress chain did not compile" : "no table to ask");
   }

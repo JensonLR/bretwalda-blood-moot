@@ -388,7 +388,7 @@ export const FINISH_KIT: Record<number, FinishKit> = {
   // belt and the brooch are all saying the same thing. Weld as worn is the DULL
   // one, #a89357 (LORE 7.1: L* 61.6, C* 34.5): the fresh weld the row used to carry
   // at C* 46.7 is a colour that fades in a season, and the gold is in the gilt.
-  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x787867, hide: 0x4d3a14, buff: 0x957844, fitting: 0xdcc164 },
+  0x9a7a2a: { mail: 0xa89357, tunic: 0x7f6b38, trouser: 0x6b5726, wrap: 0x767769, hide: 0x4d3a14, buff: 0x997e48, fitting: 0xdcc164 },
 };
 
 /**
@@ -535,12 +535,18 @@ export const CLASS_TUNIC: Record<string, number> = {
  *   HOOD   the runekeeper's cowl cloth: undyed dark wool, the same on every class
  *          and at every price of cloak.
  */
+/** Lozenges along a tablet-woven band: see `tablet` in `buildCharacter`. The authored man's trim asks for the same. */
+export const TABLET_REPEAT = 56;
 export const LINEN_HEX = 0xc2b69c;
 export const PELT_HEX = 0x8a7050;
 export const HOOD_HEX = 0x2a2521;
-/** Cast bronze, not a bezel: `M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS)`. See `brass` in `buildCharacter`. */
-export const BRASS_ROUGHNESS = 0.46;
-export const BRASS_METALNESS = 0.78;
+/**
+ * Cast bronze, not a bezel: `M.standard(kit.fitting, BRASS_ROUGHNESS, BRASS_METALNESS)`. See `brass` in `buildCharacter`.
+ * The plan's row for bronze fittings (CHAR-PLAN 1.5): roughness 0.52, metalness 0.70. They were 0.46 and 0.78, which
+ * on the old #bfa25c read as yellow plastic on every man; a fitting is a few millimetres of cast metal, not a mirror.
+ */
+export const BRASS_ROUGHNESS = 0.52;
+export const BRASS_METALNESS = 0.70;
 
 // ============================================================
 // TEAM COLOUR — the precedence rule
@@ -2586,13 +2592,14 @@ const helmStyle = (value: string): HelmStyle => HELM[value] ?? BARE_HEAD;
 // list a warrior actually wears.
 export type CharacterSurface =
   | "mail" | "iron" | "steel" | "weldsteel" | "serpentsteel" | "bronze" | "interlace"
-  | "wool" | "hair" | "linen" | "leather" | "rope"
+  | "wool" | "hair" | "linen" | "leather" | "rope" | "tablet"
   | "oak" | "bone" | "skin";
 
 export interface CharacterTint {
   roughness?: number;
   metalness?: number;
-  repeat?: number;
+  /** UV repeats: one number for both axes, or a pair `[along u, along v]` for a band. */
+  repeat?: number | readonly [number, number];
   /**
    * The substance's world tile in metres, overriding the library's own. For kit
    * worn at a scale the substance was never sized for: `steel` is drawn at
@@ -13672,13 +13679,18 @@ export function buildCharacter(
   const trouser = cloth(kit.trouser, 2 * Math.PI * S.legR[0]);
   const wrapWool = cloth(kit.wrap, 2 * Math.PI * S.legR[2]);
   // Tablet-woven braid, for the hem and the cuffs. Woven separately from the
-  // garment and sewn on, so it is its own cloth at its own scale: 3 repeats round
-  // a band 16 mm tall is a coarse pattern rather than a weave, which is what a
-  // tablet loom actually makes. Takes the finish's wrap dye so a warrior's trim
-  // agrees with his legs instead of being a third opinion.
+  // garment and sewn on, so it is its own cloth at its own scale. It was the wool
+  // substance at 3 repeats, a flat cream stripe; it is the `tablet` substance now
+  // (CHAR-PLAN CH-32): one tile of its map is one repeat ACROSS a band (a diamond
+  // chain between two selvedge cords), and `shell()` runs a band's v from one edge
+  // to the other, so v repeats once and u repeats `TABLET_REPEAT` times along the
+  // band: 56 makes a lozenge about as wide as the 16 mm hem band is tall on a hem
+  // panel (an arc of about 0.65 m), and a squarer-than-square 18 mm wide one on the
+  // mantle's closed ring. Takes the finish's wrap dye so a warrior's trim agrees
+  // with his legs instead of being a third opinion.
   // Named `tablet` because `braid()` at module scope is the hair/beard curve
   // builder and belongs to another part of the file entirely.
-  const tablet = M.tinted("wool", kit.wrap, { repeat: 3 });
+  const tablet = M.tinted("tablet", kit.wrap, { repeat: [TABLET_REPEAT, 1] });
   const hide = M.hide(kit.hide);
   const buff = thrifty ? hide : M.hide(kit.buff);
   // Linen is asked for by girth for the same reason wool is. A flat `repeat: 6`

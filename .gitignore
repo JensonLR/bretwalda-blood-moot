@@ -246,3 +246,5 @@ tools/blender/**/__pycache__/
 # tools/chromabudget.mjs likewise
 .chromabudget/
 .hairauthored/
+# tools/recipemap.mjs compiles textures.ts and characters.ts here and deletes it again
+.recipemap/
